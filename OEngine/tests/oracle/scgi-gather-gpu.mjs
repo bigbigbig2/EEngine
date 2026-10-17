@@ -13,14 +13,16 @@ import { decodeFloat16 } from "../../.test-dist/core/Float16.js";
 import { SCGI_GATHER_MATH_WGSL } from "../../.test-dist/render/gi/ScgiGatherLayout.js";
 import { planScgiGather, scgiGatherPrediction } from "../../.test-dist/render/gi/ScgiGatherLayout.js";
 import { scgiGatherWgsl } from "../../.test-dist/shaders/scgi_gather.js";
-import { unpackScgiIrradiance } from "../../.test-dist/render/gi/ScgiAbi.js";
+import { packScgiIrradiance, unpackScgiIrradiance } from "../../.test-dist/render/gi/ScgiAbi.js";
+import { SCGI_NATIVE_WGSL } from "../../.test-dist/shaders/scgi_native.js";
+import { FINAL_PIXEL_LIGHTING_DECLARATIONS_WGSL } from "../../.test-dist/gpu/FinalPixelAbi.js";
 import { FinalPixelLightingPublication } from "../../.test-dist/render/lighting/FinalPixelLightingPublication.js";
 import { ShadeGPUCommandContext } from "../../.test-dist/framegraph/ShadeGPUCommandContext.js";
 
 async function readBuffer(device, source) {
   const read = device.createBuffer({
     size: source.size,
-    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
   });
   const encoder = device.createCommandEncoder();
   encoder.copyBufferToBuffer(source, 0, read, 0, source.size);
@@ -38,12 +40,12 @@ async function readSource(lab) {
   const pitch = Math.ceil((source.width * 16) / 256) * 256;
   const read = device.createBuffer({
     size: pitch * source.height,
-    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
   });
   const encoder = device.createCommandEncoder();
   encoder.copyTextureToBuffer({ texture: source }, { buffer: read, bytesPerRow: pitch }, [
     source.width,
-    source.height
+    source.height,
   ]);
   device.queue.submit([encoder.finish()]);
   await read.mapAsync(GPUMapMode.READ);
@@ -78,10 +80,38 @@ function boxIntersection(origin, direction, box) {
 // the published world field; specular/final HDR are never a reference input.
 async function checkSource(lab) {
   const source = await readSource(lab);
+  const owner = lab.frame.scgi.gather.owner;
+  const work = new Uint32Array(await readBuffer(lab.renderer.device, owner.work));
+  const layout = owner.plan.work;
+  const requests = work[0];
+  assert.equal(work[2], 0, "request and shadow capacity must not overflow");
+  assert.ok(requests > 0 && requests <= layout.capacity);
+  const unique = new Set(work.subarray(layout.ids, layout.ids + requests));
+  assert.equal(unique.size, requests, "bitset must publish one ticket per source");
+  let mapped = 0,
+    produced = 0;
+  for (let direction = 0; direction < owner.plan.raysPerFrame; direction++) {
+    const sourceId = work[layout.mapping + direction * 4];
+    if (sourceId !== 0) {
+      mapped++;
+      assert.ok(unique.has(sourceId - 1), "every mapping resolves a requested source");
+    }
+  }
+  assert.ok(mapped > requests, "multiple actual directions must reuse unique source tickets");
+  for (let index = 0; index < source.length / 4; index++) {
+    const request = work[layout.requests + index * 2];
+    if (request === 0) {
+      assert.equal(source[index * 4 + 3], 0, "unrequested source must stay unproduced");
+    } else {
+      assert.equal(work[layout.ids + request - 1], index);
+      if (source[index * 4 + 3] === 1) produced++;
+    }
+  }
+  assert.equal(produced, requests, "every valid room request must complete Native preparation");
   const publication = lab.frame.scgi.publication;
   const anchors = new Float32Array(await readBuffer(lab.renderer.device, publication.anchors[0].buffer));
   const field = new Uint32Array(
-    await readBuffer(lab.renderer.device, publication.candidateWorldField.segments[0].buffer)
+    await readBuffer(lab.renderer.device, publication.candidateWorldField.segments[0].buffer),
   );
   let checked = 0,
     shadowed = 0,
@@ -114,30 +144,30 @@ async function checkSource(lab) {
       direction = delta.map((x) => x / distance);
     const origin = p.map((x, axis) => x + n[axis] * 0.0001);
     const blocked = lab.referenceBoxes.some(
-      (candidate) => boxIntersection(origin, direction, candidate) < distance - 0.001
+      (candidate) => boxIntersection(origin, direction, candidate) < distance - 0.001,
     );
     const cosine = Math.max(
       0,
-      n.reduce((sum, x, axis) => sum + x * direction[axis], 0)
+      n.reduce((sum, x, axis) => sum + x * direction[axis], 0),
     );
     const attenuation = Math.max(0, 1 - (distance / 15) ** 4) ** 2 / distance ** 2;
     const direct = blocked ? 0 : lab.light.intensity * attenuation * cosine;
     const diffuse = [mat.diffuse_color.r, mat.diffuse_color.g, mat.diffuse_color.b].map(
-      (v) => (v * (1 - mat.metallic_factor)) / Math.PI
+      (v) => (v * (1 - mat.metallic_factor)) / Math.PI,
     );
     const emission = [mat.emissive_factor.r, mat.emissive_factor.g, mat.emissive_factor.b];
     for (let channel = 0; channel < 3; channel++) {
       const world = Math.max(
         0,
         c[channel] / Math.sqrt(4 * Math.PI) +
-          Math.sqrt(3 / (4 * Math.PI)) * n.reduce((sum, x, axis) => sum + x * c[3 + axis * 3 + channel], 0)
+          Math.sqrt(3 / (4 * Math.PI)) * n.reduce((sum, x, axis) => sum + x * c[3 + axis * 3 + channel], 0),
       );
       const expected = emission[channel] + diffuse[channel] * (world + direct);
       const error = Math.abs(source[pixel * 4 + channel] - expected);
       maximumError = Math.max(maximumError, error);
       assert.ok(
         error < 0.002 + Math.abs(expected) * 0.002,
-        `diffuse source analytic mismatch pixel=${pixel} channel=${channel} actual=${source[pixel * 4 + channel]} expected=${expected}, blocked=${blocked}`
+        `diffuse source analytic mismatch pixel=${pixel} channel=${channel} actual=${source[pixel * 4 + channel]} expected=${expected}, blocked=${blocked}`,
       );
     }
     checked++;
@@ -148,9 +178,21 @@ async function checkSource(lab) {
   }
   assert.ok(
     checked > 100 && shadowed > 0 && lit > 0 && metallic > 0 && emissive > 0,
-    `source coverage ${JSON.stringify({ checked, shadowed, lit, metallic, emissive })}`
+    `source coverage ${JSON.stringify({ checked, shadowed, lit, metallic, emissive })}`,
   );
-  return { checked, shadowed, lit, metallic, emissive, maximumError };
+  return {
+    checked,
+    shadowed,
+    lit,
+    metallic,
+    emissive,
+    maximumError,
+    requests,
+    mapped,
+    produced,
+    missingShadow: work[12],
+    qualifiedReuse: work[13],
+  };
 }
 
 export async function scgiLabReference(lab) {
@@ -191,14 +233,14 @@ export async function scgiLabReference(lab) {
         phi = sample * 2.399963229728653,
         r = Math.sqrt(1 - z * z);
       const direction = n.map(
-        (x, axis) => x * z + tangent[axis] * r * Math.cos(phi) + bitangent[axis] * r * Math.sin(phi)
+        (x, axis) => x * z + tangent[axis] * r * Math.cos(phi) + bitangent[axis] * r * Math.sin(phi),
       );
       const origin = p.map((x, axis) => x + n[axis] * 0.00003);
       const distance = Math.min(...lab.referenceBoxes.map((box) => boxIntersection(origin, direction, box)));
       if (!(distance < gather.settings.gatherDistance)) continue;
       const hit = origin.map((x, axis) => x + direction[axis] * distance);
       const clip = [0, 1, 2, 3].map(
-        (row) => vp[row] * hit[0] + vp[4 + row] * hit[1] + vp[8 + row] * hit[2] + vp[12 + row]
+        (row) => vp[row] * hit[0] + vp[4 + row] * hit[1] + vp[8 + row] * hit[2] + vp[12 + row],
       );
       if (!(clip[3] > 0)) continue;
       const x = Math.floor((((clip[0] / clip[3]) * 0.5 + 0.5) * publication.extent[0]) / 2);
@@ -221,7 +263,7 @@ export async function scgiLabReference(lab) {
       (channel) =>
         probes[at + channel] / Math.sqrt(4 * Math.PI) +
         Math.sqrt(3 / (4 * Math.PI)) *
-          n.reduce((sum, value, axis) => sum + value * probes[at + 3 + axis * 3 + channel], 0)
+          n.reduce((sum, value, axis) => sum + value * probes[at + 3 + axis * 3 + channel], 0),
     );
     for (let channel = 0; channel < 3; channel++) {
       beforeSquared += delta[channel] ** 2;
@@ -239,7 +281,7 @@ export async function scgiLabReference(lab) {
     withGatherRmse: Math.sqrt(afterSquared / (checked * 3)),
     scope:
       "independent analytic box visibility + published diffuse source; paired near-field L1 target, not full path-traced GI",
-    details
+    details,
   };
 }
 
@@ -287,7 +329,7 @@ export async function scgiLabData(lab) {
     negative,
     confidence: confidence / Math.max(1, valid),
     residualValid,
-    residualEnergy
+    residualEnergy,
   };
 }
 
@@ -318,8 +360,8 @@ export async function createScgiLab(context, width = 160, height = 120, quality 
       gatherBatchRays: 1024,
       gatherDirections: 64,
       gatherDistance: 3,
-      gatherTile: 8
-    }
+      gatherTile: 8,
+    },
   });
   await renderer.initialize(context ? { context } : {});
   renderer.resize(width, height);
@@ -381,7 +423,7 @@ export async function createScgiLab(context, width = 160, height = 120, quality 
     module: await createDefaultWebGeometryCookerModule(),
     producerId: "scgi-lab",
     producerVersion: "9",
-    maxDecodedProductBytes: 64 * 1024 ** 2
+    maxDecodedProductBytes: 64 * 1024 ** 2,
   });
   await renderer.uploadCookedSceneProduct(scene, product);
   const tick = async () => {
@@ -417,7 +459,7 @@ export async function createScgiLab(context, width = 160, height = 120, quality 
     },
     get frame() {
       return nativeFrame;
-    }
+    },
   };
 }
 
@@ -440,12 +482,12 @@ async function checkWindows(lab) {
       dummy,
       undefined,
       [frame.width, frame.height],
-      true
+      true,
     );
     const maximum =
       route === "full"
         ? 128 * 1024 ** 2
-        : base.plan.giOffset + (route === "stripe" ? Math.ceil(frame.width / 2) * 144 * 8 : 256);
+        : base.plan.giOffset + (route === "stripe" ? Math.ceil(frame.width / 2) * 200 * 8 : 256);
     dummy.abort();
     preliminary.destroy();
     const projected = new Proxy(device, {
@@ -454,11 +496,11 @@ async function checkWindows(lab) {
           return {
             minStorageBufferOffsetAlignment: 256,
             maxBufferSize: 256 * 1024 ** 2,
-            maxStorageBufferBindingSize: maximum
+            maxStorageBufferBindingSize: maximum,
           };
         const value = Reflect.get(target, key, target);
         return typeof value === "function" ? value.bind(target) : value;
-      }
+      },
     });
     const directory = new FinalPixelLightingPublication(projected, renderer.graphics);
     const command = ShadeGPUCommandContext.create(renderer.graphics, "GraphicsContext/one-shot-maintenance");
@@ -467,7 +509,7 @@ async function checkWindows(lab) {
         if (key === "device") return projected;
         const value = Reflect.get(target, key, target);
         return typeof value === "function" ? value.bind(target) : value;
-      }
+      },
     });
     const lighting = directory.prepare(
       original.plan.lookupCount,
@@ -475,12 +517,12 @@ async function checkWindows(lab) {
       view,
       undefined,
       [frame.width, frame.height],
-      true
+      true,
     );
     for (const [sourceOffset, targetOffset, bytes] of [
       [0, 0, original.plan.descriptorBytes],
       [original.plan.solarOffset, lighting.plan.solarOffset, original.plan.solarBytes],
-      [original.plan.lookupOffset, lighting.plan.lookupOffset, original.plan.lookupBytes]
+      [original.plan.lookupOffset, lighting.plan.lookupOffset, original.plan.lookupBytes],
     ])
       command.copyBufferToBuffer(original.buffer, sourceOffset, lighting.buffer, targetOffset, bytes);
     renderer._surface.prepareFrameNow({
@@ -490,18 +532,18 @@ async function checkWindows(lab) {
           ? { binding: 2, resource: { buffer: lighting.nativeBuffer } }
           : entry.binding === 9
             ? { binding: 9, resource: { buffer: lighting.ranges } }
-            : entry
+            : entry,
       ),
-      scgi: { ...frame.scgi, lighting, command }
+      scgi: { ...frame.scgi, lighting, command },
     });
     renderer._surface.encode(command.gpu_encoder);
     const read = device.createBuffer({
       size: pitch * frame.height,
-      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
     command.gpu_encoder.copyTextureToBuffer({ texture: frame.output }, { buffer: read, bytesPerRow: pitch }, [
       frame.width,
-      frame.height
+      frame.height,
     ]);
     command.finish();
     renderer._surface.commit(command.gpuDone);
@@ -538,18 +580,18 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   for (var i = 0u; i < 4u; i++) { c[i] = inputs[at + i].xyz; }
   let p = gather_prediction(c, inputs[at + 4u].xyz, inputs[at + 5u].xyz);
   outputs[id.x] = vec4f(p, 1.0);
-}`
+}`,
   });
   const pipeline = await device.createComputePipelineAsync({
     layout: "auto",
-    compute: { module, entryPoint: "main" }
+    compute: { module, entryPoint: "main" },
   });
   const inputs = new Float32Array(18 * 24);
   const expected = [];
   for (const n of [
     [0, 0, 1],
     [1, 0, 0],
-    [1 / Math.sqrt(3), 1 / Math.sqrt(3), 1 / Math.sqrt(3)]
+    [1 / Math.sqrt(3), 1 / Math.sqrt(3), 1 / Math.sqrt(3)],
   ]) {
     for (const L of [0.01, 10, 1e8]) {
       for (const d of [n, [0.3, 0.4, Math.sqrt(0.75)]]) {
@@ -568,11 +610,11 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   }
   const source = device.createBuffer({
     size: inputs.byteLength,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
   });
   const output = device.createBuffer({
     size: 18 * 16,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
   });
   device.queue.writeBuffer(source, 0, inputs);
   const encoder = device.createCommandEncoder();
@@ -584,9 +626,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       layout: pipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: source } },
-        { binding: 1, resource: { buffer: output } }
-      ]
-    })
+        { binding: 1, resource: { buffer: output } },
+      ],
+    }),
   );
   pass.dispatchWorkgroups(1);
   pass.end();
@@ -613,8 +655,8 @@ async function checkGatherProjection(device) {
     layout: "auto",
     compute: {
       module: device.createShaderModule({ code: scgiGatherWgsl(plan, 0) }),
-      entryPoint: "project"
-    }
+      entryPoint: "project",
+    },
   });
   const settings = new Uint32Array(76);
   settings[7] = count;
@@ -660,7 +702,7 @@ async function checkGatherProjection(device) {
       usage:
         (uniform ? GPUBufferUsage.UNIFORM : GPUBufferUsage.STORAGE) |
         GPUBufferUsage.COPY_DST |
-        GPUBufferUsage.COPY_SRC
+        GPUBufferUsage.COPY_SRC,
     });
     device.queue.writeBuffer(value, 0, data);
     allocated.push(value);
@@ -683,9 +725,9 @@ async function checkGatherProjection(device) {
           { binding: 0, resource: { buffer: params } },
           { binding: 3, resource: { buffer: output } },
           { binding: 4, resource: { buffer: previous } },
-          { binding: 8, resource: { buffer: input } }
-        ]
-      })
+          { binding: 8, resource: { buffer: input } },
+        ],
+      }),
     );
     pass.dispatchWorkgroups(1);
     pass.end();
@@ -701,7 +743,7 @@ async function checkGatherProjection(device) {
   for (let term = 0; term < 4; term++)
     assert.ok(
       Math.abs(projected[term] - reference[term]) < 0.025,
-      `near contact projection vs high-spp term ${term}: ${projected[term]} / ${reference[term]}`
+      `near contact projection vs high-spp term ${term}: ${projected[term]} / ${reference[term]}`,
     );
   // 3/4 missing coverage is zero correction, never accepted-count normalization.
   for (let p = 0; p < probes; p++)
@@ -713,7 +755,7 @@ async function checkGatherProjection(device) {
   for (let term = 0; term < 4; term++)
     assert.ok(
       Math.abs(partial[term] - reference[term] / 4) < 0.025,
-      `partial coverage must retain fixed N, term ${term}`
+      `partial coverage must retain fixed N, term ${term}`,
     );
   for (const resource of allocated) resource.destroy();
   return {
@@ -722,7 +764,8 @@ async function checkGatherProjection(device) {
     reference,
     projected,
     partial,
-    scope: "production SH project kernel; analytic angular contact/color fixture, not whole-room path tracing"
+    scope:
+      "production SH project kernel; analytic angular contact/color fixture, not whole-room path tracing",
   };
 }
 
@@ -732,8 +775,8 @@ async function checkInterpolation(device) {
     layout: "auto",
     compute: {
       module: device.createShaderModule({ code: scgiGatherWgsl(plan, 0) }),
-      entryPoint: "interpolate"
-    }
+      entryPoint: "interpolate",
+    },
   });
   const settings = new Uint32Array(76),
     sf = new Float32Array(settings.buffer);
@@ -766,7 +809,7 @@ async function checkInterpolation(device) {
       usage:
         (uniform ? GPUBufferUsage.UNIFORM : GPUBufferUsage.STORAGE) |
         GPUBufferUsage.COPY_DST |
-        GPUBufferUsage.COPY_SRC
+        GPUBufferUsage.COPY_SRC,
     });
     device.queue.writeBuffer(result, 0, data);
     resources.push(result);
@@ -791,9 +834,9 @@ async function checkInterpolation(device) {
           [1, anchorBuffer],
           [2, fields],
           [3, probeBuffer],
-          [20, output]
-        ].map(([binding, resource]) => ({ binding, resource: { buffer: resource } }))
-      })
+          [20, output],
+        ].map(([binding, resource]) => ({ binding, resource: { buffer: resource } })),
+      }),
     );
     pass.dispatchWorkgroups(1);
     pass.end();
@@ -806,7 +849,7 @@ async function checkInterpolation(device) {
   const decoded = decodeFloat16(valid[0] & 65535) * f[6];
   assert.ok(
     decoded < 0 && Math.abs(decoded + 1e8) / 1e8 < 0.001,
-    "signed HDR residual must preserve negative energy without overflow"
+    "signed HDR residual must preserve negative energy without overflow",
   );
   for (const mode of ["normal", "plane", "identity"]) {
     const original = anchors.slice();
@@ -821,12 +864,105 @@ async function checkInterpolation(device) {
     const rejected = await run();
     assert.ok(
       rejected.every((value) => value === 0),
-      `incompatible ${mode} must reject residual`
+      `incompatible ${mode} must reject residual`,
     );
     anchors.set(original);
   }
   for (const resource of resources) resource.destroy();
   return { signedHdr: decoded, rejected: ["normal", "plane", "identity"] };
+}
+
+// Four distinct material results in one 2x2 quad. This invokes the production
+// source writer directly, independent of raster/material graph scheduling.
+async function checkExactPreparation(device) {
+  const source = SCGI_NATIVE_WGSL.slice(0, SCGI_NATIVE_WGSL.indexOf("var<private> scgi_receiver_position"));
+  const pipeline = await device.createComputePipelineAsync({
+    layout: "auto",
+    compute: {
+      entryPoint: "main",
+      module: device.createShaderModule({
+        code: `
+${FINAL_PIXEL_LIGHTING_DECLARATIONS_WGSL.replaceAll("@group(1)", "@group(0)").replace("storage, read", "storage, read_write")}
+struct Settings { dimensions: vec4u, }
+var<private> settings: Settings;
+${source}
+@compute @workgroup_size(4)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  if (id.x >= 4u) { return; }
+  settings.dimensions = vec4u(2u, 2u, 0u, 0u);
+  let pixel = vec2u(id.x % 2u, id.x / 2u);
+  let material = f32(id.x + 1u);
+  scgi_native_source(pixel, vec3f(material, material * 2.0, material * 3.0),
+    0.25, vec3f(material * 5.0), 0.5, vec3f(0.0, 0.0, 1.0), 4u);
+  scgi_native_source_sun(pixel, 0.375, true);
+}`,
+      }),
+    },
+  });
+  const directory = device.createBuffer({
+    size: 42 * 4,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+  });
+  const ranges = device.createBuffer({ size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const u = new Uint32Array(32);
+  u.set([0, 0, 0, 28], 4);
+  u.set([1, 1, 0, 1], 8);
+  u.set([0, 0, 0, 1], 20);
+  u.set([28, 30, 1, 1], 28);
+  device.queue.writeBuffer(ranges, 0, u);
+  let checked = 0;
+  for (const valid of [true, false])
+    for (const requested of [true, false]) {
+      const words = new Uint32Array(42);
+      const c = [1, 2, 3].map((v) => v / (1 / Math.sqrt(4 * Math.PI)));
+      words.set(packScgiIrradiance([...c, ...Array(9).fill(0)], 1), 0);
+      words[11] = valid ? 3 | (126 << 2) | (65535 << 10) : 0;
+      words.set([Number(requested), 3], 28);
+      device.queue.writeBuffer(directory, 0, words);
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginComputePass();
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(
+        0,
+        device.createBindGroup({
+          layout: pipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 2, resource: { buffer: directory } },
+            { binding: 9, resource: { buffer: ranges } },
+          ],
+        }),
+      );
+      pass.dispatchWorkgroups(1);
+      pass.end();
+      device.queue.submit([encoder.finish()]);
+      const actual = new Uint32Array(await readBuffer(device, directory));
+      const f = new Float32Array(actual.buffer);
+      assert.deepEqual(
+        actual.slice(0, 30),
+        words.slice(0, 30),
+        "Native source must not modify world/request inputs",
+      );
+      if (!requested) {
+        assert.ok(actual.slice(30).every((v) => v === 0));
+        continue;
+      }
+      const decoded = unpackScgiIrradiance(words.subarray(0, 8), 1);
+      for (let channel = 0; channel < 3; channel++) {
+        const world = valid ? decoded[channel] / Math.sqrt(4 * Math.PI) : 0;
+        const expected = 15 + 3 * (channel + 1) * 0.5 * 0.25 * world;
+        assert.ok(
+          Math.abs(f[34 + channel] - expected) < 0.00002,
+          `exact source/coat/world channel=${channel}`,
+        );
+        assert.equal(f[30 + channel], 1.5 * (channel + 1));
+      }
+      assert.equal(f[37], 1);
+      assert.equal(f[41], 0.375);
+      checked++;
+    }
+  directory.destroy();
+  ranges.destroy();
+  return { checked, exactPixel: 2, unrequestedUntouched: true, invalidWorldPreservesEmission: true };
 }
 
 export async function runScgiGatherGpuOracle() {
@@ -835,6 +971,7 @@ export async function runScgiGatherGpuOracle() {
   canvas.height = 120;
   document.body.append(canvas);
   const lab = await createScgiLab(canvas.getContext("webgpu"));
+  const exactPreparation = await checkExactPreparation(lab.renderer.device);
   const math = await checkGatherMath(lab.renderer.device);
   const projection = await checkGatherProjection(lab.renderer.device);
   const interpolation = await checkInterpolation(lab.renderer.device);
@@ -848,7 +985,7 @@ export async function runScgiGatherGpuOracle() {
   const reference = await scgiLabReference(lab);
   assert.ok(
     reference.probes > 0 && reference.withGatherRmse < reference.worldOnlyRmse,
-    `near-field paired reference must improve with gather: ${JSON.stringify(reference)}`
+    `near-field paired reference must improve with gather: ${JSON.stringify(reference)}`,
   );
   const windows = await checkWindows(lab);
   await lab.tick();
@@ -856,7 +993,7 @@ export async function runScgiGatherGpuOracle() {
   assert.ok(data.accepted > 0, "triangle confirmed source samples must reach probes");
   assert.ok(
     data.residualValid > 0 && data.residualEnergy > 0,
-    "previous residual must reach Native next-frame directory"
+    "previous residual must reach Native next-frame directory",
   );
   const renderer = lab.renderer;
   const noFeedbackOwner = lab.frame.scgi.gather.owner;
@@ -865,16 +1002,16 @@ export async function runScgiGatherGpuOracle() {
   noFeedbackOwner.encode = (frame, ...rest) => {
     const buffers = [
       frame.transaction.publication.candidateWorld.buffer,
-      ...frame.transaction.publication.candidateWorldField.segments.map((segment) => segment.buffer)
+      ...frame.transaction.publication.candidateWorldField.segments.map((segment) => segment.buffer),
     ];
     feedbackCopies = buffers.map((source) => {
       const before = renderer.device.createBuffer({
         size: source.size,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
       });
       const after = renderer.device.createBuffer({
         size: source.size,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
       });
       frame.transaction.command.copyBufferToBuffer(source, 0, before, 0, source.size);
       return { source, before, after };
@@ -891,7 +1028,7 @@ export async function runScgiGatherGpuOracle() {
     assert.deepEqual(
       new Uint8Array(after.getMappedRange()),
       new Uint8Array(before.getMappedRange()),
-      "Gather must not write world seed/history/cache"
+      "Gather must not write world seed/history/cache",
     );
     before.unmap();
     after.unmap();
@@ -954,7 +1091,7 @@ export async function runScgiGatherGpuOracle() {
   assert.equal(
     lab.frame.scgi.gather.previousValid,
     false,
-    "lighting change rejects mismatched prediction history"
+    "lighting change rejects mismatched prediction history",
   );
   await lab.tick();
   lab.movingEmitter.transform_local.position.x *= -1;
@@ -965,7 +1102,7 @@ export async function runScgiGatherGpuOracle() {
   await lab.tick();
   assert.ok(
     lab.frame.scgi.gather && !lab.frame.scgi.gather.previousValid,
-    "recovered device starts without stale residual roles"
+    "recovered device starts without stale residual roles",
   );
   await lab.tick();
   return {
@@ -976,6 +1113,7 @@ export async function runScgiGatherGpuOracle() {
     projection,
     interpolation,
     source,
+    exactPreparation,
     reference,
     windows,
     noWorldFeedback: true,
@@ -986,6 +1124,6 @@ export async function runScgiGatherGpuOracle() {
     enableDisable: true,
     nativeFsr3: true,
     oddResize: true,
-    lightInvalidation: true
+    lightInvalidation: true,
   };
 }

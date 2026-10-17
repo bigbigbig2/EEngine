@@ -3,7 +3,7 @@ import {
   VSM_FILTER_NOISE_BYTES,
   VSM_FILTER_NOISE_WIDTH,
   VSM_FILTER_NOISE_HEIGHT,
-  VSM_VOGEL_POINTS
+  VSM_VOGEL_POINTS,
 } from "../gpu/GpuVsmFilterAbi.js";
 import { VSM_PAGE_TABLE_WGSL } from "./vsm_page_table.js";
 
@@ -202,8 +202,10 @@ fn vsm_sample_page(entry: VsmPageEntry, local_uv: vec2f,
   return visible * 0.25;
 }
 
+var<private> vsm_visibility_qualified: bool;
 fn vsm_sample_directional(position_ws: vec3f, normal_ws: vec3f,
   incident: GpuPrimitiveTypeTable, receiver: ${finalPixel ? "vec2u" : "vec2f"}) -> f32 {
+  vsm_visibility_qualified = false;
   if (vsm_constants.depth_range.w == 0.0) {
     return 1.0;
   }
@@ -218,6 +220,9 @@ fn vsm_sample_directional(position_ws: vec3f, normal_ws: vec3f,
   let local_uv = vsm_page_local_uv(light.xy, query.level, entry.mip);
   let extent = vsm_constants.clip_origin_extent[query.level].z;
   let reference_depth = (vsm_constants.depth_range.y - light.z) * vsm_constants.depth_range.z;
+  // A neutral/clamped depth result outside the published projection is not
+  // measured receiver visibility for another transport consumer.
+  vsm_visibility_qualified = reference_depth >= 0.0 && reference_depth <= 1.0;
   let depth_per_texel = extent / f32(vsm_constants.dimensions.x * vsm_constants.dimensions.y) *
     exp2(f32(entry.mip)) * vsm_constants.depth_range.z;
   return vsm_sample_page(entry, local_uv, reference_depth,

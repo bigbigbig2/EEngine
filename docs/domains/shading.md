@@ -87,6 +87,8 @@ NativeVisibilityPass 和 VSM native alpha caster 消费同一 native material pu
 
 2026-10-18 SCGI estimator批处理：`ScgiEstimator`以GPU selected前缀组织patch×sample窗口，`scgi_estimator`用独占radiance、工作组prefix shadow队列、固定directional/sample顺序两级reduce产生原raw cohort；Native hit/完整MASK仍走R1 query。全局point/spot灯按稳定page/slot生成CDF，固定no-hit池、PDF/Jacobian、previous A0和abort/serial语义保留。示例batch1024不改变U128/hemi8/connect2/16方向；B7/64多patch及不同pool/shadow窗口真实GPU检查通过，默认1080p接通。R3 source仍全半屏准备；实际成本和验证边界见执行§8.5，不据R2关闭宣称整体实时或AAA画质合格。
 
+2026-10-18 SCGI Gather请求驱动切换：pre-Surface的geometry-only query经完整身份/双plane验证后，以GPU bitset产生exact anchor/sourcePixel请求。Native复用当前真实graph/VT/derivatives结果，只写请求的48B preparation；world-only SH独立于residual/IBL，invalid world仍保留emission/direct。`FinalPixelAbi` ranges当前128B，lighting binding2为read_write；world112B+residual32B+request8B+preparation48B组成200B/window half-pixel。full/stripe/remap在每窗口Native后drain到GI紧凑队列，再覆盖窗口，旧全H source材质分类/重求值已删除。Unlit可发布emission，无lighting owner时使用disabled ranges。post仅对真实缺失的非零visibility贡献compact软件shadow，太阳只复用实际合法fine/coarse VSM及有效receiver depth；source填充后保留原固定N/PDF/Gram/signed residual数学和下一帧消费。FrameProgram显式发布requests与preparation，GI仍拥有source/history；4 storage textures/16 sampled/16 SSBO最满route保持。实际资源增加、局部GPU验证、1080p成本及画质限制只读执行§8.6；前面96/112B与全H准备描述为各自历史时点，当前以本段为准。下一单元为SCGI-10。
+
 ## 仍需验证
 
 当前单机完整authored场景、streamed多Product、Lighting矩阵和受控恢复/释放的实际覆盖读执行记录；跨浏览器/GPU、完整AAA画质、超出本轮窗口的长序列/极值峰值与正式evidence/claims仍未完成。小场景闭包或预算有界不能证明这些结果，非Surface基线失败继续留在对应执行计划。

@@ -1,21 +1,23 @@
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { PipelineCompilationQueue } from "../../gpu/PipelineCompilationQueue.js";
 import type { ResourceAccounting, ResourceHandle } from "../../debug/profiling/ResourceAccounting.js";
-import type { NativeSurfaceGeometry } from "../surface/SurfaceV4.js";
 import type { ScgiAllocationPlan } from "./ScgiCapacity.js";
 import type { ScgiFrameTransaction } from "./ScgiRuntime.js";
 import type { ScgiEstimator } from "./ScgiEstimator.js";
 import type { SurfaceCacheGiSettings } from "./SurfaceCacheGiSettings.js";
 import type { GPUViewContext } from "../ViewContext.js";
 import { ScgiQueryBatch } from "./ScgiQueryBatch.js";
-import { ScgiQueryHitWork } from "./ScgiQueryHitWork.js";
 import { planScgiGather } from "./ScgiGatherLayout.js";
 import { scgiGatherWgsl } from "../../shaders/scgi_gather.js";
-import { scgiGatherSourceWgsl, scgiGatherClassifyWgsl } from "../../shaders/scgi_gather_source.js";
+import { scgiGatherPreparationWgsl, scgiGatherDrainWgsl } from "../../shaders/scgi_gather_source.js";
 
 const ENTRIES = [
   "reproject",
   "spawn",
+  "clear_source",
+  "source_count",
+  "shadow_count",
+  "request",
   "source_begin",
   "source_rays",
   "source_shadow",
@@ -23,7 +25,7 @@ const ENTRIES = [
   "probe_rays",
   "fill",
   "project",
-  "interpolate"
+  "interpolate",
 ] as const;
 type Entry = (typeof ENTRIES)[number];
 
@@ -44,7 +46,7 @@ export interface ScgiGatherFrame {
 
 /** Optional screen signal inside SCGI. Only successful submission advances its
  * probe role; world histories/seed/cache are strictly borrowed read-only.
- * Every source pixel is evaluated, while query scratch is a bounded reusable batch. */
+ * Only exact requested source pixels share Native evaluation; query scratch is batch bounded. */
 export class ScgiGather {
   readonly plan;
   readonly residual: GPUBuffer[] = [];
@@ -55,8 +57,10 @@ export class ScgiGather {
   private readonly textures: GPUTexture[] = [];
   private readonly handles: ResourceHandle[] = [];
   private readonly pipelines = {} as Record<Entry, GPUComputePipeline>;
-  private readonly sourcePipelines: GPUComputePipeline[] = [];
-  private readonly sourceLayouts: GPUBindGroupLayout[][] = [];
+  readonly work: GPUBuffer;
+  private readonly indirect: GPUBuffer;
+  private preparation!: GPUComputePipeline;
+  private drain!: GPUComputePipeline;
   private readonly layout: GPUBindGroupLayout;
   private readonly rays: GPUBuffer;
   private readonly sourceHits: GPUBuffer;
@@ -70,9 +74,7 @@ export class ScgiGather {
   private readonly sampler: GPUSampler;
   private closest!: ScgiQueryBatch;
   private shadow!: ScgiQueryBatch;
-  private sourceWork!: ScgiQueryHitWork;
   private deviceLost = false;
-  private classify!: GPUComputePipeline;
   private debugPipeline!: GPUComputePipeline;
   private role = 0;
   private valid = false;
@@ -88,7 +90,7 @@ export class ScgiGather {
     readonly allocation: ScgiAllocationPlan,
     readonly estimator: ScgiEstimator,
     settings: SurfaceCacheGiSettings,
-    private readonly accounting?: ResourceAccounting
+    private readonly accounting?: ResourceAccounting,
   ) {
     this.plan = planScgiGather(
       device.limits,
@@ -96,22 +98,30 @@ export class ScgiGather {
       allocation.profile.height,
       settings.gatherTile,
       settings.gatherDirections,
-      settings.gatherBatchRays
+      settings.gatherBatchRays,
     );
+    const shadowPhases =
+      1 + Number(estimator.input.physical !== null) + estimator.input.lights.directionalLights.count;
     if (
-      device.limits.maxStorageBuffersPerShaderStage < 15 ||
+      device.limits.maxStorageBuffersPerShaderStage < 16 ||
+      this.plan.work.capacity * shadowPhases > 0xffffffff ||
       Math.max(this.plan.halfWidth, this.plan.halfHeight) > device.limits.maxTextureDimension2D ||
       Math.ceil(
-        Math.max(this.plan.batch, this.plan.probes, Math.min(allocation.halfPixels, allocation.pixelsPerSegment)) / 64
+        Math.max(
+          this.plan.batch,
+          this.plan.probes,
+          this.plan.halfWidth * this.plan.halfHeight,
+          Math.min(allocation.halfPixels, allocation.pixelsPerSegment),
+        ) / 64,
       ) > device.limits.maxComputeWorkgroupsPerDimension
     ) {
-      throw new RangeError("SCGI gather exceeds negotiated storage/dispatch capacity");
+      throw new RangeError("SCGI gather exceeds negotiated storage/dispatch/counter capacity");
     }
     const buffer = (label: string, size: number, usage = 0) => {
       const value = device.createBuffer({
         label: `SCGI/gather/${label}`,
         size,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | usage
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | usage,
       });
       this.buffers.push(value);
       this.track(value, size, "buffer", label);
@@ -120,7 +130,7 @@ export class ScgiGather {
     try {
       this.history = [
         buffer("probe history A", this.plan.probeBytes),
-        buffer("probe history B", this.plan.probeBytes)
+        buffer("probe history B", this.plan.probeBytes),
       ];
       this.residualHistory = [[], []];
       for (const segment of allocation.screen) {
@@ -135,12 +145,14 @@ export class ScgiGather {
       this.directionScratch = buffer("current directions", this.plan.directionBytes);
       this.sourceState = buffer("bounded source lighting", this.plan.batch * 16);
       this.count = buffer("query actual count", 4);
+      this.work = buffer("requests, Native preparation and direction mapping", this.plan.work.bytes);
+      this.indirect = buffer("request and shadow dispatch arguments", 48, GPUBufferUsage.INDIRECT);
       this.defaults = buffer("disabled atmosphere", 64, GPUBufferUsage.UNIFORM);
       this.source = device.createTexture({
         label: "SCGI/gather/diffuse unexposed source",
         size: [this.plan.halfWidth, this.plan.halfHeight],
         format: "rgba32float",
-        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
+        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
       });
       this.textures.push(this.source);
       this.track(this.source, this.plan.sourceBytes, "texture", "diffuse source");
@@ -148,7 +160,7 @@ export class ScgiGather {
         label: "SCGI/gather/disabled transmittance",
         size: [1, 1],
         format: "rgba16float",
-        usage: GPUTextureUsage.TEXTURE_BINDING
+        usage: GPUTextureUsage.TEXTURE_BINDING,
       });
       this.textures.push(this.black);
       this.track(this.black, 8, "texture", "disabled transmittance");
@@ -156,7 +168,7 @@ export class ScgiGather {
         label: "SCGI/gather/unused source output",
         size: [1, 1],
         format: "rgba32float",
-        usage: GPUTextureUsage.STORAGE_BINDING
+        usage: GPUTextureUsage.STORAGE_BINDING,
       });
       this.textures.push(this.unusedOutput);
       this.track(this.unusedOutput, 16, "texture", "unused source output");
@@ -165,23 +177,23 @@ export class ScgiGather {
         label: "SCGI/gather owners",
         entries: [
           { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-          ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 17, 18, 19, 20].map(
+          ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 17, 18, 19, 20, 21].map(
             (binding): GPUBindGroupLayoutEntry => ({
               binding,
               visibility: GPUShaderStage.COMPUTE,
-              buffer: { type: [3, 5, 6, 8, 11, 20].includes(binding) ? "storage" : "read-only-storage" }
-            })
+              buffer: { type: [3, 5, 6, 8, 11, 20, 21].includes(binding) ? "storage" : "read-only-storage" },
+            }),
           ),
           { binding: 12, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
           {
             binding: 13,
             visibility: GPUShaderStage.COMPUTE,
-            storageTexture: { format: "rgba32float", access: "write-only" }
+            storageTexture: { format: "rgba32float", access: "write-only" },
           },
           { binding: 14, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
           { binding: 15, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
-          { binding: 16, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } }
-        ]
+          { binding: 16, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },
+        ],
       });
       void device.lost.then(() => {
         this.deviceLost = true;
@@ -202,11 +214,14 @@ export class ScgiGather {
     resource: GPUBuffer | GPUTexture,
     bytes: number,
     kind: "buffer" | "texture",
-    label: string
+    label: string,
   ): void {
     if (this.accounting !== undefined) {
       this.handles.push(
-        this.accounting.created({ kind, category: "transient", owner: "SCGI/gather", label, bytes }, resource)
+        this.accounting.created(
+          { kind, category: "transient", owner: "SCGI/gather", label, bytes },
+          resource,
+        ),
       );
     }
   }
@@ -217,33 +232,43 @@ export class ScgiGather {
     estimator: ScgiEstimator,
     settings: SurfaceCacheGiSettings,
     product: boolean,
-    accounting?: ResourceAccounting
+    accounting?: ResourceAccounting,
   ): Promise<ScgiGather> {
     const owner = new ScgiGather(device, allocation, estimator, settings, accounting);
     try {
       const queue = PipelineCompilationQueue.forDevice(device);
       const module = device.createShaderModule({
         label: "SCGI/gather",
-        code: scgiGatherWgsl(owner.plan, estimator.arena.ranges.lights!.offset / 4)
+        code: scgiGatherWgsl(owner.plan, estimator.arena.ranges.lights!.offset / 4),
       });
       const errors = (await module.getCompilationInfo()).messages.filter(
-        (message) => message.type === "error"
+        (message) => message.type === "error",
       );
       if (errors.length !== 0) {
         throw new Error(
-          `SCGI gather: ${errors.map((message) => `${message.lineNum}:${message.linePos} ${message.message}`).join("\n")}`
+          `SCGI gather: ${errors.map((message) => `${message.lineNum}:${message.linePos} ${message.message}`).join("\n")}`,
         );
       }
       const layout = device.createPipelineLayout({ bindGroupLayouts: [owner.layout] });
-      owner.classify = await queue.run(() =>
+      owner.preparation = await queue.run(() =>
         device.createComputePipelineAsync({
-          label: "SCGI/source winner classification",
+          label: "SCGI/unpack requested Native preparation",
           layout: "auto",
           compute: {
             entryPoint: "main",
-            module: device.createShaderModule({ code: scgiGatherClassifyWgsl(owner.plan.batch) })
-          }
-        })
+            module: device.createShaderModule({ code: scgiGatherPreparationWgsl(owner.plan) }),
+          },
+        }),
+      );
+      owner.drain = await queue.run(() =>
+        device.createComputePipelineAsync({
+          label: "SCGI/drain Native window before reuse",
+          layout: "auto",
+          compute: {
+            entryPoint: "main",
+            module: device.createShaderModule({ code: scgiGatherDrainWgsl(owner.plan) }),
+          },
+        }),
       );
       owner.debugPipeline = await queue.run(() =>
         device.createComputePipelineAsync({
@@ -262,78 +287,20 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let value = textureLoad(source, vec2i(id.xy / 2u), 0);
   let working = mat3x3f(vec3f(0.6274039, 0.0690973, 0.0163914),
     vec3f(0.3292830, 0.9195404, 0.0880133), vec3f(0.0433131, 0.0113623, 0.8955953)) * value.xyz;
-  textureStore(output, vec2i(id.xy), vec4f(working * exposure.x, 1.0));
-}`
-            })
-          }
-        })
+  textureStore(output, vec2i(id.xy), vec4f(select(vec3f(0.2, 0.0, 0.2), working * exposure.x, value.w == 1.0), 1.0));
+}`,
+            }),
+          },
+        }),
       );
       for (const entryPoint of ENTRIES) {
         owner.pipelines[entryPoint] = await queue.run(() =>
           device.createComputePipelineAsync({
             label: `SCGI/gather/${entryPoint}`,
             layout,
-            compute: { module, entryPoint }
-          })
-        );
-      }
-      owner.sourceWork = await ScgiQueryHitWork.create(
-        device,
-        estimator.input.scene.sourceInstances.sourceSnapshot,
-        estimator.input.scene.materials.directory,
-        owner.rays,
-        owner.plan.batch,
-        owner.plan.batch * 48,
-        estimator.input.scene.materials.bins.length
-      );
-      for (const bin of estimator.input.scene.materials.bins) {
-        const program = bin.material.binding.program;
-        const entries: GPUBindGroupLayoutEntry[] = [
-          { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-          ...[1, 2, 3, 4, 6, 7, 8, 9].map(
-            (binding): GPUBindGroupLayoutEntry => ({
-              binding,
-              visibility: GPUShaderStage.COMPUTE,
-              buffer: { type: binding === 6 ? "storage" : "read-only-storage" }
-            })
-          ),
-          { binding: 5, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } }
-        ];
-        const groups = [
-          device.createBindGroupLayout({ entries }),
-          device.createBindGroupLayout({
-            entries: product
-              ? [0, 1, 2, 3, 4].map((binding) => ({
-                  binding,
-                  visibility: GPUShaderStage.COMPUTE,
-                  buffer: { type: "read-only-storage" as const }
-                }))
-              : []
+            compute: { module, entryPoint },
           }),
-          device.createBindGroupLayout({
-            entries: [
-              { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-              ...(program.virtualTextures
-                ? [{ binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" as const } }]
-                : [])
-            ]
-          }),
-          device.createBindGroupLayout({ entries: [...bin.material.binding.layoutEntries] })
-        ];
-        const sourceModule = device.createShaderModule({
-          label: "SCGI/exact Native source",
-          code: scgiGatherSourceWgsl(program, product, bin.material.unlit, owner.sourceWork.listWordOffset)
-        });
-        owner.sourcePipelines.push(
-          await queue.run(() =>
-            device.createComputePipelineAsync({
-              label: "SCGI/exact Native diffuse projection",
-              layout: device.createPipelineLayout({ bindGroupLayouts: groups }),
-              compute: { module: sourceModule, entryPoint: "main" }
-            })
-          )
         );
-        owner.sourceLayouts.push(groups);
       }
       const input = {
         batch: owner.rays,
@@ -345,10 +312,17 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         camera: estimator.input.camera,
         coneWidth: 0,
         coneSpread: estimator.input.coneSpread,
-        count: { buffer: owner.count, byteOffset: 0 }
+        count: { buffer: owner.count, byteOffset: 0 },
       };
-      owner.closest = await ScgiQueryBatch.create(device, estimator.input.scene, { ...input, kind: "geometry" });
-      owner.shadow = await ScgiQueryBatch.create(device, estimator.input.scene, { ...input, anyHit: true });
+      owner.closest = await ScgiQueryBatch.create(device, estimator.input.scene, {
+        ...input,
+        kind: "geometry",
+      });
+      owner.shadow = await ScgiQueryBatch.create(device, estimator.input.scene, {
+        ...input,
+        anyHit: true,
+        count: { buffer: owner.work, byteOffset: owner.plan.work.countByteOffset },
+      });
       return owner;
     } catch (error) {
       owner.destroyResources();
@@ -357,45 +331,37 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   }
 
   get cost() {
-    const sourceBatches = this.allocation.screen.reduce(
-      (count, segment) => count + Math.ceil(segment.ranges.worldField!.count / this.plan.batch),
-      0
-    );
+    const sourceBatches = Math.ceil(this.plan.work.capacity / this.plan.batch);
     const probeBatches = Math.ceil(this.plan.probes / this.plan.probeBatch);
     const shadowPhases =
       1 +
       this.estimator.input.lights.directionalLights.count +
       Number(this.estimator.input.physical !== null);
     return {
-      ownedBytes:
-        this.buffers.reduce((sum, buffer) => sum + buffer.size, this.plan.sourceBytes + 24) +
-        (this.sourceWork?.buffer.size ?? 0) +
-        (this.sourceWork?.indirect.size ?? 0),
+      ownedBytes: this.buffers.reduce((sum, buffer) => sum + buffer.size, this.plan.sourceBytes + 24),
       queryPrivateBytes: (this.closest?.cost.privateBytes ?? 0) + (this.shadow?.cost.privateBytes ?? 0),
       sourcePixels: this.plan.halfWidth * this.plan.halfHeight,
+      requestedSourceCapacity: this.plan.work.capacity,
+      requestWorkBytes: this.plan.work.bytes,
+      nativeExtraMaterialEvaluations: 0,
       probeCount: this.plan.probes,
       probeRaysUpperBound: this.plan.raysPerFrame,
-      sourceShadowRaysUpperBound:
-        this.plan.halfWidth *
-        this.plan.halfHeight *
-        (1 +
-          this.estimator.input.lights.directionalLights.count +
-          Number(this.estimator.input.physical !== null)),
+      sourceShadowRaysUpperBound: this.plan.work.capacity * shadowPhases,
       historyBytes: this.plan.historyBytes + this.plan.halfWidth * this.plan.halfHeight * 64,
       reprojectedResidualBytes: this.plan.halfWidth * this.plan.halfHeight * 32,
       directionScratchBytes: this.plan.directionBytes,
       maximumEncodedDispatches:
+        1 +
         this.allocation.screen.length * 2 +
         this.allocation.screen.length ** 2 +
         sourceBatches *
           (3 +
-            (this.sourceWork?.dispatchCount ?? 0) +
-            this.sourcePipelines.length +
-            shadowPhases * (2 + (this.shadow?.cost.totalDispatches ?? 0))) +
-        probeBatches * (2 + this.allocation.screen.length + (this.closest?.cost.totalDispatches ?? 0)),
+            this.allocation.screen.length +
+            shadowPhases * (3 + (this.shadow?.cost.totalDispatches ?? 0))) +
+        probeBatches * (3 + this.allocation.screen.length + (this.closest?.cost.totalDispatches ?? 0)),
       sourceBatches,
       probeBatches,
-      note: "Upper bound, not GPU time; routing and native-bin indirect slots included; debug view adds one dispatch"
+      note: "GPU request/count bounded; Native drain adds one dispatch per physical window; not GPU time",
     };
   }
 
@@ -404,7 +370,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     view: GPUViewContext,
     settings: SurfaceCacheGiSettings,
     camera: readonly [number, number, number],
-    previousValid: boolean
+    previousValid: boolean,
   ): ScgiGatherFrame {
     const command = transaction.command;
     if (this.destroyed || this.poisoned || this.retiring || this.prepared.has(command)) {
@@ -424,7 +390,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       view,
       settings,
       camera,
-      previousValid: previousValid && this.valid
+      previousValid: previousValid && this.valid,
     };
     this.inFlight++;
     command.observeSubmission({
@@ -442,7 +408,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           },
           () => {
             this.poisoned = true;
-          }
+          },
         );
       },
       aborted: () => {
@@ -451,7 +417,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       },
       failed: () => {
         this.poisoned = true;
-      }
+      },
     });
     return frame;
   }
@@ -463,7 +429,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     count = 0,
     phase = 0,
     directional = 0,
-    historySegment = segment
+    historySegment = segment,
   ): GPUBuffer {
     const bytes = new ArrayBuffer(304);
     const u = new Uint32Array(bytes);
@@ -479,9 +445,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         this.estimator.profile.maximumLights,
         this.estimator.input.lights.directionalLights.count,
         Number(this.estimator.input.physical !== null),
-        0
+        0,
       ],
-      12
+      12,
     );
     f.set(frame.camera, 16);
     f.set(frame.view.camera.view_projection_matrix, 20);
@@ -492,9 +458,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         historySegment * this.allocation.pixelsPerSegment,
         this.allocation.screen[historySegment]!.ranges.worldField!.count,
         0,
-        0
+        0,
       ],
-      56
+      56,
     );
     f.set(frame.view.gpu_previous_camera_state.view_projection_matrix_inverse, 60);
     return frame.transaction.command.allocateTransientBufferAndLoad(bytes);
@@ -510,7 +476,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     phase = 0,
     directional = 0,
     sourceStage = false,
-    historySegment = segment
+    historySegment = segment,
+    indirectOffset?: number,
   ): void {
     const { command, publication } = frame.transaction;
     const parameters = this.parameters(frame, segment, first, batchCount, phase, directional, historySegment);
@@ -534,21 +501,25 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         [
           19,
           publication.previousWorldField?.segments[historySegment]!.buffer ??
-            publication.candidateWorldField.segments[historySegment]!.buffer
+            publication.candidateWorldField.segments[historySegment]!.buffer,
         ],
-        [20, frame.candidateResidual[segment]!]
+        [20, frame.candidateResidual[segment]!],
+        [21, this.work],
       ].map(([binding, buffer]) => ({
         binding: binding as number,
-        resource: { buffer: buffer as GPUBuffer }
+        resource: { buffer: buffer as GPUBuffer },
       })),
       { binding: 12, resource: entry === "fill" ? this.source.createView() : this.black.createView() },
       {
         binding: 13,
-        resource: entry === "source_finish" ? this.source.createView() : this.unusedOutput.createView()
+        resource:
+          entry === "source_finish" || entry === "clear_source"
+            ? this.source.createView()
+            : this.unusedOutput.createView(),
       },
       { binding: 14, resource: { buffer: input.physical?.parameters ?? this.defaults } },
       { binding: 15, resource: input.physical?.luts.views.transmittance ?? this.black.createView() },
-      { binding: 16, resource: this.sampler }
+      { binding: 16, resource: this.sampler },
     ];
     // Source read and write bindings share one texture in the layout, but only
     // source_finish statically uses storage, only fill statically uses sampled.
@@ -556,8 +527,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     const pass = command.beginComputePass({ label: `SCGI/gather/${entry}` });
     pass.setPipeline(this.pipelines[entry]);
     pass.setBindGroup(0, group);
-    pass.dispatchWorkgroups(Math.ceil(count / 64));
+    if (indirectOffset === undefined) {
+      pass.dispatchWorkgroups(Math.ceil(count / 64));
+    } else {
+      pass.dispatchWorkgroupsIndirect(this.indirect, indirectOffset);
+    }
     pass.end();
+    if (entry === "source_count" || entry === "shadow_count") {
+      frame.transaction.command.copyBufferToBuffer(this.work, 16, this.indirect, 16, 28);
+    }
   }
 
   encodePrevious(frame: ScgiGatherFrame): void {
@@ -574,13 +552,13 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           0,
           0,
           false,
-          previous
+          previous,
         );
       }
     }
   }
 
-  encode(frame: ScgiGatherFrame, geometry: NativeSurfaceGeometry, visibility: GPUTextureView): void {
+  encode(frame: ScgiGatherFrame): void {
     const { command, publication } = frame.transaction;
     if (this.postEncoded.has(frame.transaction) || !publication.filteredComplete) {
       throw new Error("SCGI gather requires one post-Surface encoding after world publication");
@@ -592,104 +570,55 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           frame,
           "interpolate",
           segment,
-          publication.anchors[segment]!.plan.ranges.anchors!.count
+          publication.anchors[segment]!.plan.ranges.anchors!.count,
         );
       }
       this.postEncoded.add(frame.transaction);
       return;
     }
-    command.clearBuffer(frame.candidate);
-    const view = frame.view.camera;
-    this.closest.updateView(
-      command,
-      view.camera.view_matrix,
-      frame.camera,
-      0,
-      this.estimator.input.coneSpread
-    );
-    this.shadow.updateView(
-      command,
-      view.camera.view_matrix,
-      frame.camera,
-      0,
-      this.estimator.input.coneSpread
-    );
     command.enterTimingStage("scgi-gather-source");
-    let first = 0;
-    for (let segment = 0; segment < publication.anchors.length; segment++) {
-      const count = publication.anchors[segment]!.plan.ranges.anchors!.count;
-      this.dispatch(frame, "spawn", segment, this.plan.probes);
-      for (let offset = 0; offset < count; offset += this.plan.batch) {
-        const batchCount = Math.min(this.plan.batch, count - offset);
-        command.clearBuffer(this.sourceHits);
-        const parameters = this.parameters(frame, segment, first + offset, batchCount);
-        const classify = command.beginComputePass({ label: "SCGI/source winner classification" });
-        classify.setPipeline(this.classify);
-        classify.setBindGroup(
+    for (let first = 0; first < this.plan.work.capacity; first += this.plan.batch) {
+      this.dispatch(frame, "source_count", 0, 1, first);
+      command.clearBuffer(this.sourceHits);
+      for (let segment = 0; segment < publication.anchors.length; segment++) {
+        const parameters = this.parameters(frame, segment, first);
+        const pass = command.beginComputePass({ label: "SCGI/unpack exact source anchors" });
+        pass.setPipeline(this.preparation);
+        pass.setBindGroup(
           0,
           this.device.createBindGroup({
-            layout: this.classify.getBindGroupLayout(0),
+            layout: this.preparation.getBindGroupLayout(0),
             entries: [
               { binding: 0, resource: { buffer: parameters, size: 32 } },
-              { binding: 1, resource: { buffer: geometry.meshletWork } },
-              { binding: 2, resource: visibility },
-              { binding: 3, resource: { buffer: publication.anchors[segment]!.buffer } },
-              { binding: 4, resource: { buffer: this.rays } }
-            ]
-          })
+              { binding: 1, resource: { buffer: this.work } },
+              { binding: 2, resource: { buffer: publication.anchors[segment]!.buffer } },
+              { binding: 3, resource: { buffer: this.sourceHits } },
+            ],
+          }),
         );
-        classify.dispatchWorkgroups(Math.ceil(this.plan.batch / 64));
-        classify.end();
-        this.sourceWork.encode(command);
-        this.projectSource(frame, geometry, visibility, segment, first + offset, batchCount);
-        command.writeBuffer(this.count, 0, new Uint32Array([batchCount]).buffer, 0, 4);
-        this.dispatch(frame, "source_begin", segment, batchCount, first + offset, batchCount, 0, 0, true);
-        const phases =
-          1 +
-          Number(this.estimator.input.physical !== null) +
-          this.estimator.input.lights.directionalLights.count;
-        for (let phase = 0; phase < phases; phase++) {
-          const kind = phase === 0 ? 0 : phase <= Number(this.estimator.input.physical !== null) ? 1 : 2;
-          const directional = phase - 1 - Number(this.estimator.input.physical !== null);
-          this.dispatch(
-            frame,
-            "source_rays",
-            segment,
-            batchCount,
-            first + offset,
-            batchCount,
-            kind,
-            Math.max(0, directional),
-            true
-          );
-          this.shadow.encode(command);
-          this.dispatch(
-            frame,
-            "source_shadow",
-            segment,
-            batchCount,
-            first + offset,
-            batchCount,
-            kind,
-            Math.max(0, directional),
-            true
-          );
-        }
-        this.dispatch(frame, "source_finish", segment, batchCount, first + offset, batchCount, 0, 0, true);
+        pass.dispatchWorkgroupsIndirect(this.indirect, 16);
+        pass.end();
       }
-      first += count;
+      this.dispatch(frame, "source_begin", 0, 0, first, 0, 0, 0, true, 0, 16);
+      const physical = Number(this.estimator.input.physical !== null);
+      const phases = 1 + physical + this.estimator.input.lights.directionalLights.count;
+      for (let phase = 0; phase < phases; phase++) {
+        const kind = phase === 0 ? 0 : phase <= physical ? 1 : 2;
+        const directional = Math.max(0, phase - 1 - physical);
+        command.clearBuffer(this.work, 4, 4);
+        this.dispatch(frame, "source_rays", 0, 0, first, 0, kind, directional, true, 0, 16);
+        this.dispatch(frame, "shadow_count", 0, 1, first);
+        this.shadow.encode(command);
+        this.dispatch(frame, "source_shadow", 0, 0, first, 0, kind, directional, true, 0, 32);
+      }
+      this.dispatch(frame, "source_finish", 0, 0, first, 0, 0, 0, true, 0, 16);
     }
     command.enterTimingStage("scgi-gather-probes");
     for (let firstProbe = 0; firstProbe < this.plan.probes; firstProbe += this.plan.probeBatch) {
       const probeCount = Math.min(this.plan.probeBatch, this.plan.probes - firstProbe);
       const rays = probeCount * this.plan.directions;
       command.clearBuffer(this.directionScratch);
-      command.writeBuffer(this.count, 0, new Uint32Array([rays]).buffer, 0, 4);
-      this.dispatch(frame, "probe_rays", 0, rays, firstProbe, rays);
-      this.closest.encode(command);
-      for (let segment = 0; segment < publication.anchors.length; segment++) {
-        this.dispatch(frame, "fill", segment, rays, firstProbe, rays);
-      }
+      this.dispatch(frame, "fill", 0, rays, firstProbe, rays);
       this.dispatch(frame, "project", 0, probeCount, firstProbe, rays);
     }
     for (let segment = 0; segment < publication.anchors.length; segment++) {
@@ -698,85 +627,54 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     this.postEncoded.add(frame.transaction);
   }
 
-  private projectSource(
-    frame: ScgiGatherFrame,
-    geometry: NativeSurfaceGeometry,
-    visibility: GPUTextureView,
-    segment: number,
-    first: number,
-    count: number
-  ): void {
+  encodeRequests(frame: ScgiGatherFrame): void {
     const { command, publication } = frame.transaction;
-    const materials = this.estimator.input.scene.materials;
-    for (const bin of materials.bins) {
-      const bytes = new ArrayBuffer(240);
-      const u = new Uint32Array(bytes);
-      const f = new Float32Array(bytes);
-      u.set(geometry.source);
-      u.set(geometry.sourcePayload, 4);
-      u.set([...publication.extent, 0, 0], 8);
-      f.set(frame.camera, 12);
-      f.set(frame.view.camera.camera.view_matrix, 16);
-      f.set(frame.view.camera.view_projection_matrix_inverse, 36);
-      u.set(
-        [
-          segment * this.allocation.pixelsPerSegment,
-          publication.anchors[segment]!.plan.ranges.anchors!.count,
-          first,
-          count
-        ],
-        52
-      );
-      u.set([bin.index, 0, 0, 0], 56);
-      const settings = command.allocateTransientBufferAndLoad(bytes);
-      const layouts = this.sourceLayouts[bin.index]!;
-      const entries: GPUBindGroupEntry[] = [
-        { binding: 0, resource: { buffer: settings } },
-        ...[geometry.meshletWork, geometry.arena, geometry.vertexPayload, geometry.instances].map(
-          (buffer, index) => ({ binding: index + 1, resource: { buffer } })
-        ),
-        { binding: 5, resource: visibility },
-        { binding: 6, resource: { buffer: this.sourceHits } },
-        { binding: 7, resource: { buffer: publication.anchors[segment]!.buffer } },
-        { binding: 8, resource: { buffer: materials.directory } },
-        { binding: 9, resource: { buffer: bin.constants } }
-      ];
-      const groups = [
-        this.device.createBindGroup({ layout: layouts[0]!, entries }),
-        this.device.createBindGroup({
-          layout: layouts[1]!,
-          entries:
-            geometry.productHeap === undefined
-              ? []
-              : [geometry.productHeap, ...geometry.productBanks!].map((buffer, binding) => ({
-                  binding,
-                  resource: { buffer }
-                }))
-        }),
-        this.device.createBindGroup({
-          layout: layouts[2]!,
-          entries: [
-            { binding: 2, resource: { buffer: this.sourceWork.buffer } },
-            ...(bin.material.binding.program.virtualTextures
-              ? [
-                  {
-                    binding: 1,
-                    resource: {
-                      buffer: this.estimator.input.scene.virtualTextures!.beginQueryFeedback(command)
-                    }
-                  }
-                ]
-              : [])
-          ]
-        }),
-        this.device.createBindGroup({ layout: layouts[3]!, entries: [...bin.material.binding.entries] })
-      ];
-      const pass = command.beginComputePass({ label: "SCGI/gather exact Native source bins" });
-      pass.setPipeline(this.sourcePipelines[bin.index]!);
-      groups.forEach((group, index) => pass.setBindGroup(index, group));
-      pass.dispatchWorkgroupsIndirect(this.sourceWork.indirect, bin.index * 32 + 16);
-      pass.end();
+    command.clearBuffer(this.work);
+    this.dispatch(frame, "clear_source", 0, this.plan.halfWidth * this.plan.halfHeight);
+    if (frame.settings.gatherFreeze && frame.previousValid) {
+      return;
     }
+    command.clearBuffer(frame.candidate);
+    const view = frame.view.camera;
+    for (const query of [this.closest, this.shadow]) {
+      query.updateView(command, view.camera.view_matrix, frame.camera, 0, this.estimator.input.coneSpread);
+    }
+    command.enterTimingStage("scgi-gather-probes");
+    for (let segment = 0; segment < publication.anchors.length; segment++) {
+      this.dispatch(frame, "spawn", segment, this.plan.probes);
+    }
+    for (let first = 0; first < this.plan.probes; first += this.plan.probeBatch) {
+      const rays = Math.min(this.plan.probeBatch, this.plan.probes - first) * this.plan.directions;
+      command.writeBuffer(this.count, 0, new Uint32Array([rays]).buffer, 0, 4);
+      this.dispatch(frame, "probe_rays", 0, rays, first, rays);
+      this.closest.encode(command);
+      for (let segment = 0; segment < publication.anchors.length; segment++) {
+        this.dispatch(frame, "request", segment, rays, first, rays);
+      }
+    }
+  }
+
+  drainNativeWindow(
+    command: ShadeGPUCommandContext,
+    directory: GPUBuffer,
+    ranges: GPUBuffer,
+    count: number,
+  ): void {
+    const pass = command.beginComputePass({ label: "SCGI/save Native preparation before window reuse" });
+    pass.setPipeline(this.drain);
+    pass.setBindGroup(
+      0,
+      this.device.createBindGroup({
+        layout: this.drain.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: ranges } },
+          { binding: 1, resource: { buffer: directory } },
+          { binding: 2, resource: { buffer: this.work } },
+        ],
+      }),
+    );
+    pass.dispatchWorkgroups(Math.ceil(count / 64));
+    pass.end();
   }
 
   retire(): void {
@@ -799,9 +697,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         entries: [
           { binding: 0, resource: this.source.createView() },
           { binding: 1, resource: output.createView() },
-          { binding: 2, resource: { buffer: parameters } }
-        ]
-      })
+          { binding: 2, resource: { buffer: parameters } },
+        ],
+      }),
     );
     pass.dispatchWorkgroups(Math.ceil(this.plan.width / 8), Math.ceil(this.plan.height / 8));
     pass.end();
@@ -820,7 +718,6 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       this.closest?.destroy();
       this.shadow?.destroy();
     }
-    this.sourceWork?.destroy();
     for (const buffer of this.buffers) {
       buffer.destroy();
     }

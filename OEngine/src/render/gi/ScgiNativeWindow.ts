@@ -53,7 +53,10 @@ export function encodeScgiNativeWindow(
   const fieldBytes = fieldWidth * fieldHeight * 112;
   const residualOffset = fieldOffset + fieldBytes;
   const residualBytes = input.gather == null ? 0 : fieldWidth * fieldHeight * 32;
-  if (residualOffset + residualBytes > lighting.nativeBuffer.size) {
+  const requestOffset = residualOffset + residualBytes;
+  const preparationOffset = requestOffset + (input.gather == null ? 0 : fieldWidth * fieldHeight * 8);
+  const preparationBytes = input.gather == null ? 0 : fieldWidth * fieldHeight * 48;
+  if (preparationOffset + preparationBytes > lighting.nativeBuffer.size) {
     throw new RangeError("SCGI window does not fit its admitted complete directory");
   }
   const ranges = new Uint32Array([
@@ -75,7 +78,16 @@ export function encodeScgiNativeWindow(
     y,
     width,
     height,
-    ["off", "irradiance", "confidence", "world-only", "residual", "gather-confidence", "gather-source", "appearance-world-only"].indexOf(input.debug),
+    [
+      "off",
+      "irradiance",
+      "confidence",
+      "world-only",
+      "residual",
+      "gather-confidence",
+      "gather-source",
+      "appearance-world-only",
+    ].indexOf(input.debug),
     0,
     Number(plan.remapped),
     firstX,
@@ -85,9 +97,16 @@ export function encodeScgiNativeWindow(
     residualBytes / 4,
     Number(input.gather != null),
     0,
+    requestOffset / 4,
+    preparationOffset / 4,
+    fieldWidth * fieldHeight,
+    Number(input.gather != null),
   ]);
   ranges[19] = Number(input.publication.activeWorld === null || input.lightingChanged === true);
   command.writeBuffer(lighting.ranges, 0, ranges.buffer, 0, ranges.byteLength);
+  if (preparationBytes !== 0) {
+    command.clearBuffer(lighting.nativeBuffer, preparationOffset, preparationBytes);
+  }
   if (plan.remapped) {
     if (gather === undefined) {
       throw new Error("SCGI remapping requires its prepared geometry gather");
@@ -173,6 +192,13 @@ export function encodeScgiNativeWindow(
       );
     }
     if (input.gather != null) {
+      command.copyBufferToBuffer(
+        input.gather.owner.work,
+        (input.gather.owner.plan.work.requests + ((firstY + row) * halfWidth + firstX) * 2) * 4,
+        lighting.nativeBuffer,
+        requestOffset + row * fieldWidth * 8,
+        fieldWidth * 8,
+      );
       let index = (firstY + row) * halfWidth + firstX;
       let remaining = fieldWidth;
       let destination = residualOffset + row * fieldWidth * 32;
@@ -181,15 +207,22 @@ export function encodeScgiNativeWindow(
         const count = publication.anchors[segment]!.plan.ranges.anchors!.count;
         if (index >= segmentFirst && index < segmentFirst + count) {
           const copied = Math.min(remaining, segmentFirst + count - index);
-          command.copyBufferToBuffer(input.gather.residual[segment]!, (index - segmentFirst) * 32,
-            lighting.nativeBuffer, destination, copied * 32);
+          command.copyBufferToBuffer(
+            input.gather.residual[segment]!,
+            (index - segmentFirst) * 32,
+            lighting.nativeBuffer,
+            destination,
+            copied * 32,
+          );
           index += copied;
           destination += copied * 32;
           remaining -= copied;
         }
         segmentFirst += count;
       }
-      if (remaining !== 0) { throw new Error("SCGI residual does not cover its complete Native window"); }
+      if (remaining !== 0) {
+        throw new Error("SCGI residual does not cover its complete Native window");
+      }
     }
   }
   return [x, y, w, h];

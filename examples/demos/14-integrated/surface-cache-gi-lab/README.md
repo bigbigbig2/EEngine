@@ -50,6 +50,8 @@ npm --prefix examples run demo:scgi
 
 默认点光源为零，日光走 Physical Environment / VSM。发光实验不附带点光源，不用额外环境补光掩盖 GI 误差。金属球是 specular 对照物，不是 diffuse GI 接收面。
 
+R3 后 diffuse source 调试图只展示实际请求且完成的源；紫色表示未请求或无有效源，黑色才可能是有效的零辐亮度。稀疏紫色背景不是最终画面，也不表示这些位置没有执行主 Surface 着色。
+
 ## 操作语义
 
 面板参数先暂存，点“应用参数”后才在上一主机帧准备结束的边界统一应用。编辑中的值不会提前改变连贯渲染的场景。

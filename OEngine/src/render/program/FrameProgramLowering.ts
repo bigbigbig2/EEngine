@@ -645,6 +645,8 @@ function compileSceneGraph(
     );
   }
   let giField: ResourceId | undefined;
+  let giRequests: ResourceId | undefined;
+  let giPreparation: ResourceId | undefined;
   if (plan.request.surfaceCacheGi) {
     const gi = graph.add(
       "SCGI/world transport and directional field",
@@ -703,13 +705,30 @@ function compileSceneGraph(
       ),
     );
     if (plan.request.surfaceCacheGiGather) {
-      gi.read(graph.import_resource("SCGI/previous independent residual and probe history", { kind: "imported" },
-        bind("scgi-gather-previous", (bindings) => ({
-          probes: bindings.scgi!.gather!.previous,
-          residual: bindings.scgi!.gather!.previousResidual,
-        }))));
-      giResidual = gi.write(graph.import_resource("SCGI/current reprojected signed residual", { kind: "imported" },
-        bind("scgi-gather-current", (bindings) => bindings.scgi!.gather!.residual)));
+      giRequests = gi.write(
+        graph.import_resource(
+          "SCGI/exact source requests and direction mapping",
+          { kind: "imported" },
+          bind("scgi-gather-requests", (bindings) => bindings.scgi!.gather!.owner.work),
+        ),
+      );
+      gi.read(
+        graph.import_resource(
+          "SCGI/previous independent residual and probe history",
+          { kind: "imported" },
+          bind("scgi-gather-previous", (bindings) => ({
+            probes: bindings.scgi!.gather!.previous,
+            residual: bindings.scgi!.gather!.previousResidual,
+          })),
+        ),
+      );
+      giResidual = gi.write(
+        graph.import_resource(
+          "SCGI/current reprojected signed residual",
+          { kind: "imported" },
+          bind("scgi-gather-current", (bindings) => bindings.scgi!.gather!.residual),
+        ),
+      );
     }
     gi.write(
       graph.import_resource(
@@ -871,6 +890,12 @@ function compileSceneGraph(
     );
     native.write(lightingRanges!);
   }
+  if (giRequests !== undefined) {
+    // Native consumes GPU requests and drains each physical window into the
+    // same GI-owned publication before its directory is reused.
+    native.read(giRequests);
+    giPreparation = native.write(giRequests);
+  }
   for (const resource of vtResources) {
     native.read(resource);
   }
@@ -936,35 +961,56 @@ function compileSceneGraph(
     const gatherHdr = nativeHdr;
     const gather = graph.add("SCGI/surface-cache-gi-gather", nativeFrame, (data, resources) => {
       const frame = data.bindings;
-      frame.scgi!.owner.encodeGather(frame.scgi!, frame.job,
-        resolveTextureView(resources.get(result.frame.visibilityKey)));
+      frame.scgi!.owner.encodeGather(frame.scgi!);
       const output = resources.get(gatherHdr) as GPUTexture & { gpu_texture?: GPUTexture };
-      frame.scgi!.gather!.owner.encodeDebug(frame.scgi!.gather!, output.gpu_texture ?? output,
-        resources.get(gpuPreviousExposure) as GPUBuffer);
+      frame.scgi!.gather!.owner.encodeDebug(
+        frame.scgi!.gather!,
+        output.gpu_texture ?? output,
+        resources.get(gpuPreviousExposure) as GPUBuffer,
+      );
     });
     gather.read(nativeHdr);
     gather.read(gpuPreviousExposure);
     gather.read(giField!);
+    gather.read(giPreparation!);
     gather.read(result.frame.visibilityKey);
     gather.read(result.frame.meshletWork.records);
     gather.read(result.frame.frameInstances);
     gather.read(result.frame.frameGeometry);
     gather.read(vertexPayload);
     gather.read(lightRecords!);
-    for (const resource of [...vtResources, virtualMetadata, ...(virtualBanks ?? []), physicalEnvironmentSun, atmosphereEnvironment]) {
-      if (resource !== undefined && resource !== null) { gather.read(resource); }
+    for (const resource of [
+      ...vtResources,
+      virtualMetadata,
+      ...(virtualBanks ?? []),
+      physicalEnvironmentSun,
+      atmosphereEnvironment,
+    ]) {
+      if (resource !== undefined && resource !== null) {
+        gather.read(resource);
+      }
     }
-    if (vtFeedback !== undefined) { vtFeedback = gather.write(vtFeedback); }
-    gather.write(graph.import_resource("SCGI/next signed residual probe history and source", { kind: "imported" },
-      bind("scgi-gather-next", (bindings) => bindings.scgi!.gather!)));
+    if (vtFeedback !== undefined) {
+      vtFeedback = gather.write(vtFeedback);
+    }
+    gather.write(
+      graph.import_resource(
+        "SCGI/next signed residual probe history and source",
+        { kind: "imported" },
+        bind("scgi-gather-next", (bindings) => bindings.scgi!.gather!),
+      ),
+    );
     gather.make_side_effect();
     nativeHdr = gather.write(nativeHdr);
   }
   if (vtFeedback !== undefined) {
-    const finish = graph.add("VT/feedback finalize and delayed readback", nativeFrame,
+    const finish = graph.add(
+      "VT/feedback finalize and delayed readback",
+      nativeFrame,
       (data, _resources, context) => {
         data.bindings.virtualTextures!.finishFeedback(context.encoder as ShadeGPUCommandContext);
-      });
+      },
+    );
     finish.write(vtFeedback);
     finish.make_side_effect();
   }

@@ -1,4 +1,5 @@
 import { scgiInteger, type ScgiBufferLimits } from "./ScgiCapacity.js";
+import { planScgiGatherWork } from "./ScgiGatherWork.js";
 
 /** Screen gather owns its statistics; no byte aliases a world seed/history.
  * Residual: twelve signed half coefficients, f32 power-of-two scale, f32 confidence.
@@ -9,7 +10,7 @@ export const SCGI_GATHER = Object.freeze({
   probeStride: 160,
   directionStride: 32,
   sourceStride: 16,
-  hitStride: 96
+  hitStride: 96,
 });
 
 export function planScgiGather(
@@ -18,7 +19,7 @@ export function planScgiGather(
   height: number,
   tile: number,
   directions: number,
-  batch: number
+  batch: number,
 ) {
   for (const [name, value] of Object.entries({ width, height, tile, directions, batch })) {
     scgiInteger(value, `gather ${name}`);
@@ -38,7 +39,8 @@ export function planScgiGather(
   const probeBytes = probes * SCGI_GATHER.probeStride;
   const probeBatch = Math.max(1, Math.floor(batch / directions));
   const directionBytes = probeBatch * directions * SCGI_GATHER.directionStride;
-  if (probeBytes > maximum || directionBytes > maximum || batch * 176 > maximum) {
+  const work = planScgiGatherWork(halfWidth * halfHeight, probes * directions, batch);
+  if (probeBytes > maximum || directionBytes > maximum || batch * 176 > maximum || work.bytes > maximum) {
     throw new RangeError("SCGI gather complete probe/direction domain exceeds negotiated binding capacity");
   }
   return Object.freeze({
@@ -55,10 +57,11 @@ export function planScgiGather(
     probeBatch,
     probeBytes,
     directionBytes,
+    work,
     sourceBytes: halfWidth * halfHeight * SCGI_GATHER.sourceStride,
     historyBytes: probeBytes * 2,
     queryBytes: batch * 176,
-    raysPerFrame: probes * directions
+    raysPerFrame: probes * directions,
   });
 }
 
@@ -68,7 +71,7 @@ export function planScgiGather(
 export function scgiGatherPrediction(
   irradiance: ArrayLike<number>,
   normal: ArrayLike<number>,
-  direction: ArrayLike<number>
+  direction: ArrayLike<number>,
 ): readonly number[] {
   const result = [0, 0, 0];
   for (let channel = 0; channel < 3; channel++) {

@@ -17,6 +17,8 @@ export type FrameProduct =
   | "reflection-depth"
   | "indirect-diffuse"
   | "indirect-diffuse-residual"
+  | "gi-source-requests"
+  | "gi-source-preparation"
   | "indirect-specular"
   | "opaque-reflected-radiance"
   | "surface-radiance"
@@ -223,6 +225,24 @@ const PRODUCT_SPEC: Readonly<
     coverage: "bounded screen probes over full ceil half internal",
     invalid: "zero correction; world-only remains valid",
     version: "history-role",
+  },
+  "gi-source-requests": {
+    producer: "surface-cache-gi",
+    domain: "gpu-work",
+    format: "structured-buffer",
+    value: "exact anchor requests and validated direction mapping",
+    coverage: "GPU deduplicated requested sources",
+    invalid: "no source request",
+    version: "frame",
+  },
+  "gi-source-preparation": {
+    producer: "surface",
+    domain: "gpu-work",
+    format: "structured-buffer",
+    value: "Native diffuse preparation and qualified solar visibility",
+    coverage: "requested exact source pixels",
+    invalid: "unproduced source",
+    version: "frame",
   },
   "reflection-surface": {
     producer: "surface",
@@ -492,8 +512,26 @@ const INPUT_CONTRACTS: Readonly<
     depth: { domain: "internal-full", value: "reverse depth" },
   },
   "indirect-diffuse-residual": {
-    "surface-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
-    "indirect-diffuse": { domain: "internal-half", value: "world-only directional irradiance, guide and identity" },
+    "gi-source-preparation": {
+      domain: "gpu-work",
+      value: "Native diffuse preparation and qualified solar visibility",
+    },
+    "indirect-diffuse": {
+      domain: "internal-half",
+      value: "world-only directional irradiance, guide and identity",
+    },
+  },
+  "gi-source-requests": {
+    "indirect-diffuse": {
+      domain: "internal-half",
+      value: "world-only directional irradiance, guide and identity",
+    },
+  },
+  "gi-source-preparation": {
+    "gi-source-requests": {
+      domain: "gpu-work",
+      value: "exact anchor requests and validated direction mapping",
+    },
   },
   "temporal-response": { visibility: { domain: "internal-full", value: "packed VisibilityKey" } },
   "temporal-seed": {
@@ -533,6 +571,10 @@ const INPUT_CONTRACTS: Readonly<
     "indirect-diffuse": {
       domain: "internal-half",
       value: "world-only directional irradiance, guide and identity",
+    },
+    "gi-source-requests": {
+      domain: "gpu-work",
+      value: "exact anchor requests and validated direction mapping",
     },
     visibility: { domain: "internal-full", value: "packed VisibilityKey" },
     "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" },
@@ -713,7 +755,11 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
   if (request.kind === "empty") return [];
   switch (product) {
     case "indirect-diffuse-residual":
-      return ["surface-radiance", "indirect-diffuse"];
+      return ["gi-source-preparation", "indirect-diffuse"];
+    case "gi-source-preparation":
+      return ["gi-source-requests"];
+    case "gi-source-requests":
+      return ["indirect-diffuse"];
     case "indirect-diffuse":
       return ["visibility", "meshlet-work", "depth"];
     case "reflection-surface":
@@ -790,6 +836,7 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
         "depth",
         ...(request.hasLit ? ["local-light-work" as const] : []),
         ...(request.surfaceCacheGi ? ["indirect-diffuse" as const] : []),
+        ...(request.surfaceCacheGiGather ? ["gi-source-requests" as const] : []),
         ...(request.physicalEnvironment &&
         (request.shadowProfile === "vsm-directional-high" ||
           request.shadowProfile === "vsm-directional-bounded")
@@ -899,7 +946,9 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
   requireProduct("temporal-seed");
   requireProduct("temporal-response");
   requireProduct("temporal-identity");
-  if (request.surfaceCacheGiGather) { requireProduct("indirect-diffuse-residual"); }
+  if (request.surfaceCacheGiGather) {
+    requireProduct("indirect-diffuse-residual");
+  }
   const temporalDebug =
     request.debugView === RenderDebugViewValue.Velocity ||
     request.debugView === RenderDebugViewValue.HistoryValidity ||

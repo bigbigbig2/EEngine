@@ -63,7 +63,7 @@ export class ScgiRenderer {
 
   constructor(
     private readonly graphics: GraphicsContext,
-    readonly deviceEpoch: number
+    readonly deviceEpoch: number,
   ) {
     this.runtime = new ScgiRuntime(graphics.device, deviceEpoch, graphics.resource_accounting);
   }
@@ -85,9 +85,14 @@ export class ScgiRenderer {
       estimator,
       invalidationBytes: invalidation,
       gather: this.gather?.cost,
-      currentOwnedBytes: runtime.totalBytes + query + (estimator?.privateBytes ?? 0) + invalidation +
-        (this.gather?.cost.ownedBytes ?? 0) + (this.gather?.cost.queryPrivateBytes ?? 0),
-      note: "Excludes borrowed geometry/textures, retired query/estimator generations, directory and driver allocations"
+      currentOwnedBytes:
+        runtime.totalBytes +
+        query +
+        (estimator?.privateBytes ?? 0) +
+        invalidation +
+        (this.gather?.cost.ownedBytes ?? 0) +
+        (this.gather?.cost.queryPrivateBytes ?? 0),
+      note: "Excludes borrowed geometry/textures, retired query/estimator generations, directory and driver allocations",
     };
   }
 
@@ -120,7 +125,7 @@ export class ScgiRenderer {
         this.voxelSize = settings.voxelSize;
       },
       aborted: () => {},
-      failed: () => {}
+      failed: () => {},
     });
     const assertPreparing = (): void => {
       if (this.stopped || command.closed) {
@@ -138,7 +143,7 @@ export class ScgiRenderer {
       },
       failed: () => {
         this.runtime.poison(new Error("SCGI submission failed"), this.deviceEpoch);
-      }
+      },
     });
     const worldChanged = this.scenes.current?.runtime !== world;
     if (worldChanged) {
@@ -147,7 +152,7 @@ export class ScgiRenderer {
     const camera = [
       view.camera.camera.transform.matrix[12]!,
       view.camera.camera.transform.matrix[13]!,
-      view.camera.camera.transform.matrix[14]!
+      view.camera.camera.transform.matrix[14]!,
     ] as const;
     const configuration = JSON.stringify([
       width,
@@ -159,7 +164,7 @@ export class ScgiRenderer {
       settings.requests,
       settings.bounceRequests,
       settings.batchRays,
-      world.virtualGeometry !== null
+      world.virtualGeometry !== null,
     ]);
     if (this.configuration !== configuration) {
       const plan = await this.runtime.configure(
@@ -174,13 +179,13 @@ export class ScgiRenderer {
           requests: settings.requests,
           bounceRequests: settings.bounceRequests,
           rayBatch: settings.batchRays,
-        }
+        },
       );
       assertPreparing();
       [this.cache, this.anchors, this.filter] = await Promise.all([
         ScgiCache.create(command.device, plan!),
         ScgiAnchors.create(command.device, plan!, world.virtualGeometry !== null),
-        ScgiFilter.create(command.device, plan!)
+        ScgiFilter.create(command.device, plan!),
       ]);
       assertPreparing();
       this.configuration = configuration;
@@ -212,8 +217,8 @@ export class ScgiRenderer {
         ? cut
         : geometryQueryCut(
             cut.descriptor,
-            cut.assets.map(() => ({ active: false, domain: null, maximumError: 0 }))
-          )
+            cut.assets.map(() => ({ active: false, domain: null, maximumError: 0 })),
+          ),
     );
     if (query !== null) {
       // Revision mismatch is a normal new snapshot, not an exception hidden by
@@ -240,7 +245,7 @@ export class ScgiRenderer {
           maximumBytes: settings.queryMaximumBytes,
           queryCuts: cuts,
           workingSet: { voxelSize: settings.voxelSize, receiver: camera },
-          subgroup: command.device.features.has("subgroups")
+          subgroup: command.device.features.has("subgroups"),
         },
         world,
         this.graphics.gpu_scene,
@@ -248,7 +253,7 @@ export class ScgiRenderer {
         this.graphics.resource_accounting,
         command,
         undefined,
-        this.scenes.current ?? undefined
+        this.scenes.current ?? undefined,
       );
       if (this.stopped || command.closed) {
         candidate.destroy();
@@ -286,7 +291,7 @@ export class ScgiRenderer {
       settings.maximumLights,
       settings.multiBounce,
       input.authoredEnvironment,
-      input.physical !== null
+      input.physical !== null,
     ]);
     const environment = input.authoredEnvironment
       ? ("authored-preserve-asset" as const)
@@ -307,13 +312,13 @@ export class ScgiRenderer {
       environmentScale: 1,
       environmentEpoch: Math.max(
         1,
-        input.physical?.queryGeneration ?? input.lights.authoredIbl.publicationRevision
+        input.physical?.queryGeneration ?? input.lights.authoredIbl.publicationRevision,
       ),
       lightingEpoch: Math.max(1, input.lights.publicationRevision),
       multiBounce: settings.multiBounce,
       powerSampling: true,
       normalCosine: 0.9,
-      planeDistanceScale: 0.02
+      planeDistanceScale: 0.02,
     };
     if (
       this.estimator === null ||
@@ -331,9 +336,9 @@ export class ScgiRenderer {
           connectionSamples: settings.connectionSamples,
           lightSamples: settings.lightSamples,
           maximumLights: settings.maximumLights,
-          batchRays: settings.batchRays
+          batchRays: settings.batchRays,
         },
-        estimatorInput
+        estimatorInput,
       );
       if (this.stopped || command.closed) {
         this.estimator.destroy();
@@ -347,7 +352,7 @@ export class ScgiRenderer {
       input,
       this.runtime.prepare(command, { scene: sceneEpoch, view: input.viewEpoch })!,
       query,
-      camera
+      camera,
     );
   }
 
@@ -360,7 +365,7 @@ export class ScgiRenderer {
     },
     transaction: ScgiFrameTransaction,
     query: ScgiQueryScene,
-    camera: readonly [number, number, number]
+    camera: readonly [number, number, number],
   ): Promise<ScgiRendererFrame> {
     const estimatorInput = this.estimator!.input;
     const lighting = JSON.stringify([
@@ -371,19 +376,29 @@ export class ScgiRenderer {
       estimatorInput.physical?.queryGeneration ?? 0,
       query.sourceInstances.contentRevision,
       query.materials.source.revision,
-      this.queryRevisions.get(query)
+      this.queryRevisions.get(query),
     ]);
     const lightingChanged = lighting !== this.committedLighting;
-    const gatherKey = JSON.stringify([input.settings.gatherTile, input.settings.gatherDirections,
-      input.settings.gatherBatchRays, input.settings.gatherDistance]);
+    const gatherKey = JSON.stringify([
+      input.settings.gatherTile,
+      input.settings.gatherDirections,
+      input.settings.gatherBatchRays,
+      input.settings.gatherDistance,
+    ]);
     if (!input.settings.gather || this.gatherKey !== gatherKey) {
       this.gather?.retire();
       this.gather = null;
       this.gatherKey = "";
     }
     if (input.settings.gather && this.gather === null) {
-      const candidate = await ScgiGather.create(input.command.device, transaction.workset.plan,
-        this.estimator!, input.settings, query.runtime.virtualGeometry !== null, this.graphics.resource_accounting);
+      const candidate = await ScgiGather.create(
+        input.command.device,
+        transaction.workset.plan,
+        this.estimator!,
+        input.settings,
+        query.runtime.virtualGeometry !== null,
+        this.graphics.resource_accounting,
+      );
       if (this.stopped || input.command.closed) {
         candidate.retire();
         throw new Error("SCGI gather preparation cancelled");
@@ -391,14 +406,20 @@ export class ScgiRenderer {
       this.gather = candidate;
       this.gatherKey = gatherKey;
     }
-    const gather = this.gather?.prepare(transaction, input.view, input.settings, camera,
-      input.previousValid && !lightingChanged && transaction.publication.previousWorldField !== null) ?? null;
+    const gather =
+      this.gather?.prepare(
+        transaction,
+        input.view,
+        input.settings,
+        camera,
+        input.previousValid && !lightingChanged && transaction.publication.previousWorldField !== null,
+      ) ?? null;
     input.command.observeSubmission({
       submitted: () => {
         this.committedLighting = lighting;
       },
       aborted: () => {},
-      failed: () => {}
+      failed: () => {},
     });
     return {
       owner: this,
@@ -424,7 +445,7 @@ export class ScgiRenderer {
       job.prepared.workSet.frameVertices,
       job.prepared.workSet.meshletWorkCandidate!.queue,
       job.prepared.workSet.frameInstances.records,
-      job.runtime
+      job.runtime,
     );
     const previous = view.gpu_previous_camera_state;
     this.anchors.encodeSceneAnchors(
@@ -440,7 +461,7 @@ export class ScgiRenderer {
         visibility,
         source: geometry.source,
         sourcePayload: geometry.sourcePayload,
-        product: job.runtime.virtualGeometry ?? undefined
+        product: job.runtime.virtualGeometry ?? undefined,
       },
       {
         currentView: view.camera.camera.view_matrix,
@@ -449,15 +470,15 @@ export class ScgiRenderer {
         previousProjection: previous.projection_matrix,
         previousInverseViewProjection: previous.view_projection_matrix_inverse,
         camera: frame.camera,
-        previousValid: frame.previousValid
-      }
+        previousValid: frame.previousValid,
+      },
     );
     const serial = transaction.publication.generation;
     const dirty = this.invalidation!.encode(
       transaction,
       query.sourceInstances,
       Math.max(1, query.materials.source.revision),
-      settings.voxelSize
+      settings.voxelSize,
     );
     this.cache.encode(transaction, {
       frame: serial,
@@ -471,31 +492,33 @@ export class ScgiRenderer {
       planeDistanceScale: 0.02,
       updateAge: 8,
       varianceThreshold: 0.1,
-      gpuDirty: dirty
+      gpuDirty: dirty,
     });
     this.anchors.encodeSeeds(transaction, {
       distance: settings.voxelSize * 0.02,
       normalCosine: 0.9,
-      tangentDistance: settings.voxelSize
+      tangentDistance: settings.voxelSize,
     });
     transaction.command.enterTimingStage("scgi-estimator");
     frame.estimator.encode(transaction, {
       view: view.camera.camera.view_matrix,
       camera: frame.camera,
       coneWidth: 0,
-      coneSpread: 2 / (transaction.publication.extent[1] * Math.abs(view.camera.projection_matrix[5]!))
+      coneSpread: 2 / (transaction.publication.extent[1] * Math.abs(view.camera.projection_matrix[5]!)),
     });
     transaction.command.enterTimingStage("scgi-filter");
     this.filter.encode(transaction, surfaceCacheGiFilter(settings, serial, frame.queryRevision));
     if (frame.gather !== null) {
       frame.gather.owner.encodePrevious(frame.gather);
+      frame.gather.owner.encodeRequests(frame.gather);
     }
   }
 
-  encodeGather(frame: ScgiRendererFrame, job: PackedVisibilityJob, visibility: GPUTextureView): void {
-    if (frame.gather === null) { throw new Error("SCGI gather stage has no prepared owner"); }
-    frame.gather.owner.encode(frame.gather, nativeWinnerGeometry(job.assets, job.prepared.workSet.frameVertices,
-      job.prepared.workSet.meshletWorkCandidate!.queue, job.prepared.workSet.frameInstances.records, job.runtime), visibility);
+  encodeGather(frame: ScgiRendererFrame): void {
+    if (frame.gather === null) {
+      throw new Error("SCGI gather stage has no prepared owner");
+    }
+    frame.gather.owner.encode(frame.gather);
   }
 
   private retireEstimator(): void {

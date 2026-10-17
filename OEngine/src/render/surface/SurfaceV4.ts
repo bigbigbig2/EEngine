@@ -15,7 +15,10 @@ import {
   NATIVE_SURFACE_SETTINGS_BYTES,
   FINAL_PIXEL_SURFACE_SETTINGS_BYTES,
 } from "../../shaders/native_surface.js";
-import { NATIVE_TEMPORAL_SEED_VIEW_BYTES } from "../../gpu/FinalPixelAbi.js";
+import {
+  NATIVE_TEMPORAL_SEED_VIEW_BYTES,
+  FINAL_PIXEL_LIGHTING_RANGES_BYTES,
+} from "../../gpu/FinalPixelAbi.js";
 import { NATIVE_TEMPORAL_BACKGROUND_WGSL } from "../../shaders/native_temporal_seed.js";
 import { PACKED_CAMERA_TYPE } from "../../shaders/packed_camera.js";
 import { NativeExecutionBins, type NativeExecutionBinsBindings } from "./NativeExecutionBins.js";
@@ -174,6 +177,7 @@ export class SurfaceV4 {
   private neutralEntries: readonly GPUBindGroupEntry[] | null = null;
   private neutralEnvironmentEntries: readonly GPUBindGroupEntry[] | null = null;
   private neutralEnvironmentTexture: GPUTexture | null = null;
+  private neutralSourceBuffers: readonly GPUBuffer[] | null = null;
   private neutralBuffers: readonly GPUBuffer[] = [];
   private neutralTextures: readonly GPUTexture[] = [];
   private state: ExtentState | null = null;
@@ -323,6 +327,7 @@ export class SurfaceV4 {
     }
     let total =
       this.neutralBuffers.reduce((total, buffer) => total + buffer.size, 0) +
+      (this.neutralSourceBuffers?.reduce((sum, buffer) => sum + buffer.size, 0) ?? 0) +
       (this.neutralEntries === null ? 0 : 8) +
       (this.neutralEnvironmentTexture === null ? 0 : 8);
     for (const allocation of allocations) {
@@ -337,10 +342,41 @@ export class SurfaceV4 {
     return !this.destroyed && !this.prepared && !this.preparing;
   }
 
+  private sourceBindings(frame: NativeSurfaceFrame): NativeSurfaceFrame {
+    // Final-Pixel Unlit still publishes a requested emissive source. An
+    // Unlit-only scene has no lighting owner; bind a disabled source range.
+    if (this.finalPixel && frame.lightingEntries.length === 0) {
+      if (this.neutralSourceBuffers === null) {
+        this.neutralSourceBuffers = [
+          this.device.createBuffer({
+            label: "SurfaceV4/disabled source directory",
+            size: 4,
+            usage: GPUBufferUsage.STORAGE,
+          }),
+          this.device.createBuffer({
+            label: "SurfaceV4/disabled source ranges",
+            size: FINAL_PIXEL_LIGHTING_RANGES_BYTES,
+            usage: GPUBufferUsage.UNIFORM,
+          }),
+        ];
+        this.neutralSourceBuffers.forEach((buffer) => this.track(buffer, "buffer", buffer.size));
+      }
+      frame = {
+        ...frame,
+        lightingEntries: [
+          { binding: 2, resource: { buffer: this.neutralSourceBuffers[0]! } },
+          { binding: 9, resource: { buffer: this.neutralSourceBuffers[1]! } },
+        ],
+      };
+    }
+    return frame;
+  }
+
   async prepareFrame(frame: NativeSurfaceFrame): Promise<void> {
     if (this.destroyed || this.prepared || this.preparing) {
       throw new Error("SurfaceV4 is stopped or already prepared");
     }
+    frame = this.sourceBindings(frame);
     this.validate(frame);
     this.preparing = true;
     const epoch = ++this.prepareEpoch;
@@ -379,6 +415,7 @@ export class SurfaceV4 {
     if (this.destroyed || this.prepared || this.preparing) {
       throw new Error("SurfaceV4 is stopped or already prepared");
     }
+    frame = this.sourceBindings(frame);
     this.validate(frame);
     // Synchronous preparation consumes descriptors and uploads numeric values
     // before returning. No CPU descriptor is retained by a GPU consumer.
@@ -729,7 +766,7 @@ export class SurfaceV4 {
           "SurfaceV4 dense/compact, reactive or Product shader profile is incompatible with its resources",
         );
       }
-      if ((lighting.length === 0) !== route.unlit) {
+      if (lighting.every((entry) => entry.binding === 2 || entry.binding === 9) !== route.unlit) {
         throw new Error("SurfaceV4 Unlit route must match the compiled lighting profile");
       }
       for (const [group, bindings, type] of [
@@ -1245,6 +1282,23 @@ export class SurfaceV4 {
         }
       }
       pass.end();
+      if (frame.scgi?.gather != null) {
+        const input = frame.scgi;
+        // Complete the owning window before the next window overwrites its
+        // shared directory. Gather owns the compact destination and its fence.
+        const halfWidth =
+          Math.min(input.publication.halfExtent[0], Math.ceil((extent[0] + extent[2]) / 2) + 2) -
+          Math.max(0, Math.floor(extent[0] / 2) - 2);
+        const halfHeight =
+          Math.min(input.publication.halfExtent[1], Math.ceil((extent[1] + extent[3]) / 2) + 2) -
+          Math.max(0, Math.floor(extent[1] / 2) - 2);
+        frame.scgi.gather.owner.drainNativeWindow(
+          input.command,
+          input.lighting.nativeBuffer,
+          input.lighting.ranges,
+          halfWidth * halfHeight,
+        );
+      }
     }
     this.encoded = true;
   }
@@ -1415,6 +1469,8 @@ export class SurfaceV4 {
         this.neutralEnvironmentTexture = null;
       }
       this.neutralEnvironmentEntries = null;
+      this.neutralSourceBuffers?.forEach((buffer) => this.releaseResource(buffer));
+      this.neutralSourceBuffers = null;
     };
     void this.lastCompletion.then(releaseNeutral, releaseNeutral);
     ++this.prepareEpoch;
