@@ -125,11 +125,23 @@ GI active domain = 所有 cascade receivers 加 finite query-distance guard。�
 
 Query cut 由 cascade voxel scale、hit distance、资产几何误差与 coverage-critical 条件选择；不等于 raster LOD。每个 cut 覆盖同一表面域，避免父子重叠导致双 hit。对薄墙、开门边、foliage alpha、近接触资产可强制细 cut；没有足够保真的 coarse 表示就需要其真实 residency 成本，不能删几何换预算。
 
+**当前 Product 的具体落地。** OGQ2 v3 的现有 producer 将 raster coarse 标为 approximate + coverage-critical，只有原始叶节点具有精确覆盖；因此当前合法 cut 必须精化这些 critical 节点，不能仅因误差预算增大就把 coarse 宣称为有效遮挡。这里保留源三角形质量，不承诺当前内容能获得有损 coarse 的几何减量。工作集收缩通过独立于 raster visibility 的世界域选择实际需要的 clusters/pages 完成，不再为传入 Product 永久 pin 所有 exact leaf。若目标内容的域内 exact 工作集仍不能满足 admission，拒绝该 profile 或由内容 cook 提供经过保真验证的专用代理；通用有损代理生成不被伪称为本轮已实现。
+
+`GeometryQueryWorkingSet` 在 GPU 上归并同一 asset 的所有相关实例，产生 object-space 域包络及保守误差预算。世界域包含所有 cascade receivers 与 guard；实例八角 world bounds 不相关则不产生需求。局部域使用规范化逆变换、角点包围及舍入外扩，病态/非有限逆变换退为完整 asset。负/非均匀缩放保持同一数学。局部允许误差取 `max(voxelSize, lowerDistance × angularFootprint) × errorFraction / FrobeniusScale`，多个实例取最严格值；critical 标记优先于此预算。
+
+反馈分窗、三槽延迟读取，每窗最多4096 assets；只合并同一 frame 的全部窗口。它只服务后续帧的页 IO 和冷 publication，不用本帧 query/ray count readback 决定 dispatch。`GeometryQueryCut` 在不可变 Product DAG 上计算 replacement cohort 与 ancestor closure，再去重访问子 group、选择与局部域相交的 cluster；不能将同一个 refine group 的多个父 meshlet 分别展开为重复几何。selection 只生成 cluster/page 索引，不生成第二份 vertex/index/UV 库。
+
+`GeometryQueryCoverage` 必须重新使用**当前**共享实例和本次世界域，检查每个相关 asset 的需求包络是否包含在所选 cut 的覆盖包络中。缺 asset、遗漏已变动域、未支持形变、材质缺失均写 GPU unknown；CPU 的旧需求结果不能自行成为 coverage 证明。ray segment 的世界域检查仍独立存在。全空 cut 有显式的零 shard consumer，完整写出 miss/unknown；不保留上一批 ray result，不为它分配无 consumer 的 BLAS/TLAS build scratch。
+
+GPU 派生 query directory 为 v2：32B header、112B/cluster、4B prefix/cluster + terminal，外加4B/所选三角形的 source primitive remap。按**实际** cluster/triangle 数计算分段大小；一个 cluster 与其 remap 不能容纳时明确拒绝，不截断。record +60 是 Product cluster，+64 是 cut-local traversal prefix，+72 是 segment-local source remap word。`QueryTriangle.source_primitive` 用于稳定源身份；result 中的 traversal address 仍只用于本次 cut 的求交/coverage/shading，不用于跨 cut history。
+
 ### 4.3 生命周期
 
 静态 cluster BLAS 按 `(Product revision, cluster, cut, deformation revision)` 复用；TLAS 引实例 slot+generation、mask、变换、BLAS directory。相同 mesh 多实例共享 BLAS。刚体改变只改 instance view/TLAS；拓扑不变变形重算 leaf bounds/refit，质量恶化触发局部 rebuild/restructure；拓扑变更重建相关 BLAS。
 
 细页请求是 GPU demand→延迟流送，沿现有 IO/上传/背压。它允许跨帧 CPU 服务磁盘网络，不允许本帧 query count readback 决定本帧 dispatch。fine 未就绪继续用完整 coarse cut；精化发布与 AS directory 交换同事务。BLAS 持 page lease 直到最后一个使用该 AS 的 fence；raster 的 eviction 或紧凑池搬迁必须先发布新地址/重建引用，再退旧区间。不能读已被重用的物理地址。
+
+`ScgiQueryScenePublication` 只持一个 committed active 和一个同 command candidate。完整新 cut 的全部 page leases、directory、material、instance snapshot 与 AS 准备完成后才能 stage；缺页的准备失败保留 active。candidate 在其 build command 内 frame-readable，submit 后一次交换，abort 只撤 candidate；被替换 scene 的退休等待新提交 fence 和其自己登记的全部旧 consumer。失败 fence 保持隔离与退休计数，不释放共享页。旧 cut 只有其世界域、当前 source/material 及 GPU coverage 检查仍满足时才可服务新 transport，不能为了保持更新而使用 stale active。Renderer 默认接入和 geometry/raster/query/cache 联合 activation 仍在 SCGI-8 原子完成。
 
 **当前范围调整（用户2026-10-17本轮确认）。** 当前 `scene/SkinnedMesh.ts` 是标记子类，其他生产路径也尚无共享 skin/morph geometry producer，因此不在 SCGI-2 中提前建设动画系统，不以它阻塞本模块验收。当前支持静态 Product、刚体 current/previous transform、负/非均匀缩放与拓扑 Product replacement；`dynamic_revision` 非零但没有已绑定共享位置流时，coverage 返回 unknown，anchor 不伪造有效的 deformation history。这是未支持输入的显式语义，不能据此声称已支持 skin/morph。
 

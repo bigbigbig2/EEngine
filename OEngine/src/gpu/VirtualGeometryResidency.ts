@@ -1,4 +1,5 @@
 import { geometryQueryDirectorySegments } from "./GeometryQueryDirectory.js";
+import { geometryQueryCut, type GeometryQueryCut } from "./GeometryQueryCut.js";
 import { Signal } from "../core/Signal.js";
 import {
   OEGPACK_V3_PAGE_BYTES,
@@ -95,6 +96,7 @@ export interface GeometryQueryPageLease {
  * Metadata is copied once per snapshot; vertices/indices remain in the original
  * bank generation. Release only after the final query consumer has completed. */
 export interface GeometryQueryGeometryLease extends GeometryQueryPageLease {
+  readonly cut: GeometryQueryCut;
   /** GpuScene addresses the shared multi-Product metadata asset domain. */
   readonly assetReferenceBegin: number;
   readonly metadataByteLength: number;
@@ -889,27 +891,16 @@ export class VirtualGeometryResidency {
   }
 
   retainQueryGeometry(command?: ShadeGPUCommandContext,
-    segmentBytes = this.device.limits.maxStorageBufferBindingSize): GeometryQueryGeometryLease {
+    segmentBytes = this.device.limits.maxStorageBufferBindingSize,
+    cut: GeometryQueryCut = geometryQueryCut(this.#descriptor)): GeometryQueryGeometryLease {
     if (!Number.isSafeInteger(segmentBytes) || segmentBytes < 160) {
       throw new RangeError("Query directory segment budget must hold a complete cluster");
     }
     const descriptor = this.#descriptor;
-    const section = validateGeometryProductQuerySection(descriptor);
-    const pageIds: number[] = [];
-    const unique = new Set<number>();
-    for (let asset = 0; asset < section.assetCount; asset++) {
-      const at = section.assets + asset * 32;
-      const begin = section.view.getUint32(at + 16, true);
-      const count = section.view.getUint32(at + 20, true);
-      for (let index = 0; index < count; index++) {
-        const pageId = section.view.getUint32(section.minimumPages + (begin + index) * 4, true);
-        if (!unique.has(pageId)) {
-          unique.add(pageId);
-          pageIds.push(pageId);
-        }
-      }
+    if (cut.descriptor !== descriptor) {
+      throw new Error("Query cut belongs to a different admitted Product");
     }
-    const pages = this.retainQueryPages(pageIds, command);
+    const pages = this.retainQueryPages(cut.pages, command);
     const buffers: GPUBuffer[] = [];
     let releaseBudget: (() => void) | undefined;
     let segments: readonly GeometryQueryGeometrySegment[];
@@ -917,7 +908,7 @@ export class VirtualGeometryResidency {
     let primitiveCount = 0;
     try {
       const directory = geometryQueryDirectorySegments(descriptor, pages.pages, this.#productGeneration,
-        Math.min(segmentBytes, this.device.limits.maxBufferSize, this.device.limits.maxStorageBufferBindingSize));
+        Math.min(segmentBytes, this.device.limits.maxBufferSize, this.device.limits.maxStorageBufferBindingSize), cut);
       for (const segment of directory) {
         bytes += segment.bytes.byteLength;
         primitiveCount += segment.primitiveCount;
@@ -973,6 +964,7 @@ export class VirtualGeometryResidency {
       },
     });
     return Object.freeze({
+      cut,
       get valid() { return !released && pages.valid; },
       productTableSlot: pages.productTableSlot,
       productGeneration: pages.productGeneration,

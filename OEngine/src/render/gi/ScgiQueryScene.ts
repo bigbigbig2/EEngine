@@ -14,6 +14,7 @@ import { ScgiQueryGeometry } from "./ScgiQueryGeometry.js";
 import { scgiInteger } from "./ScgiCapacity.js";
 import { geometryQueryDomain, type GeometryQueryDomain } from "../../gpu/GeometryQueryDomain.js";
 import type { GeometryPageStreamingRuntimeV1 } from "../../gpu/GeometryPageStreamingRuntime.js";
+import { geometryQueryCut, type GeometryQueryCut } from "../../gpu/GeometryQueryCut.js";
 
 export interface ScgiQuerySceneProfile {
   readonly deviceEpoch: number;
@@ -27,6 +28,9 @@ export interface ScgiQuerySceneProfile {
   readonly domain?: GeometryQueryDomain;
   /** Finite physical directory window; defaults to the negotiated binding limit. */
   readonly directorySegmentBytes?: number;
+  /** Complete delayed GPU demand plans, keyed by the admitted descriptor.
+   * Absence explicitly requests the full-world exact Product cut. */
+  readonly queryCuts?: readonly GeometryQueryCut[];
 }
 
 export interface ScgiQuerySceneShard {
@@ -105,11 +109,21 @@ export class ScgiQueryScene {
     if (runtime.nativeMaterials === null || runtime.virtualGeometry === null || products.length === 0) {
       throw new Error("Query scene requires the existing Product and native material runtime");
     }
+    const cuts = products.map((product) => {
+      const selected = profile.queryCuts?.filter((cut) => cut.descriptor === product.descriptor);
+      if (selected !== undefined && selected.length !== 1) {
+        throw new Error("Query scene requires exactly one cut for every admitted Product");
+      }
+      return selected?.[0] ?? geometryQueryCut(product.descriptor);
+    });
+    if (profile.queryCuts !== undefined && profile.queryCuts.length !== products.length) {
+      throw new Error("Query cut publication contains an unrelated Product");
+    }
     // Request every Product before attempting any lease. A missing early
     // Product must not starve all later Products' coverage IO.
     if (streaming !== undefined) {
-      for (const product of products) {
-        streaming.requestQueryCoverage(product);
+      for (let index = 0; index < products.length; index++) {
+        streaming.requestQueryCut(products[index]!, cuts[index]!);
       }
     }
     const nativeLease = runtime.nativeMaterials.retainQuery(command);
@@ -117,13 +131,17 @@ export class ScgiQueryScene {
     try {
       owner = new ScgiQueryScene(device, profile, runtime, scene, nativeLease, accounting, command);
       const signatures = new Set<string>();
-      for (const product of products) {
+      for (let index = 0; index < products.length; index++) {
+        const product = products[index]!;
+        if (!product.publicationActive) {
+          throw new Error("Query scene cannot publish a dormant Product generation");
+        }
         const key = `${product.productTableSlot}/${product.productGeneration}`;
         if (signatures.has(key)) {
           throw new Error("Query scene Product identity is duplicated");
         }
         signatures.add(key);
-        owner.geometryLeases.push(product.retainQueryGeometry(command, profile.directorySegmentBytes));
+        owner.geometryLeases.push(product.retainQueryGeometry(command, profile.directorySegmentBytes, cuts[index]));
       }
       // Preflight the complete shard domain, including kernel-owned parameter
       // buffers. Admission never drops an asset or truncates its primitives.
@@ -136,12 +154,13 @@ export class ScgiQueryScene {
           }
         }
       }
-      const builderBytes = 2 * device.limits.minUniformBufferOffsetAlignment * 512 +
+      const builderBytes = shardCount === 0 ? 0 : 2 * device.limits.minUniformBufferOffsetAlignment * 512 +
         owner.blasPlan.scratch.ranges.indirect!.bytes + owner.tlasPlan.scratch.ranges.indirect!.bytes;
       const instanceBytes = Math.max(4, owner.sourceInstances.count * 128) + 64;
-      const coverageBytes = Math.max(16, owner.geometryLeases.length * 16) + 48;
-      const finalBytes = owner.bytes + coverageBytes + builderBytes + owner.blasPlan.scratch.bytes +
-        owner.tlasPlan.scratch.bytes + shardCount * (owner.blasPlan.hierarchy.bytes +
+      const coverageBytes = Math.max(48, owner.geometryLeases.reduce((count, lease) =>
+        count + lease.cut.assets.length, 0) * 48) + 48;
+      const scratchBytes = shardCount === 0 ? 0 : owner.blasPlan.scratch.bytes + owner.tlasPlan.scratch.bytes;
+      const finalBytes = owner.bytes + coverageBytes + builderBytes + scratchBytes + shardCount * (owner.blasPlan.hierarchy.bytes +
           owner.tlasPlan.hierarchy.bytes + instanceBytes + 32);
       if (!Number.isSafeInteger(finalBytes) || finalBytes > profile.maximumBytes) {
         throw new RangeError("Complete query AS publication exceeds the admitted working-set budget");
@@ -155,6 +174,11 @@ export class ScgiQueryScene {
       }
       owner.coverage = coverage;
       owner.bytes += coverage.byteLength;
+      if (shardCount === 0) {
+        owner.assertBudget();
+        owner.state = "ready";
+        return owner;
+      }
       owner.blasScratch = owner.allocate("SCGI/query BLAS build scratch", owner.blasPlan.scratch.bytes,
         GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST);
       owner.tlasScratch = owner.allocate("SCGI/query TLAS build scratch", owner.tlasPlan.scratch.bytes,

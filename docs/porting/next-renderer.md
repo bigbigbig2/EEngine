@@ -10,6 +10,10 @@ verifies:
     - OEngine/src/shaders/vsm_pair_page.ts
     - OEngine/src/gpu/GpuNativeMaterialScene.ts
     - OEngine/src/gpu/GeometryProductBytePool.ts
+    - OEngine/src/gpu/GeometryQueryCut.ts
+    - OEngine/src/gpu/GeometryQueryWorkingSet.ts
+    - OEngine/src/gpu/GeometryQueryCoverage.ts
+    - OEngine/src/render/gi/ScgiQueryScenePublication.ts
     - OEngine/src/gpu/GPUDescriptorCaches.ts
     - OEngine/src/render/surface
     - OEngine/src/framegraph/FrameGraph.ts
@@ -1791,3 +1795,5 @@ SCGI-4基础实施（2026-10-17，未关单）继续核读上述固定Unity revi
 SCGI-2/5阶段保存（2026-10-17，未关单）：上述RadeonRays revision的build_hlbvh_fallback.hlsl/scan/sort/update/restructure和intersector_common.hlsl算法适配对应本地`scgi_bvh_build.ts`、`ScgiBvhBuild.ts`、`scgi_query_geometry.ts`；portable hierarchical scan、dispatch间依赖、深度balanced rescue、parent continuation、native coverage bin/tail调度为本地WebGPU表达。GPU局部验证不提升production adoption，完整缺项见执行§7.7。共享skin/morph研究另查WickedEngine revision `cb4a81c853cbdf3b792ba539888a3353512ce52c`的`WickedEngine/shaders/skinningCS.hlsl::main`、`ShaderInterop_Renderer.h`（MIT，Turánszki János 2026）：morph先于skin、共享palette与输出、normal/tangent处理为Reference，尚未采用代码；其bindless/root constants不直接移入WebGPU，不能据此声明共享变形已实现。
 
 SCGI-2统一返工（2026-10-17）：`GeometryProductQuerySection` v3、`GeometryQueryDirectory`分段地址索引、`GeometryQueryDomain`及streaming glue为Local；cook source correspondence保留既有meshoptimizer/Nyx分组结果并附加source triangle/vertex remap，不移植另一套scene。query GPU group/meshlet校验及属性访问复用本仓库`geometry_source_decode`/`virtual_geometry_product`，不另造一套页解码ABI。用户本轮明确暂不实现skin/morph，WickedEngine skinning条目继续为后续动画模块的Reference，不作为SCGI-2完成前置；具体范围与未闭合项以执行§7.8为准，不提升production adoption。
+
+SCGI-2 query工作集（2026-10-17）：`GeometryQueryWorkingSet` 的GPU asset局部域归并、延迟反馈和容量窗口，`GeometryQueryCut` 的DAG replacement cohort/ancestor closure，directory v2 source remap、coverage包络复核及`ScgiQueryScenePublication`均为 **Local/Original integration**。逆矩阵归一化沿用本仓库`geometry_query_instances`的现行刚体数学，读取同一GpuScene/GeometryProduct；流送、三槽ring、页pin与最后consumer退休复用原owner。不宣称移植新的meshoptimizer简化/拓扑证明，不把Nyx raster coarse误差当薄墙/alpha保真证明；当前critical几何保持精确。既有Nyx/meshoptimizer与RadeonRays固定revision、license、阶段映射保持原记录，新的局部GPU验证不提升完整第三方算法adoption或默认生产GI状态。

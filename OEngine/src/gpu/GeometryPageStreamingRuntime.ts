@@ -1,4 +1,5 @@
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
+import type { GeometryQueryCut } from "./GeometryQueryCut.js";
 import type { GeometryProductRevisionSourceV1 } from "../assets/geometry-product/GeometryProductV1.js";
 import {
   GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
@@ -311,6 +312,21 @@ export class GeometryPageStreamingRuntimeV1 {
    * acquisition remains atomic in retainQueryGeometry after the frame has
    * published every page. Until then the caller must keep coverage unknown. */
   requestQueryCoverage(residency: VirtualGeometryResidency, nowMs = performance.now()): number {
+    return this.requestQueryPages(residency, residency.queryCoveragePages(), nowMs);
+  }
+
+  /** Delayed GPU world demand feeds the existing scheduler. It does not
+   * participate in raster/shadow feedback completeness or eviction aging. */
+  requestQueryCut(residency: VirtualGeometryResidency, cut: GeometryQueryCut,
+    nowMs = performance.now()): number {
+    if (cut.descriptor !== residency.descriptor) {
+      throw new Error("Query streaming cut belongs to a different Product");
+    }
+    return this.requestQueryPages(residency, cut.pages, nowMs);
+  }
+
+  private requestQueryPages(residency: VirtualGeometryResidency, pages: readonly number[],
+    nowMs: number): number {
     this.assertAlive();
     if (this.#residencies.get(residency.productGeneration) !== residency || !residency.publicationActive) {
       throw new Error("Query prefetch requires a registered active Product generation");
@@ -319,7 +335,7 @@ export class GeometryPageStreamingRuntimeV1 {
       throw new RangeError("Query prefetch time must be finite and nonnegative");
     }
     const demands = [];
-    for (const pageId of residency.queryCoveragePages()) {
+    for (const pageId of pages) {
       if (residency.pageLocation(pageId) !== undefined) {
         continue;
       }

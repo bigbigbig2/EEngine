@@ -69,6 +69,65 @@ function outwardFloat32(value: number, upper: boolean): number {
 /** Shared by the GPU certificate and instance view; singular/nonfinite bounds
  * remain relevant unknown geometry rather than being culled outside a domain. */
 export const GEOMETRY_QUERY_DOMAIN_WGSL = /* wgsl */ `
+struct QueryLocalDomain {
+  low: vec3f,
+  high: vec3f,
+  scale: f32,
+  full: bool,
+}
+fn query_finite3(value: vec3f) -> bool {
+  return all((bitcast<vec3u>(value) & vec3u(0x7f800000u)) != vec3u(0x7f800000u));
+}
+// Shared producer/certificate math. Ill-conditioned transforms retain the
+// entire asset; they never shrink coverage using an unstable inverse.
+fn query_instance_local_domain(instance: OEngineInstanceRecord, low: vec4f, high: vec4f) -> QueryLocalDomain {
+  let model = oengine_instance_current_object_to_world(instance);
+  let scale = sqrt(dot(model[0].xyz, model[0].xyz) +
+    dot(model[1].xyz, model[1].xyz) + dot(model[2].xyz, model[2].xyz));
+  var result = QueryLocalDomain(instance.bounds_min.xyz, instance.bounds_max.xyz, scale, true);
+  if (low.w == 0.0 || !query_finite3(vec3f(scale)) || scale == 0.0) {
+    return result;
+  }
+  let a = model[0].xyz / scale;
+  let b = model[1].xyz / scale;
+  let c = model[2].xyz / scale;
+  let r0 = cross(b, c);
+  let r1 = cross(c, a);
+  let r2 = cross(a, b);
+  let determinant = dot(a, r0);
+  if (!(abs(determinant) > 0.001)) {
+    return result;
+  }
+  let inverse = transpose(mat3x3f(r0, r1, r2)) * ((1.0 / determinant) / scale);
+  var local_low = vec3f(3.402823466e38);
+  var local_high = vec3f(-3.402823466e38);
+  var roundoff_scale = vec3f(0.0);
+  for (var corner = 0u; corner < 8u; corner++) {
+    let world = vec3f(select(low.x, high.x, (corner & 1u) != 0u),
+      select(low.y, high.y, (corner & 2u) != 0u),
+      select(low.z, high.z, (corner & 4u) != 0u));
+    let point = inverse * (world - model[3].xyz);
+    if (!query_finite3(point)) {
+      return result;
+    }
+    let absolute_input = abs(world) + abs(model[3].xyz);
+    roundoff_scale = max(roundoff_scale,
+      abs(inverse[0]) * absolute_input.x + abs(inverse[1]) * absolute_input.y +
+      abs(inverse[2]) * absolute_input.z);
+    local_low = min(local_low, point);
+    local_high = max(local_high, point);
+  }
+  // Deliberately wide forward-error envelope for normalization, cofactors,
+  // determinant, inverse and corner products, including cancellation.
+  let padding = max(vec3f(1.0), roundoff_scale) * (0.00006103515625 / abs(determinant));
+  if (!query_finite3(padding)) {
+    return result;
+  }
+  result.low = max(instance.bounds_min.xyz, local_low - padding);
+  result.high = min(instance.bounds_max.xyz, local_high + padding);
+  result.full = false;
+  return result;
+}
 fn query_instance_in_domain(instance: OEngineInstanceRecord, low: vec4f, high: vec4f) -> bool {
   if (low.w == 0.0) {
     return true;

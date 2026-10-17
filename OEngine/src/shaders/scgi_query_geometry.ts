@@ -213,6 +213,7 @@ struct QueryTriangle {
   valid: bool,
   cluster: u32,
   primitive: u32,
+  source_primitive: u32,
   p0: vec3f,
   p1: vec3f,
   p2: vec3f,
@@ -260,6 +261,7 @@ fn query_triangle(index: u32) -> QueryTriangle {
   result.valid = true;
   result.cluster = cluster;
   result.primitive = primitive;
+  result.source_primitive = product_heap[product_heap[at + 18u] + primitive];
   result.p0 = frame_vertex_position(v0);
   result.p1 = frame_vertex_position(v1);
   result.p2 = frame_vertex_position(v2);

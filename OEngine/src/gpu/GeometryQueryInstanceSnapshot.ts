@@ -50,9 +50,9 @@ export class GeometryQueryInstanceSnapshot {
     };
     try {
       this.sourceSnapshot = allocate("Geometry/query immutable source instances",
-        this.count * GPU_INSTANCE_RECORD_STRIDE);
+        Math.max(GPU_INSTANCE_RECORD_STRIDE, this.count * GPU_INSTANCE_RECORD_STRIDE));
       this.identitySnapshot = allocate("Geometry/query immutable instance lineage",
-        this.count * GPU_INSTANCE_IDENTITY_STRIDE);
+        Math.max(GPU_INSTANCE_IDENTITY_STRIDE, this.count * GPU_INSTANCE_IDENTITY_STRIDE));
     } catch (error) {
       for (const buffer of buffers) {
         buffer.destroy();

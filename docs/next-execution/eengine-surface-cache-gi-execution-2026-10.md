@@ -19,16 +19,16 @@ verifies:
 
 唯一详细设计为[SCGI设计](../next-design/eengine-surface-cache-gi-2026-10.md)。需求输入为[母稿](../reviews/EEngine_Surface_Cache_GI_WebGPU_Mother_Design_2026-10-17.md)；设计§17逐项映射母稿，设计§1列明勘误。本文件是细单元状态与实施结果唯一记录，workstream和粗执行不复制细状态。
 
-**SCGI-1与SCGI-3已闭合；SCGI-2、SCGI-4、SCGI-5均未闭合，生产GI未开启。** 用户2026-10-17授权先提交现有阶段实现，再补齐不可后移的SCGI-2前置、关闭SCGI-4，最后完成SCGI-5剩余机制与整体验收。用户本轮确认暂不实现 skin/morph，不以新建共享形变系统作为 SCGI-2 前置；完整 coverage、刚体动态及生命周期仍须真实验证。本次阶段保存不代表任一未闭合单元完成，当前返工与范围修正见§7.8，§7.7保留为此前快照。大模块结束停在下一模块边界，不自动继续Local Specular Cache/ReSTIR等。
+**SCGI-1、SCGI-2与SCGI-3的实现及局部验收已闭合；SCGI-4、SCGI-5未闭合，生产GI未开启。** SCGI-2当前交付为静态/刚体、精确coverage、GPU世界域工作集及本地publication，结果与边界见§7.9；完整Renderer集成仍按既定节奏在SCGI-8/10集中完成。用户2026-10-17授权先补齐SCGI-2，再复核关闭SCGI-4，最后完成SCGI-5剩余机制与整体验收。用户确认暂不实现skin/morph；未证保真的raster coarse不当有效遮挡，4GB不作复杂大场景承诺。§7.6～7.8保留此前实施快照，不覆盖本节与§7.9的当前状态。本轮停在SCGI-2边界，不自动提升SCGI-4/5或开始SCGI-6。
 
 ## 1. 完整范围、依赖与生产切换
 
 | 单元 | 内容 | 依赖 | 状态 |
 |---|---|---|---|
 | SCGI-1 | owner/publication/事务/能力与具体ABI | 源码基线和source map | 已完成，见§7 |
-| SCGI-2 | GeometryProduct query section、coverage cut、residency、共享刚体实例publication | 1 | 实施中，未关单 |
+| SCGI-2 | GeometryProduct query section、coverage cut、residency、共享刚体实例publication | 1 | 当前静态/刚体范围实现及局部验收完成，见§7.9；生产集成归8/10 |
 | SCGI-3 | cascaded sparse cache、ring/scroll/evict/defrag/rank | 1 | 已完成，见§7.5 |
-| SCGI-4 | half-res anchors、共享identity、screen history seed | 2、3 | 基础闭包已实施并验证；SCGI-2前置未齐，未关单，当前动画范围调整见§7.8 |
+| SCGI-4 | half-res anchors、共享identity、screen history seed | 2、3 | 基础闭包已实施并验证；待在SCGI-2当前产品上复核关单，本轮不自动关闭 |
 | SCGI-5 | 完整RadeonRays算法适配、query、material/alpha/VT | 1、2 | 实施中，未关单；先返工SCGI-2及SCGI-4，见§7.7 |
 | SCGI-6 | 全光源估计、punctual重连接、multi-bounce | 3、4、5 | 待实施 |
 | SCGI-7 | 统计、动态失效、A0/A1/A2过滤、L1 screen field | 6 | 待实施 |
@@ -584,3 +584,32 @@ stash 暂留作历史恢复点，不是当前实现的依赖，也不表示仍�
 全仓扩展Node run `scgi2-unified-full-tests-01.log` **没有通过**：发现Nyx runtime旧ABI5测试桩（已改6并targeted重跑通过）及与本轮未改shader对应的旧Nyx函数名来源审计失败；运行到无关BC压缩1024²/2048²参考分别约184s/710s后主动终止尚未完成的4096²用例。不能记为全套通过。current-scene合同首轮误将一次性signal listener在变更前消费，修正测试顺序后重跑；production GPU第二轮运行中改fixture触发harness源码一致性拒绝，固定源码后第三轮通过。所有原始失败保留。当前必需缺项仍是coarse/fine/guard工作集机制、完整场景原子切换与对应压力验收，不能借取消动画范围而关单。
 
 提交前最终受影响回归 `scgi2-current-scene-regression-01.log` 为287/287，覆盖上述新增current-scene与Native material合同；typecheck、新鲜build:test、完整build通过，docs-verify为0 findings/66 historical warnings，diff whitespace检查通过。所有结果只覆盖所述实现，SCGI-2状态保持实施中。
+
+### 7.9 SCGI-2 query cut、工作集与 publication 闭包（2026-10-17）
+
+**本轮范围。** 按用户要求连续完成剩余实现，只运行相关编译、极小语义与必要真实 GPU 输入输出；不重复整仓 Node、Renderer 全场景、benchmark 或 evidence/claim gate。skin/morph 仍按§7.8延期。本节更新§7.8关于“始终 pin 所传 Product 全部 leaf、缺工作集及本地原子交换”的实现事实；不提前关闭 SCGI-4/5 或开启默认 GI。
+
+**实际 producer→consumer。**
+
+1. `GeometryQueryWorkingSet` 读取同一 immutable GpuScene snapshot，以 world domain + guard 在 GPU 生成每 asset 的 object-space 包络和误差预算。多实例取 union/最严格误差，病态逆矩阵保全 asset，负/非均匀缩放沿共享刚体数学处理。每窗最多4096 assets，32B/asset 输出及三槽 ring；完成帧必须严格晚于 producer frame，同一 frame 所有窗口齐备才形成 cut，不把部分反馈当完整世界。
+2. `GeometryQueryCut` 在 Product DAG 做 refinement cohort 与 ancestor closure，去重同一 refine group 的多个父 meshlet，输出相交 cluster、唯一 page 集与 primitive count。cut 不依赖 raster visibility；inactive asset 和域外 cluster 不进入 query lease。全世界查询是显式完整 cut，并非为缺失需求构造另一套几何 fallback。
+3. `GeometryPageStreamingRuntime.requestQueryCut` 只将这些页接入原 scheduler、IO、stage、普通 frame publication 与背压。query feedback 不覆盖 raster/shadow 的 feedback-complete/age 水位。`retainQueryGeometry` 取得所选页的完整 candidate/committed 物理 lease；缺一页就不发布部分 cut。
+4. directory v2 按 `align16(36 + 116C + 4T)` 的真实大小分段，保留 source primitive remap；GPU `QueryTriangle` 保存 Product cluster/local primitive 和 source primitive，traversal result 另存本次 cut 的 address。页迁移、分段及其他 cluster 被剔除不改变源身份，traversal address 不冒充跨 cut history identity。
+5. `GeometryQueryCoverage` 将 `(Product slot, generation, asset reference)` 排序，在 GPU 二分定位当前实例对应的48B asset coverage record，复算当前域需求并检查包络包含。遗漏、teleport 超出旧域、未支持形变/材质等仍是 unknown；同一 source/material 的晚到 mutation 继续在编码及提交前拒绝。count/assetCount 是运行时 header 数据，coverage 与 demand PSO 按 device 复用，不按实例数、asset 数、voxel 或 quality 组合生成。
+6. `ScgiQueryScenePublication` 实现 active/candidate/retiring：完整 scene 只在其 build command 内提前可读，submit 一次交换，abort 保留 active；旧 cut 等全部登记 consumer 及 replacement fence，失败 fence 保留隔离与退休计数。全空 cut 显式写 ray miss/unknown，未覆盖的远射线不变成天空；不分配无 consumer 的 AS/build scratch，零实例 snapshot 至少满足一个真实 storage record 的绑定下限。
+
+**当前 coarse 的诚实边界。** 当前 cook 的合法 flags 仍为5（exact leaf + critical）和6（approximate + critical），所以现有 Product 的所有未证 coarse 必须精化；扩大误差预算不能跳过薄墙、门洞或 alpha。现在交付的是具有完整源质量、域内选页和正确 publication 的 query cut，不是有损 coarse 生成算法或已有 raster coarse 的保真证明。没有为凑功能另存一套低质 mesh，也没有宣称所有内容均能缩成小 coarse。所选域的 exact 工作集装不下就拒绝该 profile；目标内容需要更小的专用代理时，必须由 cook 另行提供真实保真证明及真实增量成本，不能把未实现的代理写成已采用。设计§4.2的“无合格 coarse 则承担真实 residency 成本”适用于当前 Product，不能据此宣称 coarse 减量。
+
+**事务与 origin。** cut 保存 object-space 覆盖，world domain 每次消费按当前 transform 重算。纯 origin rebase 同步变更 domain/transform 后可保持相同局部覆盖；真实 assembly 移动或 teleport 超出该覆盖则 unknown/重新准备。新 Product descriptor/generation 不能沿用旧 cut，page relocation 不能 retarget 旧物理 lease。SCGI-8 仍须将完整 query publication 与 raster/geometry/cache activation 接到统一 frame transaction；本轮本地 scene 交换不等于该生产集成已完成。
+
+**Cost Card（理论，不是 benchmark）。** 设每 Product 有 A assets、C clusters、E refinement references、所选 T triangles、P pages：新增需求 output + 三槽 staging 为 `128A + 96ceil(A/4096)` GPU bytes，另持同一192B×high-water source snapshot，零实例下限192B。冷 cut 临时工作为 `O(C+E)` 加排序，CPU feedback 只保有限窗口/帧，不持久累计未完成历史。query metadata 为上述真实分段公式，coverage 为 `48 + max(48,48ΣA)`；原 bank/page pin 与 retiring 重叠按原 owner 的真实 allocation bytes 计，不把共用 payload 记作免费。
+
+每次 demand 更新每 Product/window 有 reset 和 reduce 两个依赖 dispatch，reduce 读完整 captured high-water 域，最坏 `O(IΣceil(Aproduct/4096))`，不是已经 compact 的实际实例数；归并为每相关实例六个 bounds 原子、一次 flags OR、一次 error Min。coverage 为一个 dispatch、每相关实例 `O(log ΣA)` metadata 查找与角点逆变换。每 segment 的 CPU asset ranges 仍有原 `O(Nsegment·Nasset)` 成本；每 AS shard 的 affine snapshot/compaction、static BLAS reuse 和 build/trace 成本仍归 SCGI-5。以上均不宣称性能改善，不据 tiny fixture 推断4GB大场景能力。
+
+**局部验证记录。** 最终 `scgi2-query-cut-contract-final.log` 为6/6，包含精确空间 cut、跨 cut source identity、critical 强制细化、空目录、submit/abort/失败 fence。`scgi2-query-cut-gpu-01.log` 保留首轮失败：GPU 算法步骤无 device/scoped error，fixture 使用了宿主未实现的 `assert.throws`；仅改为显式捕获并检查原异常，不放宽断言。第二轮 `scgi2-query-cut-gpu-02.log` 通过近域选页、远页未加载、严格延迟反馈、teleport unknown、失败 replacement 保旧 lease 和创建前预算拒绝。
+
+最终 fresh build:test 为 `scgi2-query-cut-test-build-final.log`，真实 GPU 最终记录 `scgi2-query-cut-gpu-03.log` 通过：负/非均匀缩放、正常 scheduler IO→stage→candidate abort→retry、旧 cut 在页目录撤销及成功 fence 后仍保物理页、真实零实例snapshot及零shard miss/unknown。GPU device/scoped errors均为空；小fixture需求buffer+三槽+参数224B，目录160B、所选1页，不能外推大场景。`scgi2-query-cut-build-final.log` 的完整build通过。只运行上述3个明确测试文件、最小GPU oracle与相关编译，没有运行整仓回归或完整Renderer/画质/benchmark。
+
+**关单结论。** SCGI-2当前授权静态/刚体范围的实现与局部验收闭合：先前的全Product永久leaf pin、本地cut交换缺失及域变化无法复核已补齐。没有承诺有损coarse生成、skin/morph、默认GI画面或整Renderer性能通过。后续若内容提供新coarse证明/代理，须按Product版本与来源规则扩展，不能把现有flags6直接去critical后用于生产。
+
+**集成边界。** SCGI-8/10 负责全 Renderer activation、组合画面、全部故障/恢复与资源峰值/成本。SCGI-4/5 状态不随本节自动提升。旧全仓未完成 run 与无关 Nyx 审计失败仍按§7.8保存，不改写为本轮通过。

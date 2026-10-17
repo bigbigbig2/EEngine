@@ -11,6 +11,15 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "scgi-query-cut",
+    file: "OEngine/tests/oracle/scgi-query-cut-gpu.mjs",
+    url: "/OEngine/tests/oracle/scgi-query-cut-gpu.mjs",
+    entry: "runScgiQueryCutGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    timeoutMs: 60000,
+    description: "SCGI-2 GPU world-domain demand, bounded page cut, delayed streaming and current coverage."
+  }),
+  Object.freeze({
     name: "scgi-anchor",
     file: "OEngine/tests/oracle/scgi-anchor-gpu.mjs",
     url: "/OEngine/tests/oracle/scgi-anchor-gpu.mjs",

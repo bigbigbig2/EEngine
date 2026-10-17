@@ -3,6 +3,7 @@ import { ScgiQueryHitWork } from "./ScgiQueryHitWork.js";
 import { ScgiQueryTraversal } from "./ScgiQueryTraversal.js";
 import type { ScgiQueryScene } from "./ScgiQueryScene.js";
 import { scgiInteger } from "./ScgiCapacity.js";
+import { PipelineCompilationQueue } from "../../gpu/PipelineCompilationQueue.js";
 
 export interface ScgiQueryBatchInput {
   readonly batch: GPUBuffer;
@@ -35,6 +36,7 @@ export class ScgiQueryBatch {
   private inFlight = 0;
   private poisoned = false;
   private readonly commands = new WeakSet<ShadeGPUCommandContext>();
+  private emptyScene: { pipeline: GPUComputePipeline; group: GPUBindGroup } | undefined;
 
   private constructor(
     private readonly device: GPUDevice,
@@ -61,13 +63,26 @@ export class ScgiQueryBatch {
     input: ScgiQueryBatchInput): Promise<ScgiQueryBatch> {
     scgiInteger(input.wavefrontRounds, "query wavefront rounds", 0, 64);
     scgiInteger(input.rayCount, "query batch ray capacity", 1);
-    const continuationBytes = input.rayCount * 64;
+    if (!Number.isSafeInteger(input.resultByteOffset) || input.resultByteOffset % 4 !== 0 ||
+        input.resultByteOffset < input.rayCount * 48 ||
+        input.resultByteOffset + input.rayCount * 32 > input.batch.size ||
+        Math.ceil(input.rayCount / 64) > device.limits.maxComputeWorkgroupsPerDimension) {
+      throw new RangeError("Query batch requires complete nonoverlapping ray/result ranges");
+    }
+    const continuationBytes = scene.shards.length === 0 ? 0 : input.rayCount * 64;
     if ((!scene.prepared && !scene.valid) || continuationBytes >
         Math.min(device.limits.maxBufferSize, device.limits.maxStorageBufferBindingSize)) {
       throw new RangeError("Query batch requires its complete live scene and admitted continuation arena");
     }
     const owner = new ScgiQueryBatch(device, scene, input);
     try {
+      if (scene.shards.length === 0) {
+        await owner.prepareEmptyScene();
+        if (!scene.prepared && !scene.valid) {
+          throw new Error("Query scene retired during empty-domain preparation");
+        }
+        return owner;
+      }
       owner.continuation = device.createBuffer({ label: "SCGI/query continuation",
         size: continuationBytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
       owner.buffers.push(owner.continuation);
@@ -122,6 +137,68 @@ export class ScgiQueryBatch {
     }
   }
 
+  private async prepareEmptyScene(): Promise<void> {
+    const module = this.device.createShaderModule({ label: "SCGI/empty covered query", code: /* wgsl */ `
+struct Settings { count: u32, result_word: u32, reserved: vec2u, }
+@group(0) @binding(0) var<uniform> settings: Settings;
+@group(0) @binding(1) var<storage, read_write> batch: array<u32>;
+@group(0) @binding(2) var<storage, read> coverage: array<u32>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  if (id.x >= settings.count) {
+    return;
+  }
+  let ray = id.x * 12u;
+  let result = settings.result_word + id.x * 8u;
+  let origin = bitcast<vec3f>(vec3u(batch[ray], batch[ray + 1u], batch[ray + 2u]));
+  let direction = bitcast<vec3f>(vec3u(batch[ray + 4u], batch[ray + 5u], batch[ray + 6u]));
+  let t_min = bitcast<f32>(batch[ray + 3u]);
+  let t_max = bitcast<f32>(batch[ray + 7u]);
+  let start = origin + direction * t_min;
+  let end = origin + direction * t_max;
+  let low = bitcast<vec3f>(vec3u(coverage[4], coverage[5], coverage[6]));
+  let high = bitcast<vec3f>(vec3u(coverage[8], coverage[9], coverage[10]));
+  let finite_segment = all((bitcast<vec3u>(start) & vec3u(0x7f800000u)) != vec3u(0x7f800000u)) &&
+    all((bitcast<vec3u>(end) & vec3u(0x7f800000u)) != vec3u(0x7f800000u));
+  let finite_input = all((bitcast<vec3u>(origin) & vec3u(0x7f800000u)) != vec3u(0x7f800000u)) &&
+    all((bitcast<vec3u>(direction) & vec3u(0x7f800000u)) != vec3u(0x7f800000u)) &&
+    (bitcast<u32>(t_min) & 0x7f800000u) != 0x7f800000u;
+  let valid_max = (bitcast<u32>(t_max) & 0x7f800000u) != 0x7f800000u ||
+    bitcast<u32>(t_max) == 0x7f800000u;
+  var status = 1u;
+  if (coverage[0] != 0u || !finite_input || !valid_max || !(t_min <= t_max) || all(direction == vec3f(0.0)) ||
+      (coverage[7] != 0u && (!finite_segment ||
+        any(start < low) || any(start > high) || any(end < low) || any(end > high)))) {
+    status = 2u;
+  }
+  batch[result] = batch[ray + 7u];
+  batch[result + 1u] = 0u;
+  batch[result + 2u] = 0u;
+  batch[result + 3u] = status;
+  batch[result + 4u] = 0xffffffffu;
+  batch[result + 5u] = 0xffffffffu;
+  batch[result + 6u] = 0u;
+  batch[result + 7u] = 0u;
+}
+` });
+    const pipeline = await PipelineCompilationQueue.forDevice(this.device).run(() =>
+      this.device.createComputePipelineAsync({ layout: "auto", compute: { module, entryPoint: "main" } }));
+    if (this.destroyed) {
+      throw new Error("Query device was lost during empty-domain preparation");
+    }
+    const settings = this.device.createBuffer({ label: "SCGI/empty query parameters",
+      size: 16, usage: GPUBufferUsage.UNIFORM, mappedAtCreation: true });
+    this.buffers.push(settings);
+    new Uint32Array(settings.getMappedRange()).set([this.input.rayCount, this.input.resultByteOffset / 4, 0, 0]);
+    settings.unmap();
+    const group = this.device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: settings } },
+      { binding: 1, resource: { buffer: this.input.batch } },
+      { binding: 2, resource: { buffer: this.scene.coverageStatus } },
+    ] });
+    this.emptyScene = { pipeline, group };
+  }
+
   encode(command: ShadeGPUCommandContext): void {
     if (this.destroyed || this.poisoned || command.closed || command.device !== this.device || !this.scene.valid) {
       throw new Error("Query batch requires its encoded immutable scene publication");
@@ -139,6 +216,15 @@ export class ScgiQueryBatch {
       aborted: () => { this.inFlight--; },
       failed: () => { this.poisoned = true; },
     });
+    if (this.emptyScene !== undefined) {
+      const pass = command.gpu_encoder.beginComputePass({ label: "SCGI/empty covered query" });
+      pass.setPipeline(this.emptyScene.pipeline);
+      pass.setBindGroup(0, this.emptyScene.group);
+      pass.dispatchWorkgroups(Math.ceil(this.input.rayCount / 64));
+      pass.end();
+      command.clearBuffer(this.input.output);
+      return;
+    }
     command.clearBuffer(this.continuation);
     for (let round = 0; round < this.input.wavefrontRounds; round++) {
       for (const candidate of this.candidates) { candidate.encode(command); }
