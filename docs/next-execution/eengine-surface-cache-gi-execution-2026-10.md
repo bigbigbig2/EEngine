@@ -1072,4 +1072,6 @@ VSM helper每invocation重置资格，只有实际fine/coarse查询通过且rece
 
 公开GPU当帧header：Q230400/H518400，screen-valid18898→unique16304→Native writes16304，fault0，nonzero qualified solar reuse11584/missing0；最终双planestage为19317→16548→16548，reuse11840/missing0。计数表明主要省去无人消费的源，不是把实际Q降低。计数通过**主帧完成后local-only诊断encoder**读64B，不参与production决策，额外诊断submit不计主frame；生产仍1submit，仅原timestamp readback（coarse16B/stage320B）。截图及source图已打开检查：最终画面仍明显偏暗、有噪声，source紫色是未请求/invalid。原316ms失败、R2约68ms与本轮全部短样本保留，不追认AAA画质或实时目标。
 
-**来源与关闭边界。** 固定FidelityFX/Brixelizer参考不变；request-first exact Native共享、8B lookup/48B preparation、窗口drain与VSM资格是Local integration，非AMD整套port。R3所有生产route已原子切换并通过必要直接语义/生命周期检查，关闭本单元。代码和文档位于master工作区；本次未自动提交，未启动SCGI-10。后者集中完成公开实验屋收敛与动态画质、开放门边VSM误差、组合故障/退休峰值和稳定成本检查；本节不替代最终资格。
+**来源与关闭边界。** 固定FidelityFX/Brixelizer参考不变；request-first exact Native共享、8B lookup/48B preparation、窗口drain与VSM资格是Local integration，非AMD整套port。R3所有生产route已原子切换并通过必要直接语义/生命周期检查，关闭本单元。用户随后授权提交，R3已在master提交`db3a67fe`，未启动SCGI-10。后者集中完成公开实验屋收敛与动态画质、开放门边VSM误差、组合故障/退休峰值和稳定成本检查；本节不替代最终资格。
+
+**后续示例参数调整（用户授权，2026-10-18）。** 公开实验屋Sun/sky改与Bistro默认一致：2026日历day44/time13/latitude35/longitude0、太阳2.2×[1.474,1.8504,1.91198]、sky3、fixed exposure5、All lighting/aerial开启；复用Bistro sun-calendar计算。增加光照分量、日历/手动太阳、曝光诊断、Renderer与VSM调试面板及收起按钮。GI质量/采样和1080p/internal1不变，但光照与曝光条件已变，不能与本节旧条件数据直接比较。`typecheck:scgi`与`build:scgi`通过；真实1080p页面核对默认physical snapshot、收起/展开及depth debug切换通过，无page/GPU错误，截图已检查。该检查仅为demo接线，不是SCGI-10或GI收敛验收。

@@ -50,6 +50,10 @@ npm --prefix examples run demo:scgi
 
 默认点光源为零，日光走 Physical Environment / VSM。发光实验不附带点光源，不用额外环境补光掩盖 GI 误差。金属球是 specular 对照物，不是 diffuse GI 接收面。
 
+天空/光照默认值与 `bistro-texture-compression` 对齐：日历太阳开启，2026 年第 44 天（2 月 13 日）13:00，纬度35°/经度0°，Direct sun intensity 2.2，Sky energy 3，Fixed exposure 5，Lighting view=All，Aerial perspective开启。太阳方向直接复用Bistro的Astronomy Engine计算与North-Up-East坐标约定，线性太阳辐照度基值为[1.474,1.8504,1.91198]。这次改变了实验基准光照，不能把新画面/耗时直接与R1～R3旧默认采样当同条件比较；GI采样/容量和1920×1080/internal1保持原默认。
+
+右侧可收起的调试面板增加Sun/sky（日历与手动方向、能量、光照分量、航空透视）、Renderer视图、曝光模式/直方图percentile/一次性诊断以及VSM可见度/页状态/clip、filter/bias/coverage和rebuild/reset。与原参数一样，编辑后点“应用参数”；曝光策略变化会重建Renderer，单次曝光读回仅在点击时发生。GI调试、Renderer debug与VSM debug独立；检查某一个信号时关闭其余调试覆盖。AO/SSR调试需要开启对应效果才能观察有效信号。
+
 R3 后 diffuse source 调试图只展示实际请求且完成的源；紫色表示未请求或无有效源，黑色才可能是有效的零辐亮度。稀疏紫色背景不是最终画面，也不表示这些位置没有执行主 Surface 着色。
 
 ## 操作语义

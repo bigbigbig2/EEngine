@@ -3,7 +3,10 @@ import {
   createDefaultWebGeometryCookerModule,
   OrbitControls,
   PerspectiveCamera,
-  Renderer
+  Renderer,
+  VSM_DEFAULT_SETTINGS,
+  type VsmSettings,
+  type RenderDebugViewName
 } from "../../../../OEngine/src/index.ts";
 import {
   SURFACE_CACHE_GI_DEFAULTS,
@@ -20,6 +23,11 @@ import {
   type ExperimentName,
   type SceneParameters
 } from "./scene.ts";
+import {
+  calendarSunDirection,
+  formatSunDay,
+  formatSunTime
+} from "../bistro-texture-compression/sun-calendar.ts";
 
 const element = <T extends HTMLElement>(id: string) => {
   const result = document.getElementById(id);
@@ -69,6 +77,11 @@ interface Presentation {
   width: number;
   scale: number;
   exposure: number;
+  autoExposure: boolean;
+  exposureLow: number;
+  exposureHigh: number;
+  exposureHeadroom: number;
+  debugView: RenderDebugViewName;
   temporal: boolean;
   jitter: boolean;
   ao: boolean;
@@ -79,7 +92,12 @@ interface Presentation {
 const presentation: Presentation = {
   width: 1920,
   scale: 1,
-  exposure: 4,
+  exposure: 5,
+  autoExposure: false,
+  exposureLow: 0.6,
+  exposureHigh: 0.95,
+  exposureHeadroom: 2,
+  debugView: "none",
   temporal: true,
   jitter: false,
   ao: false,
@@ -103,6 +121,7 @@ if (Number.isInteger(launchBatch) && launchBatch >= 1 && launchBatch <= 65536) {
   gi.batchRays = launchBatch;
 }
 const sceneParameters: SceneParameters = { ...SCENE_DEFAULTS };
+const vsm: Mutable<VsmSettings> = { ...VSM_DEFAULT_SETTINGS };
 const experiment = {
   preset: "sun" as ExperimentName,
   camera: "main" as CameraName,
@@ -326,13 +345,73 @@ function buildControls(): void {
   number(scene, sceneParameters, "blocker", "走廊遮挡比例", 0, 1, 0.05);
   number(scene, sceneParameters, "emitterX", "发光片 X 偏移 (m)", -0.4, 0.4, 0.05);
   number(scene, sceneParameters, "emission", "发光强度 (HDR)", 0, 100, 0.5);
-  number(scene, sceneParameters, "sun", "太阳辐照度倍率", 0, 20, 0.1);
-  number(scene, sceneParameters, "sunElevation", "太阳高度 (°)", 5, 85);
-  number(scene, sceneParameters, "sunAzimuth", "太阳方位 (°)", -180, 180);
-  number(scene, sceneParameters, "sky", "天空亮度倍率", 0, 3, 0.05);
   number(scene, sceneParameters, "point", "诊断点光源强度", 0, 50, 0.5);
   toggle(scene, sceneParameters, "coloredWalls", "红 / 绿反弹墙");
   number(scene, sceneParameters, "roughness", "白墙粗糙度", 0.05, 1, 0.05);
+
+  const sky = group(
+    "Sun / sky · 与 Bistro 一致",
+    "2026 · local solar time；+X north / +Y up / +Z east。拖动后松开、点击应用参数生效；天空能量控制背景、环境照明和航空散射，太阳独立。",
+    true
+  );
+  toggle(sky, sceneParameters, "sunCalendar", "Date / time sun");
+  const calendar = document.createElement("div");
+  sky.append(calendar);
+  number(calendar, sceneParameters, "sunDay", "Day of year", 1, 365);
+  number(calendar, sceneParameters, "sunTime", "Time of day", 0, 24, 0.1);
+  number(calendar, sceneParameters, "sunLatitude", "Latitude (°)", -90, 90, 0.1);
+  number(calendar, sceneParameters, "sunLongitude", "Longitude (°)", -180, 180, 0.1);
+  const manual = document.createElement("div");
+  sky.append(manual);
+  number(manual, sceneParameters, "sunElevation", "太阳高度 (°)", -90, 90);
+  number(manual, sceneParameters, "sunAzimuth", "太阳方位 (°)", -180, 180);
+  const sunLabel = document.createElement("p");
+  sunLabel.className = "hint";
+  sky.append(sunLabel);
+  const syncSun = () => {
+    calendar.hidden = !sceneParameters.sunCalendar;
+    manual.hidden = sceneParameters.sunCalendar;
+    const position = sceneParameters.sunCalendar
+      ? calendarSunDirection({
+          dayOfYear: sceneParameters.sunDay,
+          timeOfDay: sceneParameters.sunTime,
+          latitude: sceneParameters.sunLatitude,
+          longitude: sceneParameters.sunLongitude
+        })
+      : null;
+    sunLabel.textContent = position
+      ? `${formatSunDay(sceneParameters.sunDay)} · ${formatSunTime(sceneParameters.sunTime)} · Sun altitude ${position.altitudeDegrees.toFixed(1)}°`
+      : "手动太阳方向（实验屋高度 / 方位）";
+  };
+  sky.addEventListener("change", () => {
+    if (Array.from(calendar.querySelectorAll("input")).every((input) => input.checkValidity())) {
+      syncSun();
+    }
+  });
+  inputRefreshers.push(syncSun);
+  number(sky, sceneParameters, "sun", "Direct sun intensity", 0, 4, 0.05);
+  number(sky, sceneParameters, "sky", "Sky energy", 0, 4, 0.05);
+  select(
+    sky,
+    sceneParameters,
+    "lightingView",
+    "Lighting view",
+    [
+      ["all", "All lighting"],
+      ["background-only", "Sky background only"],
+      ["diffuse-only", "Sky diffuse IBL only"],
+      ["specular-only", "Sky specular IBL only"],
+      ["direct-only", "Direct lighting only"],
+      ["aerial-only", "Aerial scattering only"]
+    ],
+    true
+  );
+  toggle(sky, sceneParameters, "aerial", "Aerial perspective");
+  const diagnosticNote = document.createElement("p");
+  diagnosticNote.className = "hint";
+  diagnosticNote.textContent =
+    "Lighting view 隔离物理环境的着色分量；GI 与自身调试独立。检查单一分量时可关闭 SCGI。固定曝光便于比较；Unlit 保持显示。";
+  sky.append(diagnosticNote);
 
   const cache = group(
     "03 · World Surface Cache",
@@ -384,13 +463,102 @@ function buildControls(): void {
     ["0.75", "0.75"],
     ["1", "1.0"]
   ]);
-  number(display, presentation, "exposure", "固定曝光", 0.0625, 32, 0.0625);
+  select(
+    display,
+    presentation,
+    "debugView",
+    "Renderer debug view",
+    [
+      ["none", "Final shaded"],
+      ["visibility-key", "Triangle / visibility key"],
+      ["meshlet-id", "Meshlet ID"],
+      ["material-id", "Material ID"],
+      ["depth", "Reverse-Z depth"],
+      ["velocity", "Temporal motion (UV)"],
+      ["history-validity", "Temporal validity"],
+      ["reactive", "Soft reactive"],
+      ["linear-hdr", "Pre-exposed HDR"],
+      ["ambient-occlusion", "Screen AO (Visibility)"],
+      ["screen-space-reflection-hit-miss", "SSR hit / miss"],
+      ["screen-space-reflection-resolve", "SSR prefilter radiance"],
+      ["screen-space-reflection-temporal", "SSR temporal radiance"],
+      ["screen-space-reflection-history-confidence", "SSR history acceptance"]
+    ],
+    true
+  );
+  toggle(display, presentation, "autoExposure", "Auto exposure（关闭=Fixed）");
+  number(display, presentation, "exposure", "Fixed exposure", 0.01, 64, 0.01);
+  number(display, presentation, "exposureLow", "Meter low percentile", 0, 0.97, 0.01);
+  number(display, presentation, "exposureHigh", "Meter high percentile", 0.01, 0.98, 0.01);
+  number(display, presentation, "exposureHeadroom", "Highlight headroom", 0, 16, 0.1);
+  const exposureStatus = document.createElement("p");
+  exposureStatus.className = "hint";
+  exposureStatus.textContent = "Exposure 诊断仅按按钮读回，不参与每帧控制。";
+  const readExposure = document.createElement("button");
+  readExposure.type = "button";
+  readExposure.textContent = "读取 Exposure（一次）";
+  readExposure.addEventListener("click", () => {
+    void schedule(async () => {
+      exposureStatus.textContent = JSON.stringify(await renderer.readExposureDiagnostics());
+    });
+  });
+  const resetExposure = document.createElement("button");
+  resetExposure.type = "button";
+  resetExposure.textContent = "Reset exposure";
+  resetExposure.addEventListener("click", () => {
+    void schedule(async () => {
+      renderer.resetExposure();
+      exposureStatus.textContent = "Exposure reset；下一帧后可重新读取。";
+      await frames(1, false);
+    });
+  });
+  display.append(readExposure, resetExposure, exposureStatus);
   toggle(display, presentation, "temporal", "Temporal 重建");
   toggle(display, presentation, "jitter", "Temporal jitter");
   toggle(display, presentation, "ao", "XeGTAO");
   toggle(display, presentation, "ssr", "SSSR");
   toggle(display, presentation, "bloom", "Bloom");
   toggle(display, presentation, "shadows", "VSM / 太阳阴影");
+  const shadow = group(
+    "VSM · 调试 / 滤波",
+    "白=受光、黑=遮挡、紫=无有效页。参数沿 Renderer 公共 VSM 设置生效，视图不用于性能测量。"
+  );
+  select(shadow, vsm, "debugView", "VSM debug view", [
+    ["none", "Final shaded"],
+    ["visibility", "Shadow visibility"],
+    ["clip-level", "Clip levels"],
+    ["page-state", "Page state"]
+  ]);
+  select(shadow, vsm, "filterMode", "Shadow filter", [
+    ["disk4", "Vogel disk: 4 samples"],
+    ["gather2x2", "Stable 2×2"],
+    ["point", "Hard shadow"]
+  ]);
+  number(shadow, vsm, "filterRadiusTexels", "Filter radius (texels)", 0, 3, 0.05);
+  number(shadow, vsm, "depthBiasTexels", "Depth bias (texels)", 0, 8, 0.05);
+  number(shadow, vsm, "angularBiasTexels", "Angular depth bias (texels)", 0, 8, 0.05);
+  number(shadow, vsm, "clipExtentScale", "Coverage scale", 0.25, 4, 0.05);
+  for (const [title, reset] of [
+    ["Rebuild pages", false],
+    ["Reset VSM", true]
+  ] as const) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = title;
+    button.addEventListener("click", () => {
+      void schedule(async () => {
+        if (reset) {
+          Object.assign(vsm, VSM_DEFAULT_SETTINGS);
+          renderer.setVsmSettings(vsm);
+          refreshInputs();
+        } else {
+          renderer.invalidateVsmPages();
+        }
+        await frames(1, false);
+      });
+    });
+    shadow.append(button);
+  }
   const advanced = group(
     "06 · 工作容量 / 执行",
     "超过设备或工作集上界会明确报错，不截断几何。batchRays 是执行批大小，不是每像素 ray 数。参数上限仅是本 demo 的交互范围。"
@@ -456,8 +624,13 @@ async function createRenderer(): Promise<void> {
     throw new Error("无法创建 WebGPU canvas context");
   }
   renderer = new Renderer({
-    autoExposure: false,
+    autoExposure: presentation.autoExposure,
     fixedExposure: presentation.exposure,
+    exposure: {
+      lowPercentile: presentation.exposureLow,
+      highPercentile: presentation.exposureHigh,
+      highlightHeadroom: presentation.exposureHeadroom
+    },
     enableVsm: true,
     enablePhysicalEnvironment: true,
     surfaceCacheGi: gi,
@@ -514,6 +687,8 @@ function applyPresentation(): void {
   renderer.temporal_jitter_enabled = presentation.jitter;
   renderer.bloom_enabled = presentation.bloom;
   renderer.shadowVisibilityEnabled = presentation.shadows;
+  renderer.render_debug_view = presentation.debugView;
+  renderer.setVsmSettings(vsm);
   renderer.setAmbientOcclusionSettings({ enabled: presentation.ao });
   renderer.setScreenSpaceReflectionsSettings({ enabled: presentation.ssr });
   renderer.invalidateTemporalHistory();
@@ -615,6 +790,10 @@ async function apply(): Promise<void> {
     message(error instanceof Error ? error.message : String(error), "error");
     return;
   }
+  if (presentation.exposureLow >= presentation.exposureHigh) {
+    message("Meter low percentile 必须小于 Meter high percentile。", "error");
+    return;
+  }
   const presetChanged = appliedExperiment !== experiment.preset;
   if (presetChanged) {
     Object.assign(sceneParameters, SCENE_DEFAULTS, EXPERIMENTS[experiment.preset].parameters);
@@ -639,7 +818,9 @@ async function apply(): Promise<void> {
   activeScene = { ...sceneParameters };
   activeAnimate = experiment.animate;
   applyScene(false);
-  const rebuild = presentation.exposure !== appliedPresentation.exposure;
+  const rebuild = (
+    ["exposure", "autoExposure", "exposureLow", "exposureHigh", "exposureHeadroom"] as const
+  ).some((key) => presentation[key] !== appliedPresentation[key]);
   if (rebuild) {
     message("曝光配置变化：退休 Renderer，复用 CPU GeometryProduct 重新上传…");
     await renderer.device.queue.onSubmittedWorkDone();
@@ -650,6 +831,7 @@ async function apply(): Promise<void> {
     await createRenderer();
   } else {
     renderer.setSurfaceCacheGiSettings(validated);
+    renderer.setVsmSettings(vsm);
     if (JSON.stringify(presentation) !== JSON.stringify(appliedPresentation)) {
       applyPresentation();
     } else {
@@ -668,7 +850,12 @@ async function apply(): Promise<void> {
   // Gather is a previous-submission signal. A paused diagnostic must show a
   // consumer frame after its first producer frame, not only the cleared reset.
   await frames(renderer.surfaceCacheGiSettings.gather ? 2 : 1, false);
-  element("signal-label").textContent = debugModes.find(([key]) => key === gi.debug)?.[1] ?? gi.debug;
+  element("signal-label").textContent =
+    presentation.debugView !== "none"
+      ? `Renderer · ${presentation.debugView}`
+      : vsm.debugView !== "none"
+        ? `VSM · ${vsm.debugView}`
+        : (debugModes.find(([key]) => key === gi.debug)?.[1] ?? gi.debug);
   message("参数已应用；可继续累积、播放实验或导出当前帧。");
 }
 
@@ -686,6 +873,9 @@ function snapshot() {
     simulation: { tick: simulationTick, secondsPerTick: 1 / 30, animate: activeAnimate },
     authoredScene: { ...activeScene },
     effectiveScene: { ...effectiveScene },
+    physicalEnvironment: lab.scene.physical_environment.snapshot(),
+    vsm: renderer.vsmSettings,
+    rendererDebugView: renderer.render_debug_view,
     camera: {
       selectedView: selectedCamera,
       eye: [camera.transform.position.x, camera.transform.position.y, camera.transform.position.z],
@@ -874,6 +1064,15 @@ async function live(): Promise<void> {
 }
 
 buildControls();
+element("toggle-panel").addEventListener("click", () => {
+  const workspace = document.querySelector(".workspace")!;
+  const collapsed = workspace.classList.toggle("panel-collapsed");
+  element("toggle-panel").setAttribute("aria-expanded", String(!collapsed));
+  element("toggle-panel").textContent = collapsed ? "展开调试面板" : "收起调试面板";
+});
+for (const type of ["keydown", "keyup", "wheel"] as const) {
+  element("debug-panel").addEventListener(type, (event) => event.stopPropagation());
+}
 element("run").addEventListener("click", () => {
   running = !running;
   refreshAvailability();

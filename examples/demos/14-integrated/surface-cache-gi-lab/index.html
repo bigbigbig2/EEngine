@@ -20,6 +20,7 @@
           <button id="warm" disabled>累积指定帧</button>
           <button id="fullscreen" disabled>全屏查看</button>
           <button id="capture" disabled>截图 + JSON</button>
+          <button id="toggle-panel" aria-controls="debug-panel" aria-expanded="true">收起调试面板</button>
         </div>
       </header>
       <section class="workspace">
@@ -68,9 +69,9 @@
           </details>
           <section id="captures" aria-label="截图结果"></section>
         </div>
-        <aside>
+        <aside id="debug-panel">
           <div class="panel-title">
-            <h2>实验控制</h2>
+            <h2>实验 / 渲染调试</h2>
             <span id="dirty">已应用</span>
           </div>
           <p class="muted">修改后点“应用参数”。预设会重置场景光照与相机；不会擅自覆盖 GI 质量。</p>

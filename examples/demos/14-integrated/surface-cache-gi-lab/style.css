@@ -83,6 +83,12 @@ input:focus-visible {
   padding: 22px 26px;
   min-width: 0;
 }
+.workspace.panel-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+.workspace.panel-collapsed aside {
+  display: none;
+}
 .viewbar {
   display: flex;
   justify-content: space-between;

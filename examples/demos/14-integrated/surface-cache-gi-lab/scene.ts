@@ -5,6 +5,8 @@ import {
   Scene,
   StandardShadeMaterial
 } from "../../../../OEngine/src/index.ts";
+import type { PhysicalLightingDiagnostic } from "../../../../OEngine/src/index.ts";
+import { calendarSunDirection } from "../bistro-texture-compression/sun-calendar.ts";
 import { Attribute } from "../../../../OEngine/src/geometry/Attribute.ts";
 import { MeshletGeometryBase } from "../../../../OEngine/src/geometry/BoxGeometry.ts";
 import { Geometry } from "../../../../OEngine/src/geometry/Geometry.ts";
@@ -34,7 +36,14 @@ export interface SceneParameters {
   sun: number;
   sunElevation: number;
   sunAzimuth: number;
+  sunCalendar: boolean;
+  sunDay: number;
+  sunTime: number;
+  sunLatitude: number;
+  sunLongitude: number;
   sky: number;
+  lightingView: PhysicalLightingDiagnostic;
+  aerial: boolean;
   point: number;
   coloredWalls: boolean;
   roughness: number;
@@ -46,10 +55,17 @@ export const SCENE_DEFAULTS: Readonly<SceneParameters> = Object.freeze({
   blocker: 0,
   emitterX: 0,
   emission: 0,
-  sun: 3,
+  sun: 2.2,
   sunElevation: 28,
   sunAzimuth: -100,
-  sky: 0.15,
+  sunCalendar: true,
+  sunDay: 44,
+  sunTime: 13,
+  sunLatitude: 35,
+  sunLongitude: 0,
+  sky: 3,
+  lightingView: "all",
+  aerial: true,
   point: 0,
   coloredWalls: true,
   roughness: 0.85
@@ -227,7 +243,6 @@ export function createLabScene() {
   point.intensity = 0;
   point.casts_shadow = true;
   scene.add(point);
-  scene.physical_environment.setLightingDiagnostic("all", false);
   let applied: SceneParameters | undefined;
 
   function apply(parameters: SceneParameters): void {
@@ -266,21 +281,40 @@ export function createLabScene() {
       !applied ||
       applied.sun !== parameters.sun ||
       applied.sunAzimuth !== parameters.sunAzimuth ||
-      applied.sunElevation !== parameters.sunElevation
+      applied.sunElevation !== parameters.sunElevation ||
+      applied.sunCalendar !== parameters.sunCalendar ||
+      applied.sunDay !== parameters.sunDay ||
+      applied.sunTime !== parameters.sunTime ||
+      applied.sunLatitude !== parameters.sunLatitude ||
+      applied.sunLongitude !== parameters.sunLongitude
     ) {
       const elevation = (parameters.sunElevation * Math.PI) / 180;
       const azimuth = (parameters.sunAzimuth * Math.PI) / 180;
       scene.physical_environment.setSun(
-        [
-          Math.sin(azimuth) * Math.cos(elevation),
-          Math.sin(elevation),
-          Math.cos(azimuth) * Math.cos(elevation)
-        ],
-        [parameters.sun, parameters.sun * 0.93, parameters.sun * 0.82]
+        parameters.sunCalendar
+          ? calendarSunDirection({
+              dayOfYear: parameters.sunDay,
+              timeOfDay: parameters.sunTime,
+              latitude: parameters.sunLatitude,
+              longitude: parameters.sunLongitude
+            }).direction
+          : [
+              Math.sin(azimuth) * Math.cos(elevation),
+              Math.sin(elevation),
+              Math.cos(azimuth) * Math.cos(elevation)
+            ],
+        [1.474 * parameters.sun, 1.8504 * parameters.sun, 1.91198 * parameters.sun]
       );
     }
     if (!applied || applied.sky !== parameters.sky) {
       scene.physical_environment.setSkyLuminanceScale(parameters.sky);
+    }
+    if (
+      !applied ||
+      applied.lightingView !== parameters.lightingView ||
+      applied.aerial !== parameters.aerial
+    ) {
+      scene.physical_environment.setLightingDiagnostic(parameters.lightingView, parameters.aerial);
     }
     applied = { ...parameters };
   }
