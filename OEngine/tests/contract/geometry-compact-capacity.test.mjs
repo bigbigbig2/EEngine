@@ -42,6 +42,13 @@ function device() {
   };
 }
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+async function waitForCapacityRequest(runtime) {
+  const deadline = performance.now() + 5000;
+  while (!runtime.evidence().capacityPending) {
+    assert.ok(performance.now() < deadline, "Admission did not reach metadata capacity preparation");
+    await tick();
+  }
+}
 
 test("query geometry snapshots require complete offscreen coverage and own immutable directories", async () => {
   const gpu = device();
@@ -55,38 +62,36 @@ test("query geometry snapshots require complete offscreen coverage and own immut
   residency.preparePublication(aborted, [2]);
   const discarded = residency.retainQueryGeometry(aborted);
   assert.deepEqual(discarded.pages.map((page) => page.pageId), [2]);
-  const directoryBefore = discarded.metadata.bytes.slice();
+  const directoryBefore = discarded.segments[0].metadata.bytes.slice();
   aborted.abort(new Error("discard immutable candidate"));
   assert.equal(discarded.valid, false);
-  assert.equal(discarded.metadata.destroyed, true);
+  assert.equal(discarded.segments[0].metadata.destroyed, true);
   const command = geometryPublicationCommand();
   residency.preparePublication(command, [2]);
   const snapshot = residency.retainQueryGeometry(command);
   command.submit();
   assert.equal(snapshot.valid, true);
-  assert.deepEqual(snapshot.metadata.bytes, directoryBefore);
-  const header = new DataView(snapshot.metadata.bytes.buffer);
-  const recordAt = header.getUint32(16, true) * 4 + snapshot.productTableSlot * 64;
-  assert.equal(header.getUint32(recordAt + 4, true), 1);
-  const pageAt = header.getUint32(40, true) * 4;
-  assert.equal(header.getUint32(pageAt, true), 0xffffffff, "bootstrap is not the query cut");
-  assert.notEqual(header.getUint32(pageAt + 32, true), 0xffffffff);
-  assert.equal(header.getUint32(snapshot.querySectionWordOffset * 4, true), 0x3251474f);
+  assert.deepEqual(snapshot.segments[0].metadata.bytes, directoryBefore);
+  const header = new DataView(snapshot.segments[0].metadata.bytes.buffer);
+  assert.equal(header.getUint32(0, true), 0x31445147);
+  assert.equal(header.getUint32(16, true), snapshot.productGeneration);
+  assert.equal(header.getUint32(32, true), 2, "only exact offscreen query cut is indexed");
+  assert.equal(header.getUint32(32 + 80 + 4, true), snapshot.pages[0].location.byteOffset);
   residency.beginRetirePage(2);
   const retire = geometryPublicationCommand();
   residency.preparePublication(retire, []);
   retire.submit();
   await tick();
-  assert.deepEqual(snapshot.metadata.bytes, directoryBefore);
+  assert.deepEqual(snapshot.segments[0].metadata.bytes, directoryBefore);
   await assert.rejects(snapshot.releaseAfter(Promise.reject(new Error("query fence failed"))), /query fence failed/);
   assert.equal(snapshot.valid, false);
-  assert.equal(snapshot.metadata.destroyed, false, "failed fence cannot reclaim resources");
+  assert.equal(snapshot.segments[0].metadata.destroyed, false, "failed fence cannot reclaim resources");
   assert.equal(residency.evidence().retiringPages, 1);
   await snapshot.releaseAfter(Promise.resolve());
-  assert.equal(snapshot.metadata.destroyed, false, "an unrelated successful fence cannot clear poison");
+  assert.equal(snapshot.segments[0].metadata.destroyed, false, "an unrelated successful fence cannot clear poison");
   assert.equal(residency.evidence().retiringPages, 1);
   residency.abandonForDeviceLoss();
-  assert.equal(snapshot.metadata.destroyed, true);
+  assert.equal(snapshot.segments[0].metadata.destroyed, true);
   assert.equal(residency.evidence().retiringPages, 0);
   runtime.destroy();
   assert.equal(geometryProductGpuBudgetEvidence(gpu).totalBytes, 0);
@@ -540,7 +545,7 @@ test("metadata growth preserves record indices and payload, retries in ordinary 
   const firstRecord = runtime.tableRecord(0);
   const initialLocation = first.residency.pageLocation(0);
   const pending = runtime.load((await streamingProductFixture(3, 1)).source);
-  await tick();
+  await waitForCapacityRequest(runtime);
   const aborted = geometryPublicationCommand();
   GeometryProductBytePool.prepareDeviceFrame(gpu, aborted);
   const failed = bindings.metadata;
@@ -632,7 +637,7 @@ test("one metadata section grows without increasing other record capacities", as
     const before = runtime.evidence();
     const location = first.residency.pageLocation(0);
     const pending = runtime.load((await streamingProductFixture(3, 1)).source);
-    await tick();
+    await waitForCapacityRequest(runtime);
     const command = geometryPublicationCommand();
     GeometryProductBytePool.prepareDeviceFrame(gpu, command);
     command.submit();

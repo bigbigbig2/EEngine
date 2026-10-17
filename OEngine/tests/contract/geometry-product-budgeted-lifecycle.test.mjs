@@ -62,6 +62,79 @@ const demand = (slot, generation, pageId, priority = 0) => ({
   shadow: false,
 });
 
+test("query digest rejection precedes capacity growth, source IO and Product publication", async () => {
+  const gpu = device();
+  const runtime = new GeometryProductMultiRuntimeV1(gpu, {
+    metadataBytes: 64 * 1024,
+    residency: { configuredCapacityBytes: 2 * MiB },
+  });
+  let released = 0;
+  let reads = 0;
+  try {
+    const fixture = await streamingProductFixture(3);
+    const sectionBytes = fixture.descriptor.querySection;
+    Object.defineProperty(fixture.descriptor, "querySection", { value: sectionBytes });
+    const view = new DataView(sectionBytes.buffer, sectionBytes.byteOffset, sectionBytes.byteLength);
+    const vertexOffset = view.getUint32(108, true);
+    view.setUint32(vertexOffset, view.getUint32(vertexOffset, true) ^ 1, true);
+    const before = gpu.buffers.length;
+    await assert.rejects(runtime.load({
+      descriptor: fixture.descriptor,
+      readPage() { reads++; throw new Error("Untrusted query reached source IO"); },
+      release() { released++; },
+    }), /content hash mismatch/);
+    assert.equal(gpu.buffers.length, before);
+    assert.equal(reads, 0);
+    assert.equal(released, 1);
+  } finally {
+    runtime.destroy();
+  }
+});
+
+test("queued admission and replacement capture metadata before the first async boundary", async () => {
+  const runtime = new GeometryProductMultiRuntimeV1(device(), {
+    metadataBytes: 64 * 1024,
+    residency: { configuredCapacityBytes: 2 * MiB },
+  });
+  try {
+    const first = await streamingProductFixture(3);
+    const loading = runtime.load(first.source);
+    first.descriptor.recipeHash.fill(0);
+    first.descriptor.activationPageIds.fill(2);
+    const handle = await loading;
+    assert.equal(handle.descriptor.recipeHash[0], 4);
+    assert.deepEqual([...handle.residency.descriptor.activationPageIds], [0]);
+    const next = await streamingProductFixture(3, 1);
+    const replacing = runtime.replace(handle.productTableSlot, next.source);
+    next.descriptor.recipeHash.fill(0);
+    next.descriptor.activationPageIds.fill(2);
+    const replacement = await replacing;
+    assert.equal(replacement.descriptor.recipeHash[0], 4);
+    assert.deepEqual([...replacement.residency.descriptor.activationPageIds], [0]);
+  } finally {
+    runtime.destroy();
+  }
+});
+
+test("pre-entry admission rejection returns the untransferred source once", async () => {
+  const runtime = new GeometryProductMultiRuntimeV1(device(), {
+    metadataBytes: 64 * 1024,
+    residency: { configuredCapacityBytes: 2 * MiB },
+  });
+  try {
+    const first = await streamingProductFixture(3);
+    const handle = await runtime.load(first.source);
+    const duplicate = await streamingProductFixture(3);
+    await assert.rejects(runtime.load(duplicate.source, { productTableSlot: handle.productTableSlot }), /occupied/);
+    assert.equal(duplicate.releases, 1);
+    const invalid = await streamingProductFixture(3);
+    await assert.rejects(runtime.replace(99, invalid.source));
+    assert.equal(invalid.releases, 1);
+  } finally {
+    runtime.destroy();
+  }
+});
+
 test("page content stamps cover all referencing assets without dirtying unrelated asset ranges", async () => {
   for (const shared of [false, true]) {
     const fixture = await streamingProductFixture(3);
@@ -442,6 +515,51 @@ test("rejected consumer fence retains slots/ranges until a successful retirement
   runtime.destroy();
 });
 
+test("query prefetch uses existing scheduler and ordinary atomic publication, including abort and dormancy", async () => {
+  const gpu = device();
+  const fixture = await streamingProductFixture(3);
+  const runtime = new GeometryProductMultiRuntimeV1(gpu, {
+    descriptors: [fixture.descriptor],
+    residency: { configuredCapacityBytes: 2 * MiB },
+  });
+  let streaming;
+  try {
+    const handle = await runtime.load(fixture.source);
+    const residency = handle.residency;
+    streaming = new GeometryPageStreamingRuntimeV1(gpu, residency, {
+      schedulerOptions: { maxConcurrentReads: 1, maxInFlightBytes: 262144 },
+      readback: { bytesPerSlot: 64 },
+    });
+    streaming.registerProduct(fixture.source);
+    assert.deepEqual(residency.queryCoveragePages(), [2]);
+    assert.equal(streaming.requestQueryCoverage(residency, 0), 1);
+    assert.equal(residency.pageLocation(2), undefined);
+    await streaming.scheduler.drainReads();
+    assert.equal(streaming.scheduler.evidence().verifiedBytes, 262144);
+    await streaming.consumeCompleted(0, 0);
+    assert.equal(residency.pageLocation(2), undefined, "IO completion must not publish a query page");
+    const abort = geometryPublicationCommand();
+    streaming.preparePublication(abort, 100);
+    abort.abort(new Error("query coverage prefetch frame cancelled"));
+    assert.equal(residency.pageLocation(2), undefined);
+    const retry = geometryPublicationCommand();
+    streaming.preparePublication(retry, 150);
+    retry.submit();
+    assert.ok(residency.pageLocation(2));
+    assert.equal(streaming.requestQueryCoverage(residency, 150), 0);
+    const lease = residency.retainQueryPages([2]);
+    assert.ok(!residency.selectEvictionCandidates(100, 2 * MiB, 0).includes(2),
+      "Ordinary pressure must not revoke pages retained by query consumers");
+    lease.release();
+    assert.ok(residency.selectEvictionCandidates(100, 2 * MiB, 0).includes(2));
+    runtime.setDormant(handle.productTableSlot, handle.productGeneration);
+    assert.throws(() => streaming.requestQueryCoverage(residency, 200), /registered active/);
+  } finally {
+    streaming?.destroy();
+    runtime.destroy();
+  }
+});
+
 test("Product withdrawal cancels verified/late IO before fenced retirement and dormancy can resume", async () => {
   const gpu = device();
   const runtime = new GeometryProductMultiRuntimeV1(gpu, {
@@ -606,6 +724,10 @@ test("page mapping publication is a frame transaction: staged pages stay invisib
 
 async function spatialInfluenceFixture(parents = [0xffffffff, 0xffffffff, 0xffffffff]) {
   const fixture = await streamingProductFixture(3);
+  const leafCount = parents.filter((parent) => parent === 0xffffffff).length;
+  const asset = new DataView(fixture.descriptor.assetRecords.buffer);
+  asset.setUint32(104, leafCount, true);
+  asset.setUint32(108, leafCount, true);
   const pages = [];
   for (let pageId = 0; pageId < 3; pageId++) {
     const page = await fixture.source.readPage(pageId);
@@ -615,6 +737,13 @@ async function spatialInfluenceFixture(parents = [0xffffffff, 0xffffffff, 0xffff
     for (let axis = 0; axis < 3; axis++) {
       view.setFloat32(16 + axis * 4, low, true);
       view.setFloat32(28 + axis * 4, high, true);
+      view.setFloat32(88 + axis * 4, low, true);
+      view.setFloat32(100 + axis * 4, high, true);
+      for (let vertex = 0; vertex < 3; vertex++) {
+        const positionAt = 116 + vertex * 16 + axis * 4;
+        const normalized = view.getFloat32(positionAt, true) + 0.5;
+        view.setFloat32(positionAt, low + normalized * (high - low), true);
+      }
     }
     view.setUint32(76, parents[pageId], true);
     let depth = 0;

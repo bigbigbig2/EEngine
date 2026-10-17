@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { GeometryQueryInstanceSnapshot } from "../../.test-dist/gpu/GeometryQueryInstanceSnapshot.js";
 import { ResourceAccounting } from "../../.test-dist/debug/profiling/ResourceAccounting.js";
+import { ChangeSignal } from "../../.test-dist/core/Signal.js";
 
 globalThis.GPUBufferUsage = { STORAGE: 128, COPY_DST: 8, COPY_SRC: 4 };
 
@@ -21,6 +22,7 @@ function fixture() {
   };
   const scene = { queryBindings: () => binding };
   const command = () => ({ device, closed: false, copies: [], observers: [],
+    onBeforeFinish: new ChangeSignal(), onFinished: new ChangeSignal(),
     copyBufferToBuffer(...args) { this.copies.push(args); },
     observeSubmission(observer) { this.observers.push(observer); },
   });
@@ -41,12 +43,26 @@ test("query shards share exactly one immutable scene/lineage copy", () => {
   assert.throws(() => snapshot.encode(f.command()), /unsubmitted producer/);
   command.closed = true;
   command.observers[0].submitted(Promise.resolve());
+  command.onFinished.send1(command);
   f.mutate();
   const consumer = f.command();
   snapshot.encode(consumer);
   assert.equal(consumer.copies.length, 0, "later mutations do not overwrite the captured scene");
+  assert.throws(() => snapshot.assertCurrent(consumer), /GpuScene changed/);
   snapshot.destroy();
   assert.ok(f.buffers.every((buffer) => buffer.destroyed));
+});
+
+test("query pre-submit guard rejects edits encoded after the snapshot copy", () => {
+  const f = fixture();
+  const snapshot = new GeometryQueryInstanceSnapshot(f.device, f.scene);
+  const command = f.command();
+  snapshot.encode(command);
+  snapshot.assertCurrent(command);
+  f.mutate();
+  assert.throws(() => command.onBeforeFinish.send1Checked(command), /GpuScene changed/);
+  command.observers[0].aborted(new Error("stale scene"));
+  assert.equal(snapshot.valid, false);
 });
 
 test("query preparation detects scene changes; abort and failed submission have distinct ownership", async () => {

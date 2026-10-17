@@ -40,7 +40,7 @@ export interface GeometryCookRecipeV3 {
   readonly rawCodecThresholdBytes: number;
   readonly vertexProfileVersion: "static-pbr-page-local-f32-lean-v7";
   readonly positionQuantization: "float32-object-space";
-  readonly queryProfile: "shared-meshlet-exact-leaf-cut-v2";
+  readonly queryProfile: "shared-meshlet-source-remap-cut-v3";
   readonly bootstrapGeometryBudgetBytes: number;
   readonly bootstrapBudgetPolicy: "scene-decoded-payload-hard-fail-v1";
   readonly deterministicSeed: number;
@@ -74,7 +74,7 @@ export function createGeometryCookRecipeV3(input: Partial<GeometryCookRecipeV3> 
     rawCodecThresholdBytes: 256,
     vertexProfileVersion: "static-pbr-page-local-f32-lean-v7",
     positionQuantization: "float32-object-space",
-    queryProfile: "shared-meshlet-exact-leaf-cut-v2",
+    queryProfile: "shared-meshlet-source-remap-cut-v3",
     bootstrapGeometryBudgetBytes: 64 * 1024 * 1024,
     bootstrapBudgetPolicy: "scene-decoded-payload-hard-fail-v1",
     deterministicSeed: 0,
@@ -106,7 +106,7 @@ export function createGeometryCookRecipeV3(input: Partial<GeometryCookRecipeV3> 
     recipe.pagePackingAlgorithmVersion !== "tier-locality-bounded-best-fit-16-v1" ||
     recipe.pageCodecPolicy !== "lz4-or-raw" ||
     recipe.positionQuantization !== "float32-object-space" ||
-    recipe.queryProfile !== "shared-meshlet-exact-leaf-cut-v2" ||
+    recipe.queryProfile !== "shared-meshlet-source-remap-cut-v3" ||
     recipe.bootstrapBudgetPolicy !== "scene-decoded-payload-hard-fail-v1"
   )
     throw new RangeError("Geometry V3 ABI constants cannot be specialized per pack");

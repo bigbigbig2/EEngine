@@ -95,6 +95,8 @@ interface MaterialBindingSnapshot {
  * quarantines the snapshot until device/owner teardown. */
 export interface NativeSceneQueryLease {
   readonly valid: boolean;
+  /** Current frame publication identity, separate from retained resource life. */
+  isCurrent(command: ShadeGPUCommandContext): boolean;
   readonly revision: number;
   readonly publication: GpuNativeMaterialPublication;
   readonly sources: readonly NativeMaterialPublicationSource[];
@@ -273,6 +275,12 @@ export class GpuNativeMaterialScene {
       get valid() {
         return !released && !poisoned && !owner.destroyed && publication.valid && textures.valid;
       },
+      isCurrent: (frameCommand: ShadeGPUCommandContext): boolean =>
+        !released && !poisoned && !owner.destroyed && !owner.stopped &&
+        !frameCommand.closed && frameCommand.device === this.graphics.device &&
+        (this.prepared === null
+          ? this.active === snapshot
+          : this.preparedCommand === frameCommand && this.prepared === snapshot),
       revision: snapshot.revision,
       publication: snapshot.publication,
       sources: snapshot.sources,

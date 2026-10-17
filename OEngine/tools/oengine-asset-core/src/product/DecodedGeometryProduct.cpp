@@ -59,14 +59,14 @@ struct PendingPage {
     bool bootstrap = false;
 };
 
-/** Query section V2 is a descriptor index over the same decoded page bytes.
+/** Query section V3 is a descriptor index over the same decoded page bytes.
  * Coarse simplification has no coverage proof, so the minimum guaranteed cut
  * contains every refinement leaf. No simplified hull is labelled exact. */
 std::vector<std::uint8_t> BuildQuerySection(
     const DecodedGeometryProductPlanV1& product,
     const std::vector<SerializedGroupV3>& groups,
     const Hash256& recipeHash) {
-    constexpr std::uint32_t headerBytes = 128u;
+    constexpr std::uint32_t headerBytes = 160u;
     constexpr std::uint32_t assetStride = 32u;
     constexpr std::uint32_t clusterStride = 80u;
     std::vector<std::uint32_t> groupBegins(groups.size() + 1u, 0u);
@@ -82,7 +82,7 @@ std::vector<std::uint8_t> BuildQuerySection(
         if (next >= kInvalidId) throw std::runtime_error("query cluster identity exhausted");
         groupBegins[group + 1u] = std::uint32_t(next);
     }
-    std::vector<std::uint32_t> children, roots, minimum, pages;
+    std::vector<std::uint32_t> children, roots, minimum, pages, primitives, vertices;
     std::vector<std::array<std::uint32_t, 8>> assets;
     std::vector<std::array<std::uint32_t, 20>> clusters;
     clusters.reserve(groupBegins.back());
@@ -104,6 +104,7 @@ std::vector<std::uint8_t> BuildQuerySection(
             const auto& directory = product.groups[groupId];
             GroupHeaderV3 header{};
             DecodeRecordV3(source.bytes.data(), &header);
+            std::uint32_t sourcePrimitive = 0u, sourceVertex = 0u;
             for (std::uint32_t meshletId = 0u; meshletId < header.meshletCount; ++meshletId) {
                 MeshletHeaderV3 meshlet{};
                 DecodeRecordV3(source.bytes.data() + header.meshletHeaderOffset +
@@ -136,7 +137,21 @@ std::vector<std::uint8_t> BuildQuerySection(
                     floatBits(meshlet.bboxMin[0]), floatBits(meshlet.bboxMin[1]), floatBits(meshlet.bboxMin[2]),
                     floatBits(meshlet.bboxMax[0]), floatBits(meshlet.bboxMax[1]), floatBits(meshlet.bboxMax[2]),
                     floatBits(leaf ? 0.0f : header.parentError), childBegin,
-                    std::uint32_t(children.size()) - childBegin, header.lodLevel, 0u, 0u});
+                    std::uint32_t(children.size()) - childBegin, header.lodLevel,
+                    std::uint32_t(primitives.size()), std::uint32_t(vertices.size())});
+                if (std::uint64_t(sourcePrimitive) + meshlet.triangleCount > source.stablePrimitiveIds.size() ||
+                    std::uint64_t(sourceVertex) + meshlet.vertexCount > source.sourceVertexIds.size()) {
+                    throw std::runtime_error("query source correspondence is incomplete");
+                }
+                for (std::uint32_t triangle = 0u; triangle < meshlet.triangleCount; ++triangle) {
+                    primitives.push_back(source.stablePrimitiveIds[sourcePrimitive++]);
+                }
+                for (std::uint32_t vertex = 0u; vertex < meshlet.vertexCount; ++vertex) {
+                    vertices.push_back(source.sourceVertexIds[sourceVertex++]);
+                }
+            }
+            if (sourcePrimitive != source.stablePrimitiveIds.size() || sourceVertex != source.sourceVertexIds.size()) {
+                throw std::runtime_error("query source correspondence contains unowned records");
             }
         }
         std::sort(assetPages.begin(), assetPages.end());
@@ -147,12 +162,13 @@ std::vector<std::uint8_t> BuildQuerySection(
             pageBegin, std::uint32_t(pages.size()) - pageBegin, 0u, 0u});
     }
     const std::uint64_t total = headerBytes + assets.size() * assetStride +
-        clusters.size() * clusterStride + 4u * (children.size() + roots.size() + minimum.size() + pages.size());
+        clusters.size() * clusterStride + 4u * (children.size() + roots.size() + minimum.size() + pages.size() +
+            primitives.size() + vertices.size());
     if (total >= kInvalidId) throw std::runtime_error("query section exceeds u32 byte addressing");
     std::vector<std::uint8_t> bytes(std::size_t(total), 0u);
     const auto put = [&](std::size_t at, std::uint32_t value) { EncodeRecordV3(bytes.data() + at, value); };
     put(0u, 0x3251474fu); // OGQ2
-    put(4u, 2u); put(8u, headerBytes); put(12u, std::uint32_t(total));
+    put(4u, 3u); put(8u, headerBytes); put(12u, std::uint32_t(total));
     std::copy(recipeHash.begin(), recipeHash.end(), bytes.begin() + 16u);
     const std::size_t counts[] = {assets.size(), clusters.size(), children.size(), roots.size(), minimum.size(), pages.size()};
     for (std::size_t i = 0u; i < 6u; ++i) put(48u + i * 4u, std::uint32_t(counts[i]));
@@ -166,6 +182,14 @@ std::vector<std::uint8_t> BuildQuerySection(
         put(80u + i * 4u, cursor);
         for (auto word : *tables[i]) { put(cursor, word); cursor += 4u; }
     }
+    put(96u, std::uint32_t(primitives.size()));
+    put(100u, std::uint32_t(vertices.size()));
+    put(104u, cursor);
+    for (auto word : primitives) { put(cursor, word); cursor += 4u; }
+    put(108u, cursor);
+    for (auto word : vertices) { put(cursor, word); cursor += 4u; }
+    const auto contentHash = Sha256(bytes.data() + headerBytes, bytes.size() - headerBytes);
+    std::copy(contentHash.begin(), contentHash.end(), bytes.begin() + 128u);
     return bytes;
 }
 

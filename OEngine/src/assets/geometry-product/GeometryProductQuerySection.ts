@@ -5,8 +5,8 @@ import {
   hierarchyNodeMeshletCountV3,
 } from "../GeometryAbiV3.js";
 
-export const GEOMETRY_QUERY_SECTION_VERSION = 2;
-export const GEOMETRY_QUERY_HEADER_BYTES = 128;
+export const GEOMETRY_QUERY_SECTION_VERSION = 3;
+export const GEOMETRY_QUERY_HEADER_BYTES = 160;
 export const GEOMETRY_QUERY_ASSET_BYTES = 32;
 export const GEOMETRY_QUERY_CLUSTER_BYTES = 80;
 export const GEOMETRY_QUERY_CLUSTER_LEAF = 1;
@@ -24,6 +24,42 @@ export interface GeometryProductQuerySection {
   readonly roots: number;
   readonly minimumCut: number;
   readonly minimumPages: number;
+  readonly primitives: number;
+  readonly primitiveCount: number;
+  readonly vertices: number;
+  readonly vertexCount: number;
+}
+
+/** Stable source identity is separate from the cut-local traversal address.
+ * UV/material remain in shared page payload; this remap survives page moves. */
+export function geometryProductQueryPrimitiveIdentity(
+  section: GeometryProductQuerySection,
+  cluster: number,
+  primitive: number,
+): number {
+  if (!Number.isInteger(cluster) || cluster < 0 || cluster >= section.clusterCount) {
+    throw new RangeError("Query cluster identity is outside its Product");
+  }
+  const at = section.clusters + cluster * GEOMETRY_QUERY_CLUSTER_BYTES;
+  if (!Number.isInteger(primitive) || primitive < 0 || primitive >= section.view.getUint32(at + 12, true)) {
+    throw new RangeError("Query primitive identity is outside its cluster");
+  }
+  return section.view.getUint32(section.primitives +
+    (section.view.getUint32(at + 72, true) + primitive) * 4, true);
+}
+
+/** Integrity is checked on the captured admission snapshot, before any page IO.
+ * Hash all descriptor tables, including remaps, rather than trusting a provider
+ * to preserve the cook's source correspondence across asynchronous reads. */
+export async function verifyGeometryProductQueryContent(
+  section: GeometryProductQuerySection,
+): Promise<void> {
+  const digest = new Uint8Array(await globalThis.crypto.subtle.digest(
+    "SHA-256", section.bytes.slice(GEOMETRY_QUERY_HEADER_BYTES),
+  ));
+  if (!digest.every((value, index) => value === section.bytes[128 + index])) {
+    throw new RangeError("Geometry Product query content hash mismatch; recook source");
+  }
 }
 
 const pageQueryIndices = new WeakMap<GeometryProductDescriptorV1, ReadonlyMap<number, number>>();
@@ -71,17 +107,17 @@ export function validateGeometryProductQuerySection(
   }
   if (
     !bytes.subarray(16, 48).every((value, index) => value === descriptor.recipeHash[index]) ||
-    bytes.subarray(96, 128).some((value) => value !== 0)
+    bytes.subarray(112, 128).some((value) => value !== 0)
   ) {
     throw new RangeError("Geometry Product query recipe/reserved bytes disagree");
   }
-  const strides = [GEOMETRY_QUERY_ASSET_BYTES, GEOMETRY_QUERY_CLUSTER_BYTES, 4, 4, 4, 4];
+  const strides = [GEOMETRY_QUERY_ASSET_BYTES, GEOMETRY_QUERY_CLUSTER_BYTES, 4, 4, 4, 4, 4, 4];
   const counts: number[] = [];
   const offsets: number[] = [];
   let cursor = GEOMETRY_QUERY_HEADER_BYTES;
   for (let table = 0; table < strides.length; table++) {
-    const count = u32(48 + table * 4);
-    const offset = u32(72 + table * 4);
+    const count = u32(table < 6 ? 48 + table * 4 : 96 + (table - 6) * 4);
+    const offset = u32(table < 6 ? 72 + table * 4 : 104 + (table - 6) * 4);
     if (offset !== cursor || count * strides[table]! > bytes.byteLength - cursor) {
       throw new RangeError("Geometry Product query table escapes canonical section");
     }
@@ -103,6 +139,10 @@ export function validateGeometryProductQuerySection(
     roots: offsets[3]!,
     minimumCut: offsets[4]!,
     minimumPages: offsets[5]!,
+    primitives: offsets[6]!,
+    primitiveCount: counts[6]!,
+    vertices: offsets[7]!,
+    vertexCount: counts[7]!,
   });
   const assetView = new DataView(
     descriptor.assetRecords.buffer,
@@ -150,7 +190,7 @@ export function validateGeometryProductQuerySection(
       page !== groups.getUint32(group * 16, true) ||
       meshlet >= groupCounts[group]! || triangles === 0 || triangles > 128 ||
       format >= descriptor.vertexFormats.byteLength / 16 ||
-      (flags !== 5 && flags !== 6) || u32(at + 76) !== 0
+      (flags !== 5 && flags !== 6)
     ) {
       throw new RangeError("Geometry Product query cluster reference/flags are invalid");
     }
@@ -173,7 +213,7 @@ export function validateGeometryProductQuerySection(
     const childCount = u32(at + 64);
     const lod = u32(at + 68);
     if (
-      !Number.isFinite(error) || error < 0 || lod > 254 || u32(at + 72) !== 0 ||
+      !Number.isFinite(error) || error < 0 || lod > 254 ||
       childBegin + childCount > counts[2]! ||
       ((flags & GEOMETRY_QUERY_CLUSTER_LEAF) !== 0
         ? childCount !== 0 || error !== 0 || lod !== 0
@@ -184,6 +224,36 @@ export function validateGeometryProductQuerySection(
     if (flags & GEOMETRY_QUERY_CLUSTER_LEAF) {
       expectedLeaves[asset]!.push(cluster);
     }
+    const primitiveBegin = u32(at + 72);
+    const vertexBegin = u32(at + 76);
+    const vertexEnd = cluster + 1 < section.clusterCount
+      ? u32(at + GEOMETRY_QUERY_CLUSTER_BYTES + 76) : section.vertexCount;
+    if (primitiveBegin !== (cluster === 0 ? 0 :
+      u32(at - GEOMETRY_QUERY_CLUSTER_BYTES + 72) +
+      u32(at - GEOMETRY_QUERY_CLUSTER_BYTES + 12)) ||
+      primitiveBegin + triangles > section.primitiveCount ||
+      (cluster === 0 && vertexBegin !== 0) || vertexEnd <= vertexBegin ||
+      vertexEnd - vertexBegin > 128 || vertexEnd > section.vertexCount) {
+      throw new RangeError("Geometry Product query source remap range is invalid");
+    }
+    for (let primitive = 0; primitive < triangles; primitive++) {
+      if (u32(section.primitives + (primitiveBegin + primitive) * 4) === 0xffffffff) {
+        throw new RangeError("Geometry Product query source primitive identity is invalid");
+      }
+    }
+    if ((flags & GEOMETRY_QUERY_CLUSTER_LEAF) !== 0) {
+      for (let vertex = vertexBegin; vertex < vertexEnd; vertex++) {
+        if (u32(section.vertices + vertex * 4) === 0xffffffff) {
+          throw new RangeError("Exact query leaf lacks a source vertex correspondence");
+        }
+      }
+    }
+  }
+  if (section.clusterCount === 0 || u32(section.clusters +
+      (section.clusterCount - 1) * GEOMETRY_QUERY_CLUSTER_BYTES + 72) +
+      u32(section.clusters + (section.clusterCount - 1) * GEOMETRY_QUERY_CLUSTER_BYTES + 12) !==
+      section.primitiveCount) {
+    throw new RangeError("Geometry Product query contains unowned source remaps");
   }
   let expectedMeshletCount = 0;
   for (let asset = 0; asset < section.assetCount; asset++) {
@@ -234,8 +304,23 @@ export function validateGeometryProductQuerySection(
   for (let asset = 0; asset < section.assetCount; asset++) {
     const at = section.assets + asset * GEOMETRY_QUERY_ASSET_BYTES;
     const pageSet = new Set<number>();
+    const sourcePrimitives = new Set<number>();
+    const sourceTriangleCount = assetView.getUint32(asset * 128 + 104, true);
     for (const cluster of expectedLeaves[asset]!) {
       pageSet.add(u32(section.clusters + cluster * GEOMETRY_QUERY_CLUSTER_BYTES));
+      const clusterAt = section.clusters + cluster * GEOMETRY_QUERY_CLUSTER_BYTES;
+      const begin = u32(clusterAt + 72);
+      const count = u32(clusterAt + 12);
+      for (let primitive = 0; primitive < count; primitive++) {
+        const identity = u32(section.primitives + (begin + primitive) * 4);
+        if (identity >= sourceTriangleCount || sourcePrimitives.has(identity)) {
+          throw new RangeError("Exact query cut duplicates or escapes source primitives");
+        }
+        sourcePrimitives.add(identity);
+      }
+    }
+    if (sourcePrimitives.size !== sourceTriangleCount) {
+      throw new RangeError("Exact query cut omits source primitives");
     }
     const expected = [expectedRoots[asset]!, expectedLeaves[asset]!, [...pageSet].sort((a, b) => a - b)];
     const tableOffsets = [section.roots, section.minimumCut, section.minimumPages];

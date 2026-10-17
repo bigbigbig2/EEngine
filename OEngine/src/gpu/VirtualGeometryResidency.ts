@@ -1,3 +1,4 @@
+import { geometryQueryDirectorySegments } from "./GeometryQueryDirectory.js";
 import { Signal } from "../core/Signal.js";
 import {
   OEGPACK_V3_PAGE_BYTES,
@@ -12,6 +13,7 @@ import {
   GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE,
   isPageIntegrityPreverifiedV1,
   snapshotUnverifiedGeometryPageV1,
+  snapshotGeometryProductSourceV1,
   type GeometryProductDescriptorV1,
   type GeometryPageProductV1,
   type GeometryProductRevisionSourceV1
@@ -30,6 +32,7 @@ import {
 } from "./GeometryProductGpuAbiV1.js";
 import {
   prepareProductResidentAttributes,
+  geometryQueryContentHash,
   preparedResidentPage,
   releasePreparedPage,
   type ProductResidentPage
@@ -40,7 +43,10 @@ import {
 } from "./GeometryProductGpuBudget.js";
 import { GeometryProductBytePool, type GeometryPageLease } from "./GeometryProductBytePool.js";
 import { geometryPagePayloadBytes } from "../assets/geometry-product/GeometryPagePayload.js";
-import { validateGeometryProductQuerySection } from "../assets/geometry-product/GeometryProductQuerySection.js";
+import {
+  validateGeometryProductQuerySection,
+  verifyGeometryProductQueryContent,
+} from "../assets/geometry-product/GeometryProductQuerySection.js";
 import {
   GeometryRefineInfluenceV1,
   GEOMETRY_REFINE_INFLUENCE_FLOATS
@@ -91,12 +97,14 @@ export interface GeometryQueryPageLease {
 export interface GeometryQueryGeometryLease extends GeometryQueryPageLease {
   /** GpuScene addresses the shared multi-Product metadata asset domain. */
   readonly assetReferenceBegin: number;
-  readonly metadata: GPUBuffer;
   readonly metadataByteLength: number;
-  readonly querySectionWordOffset: number;
-  /** Global exact-cut prefix in triangle units; one terminal entry included. */
-  readonly queryTrianglePrefixWordOffset: number;
   readonly queryPrimitiveCount: number;
+  readonly segments: readonly GeometryQueryGeometrySegment[];
+}
+
+export interface GeometryQueryGeometrySegment {
+  readonly metadata: GPUBuffer;
+  readonly queryTrianglePrefixWordOffset: number;
   readonly queryAssets: readonly {
     readonly cutBegin: number;
     readonly cutCount: number;
@@ -451,6 +459,9 @@ export class VirtualGeometryResidency {
     try {
       if (signal?.aborted) throw signal.reason ?? new Error("Geometry Product admission was cancelled");
       assertGeometryProductDescriptorV1(source.descriptor);
+      source = snapshotGeometryProductSourceV1(source);
+      await verifyGeometryProductQueryContent(validateGeometryProductQuerySection(source.descriptor));
+      signal?.throwIfAborted();
       if (!Number.isInteger(productGeneration) || productGeneration <= 0 || productGeneration === 0xffffffff)
         throw new RangeError("productGeneration must be a non-zero u32");
       if (!Number.isInteger(productTableSlot) || productTableSlot < 0 || productTableSlot >= 0xffffffff)
@@ -665,12 +676,14 @@ export class VirtualGeometryResidency {
     if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed");
     return Object.freeze({
       descriptor: this.#descriptor,
+      ...(this.#source.sceneAssetIndices === undefined
+        ? {} : { sceneAssetIndices: this.#source.sceneAssetIndices }),
       readPage: (pageId: number, signal?: AbortSignal) => this.#source.readPage(pageId, signal),
       ...(this.#source.readPages === undefined
         ? {}
         : {
-            readPages: (pageIds: ArrayLike<number>, signal?: AbortSignal) =>
-              this.#source.readPages!(pageIds, signal)
+            readPages: (pageIds: ArrayLike<number>, signal?: AbortSignal, priority?: 0 | 1 | 2) =>
+              this.#source.readPages!(pageIds, signal, priority)
           }),
       release: () => undefined
     });
@@ -861,7 +874,25 @@ export class VirtualGeometryResidency {
   /** Snapshot the exact minimum cut, including offscreen pages. This does not
    * initiate IO or privately submit; missing coverage prevents publication.
    * The caller schedules pages through the existing geometry streaming owner. */
-  retainQueryGeometry(command?: ShadeGPUCommandContext): GeometryQueryGeometryLease {
+  queryCoveragePages(): readonly number[] {
+    const section = validateGeometryProductQuerySection(this.#descriptor);
+    const pages = new Set<number>();
+    for (let asset = 0; asset < section.assetCount; asset++) {
+      const at = section.assets + asset * 32;
+      const begin = section.view.getUint32(at + 16, true);
+      const count = section.view.getUint32(at + 20, true);
+      for (let index = 0; index < count; index++) {
+        pages.add(section.view.getUint32(section.minimumPages + (begin + index) * 4, true));
+      }
+    }
+    return Object.freeze([...pages]);
+  }
+
+  retainQueryGeometry(command?: ShadeGPUCommandContext,
+    segmentBytes = this.device.limits.maxStorageBufferBindingSize): GeometryQueryGeometryLease {
+    if (!Number.isSafeInteger(segmentBytes) || segmentBytes < 160) {
+      throw new RangeError("Query directory segment budget must hold a complete cluster");
+    }
     const descriptor = this.#descriptor;
     const section = validateGeometryProductQuerySection(descriptor);
     const pageIds: number[] = [];
@@ -878,64 +909,42 @@ export class VirtualGeometryResidency {
         }
       }
     }
-    const layout = metadataLayout(descriptor, this.#productTableSlot);
-    const queryOffset = align16(layout.byteLength);
-    const prefixOffset = align16(queryOffset + descriptor.querySection.byteLength);
-    const cutCount = section.view.getUint32(64, true);
-    const prefix = new Uint32Array(cutCount + 1);
-    let primitiveCount = 0;
-    for (let cut = 0; cut < cutCount; cut++) {
-      prefix[cut] = primitiveCount;
-      const cluster = section.view.getUint32(section.minimumCut + cut * 4, true);
-      primitiveCount += section.view.getUint32(section.clusters + cluster * 80 + 12, true);
-      if (!Number.isSafeInteger(primitiveCount) || primitiveCount >= 0xffffffff) {
-        throw new RangeError("Complete query triangle identity exceeds u32 capacity");
-      }
-    }
-    prefix[cutCount] = primitiveCount;
-    const queryAssets = Object.freeze(Array.from({ length: section.assetCount }, (_, asset) => {
-      const at = section.assets + asset * 32;
-      const cutBegin = section.view.getUint32(at + 8, true);
-      const count = section.view.getUint32(at + 12, true);
-      return Object.freeze({ cutBegin, cutCount: count, primitiveBegin: prefix[cutBegin]!,
-        primitiveCount: prefix[cutBegin + count]! - prefix[cutBegin]! });
-    }));
-    const bytes = align16(prefixOffset + prefix.byteLength);
-    if (bytes > Math.min(this.device.limits.maxBufferSize, this.device.limits.maxStorageBufferBindingSize)) {
-      throw new RangeError("Complete query geometry directory exceeds the negotiated binding limit");
-    }
     const pages = this.retainQueryPages(pageIds, command);
-    let metadata: GPUBuffer | undefined;
+    const buffers: GPUBuffer[] = [];
     let releaseBudget: (() => void) | undefined;
+    let segments: readonly GeometryQueryGeometrySegment[];
+    let bytes = 0;
+    let primitiveCount = 0;
     try {
-      releaseBudget = reserveGeometryProductMetadataBytes(this.device, bytes);
-      const contents = new Uint8Array(bytes);
-      contents.set(buildMetadataHeap(descriptor, layout, this.#productGeneration,
-        this.#productTableSlot, descriptor.assetRecords.byteLength / 128, pages.banks[0]!.size));
-      const view = new DataView(contents.buffer);
-      view.setUint32(12, bytes / 4, true);
-      view.setUint32(layout.productRecord + 4, GEOMETRY_PRODUCT_TABLE_FLAG_ACTIVE_V1, true);
-      for (const page of pages.pages) {
-        contents.set(encodeGeometryProductGpuLocationV1(page.location),
-          layout.pageLocations + page.pageId * GEOMETRY_PAGE_LOCATION_STRIDE);
+      const directory = geometryQueryDirectorySegments(descriptor, pages.pages, this.#productGeneration,
+        Math.min(segmentBytes, this.device.limits.maxBufferSize, this.device.limits.maxStorageBufferBindingSize));
+      for (const segment of directory) {
+        bytes += segment.bytes.byteLength;
+        primitiveCount += segment.primitiveCount;
       }
-      contents.set(descriptor.querySection, queryOffset);
-      contents.set(new Uint8Array(prefix.buffer), prefixOffset);
-      metadata = this.device.createBuffer({
-        label: "Geometry immutable query directory",
-        size: bytes,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-        mappedAtCreation: true,
-      });
-      new Uint8Array(metadata.getMappedRange()).set(contents);
-      metadata.unmap();
+      releaseBudget = reserveGeometryProductMetadataBytes(this.device, bytes);
+      segments = Object.freeze(directory.map((segment, index) => {
+        const metadata = this.device.createBuffer({
+          label: `Geometry immutable query directory segment ${index}`,
+          size: segment.bytes.byteLength,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+          mappedAtCreation: true,
+        });
+        buffers.push(metadata);
+        new Uint8Array(metadata.getMappedRange()).set(segment.bytes);
+        metadata.unmap();
+        return Object.freeze({ metadata,
+          queryTrianglePrefixWordOffset: segment.prefixWordOffset,
+          queryAssets: segment.assets });
+      }));
     } catch (error) {
-      metadata?.destroy();
+      for (const buffer of buffers) {
+        buffer.destroy();
+      }
       releaseBudget?.();
       pages.release();
       throw error;
     }
-    const buffer = metadata;
     const releaseReservation = releaseBudget;
     let released = false;
     let poisoned = false;
@@ -945,7 +954,9 @@ export class VirtualGeometryResidency {
       }
       released = true;
       this.#queryLeaseReleases.delete(release);
-      buffer.destroy();
+      for (const buffer of buffers) {
+        buffer.destroy();
+      }
       releaseReservation();
       pages.release();
     };
@@ -968,14 +979,11 @@ export class VirtualGeometryResidency {
       bindingEpoch: pages.bindingEpoch,
       banks: pages.banks,
       pages: pages.pages,
-      metadata: buffer,
+      segments,
       assetReferenceBegin: this.#pageLocationSink?.assetReferenceBegin(
         this.#productTableSlot, this.#productGeneration) ?? 0,
       metadataByteLength: bytes,
-      querySectionWordOffset: queryOffset / 4,
-      queryTrianglePrefixWordOffset: prefixOffset / 4,
       queryPrimitiveCount: primitiveCount,
-      queryAssets,
       release,
       releaseAfter: async (completion: PromiseLike<void>): Promise<void> => {
         // Failed completion must retain both metadata and geometry. The page
@@ -1089,7 +1097,8 @@ export class VirtualGeometryResidency {
     const candidates = [...this.#pageLocations.entries()]
       .filter(
         ([pageId, location]) =>
-          (location.flags & GEOMETRY_PAGE_LOCATION_PINNED) === 0 && !this.#requestedRetirements.has(pageId)
+          (location.flags & GEOMETRY_PAGE_LOCATION_PINNED) === 0 &&
+          !this.#requestedRetirements.has(pageId) && !this.#queryPages.has(pageId)
       )
       .filter(([pageId]) => {
         const history = this.#history(pageId);
@@ -1490,6 +1499,9 @@ export class VirtualGeometryResidency {
         prepareProductResidentAttributes(this.#descriptor, page.pageId, page.bytes);
       if (value.rawPayloadBytes !== geometryPagePayloadBytes(this.#descriptor, page.pageId)) {
         throw new Error("Geometry prepared payload differs from its authenticated directory");
+      }
+      if (value.queryContentHash !== geometryQueryContentHash(this.#descriptor)) {
+        throw new Error("Geometry prepared page belongs to different query metadata");
       }
       this.#preparedPages.set(page, value);
       // Edge registration is monotonic: only ever-resident coarse parents can

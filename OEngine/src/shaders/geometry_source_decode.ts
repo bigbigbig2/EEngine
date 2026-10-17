@@ -63,19 +63,27 @@ fn frame_vertex_load_format(word: u32) {
   source_format1 = product_heap[word + 1u];
   source_format2 = product_heap[word + 2u];
 }
-fn frame_vertex_load_product(asset: OEngineGeometryProductResolvedAssetV1,
-    group_id: u32, local_meshlet: u32) -> vec2u {
-  let group = oengine_virtual_group_v1(&product_heap, asset, group_id);
-  let location = oengine_geometry_product_lookup_page_heap_v1(&product_heap, asset, group.page_id);
-  if !asset.valid || !group.valid || !location.valid || location.bank_index >= 4u { return vec2u(0u); }
+fn frame_vertex_load_resident(location: OEngineGeometryPageLookupV1,
+    group: OEngineVirtualGroupV1, local_meshlet: u32, format_word: u32,
+    format_count: u32, expected_format: u32) -> vec2u {
+  if !group.valid || !location.valid || location.bank_index >= 4u { return vec2u(0u); }
   let header = frame_vertex_group_header(location, group);
   let meshlet = frame_vertex_meshlet_header(location, group, header, local_meshlet);
-  if !header.valid || !meshlet.valid || header.vertex_format_id >= asset.vertex_format_count { return vec2u(0u); }
+  if !header.valid || !meshlet.valid || header.vertex_format_id >= format_count ||
+      (expected_format != 0xffffffffu && header.vertex_format_id != expected_format) { return vec2u(0u); }
   source_bank = location.bank_index;
   source_triangle_byte = location.byte_offset + group.offset_in_page + meshlet.triangle_byte_offset;
   source_resident_address = (location.bank_index << 30u) | (location.byte_offset + group.offset_in_page + meshlet.vertex_byte_offset);
-  frame_vertex_load_format(asset.vertex_format_word_offset + header.vertex_format_id * 4u);
+  frame_vertex_load_format(format_word + select(header.vertex_format_id * 4u, 0u, expected_format != 0xffffffffu));
   return vec2u(meshlet.vertex_count, meshlet.triangle_count);
+}
+fn frame_vertex_load_product(asset: OEngineGeometryProductResolvedAssetV1,
+    group_id: u32, local_meshlet: u32) -> vec2u {
+  if !asset.valid { return vec2u(0u); }
+  let group = oengine_virtual_group_v1(&product_heap, asset, group_id);
+  let location = oengine_geometry_product_lookup_page_heap_v1(&product_heap, asset, group.page_id);
+  return frame_vertex_load_resident(location, group, local_meshlet,
+    asset.vertex_format_word_offset, asset.vertex_format_count, 0xffffffffu);
 }
 ${directProduct ? "" : /* wgsl */ `
 fn frame_vertex_load_source(work: OEngineMeshletRasterWork) -> vec2u {

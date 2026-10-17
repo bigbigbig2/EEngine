@@ -5,6 +5,7 @@ import type { ResourceAccounting, ResourceHandle } from "../debug/profiling/Reso
 import type { ScgiBvhPlan } from "../render/gi/ScgiBvhLayout.js";
 import { SCGI_ABI } from "../render/gi/ScgiAbi.js";
 import { geometryQueryInstancesWgsl } from "../shaders/geometry_query_instances.js";
+import { geometryQueryDomainWords, type GeometryQueryDomain } from "./GeometryQueryDomain.js";
 
 export interface GeometryQueryInstanceTarget {
   readonly productTableSlot: number;
@@ -45,7 +46,8 @@ export class GeometryQueryInstances {
 
   static async create(device: GPUDevice, plan: ScgiBvhPlan, scratch: GPUBuffer,
     source: GeometryQueryInstanceSnapshot, target: GeometryQueryInstanceTarget,
-    accounting?: ResourceAccounting): Promise<GeometryQueryInstances> {
+    accounting?: ResourceAccounting, domain?: GeometryQueryDomain): Promise<GeometryQueryInstances> {
+    const domainWords = geometryQueryDomainWords(domain);
     const count = source.count;
     const limits = device.limits;
     if (!Number.isInteger(count) || count < 0 || count > plan.primitiveCapacity ||
@@ -72,9 +74,11 @@ export class GeometryQueryInstances {
       const records = allocate("Geometry/query affine instances", count * SCGI_ABI.instance.stride,
         GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
       const { sourceSnapshot, identitySnapshot } = source;
-      const settings = allocate("Geometry/query instance parameters", 32, GPUBufferUsage.UNIFORM, true);
-      new Uint32Array(settings.getMappedRange()).set([count, target.productTableSlot, target.productGeneration,
+      const settings = allocate("Geometry/query instance parameters", 64, GPUBufferUsage.UNIFORM, true);
+      const settingsBytes = settings.getMappedRange();
+      new Uint32Array(settingsBytes).set([count, target.productTableSlot, target.productGeneration,
         target.assetReference, target.root, target.shard, target.asGeneration, 0]);
+      new Float32Array(settingsBytes).set(domainWords, 8);
       settings.unmap();
       const group = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [
         { binding: 0, resource: { buffer: settings } },

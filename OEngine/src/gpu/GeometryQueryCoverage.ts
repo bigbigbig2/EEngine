@@ -4,6 +4,11 @@ import type { GeometryQueryGeometryLease } from "./VirtualGeometryResidency.js";
 import type { GeometryQueryInstanceSnapshot } from "./GeometryQueryInstanceSnapshot.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { ResourceAccounting, ResourceHandle } from "../debug/profiling/ResourceAccounting.js";
+import {
+  GEOMETRY_QUERY_DOMAIN_WGSL,
+  geometryQueryDomainWords,
+  type GeometryQueryDomain,
+} from "./GeometryQueryDomain.js";
 
 /** GPU proof over the complete captured instance domain. Missing Product,
  * material or shared deformation is unknown coverage, never empty space.
@@ -27,7 +32,8 @@ export class GeometryQueryCoverage {
 
   static async create(device: GPUDevice, source: GeometryQueryInstanceSnapshot,
     leases: readonly GeometryQueryGeometryLease[], materialDirectory: GPUBuffer,
-    accounting?: ResourceAccounting): Promise<GeometryQueryCoverage> {
+    accounting?: ResourceAccounting, domain?: GeometryQueryDomain): Promise<GeometryQueryCoverage> {
+    const domainWords = geometryQueryDomainWords(domain);
     const bytes = Math.max(16, leases.length * 16);
     if (bytes > Math.min(device.limits.maxBufferSize, device.limits.maxStorageBufferBindingSize)) {
       throw new RangeError("Query coverage Product directory exceeds the negotiated binding limit");
@@ -39,6 +45,7 @@ export class GeometryQueryCoverage {
     }
     const module = device.createShaderModule({ label: "Geometry/query coverage", code: /* wgsl */ `
 ${GPU_INSTANCE_RECORD_WGSL}
+${GEOMETRY_QUERY_DOMAIN_WGSL}
 @group(0) @binding(0) var<storage, read> source: array<OEngineInstanceRecord>;
 @group(0) @binding(1) var<storage, read> products: array<vec4u>;
 @group(0) @binding(2) var<storage, read> materials: array<vec4u>;
@@ -49,7 +56,11 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     return;
   }
   let instance = source[id.x];
-  if (!oengine_instance_active(instance)) {
+  let domain_low = bitcast<vec4f>(vec4u(atomicLoad(&status[4]), atomicLoad(&status[5]),
+    atomicLoad(&status[6]), atomicLoad(&status[7])));
+  let domain_high = bitcast<vec4f>(vec4u(atomicLoad(&status[8]), atomicLoad(&status[9]),
+    atomicLoad(&status[10]), atomicLoad(&status[11])));
+  if (!oengine_instance_active(instance) || !query_instance_in_domain(instance, domain_low, domain_high)) {
     return;
   }
   var flags = 0u;
@@ -98,12 +109,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       for (let index = 0; index < leases.length; index++) {
         const lease = leases[index]!;
         words.set([lease.productTableSlot, lease.productGeneration,
-          lease.assetReferenceBegin, lease.queryAssets.length], index * 4);
+          lease.assetReferenceBegin, lease.segments[0]!.queryAssets.length], index * 4);
       }
       ranges.unmap();
-      const status = device.createBuffer({ label: "Geometry/query coverage status", size: 16,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
+      const status = device.createBuffer({ label: "Geometry/query coverage status", size: 48,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+        mappedAtCreation: true });
       buffers.push(status);
+      new Float32Array(status.getMappedRange()).set(domainWords, 4);
+      status.unmap();
       if (accounting !== undefined) {
         for (const buffer of buffers) {
           handles.push(accounting.created({ kind: "buffer", category: "resident",
@@ -133,7 +147,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       throw new Error("Query coverage requires its live captured scene");
     }
     this.source.encode(command);
-    command.clearBuffer(this.status);
+    command.clearBuffer(this.status, 0, 16);
     if (this.source.count === 0) {
       return;
     }

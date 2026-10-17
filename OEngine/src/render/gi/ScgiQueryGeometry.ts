@@ -1,9 +1,10 @@
 import { PipelineCompilationQueue } from "../../gpu/PipelineCompilationQueue.js";
-import type { GeometryQueryGeometryLease } from "../../gpu/VirtualGeometryResidency.js";
+import type { GeometryQueryGeometryLease, GeometryQueryGeometrySegment } from "../../gpu/VirtualGeometryResidency.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { scgiQueryGeometryWgsl } from "../../shaders/scgi_query_geometry.js";
 import type { ScgiBvhPlan } from "./ScgiBvhLayout.js";
 import { scgiInteger } from "./ScgiCapacity.js";
+import { GEOMETRY_QUERY_DIRECTORY_HEADER_BYTES } from "../../gpu/GeometryQueryDirectory.js";
 
 /** An immutable asset/shard binding. Its source geometry owner retains pages;
  * this binding borrows them and owns only 32B of immutable scalar settings. */
@@ -24,12 +25,13 @@ export class ScgiQueryGeometry {
 
   static async create(device: GPUDevice, plan: ScgiBvhPlan, scratch: GPUBuffer,
     lease: GeometryQueryGeometryLease, asset: number,
-    primitiveOffset = 0, primitiveCount = lease.queryAssets[asset]?.primitiveCount ?? 0): Promise<ScgiQueryGeometry> {
-    scgiInteger(asset, "query asset", 0, lease.queryAssets.length - 1);
-    const range = lease.queryAssets[asset]!;
+    segment: GeometryQueryGeometrySegment,
+    primitiveOffset = 0, primitiveCount = segment.queryAssets[asset]?.primitiveCount ?? 0): Promise<ScgiQueryGeometry> {
+    scgiInteger(asset, "query asset", 0, segment.queryAssets.length - 1);
+    const range = segment.queryAssets[asset]!;
     scgiInteger(primitiveOffset, "query shard primitive offset", 0, range.primitiveCount);
     scgiInteger(primitiveCount, "query shard primitive count", 0, range.primitiveCount - primitiveOffset);
-    if (!lease.valid || primitiveCount > plan.primitiveCapacity || scratch.size < plan.scratch.bytes ||
+    if (!lease.valid || !lease.segments.includes(segment) || primitiveCount > plan.primitiveCapacity || scratch.size < plan.scratch.bytes ||
         Math.ceil(primitiveCount / 128) > device.limits.maxComputeWorkgroupsPerDimension) {
       throw new RangeError("Query asset requires a complete live geometry lease and representable shard");
     }
@@ -48,14 +50,14 @@ export class ScgiQueryGeometry {
     });
     try {
       new Uint32Array(settings.getMappedRange()).set([
-        lease.querySectionWordOffset, lease.queryTrianglePrefixWordOffset, asset, lease.productGeneration,
+        GEOMETRY_QUERY_DIRECTORY_HEADER_BYTES / 4, segment.queryTrianglePrefixWordOffset, asset, lease.productGeneration,
         range.primitiveBegin + primitiveOffset, primitiveCount, range.cutBegin, range.cutCount,
       ]);
       settings.unmap();
       const bindings = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [
         { binding: 0, resource: { buffer: settings } },
         { binding: 1, resource: { buffer: scratch, size: plan.scratch.bytes } },
-        { binding: 8, resource: { buffer: lease.metadata } },
+        { binding: 8, resource: { buffer: segment.metadata } },
         ...lease.banks.map((buffer, index) => ({ binding: 9 + index, resource: { buffer } })),
       ] });
       return new ScgiQueryGeometry(lease, asset, primitiveCount, device, settings,

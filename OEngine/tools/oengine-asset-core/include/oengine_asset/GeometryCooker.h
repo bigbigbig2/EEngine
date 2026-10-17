@@ -99,6 +99,9 @@ struct SerializedGroupV3 {
     std::uint32_t flags = 0u;
     std::uint8_t lodLevel = 0u;
     std::uint32_t localStableId = 0u;
+    /** Cook-only correspondence; persisted in the Product query section. */
+    std::vector<std::uint32_t> stablePrimitiveIds;
+    std::vector<std::uint32_t> sourceVertexIds;
 };
 
 struct CookedAssetV3 {

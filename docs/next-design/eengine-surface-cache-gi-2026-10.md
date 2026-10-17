@@ -59,7 +59,7 @@ verifies:
 | `FrameProgramLowering.ts` 用 binding slots 导入资源并声明图读写；`FrameProgramBindings.ts` 传每帧 binding | GI 私有内部阶段可以在一个宏 stage 中有多个物理 pass；跨 stage 的 query/material/field/history 读写必须真实声明，不能只加一条虚假的 ready token |
 | `RendererCore.frameProgramOwners()` 组装，`render` 的提交、catch 和退休分散到各 owner | 加一个 GI owner 和同一 command 的事务登记；不由 GI finish/submit；缓存图每次绑定当前 generation，不能捕获首帧对象 |
 | `ShadeGPUCommandContext.finish()` 在 submit 后触发 `onFinished`；`FrameCoordinator` 对提交后 callback 抛错仍保留 fence | `onFinished` 是 CPU 提交后通知，不是 GPU 完成；GI commit 必须幂等、无分配、不可抛错；异常依 `wasSubmitted` 分类 |
-| `GpuScene` 的 instance table 有 current/previous transform、deformation revision；`GpuRenderWorld` 发布 Product/native material/实例集合 | 直接派生 query instance view；revision 字段不证明已有通用 skinning geometry producer；变形几何闭包需本模块补接 |
+| `GpuScene` 的 instance table 有 current/previous transform、deformation revision；`GpuRenderWorld` 发布 Product/native material/实例集合 | 直接派生 query instance view；revision 不证明已有 skinning producer；用户本轮确认共享 skin/morph 随后续动画模块建设，不作为 SCGI-2 前置 |
 | `GeometryProductV1` schema=1，page descriptor、bootstrap/activation、完整性与流送身份，没有 query section | 增加同一 Product 家族版本化 query section及 cook/read/validate 接线，不建新资产数据库；现有字节不能被重新解释 |
 | `VirtualGeometryResidency` 管紧凑物理区间、page generation、candidate publication、回收 | query 引用相同 payload，补 query lease/refcount 与 pin reason；raster eviction 不得释放仍被 AS 引用的区间 |
 | `GpuVisibilityKeyAbi` ABI=4：24-bit work slot + 8-bit local primitive、外部 queue generation | 只用于本帧 anchor 解码；稳定身份必须解到 Product revision/asset/primitive/instance generation。禁止把 32-bit visibility key 存成跨帧真值 |
@@ -131,7 +131,9 @@ Query cut 由 cascade voxel scale、hit distance、资产几何误差与 coverag
 
 细页请求是 GPU demand→延迟流送，沿现有 IO/上传/背压。它允许跨帧 CPU 服务磁盘网络，不允许本帧 query count readback 决定本帧 dispatch。fine 未就绪继续用完整 coarse cut；精化发布与 AS directory 交换同事务。BLAS 持 page lease 直到最后一个使用该 AS 的 fence；raster 的 eviction 或紧凑池搬迁必须先发布新地址/重建引用，再退旧区间。不能读已被重用的物理地址。
 
-同拓扑 skinned/morph 路径必须接真实变形位置流。当前 `scene/SkinnedMesh.ts` 是标记子类，instance 的 `dynamic_revision` 不证明已实现 skin/morph GPU producer。因此这里包含真实的共享几何扩展：Product cook 保存 joint indices/weights、morph streams 与静态 remap；动画 owner 批量发布 joint palette/morph weights；geometry update 对 dirty vertex ranges 输出 current/previous position、normal/tangent 与 meshlet/cluster bounds；raster、VSM、GI query 同读这一 publication。dirty work由GPU compact，dispatch随geometry program/batch增长，不由GI遍历对象驱动。不能只让GI看见动画而主画面仍静态，也不能建立GI私有动画系统。previous positions 缺失时只拒绝 seed，不伪造 motion valid；初次姿态仍有正确 current geometry。刚体不走顶点重写路径，拓扑改变走 Product replacement；非法joint index/skin weight、非有限palette与bounds overflow显式失败，不能裁掉极端顶点。morph weight是有符号有限系数，不擅自限制在[0,1]；bounds须覆盖真实加权结果。
+**当前范围调整（用户2026-10-17本轮确认）。** 当前 `scene/SkinnedMesh.ts` 是标记子类，其他生产路径也尚无共享 skin/morph geometry producer，因此不在 SCGI-2 中提前建设动画系统，不以它阻塞本模块验收。当前支持静态 Product、刚体 current/previous transform、负/非均匀缩放与拓扑 Product replacement；`dynamic_revision` 非零但没有已绑定共享位置流时，coverage 返回 unknown，anchor 不伪造有效的 deformation history。这是未支持输入的显式语义，不能据此声称已支持 skin/morph。
+
+**后续共享动画扩展合同。** 等动画模块实现真实形变时，由 Product cook 保存 joint indices/weights、morph streams 与 source remap；动画 owner 批量发布 palette/weights；geometry owner 输出 current/previous position、normal/tangent 和 meshlet/cluster bounds，raster、VSM、query、anchor 一致消费。dirty work 由 GPU compact，dispatch 随 geometry program/batch 增长，不由 GI 遍历对象驱动。不能建立 GI 私有 skinning；previous 缺失只拒绝 history，current geometry 仍须正确；非法输入/非有限结果明确失败，morph weights 不擅自限在 [0,1]。此段保留连接点，不属于当前 SCGI-2 的交付范围。
 
 大世界采用 origin epoch + camera-relative f32 query 坐标；整数 cascade origin 保持逻辑地址。纯 world-origin 平移可同步重基几何与 cache；真实 moving assembly 必须更新 geometry/dirty region，不能把世界 GI 整体随物体移动冒充正确照明。
 
@@ -235,7 +237,7 @@ SCGI-4物理合同：GpuScene同一instantiate/append/replacement事务批量写
 
 当前anchor为128B/H单scratch：position/valid16、flat normal12+sourcePixel u32、previous position/valid16、motion/expected depth/current depth16、identity64，不新增full-res normal GBuffer。完整写所有H，rank0需求使用提交序号驱动的全局循环窗口，Q独立有界，避免前面分片长期抢满queue；abort不推进窗口和2×2 phase。seed按新physical patch唯一writer，source引用随defrag迁移；上一field必须用原guide及scale。previous half坐标为`floor(previousUV*fullExtent)/2`，奇数尺寸不能用`previousUV*halfExtent`。完整identity、双向绝对plane、normal、depth、world/tangent位移及device/scene/numeric/origin/voxel资格全部成立才初始化A0/A2和seed/post validity；真实sample/cohort count仍0，A1当帧重建。
 
-SCGI-2当前缺共享deformation producer，dynamic_revision不能证明previous position，实现因此明确拒绝该分支seed。这是安全拒绝，不能作为完整动态路线交付或SCGI-4关单依据。SCGI-7尚未产出真实world-only field，隔离fixture只证明seed数学与事务，不能证明估计器、完整GI或query接通。
+当前没有共享deformation producer，dynamic_revision不能证明previous position，实现因此明确拒绝该分支seed；按用户本轮范围调整，skin/morph有效路径随共享动画模块验收，不作为SCGI-2/4关单前置。当前静态/刚体、负/非均匀缩放、previous transform与slot/generation历史语义仍需真实验收。SCGI-7尚未产出真实world-only field，隔离fixture只证明seed数学与事务，不能证明估计器、完整GI或query接通。
 
 ## 8. 材质、VT 与完整灯光估计
 

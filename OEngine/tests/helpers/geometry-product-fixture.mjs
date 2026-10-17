@@ -17,6 +17,12 @@ export function writeTriangleProductPage(page) {
   view.setUint32(68, 116, true);
   view.setUint32(72, 112, true);
   view.setUint32(76, 0xffffffff, true);
+  for (const [axis, low, high] of [[0, -0.5, 0.5], [1, -0.5, 0.5], [2, 0, 0]]) {
+    view.setFloat32(16 + axis * 4, low, true);
+    view.setFloat32(28 + axis * 4, high, true);
+    view.setFloat32(88 + axis * 4, low, true);
+    view.setFloat32(100 + axis * 4, high, true);
+  }
   page.set([0, 1, 2], 112);
   for (const [index, position] of [
     [0, [-0.5, -0.5, 0]],
@@ -69,7 +75,7 @@ export function triangleProductFixture() {
     sourceIdentityKind: "session",
     sourceIdentityHash: new Uint8Array(32).fill(3),
     recipeHash: new Uint8Array(32).fill(4),
-    runtimeProfile: "oengine-vg-v2-v3-decoded-query2",
+    runtimeProfile: "oengine-vg-v2-v3-decoded-query3",
     decodedPageBytes: 262144,
     assetRecords,
     rootNodeIds: new Uint32Array([0]),
@@ -169,6 +175,7 @@ export function deepProductFixture(depth) {
   const asset = new DataView(descriptor.assetRecords.buffer);
   asset.setUint32(84, 2 * depth + 1, true);
   asset.setUint32(92, depth + 1, true);
+  asset.setUint32(104, depth + 1, true);
   asset.setUint32(112, depth + 1, true);
   const groups = new DataView(descriptor.groupDirectory.buffer);
   const triangle = page.slice(0, TRIANGLE_PRODUCT_PAYLOAD_BYTES);
@@ -204,6 +211,10 @@ export async function streamingProductFixture(pageCount = 4, revision = 0) {
     pages.push({ page, hash: digest.subarray(0, 16) });
   }
   attachTriangleQuerySection(descriptor, pages);
+  // The refine chain contains one source triangle, not one source triangle
+  // per LOD representation.
+  new DataView(descriptor.assetRecords.buffer).setUint32(104, 1, true);
+  new DataView(descriptor.assetRecords.buffer).setUint32(108, 1, true);
   let releases = 0;
   let reads = 0;
   const source = {

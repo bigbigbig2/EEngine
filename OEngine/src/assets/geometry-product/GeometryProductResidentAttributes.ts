@@ -29,6 +29,8 @@ export function importPreparedResidentPage(
   assertAssetWorkerResult(receipt);
   if (
     page.bytes.byteLength !== OEGPACK_V3_PAGE_BYTES ||
+    typeof prepared.queryContentHash !== "string" ||
+    !/^[0-9a-f]{64}$/.test(prepared.queryContentHash) ||
     prepared.groupBounds.length !== prepared.groupCount * 6 ||
     prepared.rawPayloadBytes < 1 ||
     prepared.rawPayloadBytes > page.bytes.byteLength ||
@@ -49,6 +51,8 @@ export function preparedResidentPage(page: GeometryPageProductV1): ProductReside
 }
 
 export interface ProductResidentPage {
+  /** Query metadata against which the worker validated the decoded payload. */
+  readonly queryContentHash: string;
   readonly rawPayloadBytes: number;
   readonly uploadBytes: number;
   readonly triangleCount: number;
@@ -179,6 +183,15 @@ export function prepareProductResidentAttributes(
       ) {
         throw new RangeError("Product query cluster disagrees with shared meshlet payload");
       }
+      const clusterCount = query.getUint32(52, true);
+      const clustersOffset = query.getUint32(76, true);
+      const clusterIndex = (queryAt - clustersOffset) / 80;
+      const vertexBegin = query.getUint32(queryAt + 76, true);
+      const vertexEnd = clusterIndex + 1 < clusterCount
+        ? query.getUint32(queryAt + 80 + 76, true) : query.getUint32(100, true);
+      if (vertexEnd - vertexBegin !== meshlet.vertexCount) {
+        throw new RangeError("Product query source vertex remap disagrees with shared meshlet payload");
+      }
       for (let axis = 0; axis < 3; axis++) {
         if (
           query.getFloat32(queryAt + 32 + axis * 4, true) > meshlet.bboxMin[axis]! ||
@@ -219,8 +232,15 @@ export function prepareProductResidentAttributes(
       for (let vertex = 0; vertex < meshlet.vertexCount; vertex++) {
         const at = vertexBase + vertex * stride;
         for (let axis = 0; axis < 3; axis++) {
-          if (!Number.isFinite(page.getFloat32(at + position + axis * 4, true))) {
+          const coordinate = page.getFloat32(at + position + axis * 4, true);
+          if (!Number.isFinite(coordinate)) {
             throw new RangeError("Product resident attributes contain nonfinite position values");
+          }
+          if (coordinate < meshlet.bboxMin[axis]! || coordinate > meshlet.bboxMax[axis]! ||
+              coordinate < header.bboxMin[axis]! || coordinate > header.bboxMax[axis]! ||
+              coordinate < query.getFloat32(queryAt + 32 + axis * 4, true) ||
+              coordinate > query.getFloat32(queryAt + 44 + axis * 4, true)) {
+            throw new RangeError("Product query/shared bounds do not contain decoded vertex");
           }
         }
         // Half-float exponent 31 represents infinity or NaN. Integer normal,
@@ -244,6 +264,7 @@ export function prepareProductResidentAttributes(
     throw new RangeError("Product resident page has no groups");
   }
   return Object.freeze({
+    queryContentHash: geometryQueryContentHash(descriptor),
     rawPayloadBytes,
     uploadBytes: rawPayloadBytes,
     triangleCount,
@@ -252,4 +273,12 @@ export function prepareProductResidentAttributes(
     groupBounds,
     refineEdges: Uint32Array.from(refineEdges)
   });
+}
+
+export function geometryQueryContentHash(descriptor: GeometryProductDescriptorV1): string {
+  let hash = "";
+  for (let at = 128; at < 160; at++) {
+    hash += descriptor.querySection[at]!.toString(16).padStart(2, "0");
+  }
+  return hash;
 }

@@ -4,6 +4,8 @@ import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
+import { productDescriptorForAssetRecords } from "../helpers/geometry-product-fixture.mjs";
+import { attachTriangleQuerySection } from "../helpers/geometry-query-fixture.mjs";
 
 globalThis.GPUBufferUsage ??= Object.freeze({ COPY_DST: 8, STORAGE: 128 });
 
@@ -333,11 +335,15 @@ test("Offline scene mapper supports Product assets that share deduplicated verte
     asset: 1,
     transform: Float32Array.from(manifest.instances[0].transform),
   });
+  // The mapper fixture needs two complete asset domains, not a second asset
+  // record pointing into the first asset's query metadata. Both use format 0.
+  const descriptor = productDescriptorForAssetRecords(
+    Uint8Array.from([...asset.descriptor.assetRecords, ...asset.descriptor.assetRecords]));
+  descriptor.productId = asset.descriptor.productId.slice();
+  descriptor.vertexFormats = asset.descriptor.vertexFormats.slice();
+  attachTriangleQuerySection(descriptor);
   const sharedFormatAsset = {
-    descriptor: {
-      ...asset.descriptor,
-      assetRecords: Uint8Array.from([...asset.descriptor.assetRecords, ...asset.descriptor.assetRecords]),
-    },
+    descriptor,
     pack: asset.pack,
     manifest,
   };

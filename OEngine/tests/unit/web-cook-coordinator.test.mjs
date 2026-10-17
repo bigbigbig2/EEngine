@@ -148,7 +148,7 @@ function productFixture() {
     sourceIdentityKind: "session",
     sourceIdentityHash: new Uint8Array(32).fill(3),
     recipeHash: new Uint8Array(32).fill(4),
-    runtimeProfile: "oengine-vg-v2-v3-decoded-query2",
+    runtimeProfile: "oengine-vg-v2-v3-decoded-query3",
     decodedPageBytes: 262144,
     assetRecords: asset,
     rootNodeIds: new Uint32Array([0]),

@@ -2,7 +2,7 @@ import { createGeometryCookRecipeV3, type GeometryCookRecipeV3 } from "../../Geo
 
 import type { GeometryAppearanceProfile } from "../../GeometryAppearanceProfile.js";
 
-export const WEB_GEOMETRY_COOKER_ABI_VERSION = 5;
+export const WEB_GEOMETRY_COOKER_ABI_VERSION = 6;
 export const WEB_GEOMETRY_CANONICAL_HEADER_BYTES = 128;
 export const WEB_GEOMETRY_CANONICAL_DOMAIN_BYTES = 48;
 export const WEB_GEOMETRY_CANONICAL_VERTEX_FLOATS = 18;

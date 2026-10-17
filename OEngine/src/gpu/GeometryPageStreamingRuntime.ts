@@ -268,6 +268,9 @@ export class GeometryPageStreamingRuntimeV1 {
     ) {
       throw new Error("Geometry page source does not match the active residency Product");
     }
+    // Scheduling must use the descriptor captured by admission, including
+    // page sizes and hashes, rather than a provider's later mutable tables.
+    source = residency.sourceForStreaming();
     const generation = residency.productGeneration;
     if (this.#residencies.has(generation)) {
       throw new Error("Geometry residency generation is already registered for streaming");
@@ -300,6 +303,38 @@ export class GeometryPageStreamingRuntimeV1 {
         }
       }),
     );
+  }
+
+  /** Cold publication preparation, including teleport prefetch. This requests
+   * Product metadata's complete guaranteed cut through the existing scheduler;
+   * it never waits for IO, publishes mappings, or submits GPU work. Residency
+   * acquisition remains atomic in retainQueryGeometry after the frame has
+   * published every page. Until then the caller must keep coverage unknown. */
+  requestQueryCoverage(residency: VirtualGeometryResidency, nowMs = performance.now()): number {
+    this.assertAlive();
+    if (this.#residencies.get(residency.productGeneration) !== residency || !residency.publicationActive) {
+      throw new Error("Query prefetch requires a registered active Product generation");
+    }
+    if (!Number.isFinite(nowMs) || nowMs < 0) {
+      throw new RangeError("Query prefetch time must be finite and nonnegative");
+    }
+    const demands = [];
+    for (const pageId of residency.queryCoveragePages()) {
+      if (residency.pageLocation(pageId) !== undefined) {
+        continue;
+      }
+      demands.push({
+        productTableSlot: residency.productTableSlot,
+        productGeneration: residency.productGeneration,
+        pageId,
+        priority: 0xffff,
+        currentViewMissing: false,
+        shadow: false,
+        predictive: true,
+      });
+    }
+    this.#scheduler.ingestDemands(demands, nowMs);
+    return demands.length;
   }
 
   selectEvictionCandidates(frameIndex: number, maxBytes: number, minimumAge = 2): readonly number[] {

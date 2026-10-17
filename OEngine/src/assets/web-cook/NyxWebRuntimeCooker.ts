@@ -43,7 +43,7 @@ import type {
 } from "./ProductTaskTrace.js";
 
 export const NYX_WEB_RUNTIME_PRODUCER_ID = "oengine-nyx-web-runtime";
-export const NYX_WEB_RUNTIME_PRODUCER_VERSION = "nyx-b749346382b0-web-cooker-abi5-product-query2-scope";
+export const NYX_WEB_RUNTIME_PRODUCER_VERSION = "nyx-b749346382b0-web-cooker-abi6-product-query3-scope";
 /**
  * Producer version for plan-backed revisions.
  *
@@ -52,7 +52,7 @@ export const NYX_WEB_RUNTIME_PRODUCER_VERSION = "nyx-b749346382b0-web-cooker-abi
  * PENDING. Folding the phase into the version keeps the two phases from ever
  * claiming the same identity for different evidence.
  */
-export const NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION = "nyx-b749346382b0-web-cooker-abi5-plan-query2-scope";
+export const NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION = "nyx-b749346382b0-web-cooker-abi6-plan-query3-scope";
 export const WEB_COOK_DEFAULT_MAX_TRIANGLES_PER_PRODUCT = 128 * 1024;
 export const WEB_COOK_DEFAULT_MAX_VERTICES_PER_PRODUCT = 512 * 1024;
 export const WEB_COOK_DEFAULT_MAX_DOMAINS_PER_PRODUCT = 64;

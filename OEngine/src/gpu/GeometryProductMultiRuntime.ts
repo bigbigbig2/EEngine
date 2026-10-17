@@ -1,5 +1,9 @@
 import { GeometryProductBytePool } from "./GeometryProductBytePool.js";
 import {
+  validateGeometryProductQuerySection,
+  verifyGeometryProductQueryContent,
+} from "../assets/geometry-product/GeometryProductQuerySection.js";
+import {
   GEOMETRY_METADATA_SECTIONS,
   geometryMetadataCounts,
   geometryMetadataLayout,
@@ -10,6 +14,7 @@ import {
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import {
   assertGeometryProductDescriptorV1,
+  snapshotGeometryProductSourceV1,
   type GeometryPageProductV1,
   type GeometryProductDescriptorV1,
   type GeometryProductRevisionSourceV1,
@@ -71,6 +76,7 @@ export interface GeometryProductShardHandleV1 {
 
 export interface GeometryProductMultiRuntimeEvidenceV1 {
   readonly abiVersion: 1;
+  readonly capacityPending: boolean;
   readonly slotCapacity: number;
   readonly active: number;
   readonly loading: number;
@@ -433,9 +439,17 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
       assetReferenceBegin?: number;
     }>,
   ): Promise<GeometryProductShardHandleV1> {
+    try {
+      source = snapshotGeometryProductSourceV1(source);
+    } catch (error) {
+      source.release();
+      throw error;
+    }
     const admission = this.#admissionTail.then(async () => {
       this.assertAlive();
       assertGeometryProductDescriptorV1(source.descriptor);
+      await verifyGeometryProductQueryContent(validateGeometryProductQuerySection(source.descriptor));
+      this.assertAlive();
       const slot = options.productTableSlot ?? this.nextAvailableSlot();
       if (slot < this.#slotCapacity && this.slotOccupied(slot)) {
         throw new Error(`Geometry Product table slot ${slot} is already occupied`);
@@ -455,7 +469,14 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
       () => undefined,
       () => undefined,
     );
-    const entry = await admission;
+    let entry: ProductEntry;
+    try {
+      entry = await admission;
+    } catch (error) {
+      // No residency exists until createEntry transfers source ownership.
+      source.release();
+      throw error;
+    }
     const slot = entry.slot;
     try {
       const residency = await entry.ready;
@@ -495,6 +516,12 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
     productTableSlot: number,
     source: GeometryProductRevisionSourceV1,
   ): Promise<GeometryProductShardHandleV1> {
+    try {
+      source = snapshotGeometryProductSourceV1(source);
+    } catch (error) {
+      source.release();
+      throw error;
+    }
     const admission = this.#admissionTail.then(async () => {
       this.assertAlive();
       this.assertSlot(productTableSlot);
@@ -503,6 +530,8 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
         throw new Error(`Geometry Product table slot ${productTableSlot} has no replaceable active shard`);
       }
       assertGeometryProductDescriptorV1(source.descriptor);
+      await verifyGeometryProductQueryContent(validateGeometryProductQuerySection(source.descriptor));
+      this.assertAlive();
       if (this.#candidates.has(productTableSlot)) {
         throw new Error("Geometry Product replacement already in progress");
       }
@@ -519,7 +548,14 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
       () => undefined,
       () => undefined,
     );
-    const { previous, replacement } = await admission;
+    let candidate: { previous: ProductEntry; replacement: ProductEntry };
+    try {
+      candidate = await admission;
+    } catch (error) {
+      source.release();
+      throw error;
+    }
+    const { previous, replacement } = candidate;
     try {
       const residency = await replacement.ready;
       await this.waitForWritableMetadata();
@@ -742,6 +778,7 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
     }
     return Object.freeze({
       abiVersion: GEOMETRY_PRODUCT_MULTI_RUNTIME_ABI_VERSION_V1,
+      capacityPending: this.#growthRequest !== undefined || this.#metadataCandidate !== undefined,
       slotCapacity: this.#slotCapacity,
       active,
       loading,

@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { triangleProductFixture, streamingProductFixture } from "../helpers/geometry-product-fixture.mjs";
-import { validateGeometryProductQuerySection } from "../../.test-dist/assets/geometry-product/GeometryProductQuerySection.js";
+import { validateGeometryProductQuerySection, verifyGeometryProductQueryContent,
+  geometryProductQueryPrimitiveIdentity } from "../../.test-dist/assets/geometry-product/GeometryProductQuerySection.js";
 import { prepareProductResidentAttributes } from "../../.test-dist/assets/geometry-product/GeometryProductResidentAttributes.js";
-import { cloneGeometryProductDescriptorV1 } from "../../.test-dist/assets/geometry-product/GeometryProductV1.js";
+import { cloneGeometryProductDescriptorV1, snapshotGeometryProductSourceV1 } from "../../.test-dist/assets/geometry-product/GeometryProductV1.js";
 
 test("query section retains the exact terminal cut independently of raster bootstrap pages", async () => {
   const fixture = await streamingProductFixture(4);
@@ -44,6 +45,63 @@ test("query validation rejects malformed extents, coverage, cycles and duplicate
   }
 });
 
+test("query content digest authenticates source remaps as well as cluster tables", async () => {
+  const { descriptor } = triangleProductFixture();
+  const captured = cloneGeometryProductDescriptorV1(descriptor);
+  const section = validateGeometryProductQuerySection(captured);
+  await verifyGeometryProductQueryContent(section);
+  assert.equal(section.primitiveCount, 1);
+  assert.equal(section.vertexCount, 3);
+  assert.equal(geometryProductQueryPrimitiveIdentity(section, 0, 0), 0);
+  assert.throws(() => geometryProductQueryPrimitiveIdentity(section, 0, 1), /outside its cluster/);
+  assert.deepEqual([...new Uint32Array(captured.querySection.buffer, section.vertices, 3)], [0, 1, 2]);
+  section.view.setUint32(section.vertices, 2, true);
+  await assert.rejects(verifyGeometryProductQueryContent(section), /content hash mismatch/);
+});
+
+test("exact minimum cut has a bijection to original triangles and rejects unsupported query ABI", async () => {
+  const fixture = await streamingProductFixture(4);
+  const captured = cloneGeometryProductDescriptorV1(fixture.descriptor);
+  const section = validateGeometryProductQuerySection(captured);
+  const leaf = section.view.getUint32(section.minimumCut, true);
+  assert.equal(geometryProductQueryPrimitiveIdentity(section, leaf, 0), 0);
+  const remap = section.view.getUint32(section.clusters + leaf * 80 + 72, true);
+  section.view.setUint32(section.primitives + remap * 4, 1, true);
+  assert.throws(() => validateGeometryProductQuerySection(captured), /escapes source primitives/);
+  section.view.setUint32(4, 2, true);
+  assert.throws(() => validateGeometryProductQuerySection(captured), /unsupported.*recook/);
+});
+
+test("source capture isolates all metadata before IO and forwards receiver, priority and release", async () => {
+  const fixture = await streamingProductFixture(3);
+  const provider = {
+    descriptor: fixture.descriptor,
+    sceneAssetIndices: [7],
+    calls: [],
+    readPage(page, signal) { this.calls.push([page, signal]); return fixture.source.readPage(page, signal); },
+    readPages(pages, signal, priority) {
+      this.calls.push([[...pages], signal, priority]);
+      return Promise.all([...pages].map((page) => fixture.source.readPage(page, signal)));
+    },
+    release() { this.calls.push("release"); },
+  };
+  const source = snapshotGeometryProductSourceV1(provider);
+  assert.equal(snapshotGeometryProductSourceV1(source), source);
+  const original = source.descriptor.querySection.slice();
+  provider.descriptor.recipeHash.fill(0);
+  provider.descriptor.activationPageIds.fill(2);
+  provider.sceneAssetIndices[0] = 99;
+  assert.deepEqual(source.descriptor.querySection, original);
+  assert.equal(source.descriptor.recipeHash[0], 4);
+  assert.deepEqual([...source.descriptor.activationPageIds], [0]);
+  assert.deepEqual(source.sceneAssetIndices, [7]);
+  await verifyGeometryProductQueryContent(validateGeometryProductQuerySection(source.descriptor));
+  await source.readPage(0);
+  await source.readPages([1, 2], undefined, 2);
+  source.release();
+  assert.deepEqual(provider.calls, [[0, undefined], [[1, 2], undefined, 2], "release"]);
+});
+
 test("query metadata cannot substitute different material or refinement for shared page bytes", () => {
   const { descriptor, page } = triangleProductFixture();
   const candidate = cloneGeometryProductDescriptorV1(descriptor);
@@ -54,4 +112,13 @@ test("query metadata cannot substitute different material or refinement for shar
   query.setUint32(section.clusters + 16, 0, true);
   new DataView(page.buffer).setUint32(76, 0, true);
   assert.throws(() => prepareProductResidentAttributes(candidate, 0, page.buffer), /refinement/);
+});
+
+test("finite decoded vertices cannot escape advertised query or raster bounds", () => {
+  const { descriptor, page } = triangleProductFixture();
+  // The descriptor and meshlet header still advertise the original bounds.
+  // This is finite payload corruption, not a NaN or an invalid byte offset.
+  new DataView(page.buffer).setFloat32(116, -2, true);
+  assert.throws(() => prepareProductResidentAttributes(descriptor, 0, page.buffer),
+    /bounds do not contain decoded vertex/);
 });

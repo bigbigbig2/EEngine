@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { ChangeSignal } from "../../.test-dist/core/Signal.js";
 
 globalThis.GPUShaderStage = { COMPUTE: 4, VERTEX: 1, FRAGMENT: 2 };
 const { ScgiQueryScene } = await import("../../.test-dist/render/gi/ScgiQueryScene.js");
@@ -16,6 +17,7 @@ function fixture() {
   const failed = [];
   const lease = (name) => ({
     valid: true,
+    isCurrent: () => true,
     release() { released.push(name); },
     async releaseAfter(fence) {
       try { await fence; }
@@ -27,11 +29,12 @@ function fixture() {
     device, state: "submitted", retiring: false, consumers: new Map(),
     poisonSettlement: null, nativeLease: lease("material"),
     geometryLeases: [lease("geometry")],
-    sourceInstances: { valid: true, destroy() { released.push("instances"); } },
+    sourceInstances: { valid: true, assertCurrent() {}, destroy() { released.push("instances"); } },
     materials: { destroy() { released.push("directory"); } },
     shards: [], builders: [], buffers: [], handles: [], coverage: null,
   });
   const command = () => ({ device, closed: false, observers: [],
+    onBeforeFinish: new ChangeSignal(),
     observeSubmission(observer) { this.observers.push(observer); },
   });
   return { owner, command, released, failed };
@@ -59,6 +62,20 @@ test("scene retirement waits for encoded consumers beyond the caller's earlier f
   await retirement;
   assert.equal(retired, true);
   assert.deepEqual(new Set(f.released), new Set(["instances", "directory", "material", "geometry"]));
+});
+
+test("new transport rejects a retained stale scene and rechecks before submit", () => {
+  const f = fixture();
+  let current = true;
+  f.owner.nativeLease.isCurrent = () => current;
+  const command = f.command();
+  f.owner.observeUse(command);
+  current = false;
+  assert.equal(f.owner.valid, true, "historical resources are still retained");
+  assert.throws(() => command.onBeforeFinish.send1Checked(command), /material scene changed/);
+  assert.throws(() => f.owner.observeUse(f.command()), /material scene changed/);
+  assert.equal(f.owner.consumers.size, 1, "rejected work must not acquire a consumer lease");
+  command.observers[0].aborted(new Error("stale material"));
 });
 
 test("abort settles an unused consumer; failed submission quarantines every source owner", async () => {

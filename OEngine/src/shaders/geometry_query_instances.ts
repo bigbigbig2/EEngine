@@ -1,12 +1,14 @@
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { SCGI_ABI_WGSL } from "../render/gi/ScgiAbi.js";
 import type { ScgiBvhPlan } from "../render/gi/ScgiBvhLayout.js";
+import { GEOMETRY_QUERY_DOMAIN_WGSL } from "../gpu/GeometryQueryDomain.js";
 
 /** All published slots, including offscreen instances, are considered. Holes
  * remain masked leaves so no CPU-visible compaction count is required. */
 export function geometryQueryInstancesWgsl(plan: ScgiBvhPlan): string {
   return /* wgsl */ `
 ${GPU_INSTANCE_RECORD_WGSL}
+${GEOMETRY_QUERY_DOMAIN_WGSL}
 ${SCGI_ABI_WGSL}
 struct Settings {
   count: u32,
@@ -17,6 +19,8 @@ struct Settings {
   shard: u32,
   as_generation: u32,
   reserved: u32,
+  domain_low: vec4f,
+  domain_high: vec4f,
 }
 @group(0) @binding(0) var<uniform> settings: Settings;
 @group(0) @binding(1) var<storage, read> source: array<OEngineInstanceRecord>;
@@ -28,11 +32,12 @@ const BOUNDS: u32 = ${plan.scratch.ranges.primitiveBounds!.offset / 4}u;
 fn main(@builtin(global_invocation_id) id: vec3u) {
   if (id.x >= settings.count) { return; }
   let instance = source[id.x];
+  let in_domain = query_instance_in_domain(instance, settings.domain_low, settings.domain_high);
   let lineage = identities[id.x];
   var result: ScgiInstance;
   var low = vec3f(0.0);
   var high = vec3f(0.0);
-  var valid = oengine_instance_active(instance) && oengine_instance_virtual_geometry(instance) &&
+  var valid = in_domain && oengine_instance_active(instance) && oengine_instance_virtual_geometry(instance) &&
     instance.product_table_slot == settings.product_slot &&
     oengine_instance_geometry_generation(instance) == settings.product_generation &&
     instance.geometry_record_index == settings.asset_reference &&
@@ -83,7 +88,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     }
   }
   // Relevant singular geometry is explicit untrusted coverage, never a miss.
-  if (!valid && oengine_instance_active(instance) &&
+  if (!valid && in_domain && oengine_instance_active(instance) &&
       instance.geometry_record_index == settings.asset_reference && instance.product_table_slot == settings.product_slot) {
     result.shardGenerationMaskFlags[3] = 0x80000000u;
   }

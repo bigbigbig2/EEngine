@@ -73,7 +73,7 @@ export function descriptorFromOegPack(pack: OegPackV3): GeometryProductDescripto
     revision: 0,
     producerKind: "offline-native",
     producerId: "oengine-oegpack-v3",
-    producerVersion: "3.1-query2-adapter-v2",
+    producerVersion: "3.1-query3-adapter-v2",
     sourceIdentityKind: "content-sha256",
     sourceIdentityHash: productId.slice(),
     recipeHash: fromHex(pack.header.recipeHash),

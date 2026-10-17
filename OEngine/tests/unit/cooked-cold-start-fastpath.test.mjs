@@ -50,7 +50,7 @@ async function buildTwoPageOegPackV3() {
   const formatOffset = bootstrapOffset + bootstrapBytes;
   const formatBytes = 16; // 1 vertex format
   const queryOffset = formatOffset + formatBytes;
-  const queryBytes = 128 + 32 + 2 * 80 + 3 * 2 * 4;
+  const queryBytes = 160 + 32 + 2 * 80 + 3 * 2 * 4 + 2 * 4 + 6 * 4;
   const pageBlobOffset = queryOffset + queryBytes;
   const fileBytes = pageBlobOffset + page0.byteLength + page1.byteLength;
 
@@ -312,7 +312,7 @@ test("dense multi-meshlet page uses compact shared payload without CPU attribute
   const decodeWgsl = frameGeometrySourceWgsl(true);
   assert.match(
     decodeWgsl,
-    /frame_vertex_load_format\(asset\.vertex_format_word_offset \+ header\.vertex_format_id \* 4u\)/u,
+    /frame_vertex_load_resident\(location, group, local_meshlet,/u,
   );
   assert.match(decodeWgsl, /fn frame_vertex_u32\(bank: u32, byte: u32\) -> u32/u);
   assert.doesNotMatch(decodeWgsl, /frame_vertex_resident\(/u);
@@ -361,8 +361,8 @@ test("dense multi-meshlet page uses compact shared payload without CPU attribute
     pv.setUint32(mh + 4, vOff, true);
     pv.setUint32(mh + 8, tOff, true);
     pv.setUint32(mh + 12, 0xffffffff, true); // refineGroupId
-    pv.setFloat32(mh + 36, 1, true); // boundsMax.x
-    pv.setFloat32(mh + 40, 1, true); // boundsMax.y
+    pv.setFloat32(mh + 36, (vertexCount - 1) * 0.25, true); // boundsMax.x
+    pv.setFloat32(mh + 40, m * 0.5, true); // boundsMax.y
     pv.setFloat32(mh + 44, 1, true); // boundsMax.z
     for (let t = 0; t < triangleCount; t++) {
       pageBytes[tOff + t * 3] = 0;
@@ -379,6 +379,9 @@ test("dense multi-meshlet page uses compact shared payload without CPU attribute
     }
   }
 
+  pv.setFloat32(28, (vertexCount - 1) * 0.25, true);
+  pv.setFloat32(32, (meshletCount - 1) * 0.5, true);
+  pv.setFloat32(36, 1, true);
   const hash = createHash("sha256").update(pageBytes).digest();
   const assetRecords = new Uint8Array(128);
   const av = new DataView(assetRecords.buffer);
@@ -426,7 +429,7 @@ test("dense multi-meshlet page uses compact shared payload without CPU attribute
     sourceIdentityKind: "session",
     sourceIdentityHash: new Uint8Array(32).fill(3),
     recipeHash: new Uint8Array(32).fill(4),
-    runtimeProfile: "oengine-vg-v2-v3-decoded-query2",
+    runtimeProfile: "oengine-vg-v2-v3-decoded-query3",
     decodedPageBytes: 262144,
     assetRecords,
     rootNodeIds: new Uint32Array([0]),

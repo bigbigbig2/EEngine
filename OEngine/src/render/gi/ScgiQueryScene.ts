@@ -7,11 +7,13 @@ import { GeometryQueryCoverage } from "../../gpu/GeometryQueryCoverage.js";
 import { GeometryQueryInstances } from "../../gpu/GeometryQueryInstances.js";
 import { GpuQueryMaterialPublication } from "../../gpu/GpuQueryMaterialPublication.js";
 import type { NativeSceneQueryLease } from "../../gpu/GpuNativeMaterialScene.js";
-import type { GeometryQueryGeometryLease, VirtualGeometryResidency } from "../../gpu/VirtualGeometryResidency.js";
+import type { GeometryQueryGeometryLease, GeometryQueryGeometrySegment, VirtualGeometryResidency } from "../../gpu/VirtualGeometryResidency.js";
 import { ScgiBvhBuild } from "./ScgiBvhBuild.js";
 import { planScgiBvh, type ScgiBvhPlan } from "./ScgiBvhLayout.js";
 import { ScgiQueryGeometry } from "./ScgiQueryGeometry.js";
 import { scgiInteger } from "./ScgiCapacity.js";
+import { geometryQueryDomain, type GeometryQueryDomain } from "../../gpu/GeometryQueryDomain.js";
+import type { GeometryPageStreamingRuntimeV1 } from "../../gpu/GeometryPageStreamingRuntime.js";
 
 export interface ScgiQuerySceneProfile {
   readonly deviceEpoch: number;
@@ -21,12 +23,17 @@ export interface ScgiQuerySceneProfile {
    * retained shared geometry/texture payload is charged by its existing owner. */
   readonly maximumBytes: number;
   readonly subgroup: boolean;
+  /** Absent means the complete captured world, not a camera-visible domain. */
+  readonly domain?: GeometryQueryDomain;
+  /** Finite physical directory window; defaults to the negotiated binding limit. */
+  readonly directorySegmentBytes?: number;
 }
 
 export interface ScgiQuerySceneShard {
   readonly index: number;
   readonly geometry: ScgiQueryGeometry;
   readonly lease: GeometryQueryGeometryLease;
+  readonly segment: GeometryQueryGeometrySegment;
   readonly asset: number;
   readonly primitiveOffset: number;
   readonly primitiveCount: number;
@@ -87,13 +94,23 @@ export class ScgiQueryScene {
 
   static async create(device: GPUDevice, profile: ScgiQuerySceneProfile,
     runtime: GpuRenderWorldRuntime, scene: GpuScene, products: readonly VirtualGeometryResidency[],
-    accounting?: ResourceAccounting, command?: ShadeGPUCommandContext): Promise<ScgiQueryScene> {
+    accounting?: ResourceAccounting, command?: ShadeGPUCommandContext,
+    streaming?: GeometryPageStreamingRuntimeV1): Promise<ScgiQueryScene> {
     scgiInteger(profile.deviceEpoch, "query device epoch");
     scgiInteger(profile.originEpoch, "query origin epoch", 0);
     scgiInteger(profile.primitiveCapacity, "query primitive shard capacity");
     scgiInteger(profile.maximumBytes, "query maximum bytes");
+    profile = Object.freeze({ ...profile,
+      ...(profile.domain === undefined ? {} : { domain: geometryQueryDomain([profile.domain], 0) }) });
     if (runtime.nativeMaterials === null || runtime.virtualGeometry === null || products.length === 0) {
       throw new Error("Query scene requires the existing Product and native material runtime");
+    }
+    // Request every Product before attempting any lease. A missing early
+    // Product must not starve all later Products' coverage IO.
+    if (streaming !== undefined) {
+      for (const product of products) {
+        streaming.requestQueryCoverage(product);
+      }
     }
     const nativeLease = runtime.nativeMaterials.retainQuery(command);
     let owner: ScgiQueryScene | undefined;
@@ -106,21 +123,23 @@ export class ScgiQueryScene {
           throw new Error("Query scene Product identity is duplicated");
         }
         signatures.add(key);
-        owner.geometryLeases.push(product.retainQueryGeometry(command));
+        owner.geometryLeases.push(product.retainQueryGeometry(command, profile.directorySegmentBytes));
       }
       // Preflight the complete shard domain, including kernel-owned parameter
       // buffers. Admission never drops an asset or truncates its primitives.
       let shardCount = 0;
       for (const lease of owner.geometryLeases) {
         owner.bytes += lease.metadataByteLength;
-        for (const asset of lease.queryAssets) {
-          shardCount += Math.ceil(asset.primitiveCount / profile.primitiveCapacity);
+        for (const segment of lease.segments) {
+          for (const asset of segment.queryAssets) {
+            shardCount += Math.ceil(asset.primitiveCount / profile.primitiveCapacity);
+          }
         }
       }
       const builderBytes = 2 * device.limits.minUniformBufferOffsetAlignment * 512 +
         owner.blasPlan.scratch.ranges.indirect!.bytes + owner.tlasPlan.scratch.ranges.indirect!.bytes;
-      const instanceBytes = Math.max(4, owner.sourceInstances.count * 128) + 32;
-      const coverageBytes = Math.max(16, owner.geometryLeases.length * 16) + 16;
+      const instanceBytes = Math.max(4, owner.sourceInstances.count * 128) + 64;
+      const coverageBytes = Math.max(16, owner.geometryLeases.length * 16) + 48;
       const finalBytes = owner.bytes + coverageBytes + builderBytes + owner.blasPlan.scratch.bytes +
         owner.tlasPlan.scratch.bytes + shardCount * (owner.blasPlan.hierarchy.bytes +
           owner.tlasPlan.hierarchy.bytes + instanceBytes + 32);
@@ -129,7 +148,7 @@ export class ScgiQueryScene {
       }
       owner.bytes += builderBytes;
       const coverage = await GeometryQueryCoverage.create(device, owner.sourceInstances,
-        owner.geometryLeases, owner.materials.directory, accounting);
+        owner.geometryLeases, owner.materials.directory, accounting, profile.domain);
       if (owner.destroyed) {
         coverage.destroy();
         throw new Error("Query device was lost during coverage preparation");
@@ -149,41 +168,43 @@ export class ScgiQueryScene {
         owner.builders.push(builder);
       }
       for (const lease of owner.geometryLeases) {
-        for (let asset = 0; asset < lease.queryAssets.length; asset++) {
-          const range = lease.queryAssets[asset]!;
-          for (let offset = 0; offset < range.primitiveCount; offset += profile.primitiveCapacity) {
-            const count = Math.min(profile.primitiveCapacity, range.primitiveCount - offset);
-            const index = owner.shards.length;
-            const blas = owner.allocate(`SCGI/query BLAS ${index}`, owner.blasPlan.hierarchy.bytes,
-              GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST);
-            const tlas = owner.allocate(`SCGI/query TLAS ${index}`, owner.tlasPlan.hierarchy.bytes,
-              GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST);
-            const geometry = await ScgiQueryGeometry.create(device, owner.blasPlan,
-              owner.blasScratch, lease, asset, offset, count);
-            if (owner.destroyed) {
-              geometry.destroy();
-              throw new Error("Query device was lost during geometry preparation");
+        for (const segment of lease.segments) {
+          for (let asset = 0; asset < segment.queryAssets.length; asset++) {
+            const range = segment.queryAssets[asset]!;
+            for (let offset = 0; offset < range.primitiveCount; offset += profile.primitiveCapacity) {
+              const count = Math.min(profile.primitiveCapacity, range.primitiveCount - offset);
+              const index = owner.shards.length;
+              const blas = owner.allocate(`SCGI/query BLAS ${index}`, owner.blasPlan.hierarchy.bytes,
+                GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST);
+              const tlas = owner.allocate(`SCGI/query TLAS ${index}`, owner.tlasPlan.hierarchy.bytes,
+                GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST);
+              const geometry = await ScgiQueryGeometry.create(device, owner.blasPlan,
+                owner.blasScratch, lease, asset, segment, offset, count);
+              if (owner.destroyed) {
+                geometry.destroy();
+                throw new Error("Query device was lost during geometry preparation");
+              }
+              let instances: GeometryQueryInstances;
+              try {
+                instances = await GeometryQueryInstances.create(device, owner.tlasPlan,
+                  owner.tlasScratch, owner.sourceInstances, {
+                    productTableSlot: lease.productTableSlot, productGeneration: lease.productGeneration,
+                    assetReference: lease.assetReferenceBegin + asset, root: 0, shard: index, asGeneration: 1,
+                  }, accounting, profile.domain);
+              } catch (error) {
+                geometry.destroy();
+                throw error;
+              }
+              if (owner.destroyed) {
+                geometry.destroy();
+                instances.destroy();
+                throw new Error("Query device was lost during instance preparation");
+              }
+              owner.shards.push(Object.freeze({ index, geometry, lease, segment, asset,
+                primitiveOffset: offset, primitiveCount: count, blas, tlas, instances }));
+              owner.bytes += instances.records.size + 96;
+              owner.assertBudget();
             }
-            let instances: GeometryQueryInstances;
-            try {
-              instances = await GeometryQueryInstances.create(device, owner.tlasPlan,
-                owner.tlasScratch, owner.sourceInstances, {
-                  productTableSlot: lease.productTableSlot, productGeneration: lease.productGeneration,
-                  assetReference: lease.assetReferenceBegin + asset, root: 0, shard: index, asGeneration: 1,
-                }, accounting);
-            } catch (error) {
-              geometry.destroy();
-              throw error;
-            }
-            if (owner.destroyed) {
-              geometry.destroy();
-              instances.destroy();
-              throw new Error("Query device was lost during instance preparation");
-            }
-            owner.shards.push(Object.freeze({ index, geometry, lease, asset,
-              primitiveOffset: offset, primitiveCount: count, blas, tlas, instances }));
-            owner.bytes += instances.records.size + 64;
-            owner.assertBudget();
           }
         }
       }
@@ -277,9 +298,17 @@ export class ScgiQueryScene {
         (this.state === "encoded" && command !== this.buildCommand)) {
       throw new Error("Query consumer requires its submitted scene or the scene build command");
     }
+    const assertCurrent = (): void => {
+      this.sourceInstances.assertCurrent(command);
+      if (!this.nativeLease.isCurrent(command)) {
+        throw new Error("Native material scene changed after query capture; prepare a fresh candidate");
+      }
+    };
+    assertCurrent();
     if (this.consumers.has(command)) {
       return;
     }
+    command.onBeforeFinish.addOne(assertCurrent);
     let settle!: () => void;
     const completion = new Promise<void>((resolve) => { settle = resolve; });
     this.consumers.set(command, completion);

@@ -1,5 +1,9 @@
 import { decodeOegPackPageV3, HttpRangeReadablePackV3 } from "../../OegPackV3.js";
 import { prepareProductResidentAttributes } from "../../geometry-product/GeometryProductResidentAttributes.js";
+import {
+  validateGeometryProductQuerySection,
+  verifyGeometryProductQueryContent,
+} from "../../geometry-product/GeometryProductQuerySection.js";
 import { openTextureProduct, PC_TEXTURE_INPUT_LIMIT } from "../../TextureProduct.js";
 import type {
   CookedAssetTask,
@@ -36,7 +40,10 @@ async function prepare(task: CookedAssetTask): Promise<void> {
       throw new Error("Unsupported Cooked Worker protocol");
     }
     if (task.kind === "geometry") {
-      if (task.registration) registrations.set(task.session, task.registration);
+      if (task.registration) {
+        await verifyGeometryProductQueryContent(validateGeometryProductQuerySection(task.registration.descriptor));
+        registrations.set(task.session, task.registration);
+      }
       const registration = registrations.get(task.session);
       if (!registration) {
         throw new Error("Cooked geometry descriptor is not registered");

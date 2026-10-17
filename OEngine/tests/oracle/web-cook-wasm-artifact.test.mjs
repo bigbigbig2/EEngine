@@ -400,7 +400,7 @@ test("checked-in Web geometry artifact consumes independent canonical windows", 
 test("checked-in Web geometry artifact executes the Product ABI", async () => {
   const module = await loadArtifact();
   assert.equal(module._oengine_web_geometry_cook_abi_version(), WEB_GEOMETRY_COOKER_ABI_VERSION);
-  assert.equal(WEB_GEOMETRY_COOKER_ABI_VERSION, 5);
+  assert.equal(WEB_GEOMETRY_COOKER_ABI_VERSION, 6);
   const result = cookWebGeometryWasmV1(
     module,
     triangleCanonical(),

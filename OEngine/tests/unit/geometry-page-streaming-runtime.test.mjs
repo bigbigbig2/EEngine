@@ -46,6 +46,13 @@ function device() {
   };
 }
 
+// Match the residency-owned, admission-captured source contract. These tests
+// isolate streaming control and use a fake residency rather than GPU pages.
+function registerProduct(runtime, source, residency) {
+  residency.sourceForStreaming = () => source;
+  runtime.registerProduct(source, residency);
+}
+
 function command() {
   return {
     gpu_encoder: encoder(),
@@ -93,7 +100,7 @@ test("shadow content identity observes every resident owner and explicit retirem
     readback: { slotCount: 2, bytesPerSlot: 64 }
   });
   const register = (residency) =>
-    runtime.registerProduct(
+    registerProduct(runtime,
       {
         descriptor: residency.descriptor,
         readPage() {
@@ -182,7 +189,7 @@ test("resident feedback protects hot pages without IO and bounds shared-pool evi
     readback: { slotCount: 2, bytesPerSlot: 64 }
   });
   for (const residency of [first, second, third]) {
-    runtime.registerProduct(
+    registerProduct(runtime,
       {
         descriptor: residency.descriptor,
         readPage() {
@@ -543,7 +550,7 @@ test("streaming runtime consumes delayed demand and uploads through residency", 
     schedulerOptions: { maxConcurrentReads: 1, maxInFlightBytes: 262144 },
     readback: { slotCount: 2, bytesPerSlot: 64 }
   });
-  runtime.registerProduct(source);
+  registerProduct(runtime, source, residency);
   const demand = new Uint8Array(32);
   demand.set(packGeometryPageDemandHeaderV1({ attempted: 1, capacity: 1, overflow: 0, frameRevisionLow: 4 }));
   demand.set(
@@ -625,8 +632,8 @@ test("one streaming runtime routes Product-local pages to multiple shard residen
     schedulerOptions: { maxConcurrentReads: 2, maxInFlightBytes: 2 * 262144 },
     readback: { slotCount: 2, bytesPerSlot: 64 }
   });
-  runtime.registerProduct(first.source, first.residency);
-  runtime.registerProduct(second.source, second.residency);
+  registerProduct(runtime, first.source, first.residency);
+  registerProduct(runtime, second.source, second.residency);
   const demand = new Uint8Array(48);
   demand.set(packGeometryPageDemandHeaderV1({ attempted: 2, capacity: 2, overflow: 0, frameRevisionLow: 4 }));
   demand.set(
@@ -716,7 +723,7 @@ test("streaming runtime only requests retirement before frame publication", asyn
     schedulerOptions: { maxConcurrentReads: 1, maxInFlightBytes: 262144 },
     readback: { slotCount: 2, bytesPerSlot: 64 }
   });
-  runtime.registerProduct(source);
+  registerProduct(runtime, source, residency);
   let settled = false;
   const completion = new Promise((resolve) =>
     setTimeout(() => {
@@ -793,7 +800,7 @@ test("runtime destruction unregisters the Product and aborts pending page reads"
     scheduler,
     readback: { slotCount: 2, bytesPerSlot: 64 }
   });
-  runtime.registerProduct(source);
+  registerProduct(runtime, source, residency);
   scheduler.ingestDemands([
     {
       productTableSlot: 5,
@@ -839,11 +846,11 @@ test("canonical residency feedback preserves raw multiplicity, order and full ge
   };
   const scheduler = new GeometryPageSchedulerV1({ maxConcurrentReads: 1, maxInFlightBytes: 16 });
   const runtime = new GeometryPageStreamingRuntimeV1(device(), residency, { scheduler });
-  runtime.registerProduct({
+  registerProduct(runtime, {
     descriptor: residency.descriptor,
     readPage: () => new Promise(() => {}),
     release() {}
-  });
+  }, residency);
   const record = {
     productGeneration: residency.productGeneration,
     productTableSlot: residency.productTableSlot,

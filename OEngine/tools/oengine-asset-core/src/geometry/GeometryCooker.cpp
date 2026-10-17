@@ -27,6 +27,7 @@ struct Meshlet {
     std::uint32_t groupId = kInvalidId;
     std::uint32_t refineGroupId = kInvalidId;
     std::vector<SurfacePrimitiveMetadata> surface;
+    std::vector<std::uint32_t> stablePrimitiveIds;
 };
 
 struct Group {
@@ -141,6 +142,7 @@ std::vector<Meshlet> BuildMeshlets(
             const auto found=sources.find(triangle);auto& next=consumed[triangle];
             if(found==sources.end()||next>=found->second.size())throw std::runtime_error("Meshlet lost oriented Surface triangle correspondence");
             meshlet.surface.push_back(surface[found->second[next++]]);
+            meshlet.stablePrimitiveIds.push_back(found->second[next - 1u]);
         }
         ComputeBounds(source, meshlet);
         output.push_back(std::move(meshlet));
@@ -723,7 +725,10 @@ SerializedGroupV3 SerializeGroup(
         triangleCursor += AlignUp(std::uint32_t(meshlet.triangles.size()), 4u);
         if (meshlet.surface.size() != meshletHeader.triangleCount)
             throw std::runtime_error("Serialized meshlet lacks complete Surface metadata");
+        output.stablePrimitiveIds.insert(output.stablePrimitiveIds.end(),
+            meshlet.stablePrimitiveIds.begin(), meshlet.stablePrimitiveIds.end());
         for (std::uint32_t vertex : meshlet.vertices) {
+            output.sourceVertexIds.push_back(vertex);
             PackVertex(output.bytes, vertexCursor, source.vertices[vertex], format);
             vertexCursor += format.strideBytes;
             evidence.serializedVertexBytes += format.strideBytes;
@@ -811,6 +816,15 @@ DomainProduct CookDomain(MaterialDomain source, const GeometryCookRecipeV3& reci
     std::vector<std::uint8_t> hasCoarseParent(groups.size(), 0u);
     for (const Meshlet& meshlet : meshlets) if (meshlet.refineGroupId != kInvalidId) hasCoarseParent[meshlet.refineGroupId] = 1u;
     product.groups.reserve(groups.size());
+    std::uint32_t nextPrimitive = std::uint32_t(source.indices.size() / 3u);
+    for (auto& meshlet : meshlets) {
+        if (meshlet.refineGroupId != kInvalidId) {
+            for (auto& primitive : meshlet.stablePrimitiveIds) {
+                if (nextPrimitive == kInvalidId) throw std::runtime_error("Query primitive identity exhausted");
+                primitive = nextPrimitive++;
+            }
+        }
+    }
     for (std::uint32_t oldId : order) {
         SerializedGroupV3 serialized = SerializeGroup(source, groups[oldId], meshlets, oldToSerialized, 0u, product.vertexFormat, evidence);
         serialized.localStableId = oldToSerialized[oldId];
@@ -852,6 +866,16 @@ CookedAssetV3 CookGeometryAssetV3(
     std::copy(source.boundsMin, source.boundsMin + 3, output.boundsMin);
     std::copy(source.boundsMax, source.boundsMax + 3, output.boundsMax);
     std::uint32_t nextSurfaceDomain=0;
+    std::uint32_t primitiveBase = 0u;
+    std::uint64_t sourcePrimitiveCount = 0u;
+    for (const auto& domain : source.domains) {
+        sourcePrimitiveCount += domain.indices.size() / 3u;
+    }
+    if (sourcePrimitiveCount >= kInvalidId) {
+        throw std::runtime_error("Query source primitive domain exceeds u32");
+    }
+    std::uint32_t nextCoarsePrimitive = std::uint32_t(sourcePrimitiveCount);
+    std::uint32_t vertexBase = 0u;
     for (const MaterialDomain& domain : source.domains) {
         const auto surfaceDomainBase = output.sourceTriangleCount;
         const auto triangleCount = domain.indices.size() / 3u;
@@ -872,6 +896,27 @@ CookedAssetV3 CookGeometryAssetV3(
         if (formatId == 0xffu) throw std::runtime_error("asset requires too many vertex formats");
         output.vertexFormats.push_back(product.vertexFormat);
         for (SerializedGroupV3& group : product.groups) {
+            for (auto& primitive : group.stablePrimitiveIds) {
+                if (primitive < triangleCount) {
+                    primitive += primitiveBase;
+                } else {
+                    if (nextCoarsePrimitive == kInvalidId) {
+                        throw std::runtime_error("Query primitive identity exhausted");
+                    }
+                    primitive = nextCoarsePrimitive++;
+                }
+            }
+            for (auto& vertex : group.sourceVertexIds) {
+                // WithUpdate appends new coarse wedge vertices. Those are not
+                // source deformation vertices and must not alias the next domain.
+                if (vertex >= domain.vertices.size()) {
+                    vertex = kInvalidId;
+                } else {
+                    if (vertex >= kInvalidId - vertexBase)
+                        throw std::runtime_error("Query source vertex identity exhausted");
+                    vertex += vertexBase;
+                }
+            }
             PatchGroupIds(group, groupBase, formatId);
             output.groups.push_back(std::move(group));
         }
@@ -890,6 +935,10 @@ CookedAssetV3 CookGeometryAssetV3(
         output.rootNodeIndices.push_back(nodeBase + product.rootNode);
         output.leafMeshletCount += product.leafMeshlets;
         output.totalMeshletCount += product.totalMeshlets;
+        primitiveBase += std::uint32_t(triangleCount);
+        if (domain.vertices.size() >= kInvalidId - vertexBase)
+            throw std::runtime_error("Query source vertex domain exceeds u32");
+        vertexBase += std::uint32_t(domain.vertices.size());
     }
     evidence.leafMeshlets += output.leafMeshletCount;
     evidence.parentMeshlets += output.totalMeshletCount - output.leafMeshletCount;

@@ -409,6 +409,7 @@ export async function runNativeSurfaceProductionGpuOracle(
   let growthRuntime = null;
   let growthSource = null;
   const queryProducts = [];
+  let queryStreaming = null;
   let queryPublication = null;
   let geometryGrowth = null;
   const occlusionCases = [];
@@ -726,6 +727,7 @@ export async function runNativeSurfaceProductionGpuOracle(
         }
         const combined = mergeVirtualGeometryProductSceneSourcesV1(parts);
         const streaming = new GeometryPageStreamingRuntimeV1(device, shards[0].residency);
+        queryStreaming = streaming;
         for (const shard of shards)
           streaming.registerProduct(shard.residency.sourceForStreaming(), shard.residency);
         await renderer.uploadVirtualGeometryScene(
@@ -755,35 +757,25 @@ export async function runNativeSurfaceProductionGpuOracle(
       const world = renderer.graphics.render_world.runtime(scene);
       world.nativeMaterials.setQueryProjectionEnabled(true);
       await tick();
-      // Admit the actual cooker's exact query cut through the existing page
-      // publication owner; no test-only vertex/index geometry is supplied.
+      // Exercise actual scheduler IO/staging and ordinary frame publication.
+      // No independent page loader or test-only vertex/index mesh is supplied.
       for (const product of queryProducts) {
-        const section = validateGeometryProductQuerySection(product.descriptor);
-        const pages = [];
-        for (let asset = 0; asset < section.assetCount; asset++) {
-          const at = section.assets + asset * 32;
-          const begin = section.view.getUint32(at + 16, true);
-          const count = section.view.getUint32(at + 20, true);
-          for (let index = 0; index < count; index++) {
-            const page = section.view.getUint32(section.minimumPages + (begin + index) * 4, true);
-            if (!pages.includes(page)) pages.push(page);
-          }
-        }
-        const missing = pages.filter((page) => product.pageLocation(page) === undefined);
-        if (missing.length > 0) {
-          const source = product.sourceForStreaming();
-          for (const page of missing) product.stagePage(await source.readPage(page));
-          const upload = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
-          product.preparePublication(upload, missing);
-          upload.finish();
-          await upload.gpuDone;
-        }
+        queryStreaming.requestQueryCoverage(product);
+      }
+      await queryStreaming.scheduler.drainReads();
+      await queryStreaming.consumeCompleted(renderer.frame_count, performance.now());
+      await tick();
+      for (const product of queryProducts) {
+        check(product.queryCoveragePages().every((page) => product.pageLocation(page) !== undefined),
+          "Scheduled query coverage did not reach the ordinary frame publication");
       }
       const profile = { deviceEpoch: 1, originEpoch: 0, primitiveCapacity: 64,
-        maximumBytes: 64 * 1024 * 1024, subgroup: false };
+        maximumBytes: 64 * 1024 * 1024, subgroup: false,
+        directorySegmentBytes: 160,
+        domain: { min: [-20, -20, -101], max: [20, 20, 5] } };
       const makeScene = () => ScgiQueryScene.create(device, profile,
         renderer.graphics.render_world.runtime(scene), renderer.graphics.gpu_scene,
-        queryProducts, renderer.graphics.resource_accounting);
+        queryProducts, renderer.graphics.resource_accounting, undefined, queryStreaming);
       const aborted = await makeScene();
       const cancel = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
       aborted.encode(cancel);
@@ -804,7 +796,7 @@ export async function runNativeSurfaceProductionGpuOracle(
         for (const shard of queryScene.shards) {
           for (let classIndex = 0; classIndex < world.nativeMaterials.publication.rasterClasses.length; classIndex++) {
             queries.push(await ScgiQueryTraversal.create(device, queryScene.blasPlan, queryScene.tlasPlan, {
-              lease: shard.lease, asset: shard.asset, primitiveOffset: shard.primitiveOffset,
+              lease: shard.lease, segment: shard.segment, asset: shard.asset, primitiveOffset: shard.primitiveOffset,
               primitiveCount: shard.primitiveCount, blas: shard.blas, tlas: shard.tlas,
               instances: shard.instances, batch, rayCount: 1, resultByteOffset: 48,
               coverageStatus: queryScene.coverageStatus,
@@ -821,7 +813,7 @@ export async function runNativeSurfaceProductionGpuOracle(
         for (const shard of queryScene.shards) {
           for (const bin of queryScene.materials.bins) {
             queries.push(await ScgiQueryTraversal.create(device, queryScene.blasPlan, queryScene.tlasPlan, {
-              lease: shard.lease, asset: shard.asset, primitiveOffset: shard.primitiveOffset,
+              lease: shard.lease, segment: shard.segment, asset: shard.asset, primitiveOffset: shard.primitiveOffset,
               primitiveCount: shard.primitiveCount, blas: shard.blas, tlas: shard.tlas,
               instances: shard.instances, batch, rayCount: 1, resultByteOffset: 48,
               coverageStatus: queryScene.coverageStatus,
@@ -862,7 +854,9 @@ export async function runNativeSurfaceProductionGpuOracle(
         }
         queryPublication = { shards: queryScene.shards.length, bins: queryScene.materials.bins.length,
           bytes: queryScene.byteLength, coverageDispatches: coverageCount,
-          acceptedDistance: values[0], abortRetry: true, actualRenderWorld: true };
+          acceptedDistance: values[0], abortRetry: true, actualRenderWorld: true,
+          scheduledQueryCoverage: true,
+          finiteDirectorySegments: queryScene.shards.every((shard) => shard.segment.metadata.size <= 160) };
         completeBatch = await ScgiQueryBatch.create(device, queryScene, {
           batch, rayCount: 1, resultByteOffset: 48, output, view: camera.view_matrix,
           camera: [-2.4, 0, 4], coneWidth: 0.001, coneSpread: 0.001, wavefrontRounds: 2,
@@ -883,6 +877,31 @@ export async function runNativeSurfaceProductionGpuOracle(
             "Complete query batch did not shade its accepted native material");
         }
         queryPublication.wavefrontBatch = true;
+        // The same live scene/batch must reject a ray escaping its certified
+        // finite domain; a previous accepted result must not survive that ray.
+        const escaped = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
+        const escapedRay = ray.slice(0);
+        new Float32Array(escapedRay)[7] = 200;
+        escaped.uploadRegions([{ destination: batch, destinationOffset: 0, bytes: new Uint8Array(escapedRay) }]);
+        completeBatch.encode(escaped);
+        escaped.copyBufferToBuffer(batch, 48, read, 0, 32);
+        escaped.finish();
+        await escaped.gpuDone;
+        await read.mapAsync(GPUMapMode.READ);
+        const escapedResult = new Uint32Array(read.getMappedRange().slice(0));
+        read.unmap();
+        check(escapedResult[3] === 2, "Query outside cascade+guard domain was classified as hit or physical miss");
+        const restored = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
+        restored.uploadRegions([{ destination: batch, destinationOffset: 0, bytes: new Uint8Array(ray) }]);
+        completeBatch.encode(restored);
+        restored.copyBufferToBuffer(batch, 48, read, 0, 32);
+        restored.finish();
+        await restored.gpuDone;
+        await read.mapAsync(GPUMapMode.READ);
+        const restoredResult = new Uint32Array(read.getMappedRange().slice(0));
+        read.unmap();
+        check(restoredResult[3] === 0, "Finite-domain rejection contaminated a later valid query");
+        queryPublication.finiteDomainUnknownAndRetry = true;
         incompleteCoverage = await GeometryQueryCoverage.create(device, queryScene.sourceInstances,
           [queryScene.shards[0].lease], queryScene.materials.directory);
         const incomplete = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
@@ -890,7 +909,7 @@ export async function runNativeSurfaceProductionGpuOracle(
         // Replace the certificate in a separate complete native traversal.
         const shard = queryScene.shards[0];
         const unknown = await ScgiQueryTraversal.create(device, queryScene.blasPlan, queryScene.tlasPlan, {
-          lease: shard.lease, asset: shard.asset, primitiveOffset: shard.primitiveOffset,
+          lease: shard.lease, segment: shard.segment, asset: shard.asset, primitiveOffset: shard.primitiveOffset,
           primitiveCount: shard.primitiveCount, blas: shard.blas, tlas: shard.tlas,
           instances: shard.instances, batch, rayCount: 1, resultByteOffset: 48,
           coverageStatus: incompleteCoverage.status,
@@ -911,10 +930,47 @@ export async function runNativeSurfaceProductionGpuOracle(
         completeBatch.encode(cancelled);
         cancelled.abort(new Error("query consumer cancelled before submission"));
         check(queryScene.valid, "Consumer abort invalidated the already committed scene");
+        // Encode query first, then mutate the source table later in the same
+        // command. Its GPU copy would otherwise silently keep pre-edit truth.
+        const stale = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
+        completeBatch.encode(stale);
+        const moved = Float32Array.from(meshes[0].transform_global.matrix);
+        moved[12] += 0.02;
+        renderer.patchInstances(world.instanceHandle, {
+          frameId: renderer.frame_count,
+          transforms: { indices: new Uint32Array([0]), transforms: moved },
+        }, stale);
+        let rejectedStale = false;
+        try { stale.finish(); }
+        catch (error) { rejectedStale = /GpuScene changed/.test(String(error)); }
+        check(rejectedStale && !stale.wasSubmitted,
+          "A post-copy instance mutation submitted stale query truth");
+        check(queryScene.valid, "Aborted source edit destroyed retained historical query resources");
+        const obsolete = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
+        let rejectedReuse = false;
+        try { completeBatch.encode(obsolete); }
+        catch (error) { rejectedReuse = /GpuScene changed/.test(String(error)); }
+        obsolete.abort(new Error("stale query snapshot"));
+        check(rejectedReuse, "Aborted source mutation serial allowed stale query reuse");
+        queryPublication.staleScenePreSubmitRejected = true;
+        // An abort changes the admission serial. Rebuild from actual current
+        // truth before checking final-consumer retirement below.
+        const freshScene = await makeScene();
+        const freshBuild = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
+        freshScene.encode(freshBuild);
+        freshBuild.finish();
+        await freshBuild.gpuDone;
+        const freshBatch = await ScgiQueryBatch.create(device, freshScene, {
+          batch, rayCount: 1, resultByteOffset: 48, output, view: camera.view_matrix,
+          camera: [-2.4, 0, 4], coneWidth: 0.001, coneSpread: 0.001, wavefrontRounds: 2,
+        });
+        await queryScene.releaseAfter(command.gpuDone);
+        completeBatch.destroy();
+        completeBatch = freshBatch;
         const last = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
         completeBatch.encode(last);
         let retirementCompleted = false;
-        const retirement = queryScene.releaseAfter(command.gpuDone).then(() => {
+        const retirement = freshScene.releaseAfter(freshBuild.gpuDone).then(() => {
           retirementCompleted = true;
         });
         await Promise.resolve();
@@ -962,6 +1018,11 @@ export async function runNativeSurfaceProductionGpuOracle(
         initialization.pipelines.queued === 0,
       "First-frame pipeline preparation is incomplete",
     );
+    // Query coverage admission advances ordinary frames. In a steady frame VSM
+    // correctly keeps its valid pages and emits no caster work. Request a real
+    // VSM generation rebuild before asserting the transient caster producer.
+    renderer._vsmGeneration.invalidate();
+    await tick();
     const vsm = await inspectVsm();
     const beforePreparationFailure = {
       frame: renderer.frame_count,

@@ -72,7 +72,7 @@ function makeFixture() {
     sourceIdentityKind: "session",
     sourceIdentityHash: new Uint8Array(32).fill(3),
     recipeHash: new Uint8Array(32).fill(4),
-    runtimeProfile: "oengine-vg-v2-v3-decoded-query2",
+    runtimeProfile: "oengine-vg-v2-v3-decoded-query3",
     decodedPageBytes: 262144,
     assetRecords: asset,
     rootNodeIds: new Uint32Array([0]),
@@ -280,11 +280,14 @@ test("cancel during asynchronous activation prevents late Product publication", 
   });
   let releaseCount = 0;
   let receivedSignal;
+  let signalReadStarted;
+  const readStarted = new Promise((resolve) => { signalReadStarted = resolve; });
   const admission = new GeometryProductAdmission(device);
   const transaction = admission.offer({
     descriptor,
     async readPage(pageId, signal) {
       receivedSignal = signal;
+      signalReadStarted();
       await readPending;
       return {
         productId: descriptor.productId,
@@ -300,7 +303,7 @@ test("cancel during asynchronous activation prevents late Product publication", 
     },
   });
   const activation = transaction.activate();
-  await Promise.resolve();
+  await readStarted;
   assert.ok(receivedSignal);
   transaction.cancel();
   finishRead();

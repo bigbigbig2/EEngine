@@ -28,6 +28,9 @@ verifies:
     - OEngine/src/shaders/geometry_source_decode.ts
     - OEngine/src/assets/geometry-product/GeometryProductV1.ts
     - OEngine/src/assets/geometry-product/OegPackProductProvider.ts
+    - OEngine/src/assets/geometry-product/GeometryProductQuerySection.ts
+    - OEngine/src/gpu/GeometryQueryDirectory.ts
+    - OEngine/src/gpu/GeometryQueryDomain.ts
 ---
 # Virtual Assets
 
@@ -61,7 +64,9 @@ Scene卸载区分caller admission与Renderer创建/recovery replay的Product责�
 
 ## 边界与验证
 
-当前 cook profile 为 `static-pbr-page-local-f32-lean-v7`，WASM input ABI4。raw Product/OEGPACK 不再携带无 runtime reader 的64B/triangle continuity；旧flag bits6/7明确要求recook，旧ABI3 WASM在规划前拒绝。cook内部 seam/domain/lineage/误差数学保留，float32 position及normal/tangent/UV/color编码不变。新真实payload bytes参与分组与LOD acceptance，可能改变cut和page packing；不能据删除字段直接推断质量或整bank VRAM收益。实际验证和限制只读执行计划G2.2。
+当前 vertex cook profile 为 `static-pbr-page-local-f32-lean-v7`，query recipe 为 `shared-meshlet-source-remap-cut-v3`，WASM input ABI6。raw Product/OEGPACK 不再携带无 runtime reader 的64B/triangle continuity；旧flag bits6/7明确要求recook，旧WASM ABI在规划前拒绝。cook内部 seam/domain/lineage/误差数学保留，float32 position及normal/tangent/UV/color编码不变。新真实payload bytes参与分组与LOD acceptance，可能改变cut和page packing；不能据删除字段直接推断质量或整bank VRAM收益。实际验证和限制只读执行计划G2.2。
+
+SCGI query 扩展采用同一 schema2 Product，runtime profile 为 `oengine-vg-v2-v3-decoded-query3`：OGQ2 v3 section含160B header、32B/asset、80B/cluster、完整 source primitive/vertex remap与内容SHA256，native/portable/pthread producer一致更新。admission在异步等待前复制provider metadata，摘要校验在GPU分配和page IO前完成；Worker resident receipt绑定同一query内容摘要，不能把另一份descriptor的验证结果用于上传。query lease保持原始四bank/page payload，并派生按binding limit分段的地址目录；group/meshlet和属性解码仍共用raster helper。query所需页经现有scheduler及普通frame publication请求/发布，未齐备不能形成完整lease，普通压力eviction不挑选仍被query持有的页。有限domain筛选在GPU端使用共享实例八角变换bounds；越域ray与未支持形变均为unknown。当前保证cut为完整exact leaf、工作集仍按所传Product保留，尚不代表误差选择coarse/fine或生产GI已接通；详细单元状态只读[SCGI执行](../next-execution/eengine-surface-cache-gi-execution-2026-10.md)。
 
 来源及阶段映射集中在[geometry ledger](../porting/geometry.md)，既有 ABI/容器细节保留在对应 specs。本页不复制旧 Phase 标签、固定 asset 字节数、预算或 claim accepted 状态。
 

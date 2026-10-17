@@ -85,7 +85,7 @@ export class ScgiQueryBatch {
       const view = { view: input.view, camera: input.camera,
         coneWidth: input.coneWidth, coneSpread: input.coneSpread };
       for (const shard of scene.shards) {
-        const common = { lease: shard.lease, asset: shard.asset, blas: shard.blas,
+        const common = { lease: shard.lease, segment: shard.segment, asset: shard.asset, blas: shard.blas,
           tlas: shard.tlas, instances: shard.instances, primitiveOffset: shard.primitiveOffset,
           primitiveCount: shard.primitiveCount, batch: input.batch, rayCount: input.rayCount,
           resultByteOffset: input.resultByteOffset, anyHit: input.anyHit,

@@ -61,7 +61,7 @@ function fixture() {
     sourceIdentityKind: "session",
     sourceIdentityHash: new Uint8Array(32).fill(3),
     recipeHash: new Uint8Array(32).fill(4),
-    runtimeProfile: "oengine-vg-v2-v3-decoded-query2",
+    runtimeProfile: "oengine-vg-v2-v3-decoded-query3",
     decodedPageBytes: 262144,
     assetRecords: asset,
     rootNodeIds: new Uint32Array([0]),
@@ -91,7 +91,7 @@ test("Geometry Product descriptor binary V1 has canonical deterministic bytes an
   );
   assert.equal(
     createHash("sha256").update(new Uint8Array(encoded)).digest("hex"),
-    "0c48a2d26df63acfda84719a78e4a4b1f29970ef03588f3d955f95d05b827da9",
+    "352c2110de35f4987b8bef68fde5609d03a509400034bee3bd11d195adaf66a4",
   );
 });
 

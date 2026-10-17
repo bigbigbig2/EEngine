@@ -27,6 +27,10 @@ function fixture() {
   decoded.setUint32(68, 128, true);
   decoded.setUint32(72, 112, true);
   decoded.setUint32(76, 0xffffffff, true);
+  decoded.setFloat32(28, 1, true);
+  decoded.setFloat32(32, 1, true);
+  decoded.setFloat32(100, 1, true);
+  decoded.setFloat32(104, 1, true);
   page.set([0, 1, 2], 112);
   for (const [vertex, position] of [
     [0, [0, 0, 0]],
@@ -85,7 +89,7 @@ function fixture() {
     sourceIdentityKind: "session",
     sourceIdentityHash: new Uint8Array(32).fill(3),
     recipeHash: new Uint8Array(32).fill(4),
-    runtimeProfile: "oengine-vg-v2-v3-decoded-query2",
+    runtimeProfile: "oengine-vg-v2-v3-decoded-query3",
     decodedPageBytes: 262144,
     assetRecords: asset,
     rootNodeIds: new Uint32Array([0]),

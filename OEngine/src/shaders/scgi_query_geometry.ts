@@ -5,6 +5,7 @@ import { nativeCoverageEvaluationWgsl } from "./native_visibility.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { nativeDiffuseHitEvaluationWgsl } from "./native_diffuse_hit.js";
 import { VIRTUAL_TEXTURE_FEEDBACK_WGSL } from "./virtual_texture.js";
+import { GEOMETRY_QUERY_DIRECTORY_CLUSTER_BYTES } from "../gpu/GeometryQueryDirectory.js";
 
 /* Altered WGSL adaptation of RadeonRays
  * c8890b96b1f976bedd2cd280cc170dff5d655e0a,
@@ -228,14 +229,28 @@ fn query_triangle(index: u32) -> QueryTriangle {
     if (product_heap[geometry.prefix_word + middle] <= target_primitive) { low = middle; }
     else { high = middle; }
   }
-  let cut = geometry.query_word + product_heap[geometry.query_word + 22u] / 4u;
-  let clusters = geometry.query_word + product_heap[geometry.query_word + 19u] / 4u;
-  let cluster = product_heap[cut + low];
-  let at = clusters + cluster * 20u;
-  let asset = oengine_geometry_product_resolve_asset_v1(&product_heap, geometry.asset, geometry.generation);
-  let counts = frame_vertex_load_product(asset, product_heap[at + 1u], product_heap[at + 2u]);
+  let at = geometry.query_word + low * ${GEOMETRY_QUERY_DIRECTORY_CLUSTER_BYTES / 4}u;
+  let cluster = product_heap[at + 15u];
+  let bank = product_heap[at + 20u];
+  let group_byte = product_heap[at + 21u];
+  let payload = product_heap[at + 22u];
+  let local_meshlet = product_heap[at + 2u];
+  if (bank >= 4u || product_heap[at + 23u] != geometry.generation ||
+      product_heap[at + 7u] != geometry.asset || payload < 64u) { return result; }
+  // The segment supplies an immutable physical address; header validation,
+  // vertex format and attribute decode remain owned by the raster decoder.
+  let location = OEngineGeometryPageLookupV1(true, bank, group_byte, 0u, payload);
+  let group = OEngineVirtualGroupV1(true, product_heap[at], 0u, payload, 0u);
+  let format = product_heap[at + 5u];
+  let counts = frame_vertex_load_resident(location, group, local_meshlet,
+    at + 24u, format + 1u, format);
+  let stride = source_format0 & 0xffffu;
   let primitive = target_primitive - product_heap[geometry.prefix_word + low];
-  if (!asset.valid || counts.x == 0u || primitive >= counts.y || counts.y != product_heap[at + 3u]) {
+  if (counts.x == 0u || counts.x > 128u || primitive >= counts.y ||
+      counts.y != product_heap[at + 3u] || stride == 0u ||
+      (source_resident_address & 0x3fffffffu) < group_byte ||
+      (source_resident_address & 0x3fffffffu) - group_byte > payload ||
+      counts.x > (payload - ((source_resident_address & 0x3fffffffu) - group_byte)) / stride) {
     return result;
   }
   let v0 = frame_triangle_corner(primitive, 0u);
@@ -354,6 +369,22 @@ fn trace_opaque(@builtin(global_invocation_id) id: vec3u) {
   let world_origin = vec3f(bitcast<f32>(batch[ray]), bitcast<f32>(batch[ray + 1u]), bitcast<f32>(batch[ray + 2u]));
   let t_min = bitcast<f32>(batch[ray + 3u]);
   let world_direction = vec3f(bitcast<f32>(batch[ray + 4u]), bitcast<f32>(batch[ray + 5u]), bitcast<f32>(batch[ray + 6u]));
+  ${coveredScene ? `// A domain certificate only covers finite ray segments entirely inside
+  // its conservative cascade+guard envelope. Never clip and call the rest sky.
+  if (scene_coverage[7] != 0u) {
+    let domain_low = bitcast<vec3f>(vec3u(scene_coverage[4], scene_coverage[5], scene_coverage[6]));
+    let domain_high = bitcast<vec3f>(vec3u(scene_coverage[8], scene_coverage[9], scene_coverage[10]));
+    let t_max = bitcast<f32>(batch[ray + 7u]);
+    let start = world_origin + world_direction * t_min;
+    let end = world_origin + world_direction * t_max;
+    let finite = all((bitcast<vec3u>(start) & vec3u(0x7f800000u)) != vec3u(0x7f800000u)) &&
+      all((bitcast<vec3u>(end) & vec3u(0x7f800000u)) != vec3u(0x7f800000u));
+    if (!finite || !(t_min <= t_max) || any(start < domain_low) || any(start > domain_high) ||
+        any(end < domain_low) || any(end > domain_high)) {
+      batch[result + 3u] = 2u;
+      return;
+    }
+  }` : ""}
   let merge = (trace.query_kind & 2u) != 0u${wavefront === "tail" ? " || continuation[resume] == 1u" : ""};
   var best = select(bitcast<f32>(batch[ray + 7u]), bitcast<f32>(batch[result]), merge);
   var status = select(1u, batch[result + 3u], merge);

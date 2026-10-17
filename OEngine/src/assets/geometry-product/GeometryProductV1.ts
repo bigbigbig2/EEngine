@@ -18,7 +18,7 @@ import {
 import { validateGeometryProductQuerySection } from "./GeometryProductQuerySection.js";
 
 export const GEOMETRY_PRODUCT_SCHEMA_VERSION = 2;
-export const GEOMETRY_PRODUCT_RUNTIME_PROFILE = "oengine-vg-v2-v3-decoded-query2" as const;
+export const GEOMETRY_PRODUCT_RUNTIME_PROFILE = "oengine-vg-v2-v3-decoded-query3" as const;
 export const GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE = 32;
 
 export type GeometryProductProducerKind = "web-runtime" | "offline-native";
@@ -128,6 +128,36 @@ export interface GeometryProductRevisionSourceV1 {
   readPages?(pageIds: ArrayLike<number>, signal?: AbortSignal,
     priority?: 0 | 1 | 2): Promise<readonly GeometryPageProductV1[]>;
   release(): void;
+}
+
+const capturedGeometrySources = new WeakSet<GeometryProductRevisionSourceV1>();
+
+/** Capture provider-owned metadata before admission queues or IO can yield.
+ * Forward reads with their original receiver; the existing residency owner
+ * still owns the single release. Sharing an already captured source avoids
+ * copying the same tables at each admission layer. */
+export function snapshotGeometryProductSourceV1(
+  provider: GeometryProductRevisionSourceV1,
+): GeometryProductRevisionSourceV1 {
+  if (capturedGeometrySources.has(provider)) {
+    return provider;
+  }
+  const source: GeometryProductRevisionSourceV1 = Object.freeze({
+    descriptor: cloneGeometryProductDescriptorV1(provider.descriptor),
+    ...(provider.sceneAssetIndices === undefined
+      ? {}
+      : { sceneAssetIndices: Object.freeze([...provider.sceneAssetIndices]) }),
+    readPage: (pageId: number, signal?: AbortSignal) => provider.readPage(pageId, signal),
+    ...(provider.readPages === undefined
+      ? {}
+      : {
+          readPages: (pageIds: ArrayLike<number>, signal?: AbortSignal, priority?: 0 | 1 | 2) =>
+            provider.readPages!(pageIds, signal, priority),
+        }),
+    release: () => provider.release(),
+  });
+  capturedGeometrySources.add(source);
+  return source;
 }
 
 export interface GeometryProductProviderV1 {

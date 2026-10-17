@@ -30,6 +30,183 @@ struct EncodedPage {
     GeometryPageDirectoryV3 directory{};
 };
 
+/** Descriptor validation also runs with page decoding disabled. Metadata
+ * hashes prove integrity, not that a cut covers the declared Product. */
+std::vector<std::uint32_t> ValidateQuerySection(
+    const std::uint8_t* bytes, std::size_t size, const OegPackHeaderV3& header,
+    const std::vector<GeometryAssetRecordV3>& assets,
+    const std::vector<GeometryHierarchyNodeV3>& hierarchy,
+    const std::vector<GeometryGroupDirectoryV3>& groups) {
+    const auto word = [&](std::size_t at) {
+        std::uint32_t value;
+        DecodeRecordV3(bytes + at, &value);
+        return value;
+    };
+    const auto require = [](bool valid, const char* reason) {
+        if (!valid) {
+            throw std::runtime_error(std::string("query section: ") + reason);
+        }
+    };
+    require(size >= 160u && word(0u) == 0x3251474fu && word(4u) == 3u &&
+        word(8u) == 160u && word(12u) == size, "invalid version/extent; recook source");
+    require(std::equal(bytes + 16u, bytes + 48u, header.recipeHash), "recipe mismatch");
+    require(std::all_of(bytes + 112u, bytes + 128u,
+        [](std::uint8_t value) { return value == 0u; }), "reserved header bytes");
+    const auto digest = Sha256(bytes + 160u, size - 160u);
+    require(std::equal(digest.begin(), digest.end(), bytes + 128u), "content hash mismatch");
+    std::array<std::uint32_t, 8> counts{}, offsets{};
+    constexpr std::uint32_t strides[] = {32u, 80u, 4u, 4u, 4u, 4u, 4u, 4u};
+    std::uint64_t cursor = 160u;
+    for (std::size_t table = 0u; table < counts.size(); ++table) {
+        counts[table] = word(table < 6u ? 48u + table * 4u : 96u + (table - 6u) * 4u);
+        offsets[table] = word(table < 6u ? 72u + table * 4u : 104u + (table - 6u) * 4u);
+        require(offsets[table] == cursor, "noncanonical table offset");
+        cursor += std::uint64_t(counts[table]) * strides[table];
+        require(cursor <= size, "table escapes section");
+    }
+    require(cursor == size && counts[0] == assets.size(), "unowned bytes/assets");
+    std::vector<std::uint32_t> groupCounts(groups.size(), 0u);
+    for (const auto& node : hierarchy) {
+        if (IsGroupLeafV3(node.packedNodeData)) {
+            const auto group = (node.packedNodeData >> 1u) & 0x00ffffffu;
+            require(group < groups.size(), "hierarchy group is invalid");
+            groupCounts[group] = (node.packedNodeData >> 25u) + 1u;
+        }
+    }
+    std::uint64_t meshlets = 0u;
+    for (auto count : groupCounts) {
+        meshlets += count;
+    }
+    require(meshlets == counts[1], "cluster domain differs from Product meshlets");
+    std::vector<std::uint32_t> lookup(groups.size() * 128u, kInvalidId);
+    std::vector<std::uint8_t> hasParent(counts[1], 0u);
+    std::vector<std::vector<std::uint32_t>> leaves(assets.size()), roots(assets.size());
+    const auto clusterWord = [&](std::uint32_t cluster, std::uint32_t field) {
+        return word(offsets[1] + std::size_t(cluster) * 80u + field);
+    };
+    for (std::uint32_t cluster = 0u; cluster < counts[1]; ++cluster) {
+        const auto group = clusterWord(cluster, 4u);
+        const auto local = clusterWord(cluster, 8u);
+        const auto owner = clusterWord(cluster, 28u);
+        require(owner < assets.size(), "cluster owner is invalid");
+        const auto& asset = assets[owner];
+        require(group >= asset.groupBegin && std::uint64_t(group) <
+            std::uint64_t(asset.groupBegin) + asset.groupCount && group < groups.size(),
+            "cluster escapes its asset");
+        require(local < groupCounts[group] && clusterWord(cluster, 0u) == groups[group].pageId &&
+            clusterWord(cluster, 12u) > 0u && clusterWord(cluster, 12u) <= 128u &&
+            clusterWord(cluster, 20u) < header.vertexFormatCount, "cluster reference is invalid");
+        auto& entry = lookup[std::size_t(group) * 128u + local];
+        require(entry == kInvalidId, "duplicate meshlet reference");
+        entry = cluster;
+        const auto flags = clusterWord(cluster, 24u);
+        const auto lod = clusterWord(cluster, 68u);
+        require((flags == 5u || flags == 6u) && lod <= 254u,
+            "cluster flags/revision are invalid");
+        const auto primitiveBegin = clusterWord(cluster, 72u);
+        const auto vertexBegin = clusterWord(cluster, 76u);
+        const auto vertexEnd = cluster + 1u < counts[1] ? clusterWord(cluster + 1u, 76u) : counts[7];
+        require(primitiveBegin == (cluster == 0u ? 0u :
+            clusterWord(cluster - 1u, 72u) + clusterWord(cluster - 1u, 12u)) &&
+            std::uint64_t(primitiveBegin) + clusterWord(cluster, 12u) <= counts[6] &&
+            (cluster != 0u || vertexBegin == 0u) && vertexEnd > vertexBegin &&
+            vertexEnd - vertexBegin <= 128u && vertexEnd <= counts[7], "invalid source remap range");
+        for (std::uint32_t primitive = 0u; primitive < clusterWord(cluster, 12u); ++primitive) {
+            require(word(offsets[6] + std::size_t(primitiveBegin + primitive) * 4u) != kInvalidId,
+                "invalid source primitive identity");
+        }
+        if (flags == 5u) {
+            for (std::uint32_t vertex = vertexBegin; vertex < vertexEnd; ++vertex) {
+                require(word(offsets[7] + std::size_t(vertex) * 4u) != kInvalidId,
+                    "exact leaf has no source vertex correspondence");
+            }
+        }
+        float error;
+        const auto errorBits = clusterWord(cluster, 56u);
+        std::memcpy(&error, &errorBits, sizeof(error));
+        const auto childBegin = clusterWord(cluster, 60u);
+        const auto childCount = clusterWord(cluster, 64u);
+        require(std::isfinite(error) && error >= 0.0f &&
+            std::uint64_t(childBegin) + childCount <= counts[2], "invalid refinement range/error");
+        require(flags == 5u ? childCount == 0u && error == 0.0f && lod == 0u :
+            childCount > 0u && lod > 0u, "leaf/refinement classification is invalid");
+        for (std::uint32_t axis = 0u; axis < 3u; ++axis) {
+            const auto lowBits = clusterWord(cluster, 32u + axis * 4u);
+            const auto highBits = clusterWord(cluster, 44u + axis * 4u);
+            float low, high;
+            std::memcpy(&low, &lowBits, sizeof(low));
+            std::memcpy(&high, &highBits, sizeof(high));
+            require(std::isfinite(low) && std::isfinite(high) && low <= high,
+                "invalid cluster bounds");
+        }
+        if (flags == 5u) {
+            leaves[owner].push_back(cluster);
+        }
+        std::set<std::uint32_t> children;
+        std::uint32_t fineGroup = kInvalidId;
+        for (std::uint32_t index = 0u; index < childCount; ++index) {
+            const auto child = word(offsets[2] + std::size_t(childBegin + index) * 4u);
+            require(child < counts[1], "child reference is invalid");
+            require(clusterWord(child, 28u) == owner && clusterWord(child, 68u) < lod &&
+                children.insert(child).second, "cycle/duplicate/foreign child");
+            const auto childGroup = clusterWord(child, 4u);
+            require(childGroup < groups.size(), "child group is invalid");
+            if (fineGroup == kInvalidId) {
+                fineGroup = childGroup;
+            }
+            require(childGroup == fineGroup, "mixed refinement groups");
+            hasParent[child] = 1u;
+        }
+        require(childCount == 0u || childCount == groupCounts[fineGroup],
+            "refinement omits child meshlets");
+    }
+    require(counts[1] > 0u && std::uint64_t(clusterWord(counts[1] - 1u, 72u)) +
+        clusterWord(counts[1] - 1u, 12u) == counts[6], "unowned source primitive remaps");
+    for (std::uint32_t cluster = 0u; cluster < counts[1]; ++cluster) {
+        if (!hasParent[cluster]) {
+            roots[clusterWord(cluster, 28u)].push_back(cluster);
+        }
+    }
+    std::array<std::uint32_t, 3> tableCursors{};
+    for (std::uint32_t asset = 0u; asset < assets.size(); ++asset) {
+        std::set<std::uint32_t> pageSet;
+        std::set<std::uint32_t> sourcePrimitives;
+        for (auto cluster : leaves[asset]) {
+            pageSet.insert(clusterWord(cluster, 0u));
+            for (std::uint32_t primitive = 0u; primitive < clusterWord(cluster, 12u); ++primitive) {
+                const auto identity = word(offsets[6] +
+                    std::size_t(clusterWord(cluster, 72u) + primitive) * 4u);
+                require(identity < assets[asset].sourceTriangleCount && sourcePrimitives.insert(identity).second,
+                    "exact cut duplicates or escapes source primitive identities");
+            }
+        }
+        require(sourcePrimitives.size() == assets[asset].sourceTriangleCount,
+            "exact cut omits source primitive identities");
+        const std::vector<std::uint32_t> pages(pageSet.begin(), pageSet.end());
+        const std::vector<std::uint32_t>* expected[] = {&roots[asset], &leaves[asset], &pages};
+        for (std::size_t table = 0u; table < tableCursors.size(); ++table) {
+            const auto at = offsets[0] + std::size_t(asset) * 32u + table * 8u;
+            const auto begin = word(at);
+            const auto count = word(at + 4u);
+            require(begin == tableCursors[table] && count > 0u &&
+                std::uint64_t(begin) + count <= counts[3u + table] &&
+                count == expected[table]->size(), "incomplete roots/cut/pages");
+            for (std::uint32_t index = 0u; index < count; ++index) {
+                require(word(offsets[3u + table] + std::size_t(begin + index) * 4u) ==
+                    (*expected[table])[index], "roots/cut/pages disagree with cluster forest");
+            }
+            tableCursors[table] = begin + count;
+        }
+        require(word(offsets[0] + std::size_t(asset) * 32u + 24u) == 0u &&
+            word(offsets[0] + std::size_t(asset) * 32u + 28u) == 0u,
+            "static Product has nonzero topology/deformation revision");
+    }
+    for (std::size_t table = 0u; table < tableCursors.size(); ++table) {
+        require(tableCursors[table] == counts[3u + table], "unowned cut records");
+    }
+    return lookup;
+}
+
 std::string JoinPath(const std::string& directory, const std::string& name) {
     if (directory.empty()) return name;
     const char tail = directory.back();
@@ -432,6 +609,13 @@ void ValidateOegPackV3File(const std::string& path, bool verifyPages) {
         if (std::find(reachedNodes.begin(), reachedNodes.end(), 0u) != reachedNodes.end()) throw std::runtime_error("asset contains a hierarchy node unreachable from its roots");
         if (std::find(reachedGroups.begin(), reachedGroups.end(), 0u) != reachedGroups.end()) throw std::runtime_error("asset contains a group unreachable from its roots");
     }
+    const auto queryLookup = ValidateQuerySection(bytes.data() + header.querySectionOffset,
+        std::size_t(header.querySectionBytes), header, assets, hierarchy, groups);
+    const auto queryWord = [&](std::size_t at) {
+        std::uint32_t value;
+        DecodeRecordV3(bytes.data() + header.querySectionOffset + at, &value);
+        return value;
+    };
     std::uint64_t previousEnd = header.pageBlobOffset;
     std::set<std::uint32_t> bootstrapSet(bootstrap.begin(), bootstrap.end());
     for (std::uint32_t id : bootstrap) if (id >= pages.size()) throw std::runtime_error("bootstrap page id is invalid");
@@ -439,6 +623,7 @@ void ValidateOegPackV3File(const std::string& path, bool verifyPages) {
     std::vector<std::uint8_t> decodedGroupPresent(groups.size(), 0u);
     struct RefineEdge { std::uint32_t coarseGroup; std::uint32_t fineGroup; };
     std::vector<RefineEdge> refineEdges;
+    std::vector<std::pair<std::size_t, std::uint32_t>> queryRefinements;
     for (std::uint32_t pageId = 0u; pageId < pages.size(); ++pageId) {
         const GeometryPageDirectoryV3& page = pages[pageId];
         if ((page.flags & ~kGroupBootstrap) != 0u || page.reserved0 != 0u || page.reserved1 != 0u) throw std::runtime_error("page flags/reserved fields are invalid");
@@ -494,6 +679,22 @@ void ValidateOegPackV3File(const std::string& path, bool verifyPages) {
                 if (meshlet.vertexCount == 0u || meshlet.vertexCount > 128u || meshlet.triangleCount == 0u || meshlet.triangleCount > 128u) throw std::runtime_error("meshlet count exceeds V3 limits");
                 constexpr std::uint32_t kKnownMeshletFlags = kMeshletOpaque | kMeshletMask | kMeshletBlend | kMeshletTwoSided | kMeshletCastsShadow;
                 if ((meshlet.flags & ~kKnownMeshletFlags) != 0u) throw std::runtime_error("meshlet flags are invalid");
+                const auto queryCluster = queryLookup[std::size_t(groupId) * 128u + meshletIndex];
+                if (queryCluster == kInvalidId) throw std::runtime_error("query section omits a meshlet payload");
+                const auto queryAt = queryWord(76u) + std::size_t(queryCluster) * 80u;
+                if (queryWord(queryAt + 12u) != meshlet.triangleCount ||
+                    queryWord(queryAt + 16u) != meshlet.materialId ||
+                    queryWord(queryAt + 20u) != group.vertexFormatId ||
+                    queryWord(queryAt + 68u) != group.lodLevel) {
+                    throw std::runtime_error("query section disagrees with shared meshlet payload");
+                }
+                const auto vertexBegin = queryWord(queryAt + 76u);
+                const auto remapVertexEnd = queryCluster + 1u < queryWord(52u) ?
+                    queryWord(queryAt + 80u + 76u) : queryWord(100u);
+                if (remapVertexEnd - vertexBegin != meshlet.vertexCount) {
+                    throw std::runtime_error("query source vertex remap disagrees with shared meshlet payload");
+                }
+                queryRefinements.emplace_back(queryAt, meshlet.refineGroupId);
                 if (meshlet.refineGroupId != kInvalidId) {
                     if (meshlet.refineGroupId >= groups.size()) throw std::runtime_error("meshlet refineGroupId is invalid");
                     refineEdges.push_back({groupId, meshlet.refineGroupId});
@@ -503,6 +704,24 @@ void ValidateOegPackV3File(const std::string& path, bool verifyPages) {
                 if (meshlet.triangleByteOffset < group.triangleDataOffset || triangleEnd > group.vertexDataOffset || meshlet.vertexByteOffset < group.vertexDataOffset || vertexEnd > group.payloadBytes) throw std::runtime_error("meshlet data offset is invalid");
                 const std::uint8_t* triangles = decoded.data() + directory.offsetInDecodedPage + meshlet.triangleByteOffset;
                 for (std::uint32_t i = 0; i < meshlet.triangleCount * 3u; ++i) if (triangles[i] >= meshlet.vertexCount) throw std::runtime_error("meshlet local triangle index is invalid");
+                for (std::uint32_t vertex = 0u; vertex < meshlet.vertexCount; ++vertex) {
+                    const auto& format = formats[group.vertexFormatId];
+                    const auto at = directory.offsetInDecodedPage + meshlet.vertexByteOffset +
+                        std::size_t(vertex) * format.strideBytes + format.positionOffset;
+                    for (std::uint32_t axis = 0u; axis < 3u; ++axis) {
+                        float position, queryLow, queryHigh;
+                        const auto lowBits = queryWord(queryAt + 32u + axis * 4u);
+                        const auto highBits = queryWord(queryAt + 44u + axis * 4u);
+                        std::memcpy(&position, decoded.data() + at + axis * 4u, sizeof(position));
+                        std::memcpy(&queryLow, &lowBits, sizeof(queryLow));
+                        std::memcpy(&queryHigh, &highBits, sizeof(queryHigh));
+                        if (!std::isfinite(position) || position < meshlet.bboxMin[axis] ||
+                            position > meshlet.bboxMax[axis] || position < group.bboxMin[axis] ||
+                            position > group.bboxMax[axis] || position < queryLow || position > queryHigh) {
+                            throw std::runtime_error("query/shared bounds do not contain decoded vertex");
+                        }
+                    }
+                }
             }
         }
         if (groupsOnPage != page.groupCount || minimumGroup != page.firstGroup) throw std::runtime_error("page group summary is inconsistent");
@@ -523,6 +742,21 @@ void ValidateOegPackV3File(const std::string& path, bool verifyPages) {
             const GroupHeaderV3& fine = decodedGroups[edge.fineGroup];
             if (coarse.lodLevel <= fine.lodLevel) throw std::runtime_error("refinement LOD is not strictly finer");
             if (coarse.parentError + 1.0e-5f < fine.parentError) throw std::runtime_error("refinement parent error is not monotonic");
+        }
+        for (const auto& refinement : queryRefinements) {
+            const auto queryAt = refinement.first;
+            const auto childCount = queryWord(queryAt + 64u);
+            if (refinement.second == kInvalidId) {
+                if (childCount != 0u) throw std::runtime_error("query section invents refinement");
+            } else {
+                if (childCount == 0u) throw std::runtime_error("query section omits refinement");
+                const auto firstChild = queryWord(queryWord(80u) +
+                    std::size_t(queryWord(queryAt + 60u)) * 4u);
+                const auto fineGroup = queryWord(queryWord(76u) + std::size_t(firstChild) * 80u + 4u);
+                if (fineGroup != refinement.second) {
+                    throw std::runtime_error("query section disagrees with shared refinement");
+                }
+            }
         }
     }
     for (const GeometryAssetRecordV3& asset : assets) {

@@ -125,7 +125,7 @@ function fakeModule(sections) {
     },
     _free() {},
     _oengine_web_geometry_cook_abi_version() {
-      return 5;
+      return 6;
     },
     _oengine_web_geometry_cook(address, bytes) {
       canonicalInput = heap.slice(address, address + bytes);

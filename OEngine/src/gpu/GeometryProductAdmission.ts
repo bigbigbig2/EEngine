@@ -1,5 +1,6 @@
 import {
   assertGeometryProductDescriptorV1,
+  snapshotGeometryProductSourceV1,
   type GeometryProductDescriptorV1,
   type GeometryProductProviderV1,
   type GeometryProductRevisionSourceV1,
@@ -333,7 +334,14 @@ export class GeometryProductAdmissionTransaction {
     generation: number,
     productTableSlot: number,
   ) {
-    this.descriptor = source.descriptor;
+    try {
+      this.source = snapshotGeometryProductSourceV1(source);
+    } catch (error) {
+      admission._failed();
+      source.release();
+      throw error;
+    }
+    this.descriptor = this.source.descriptor;
     this.generation = generation;
     this.productTableSlot = productTableSlot;
   }

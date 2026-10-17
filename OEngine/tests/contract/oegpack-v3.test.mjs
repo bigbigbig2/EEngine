@@ -142,9 +142,31 @@ test("S1 OEGPACK adapter emits a producer-neutral Product V1 descriptor and excl
     await assert.rejects(openOegPackV3(new MemoryRangeReadablePackV3(obsolete)), /recook.*lean v7/);
   }
   const descriptor = descriptorFromOegPack(opened);
+  // The leaf map preserves canonical source order across material domains;
+  // coarse LOD triangles live beyond that source identity range.
+  const { validateGeometryProductQuerySection, verifyGeometryProductQueryContent,
+    geometryProductQueryPrimitiveIdentity } = await import(
+    "../../.test-dist/assets/geometry-product/GeometryProductQuerySection.js");
+  const query = validateGeometryProductQuerySection(descriptor);
+  await verifyGeometryProductQueryContent(query);
+  for (let asset = 0; asset < query.assetCount; asset++) {
+    const sourceCount = opened.assets[asset].sourceTriangleCount;
+    const leafIds = [];
+    for (let cluster = 0; cluster < query.clusterCount; cluster++) {
+      const at = query.clusters + cluster * 80;
+      if (query.view.getUint32(at + 28, true) !== asset) continue;
+      const leaf = (query.view.getUint32(at + 24, true) & 1) !== 0;
+      for (let primitive = 0; primitive < query.view.getUint32(at + 12, true); primitive++) {
+        const identity = geometryProductQueryPrimitiveIdentity(query, cluster, primitive);
+        if (leaf) leafIds.push(identity);
+        else assert.ok(identity >= sourceCount, "coarse identity cannot impersonate a source triangle");
+      }
+    }
+    assert.deepEqual(leafIds.sort((a, b) => a - b), Array.from({ length: sourceCount }, (_, i) => i));
+  }
   const report = validateGeometryProductDescriptorV1(descriptor);
   assert.equal(report.valid, true, report.issues.map((issue) => issue.message).join("; "));
-  assert.equal(descriptor.runtimeProfile, "oengine-vg-v2-v3-decoded-query2");
+  assert.equal(descriptor.runtimeProfile, "oengine-vg-v2-v3-decoded-query3");
   assert.equal(descriptor.producerKind, "offline-native");
   assert.equal(descriptor.assetRecords.byteLength, opened.assets.length * 128);
   assert.equal(descriptor.hierarchyNodes.byteLength, opened.hierarchy.length * 48);
@@ -359,6 +381,32 @@ test("corruption in header, metadata, compressed bytes, and logical links fails 
   await assert.rejects(openOegPackV3(new MemoryRangeReadablePackV3(badHash)), /hash/i);
 
   const opened = await openOegPackV3(new MemoryRangeReadablePackV3(bytes));
+  const queryBase = Number(new DataView(bytes.buffer).getBigUint64(208, true));
+  const queryView = new DataView(bytes.buffer, queryBase);
+  const clusters = queryView.getUint32(76, true);
+  const minimumCut = queryView.getUint32(88, true);
+  const queryMutations = [
+    ["query-offset", (candidate) => candidate.setUint32(76, clusters + 4, true)],
+    ["query-owner", (candidate) => candidate.setUint32(clusters + 28, 0xffffffff, true)],
+    ["query-cut", (candidate) => candidate.setUint32(minimumCut, 0xffffffff, true)],
+    ["query-material", (candidate) => candidate.setUint32(clusters + 16,
+      candidate.getUint32(clusters + 16, true) ^ 1, true)],
+  ];
+  for (const [name, mutate] of queryMutations) {
+    const malformed = bytes.slice();
+    mutate(new DataView(malformed.buffer, queryBase));
+    const queryBytes = Number(new DataView(malformed.buffer).getBigUint64(216, true));
+    malformed.set(createHash("sha256").update(malformed.subarray(queryBase + 160,
+      queryBase + queryBytes)).digest(), queryBase + 128);
+    await rewriteMetadataHash(malformed);
+    const malformedPath = join(fixtureRoot, `${name}.oegpack`);
+    await writeFile(malformedPath, malformed);
+    const result = spawnSync(cooker, ["validate", malformedPath], {
+      encoding: "utf8", windowsHide: true,
+    });
+    assert.notEqual(result.status, 0, `${name} must fail after a valid metadata hash`);
+    assert.match(result.stderr, /query section/i);
+  }
   const badPage = bytes.slice();
   const pageOffset = Number(opened.pages[0].compressedFileOffset);
   badPage[pageOffset] ^= 0x80;
@@ -654,4 +702,4 @@ function buildFixtureGlb({ distinctMaterialIds = false } = {}) {
 // v4.1 makes sphere merging conservative about the stored f32 center. The
 // independent translated-hierarchy oracle and native/Web parity validate the
 // numerical change before this content/recipe golden is advanced.
-const GOLDEN_PACK_SHA256 = "1331a5e97c8e52c7e414d6d772725d34be3feebc3d113256965ff3a3d12a58fb";
+const GOLDEN_PACK_SHA256 = "95fe8834260c5128ea2303920a29295f6e393499c3cc04a6d4e6287c93d4f791";

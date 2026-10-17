@@ -43,12 +43,14 @@ test("native scene query snapshot survives scene retirement until its final fenc
   upload.onBeforeFinish.send1(upload);
   upload.onFinished.send1(upload);
   const query = scene.retainQuery();
+  assert.equal(query.isCurrent(f.command()), true);
   assert.equal(textureReferences, 1);
   const retired = f.command();
   scene.release(retired);
   retired.onFinished.send1(retired);
   await tick();
   assert.equal(query.valid, true);
+  assert.equal(query.isCurrent(f.command()), false, "retention does not mean current scene truth");
   assert.ok(f.buffers.every((buffer) => !buffer.destroyed));
   assert.throws(() => scene.retainQuery(), /live scene/);
   await query.releaseAfter(Promise.resolve());
@@ -91,6 +93,8 @@ test("query projection demand follows native candidate commit/abort and preserve
   assert.throws(() => scene.retainQuery(f.command()), /native frame command/);
   const candidateLease = scene.retainQuery(aborted);
   assert.equal(candidateLease.revision, candidate.revision);
+  assert.equal(candidateLease.isCurrent(aborted), true);
+  assert.equal(candidateLease.isCurrent(f.command()), false);
   candidateLease.release();
   aborted.onAborted.send1(aborted);
   assert.equal(scene.active.queryMaterials.length, 0);

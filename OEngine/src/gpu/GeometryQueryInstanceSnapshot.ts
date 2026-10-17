@@ -14,6 +14,7 @@ export class GeometryQueryInstanceSnapshot {
   private readonly source: GpuSceneQueryBindings;
   private readonly handles: ResourceHandle[] = [];
   private encodedCommand: ShadeGPUCommandContext | null = null;
+  private publishedRevision: number | null = null;
   private destroyed = false;
   private poisoned = false;
 
@@ -68,6 +69,21 @@ export class GeometryQueryInstanceSnapshot {
     return !this.destroyed && !this.poisoned;
   }
 
+  /** Resource validity preserves a historical snapshot. New transport work
+   * additionally requires the current scene publication; retaining old pages
+   * cannot make a newly added raster occluder disappear from query truth. */
+  assertCurrent(command: ShadeGPUCommandContext): void {
+    if (!this.valid || command.closed || command.device !== this.device) {
+      throw new Error("Query source requires its live current scene and command");
+    }
+    const current = this.scene.queryBindings(command);
+    if (current.instances !== this.source.instances || current.identities !== this.source.identities ||
+        current.contentRevision !== (this.publishedRevision ?? this.contentRevision) ||
+        current.highWaterCount !== this.count || current.mutationSerial !== this.source.mutationSerial) {
+      throw new Error("GpuScene changed after query capture; prepare a fresh candidate");
+    }
+  }
+
   /** The first shard records the copy; other shards in that command share it.
    * A later command may only use the already submitted immutable snapshot. */
   encode(command: ShadeGPUCommandContext): void {
@@ -90,6 +106,13 @@ export class GeometryQueryInstanceSnapshot {
       throw new Error("GpuScene changed while preparing the query snapshot; prepare a fresh candidate");
     }
     this.encodedCommand = command;
+    command.onBeforeFinish.addOne(() => this.assertCurrent(command));
+    // GpuScene registers its publication before consumers capture it. Capture
+    // the committed revision after that callback; candidate admission itself
+    // already checked buffer identity, count and the non-ABA mutation serial.
+    command.onFinished.addOne(() => {
+      this.publishedRevision = this.scene.queryBindings().contentRevision;
+    });
     command.observeSubmission({
       submitted: (fence) => {
         void fence.catch(() => { this.poisoned = true; });

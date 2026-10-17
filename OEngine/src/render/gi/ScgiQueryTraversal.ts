@@ -1,6 +1,6 @@
 import { PipelineCompilationQueue } from "../../gpu/PipelineCompilationQueue.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
-import type { GeometryQueryGeometryLease } from "../../gpu/VirtualGeometryResidency.js";
+import type { GeometryQueryGeometryLease, GeometryQueryGeometrySegment } from "../../gpu/VirtualGeometryResidency.js";
 import type { GeometryQueryInstances } from "../../gpu/GeometryQueryInstances.js";
 import { scgiQueryGeometryWgsl } from "../../shaders/scgi_query_geometry.js";
 import type { ScgiBvhPlan } from "./ScgiBvhLayout.js";
@@ -8,6 +8,7 @@ import type { GpuNativeMaterialPublication } from "../../gpu/GpuNativeMaterialPu
 import type { NativeSceneQueryMaterial } from "../../gpu/GpuNativeMaterialScene.js";
 import { validateScgiDescriptors } from "./ScgiCapacity.js";
 import type { ScgiQueryHitWork } from "./ScgiQueryHitWork.js";
+import { GEOMETRY_QUERY_DIRECTORY_HEADER_BYTES } from "../../gpu/GeometryQueryDirectory.js";
 
 /** Complete native coverage-class traversal used during query construction and
  * validation. The query scene owner must merge all relevant classes/shards and
@@ -32,7 +33,7 @@ export class ScgiQueryTraversal {
   ) {}
 
   static async create(device: GPUDevice, blasPlan: ScgiBvhPlan, tlasPlan: ScgiBvhPlan,
-    input: { lease: GeometryQueryGeometryLease; asset: number; blas: GPUBuffer; tlas: GPUBuffer;
+    input: { lease: GeometryQueryGeometryLease; segment: GeometryQueryGeometrySegment; asset: number; blas: GPUBuffer; tlas: GPUBuffer;
       instances: GeometryQueryInstances; batch: GPUBuffer; rayCount: number; resultByteOffset: number;
       anyHit?: boolean; merge?: boolean;
       primitiveOffset?: number; primitiveCount?: number;
@@ -50,11 +51,11 @@ export class ScgiQueryTraversal {
         view: ArrayLike<number>; camera: ArrayLike<number>; coneWidth: number; coneSpread: number };
     }): Promise<ScgiQueryTraversal> {
     const { lease } = input;
-    const asset = lease.queryAssets[input.asset];
+    const asset = input.segment.queryAssets[input.asset];
     const primitiveOffset = input.primitiveOffset ?? 0;
     const primitiveCount = input.primitiveCount ?? asset?.primitiveCount ?? 0;
     const resultWords = input.resultByteOffset / 4;
-    if (!lease.valid || asset === undefined || !Number.isSafeInteger(primitiveOffset) || primitiveOffset < 0 ||
+    if (!lease.valid || !lease.segments.includes(input.segment) || asset === undefined || !Number.isSafeInteger(primitiveOffset) || primitiveOffset < 0 ||
         !Number.isSafeInteger(primitiveCount) || primitiveCount < 0 ||
         primitiveOffset + primitiveCount > asset.primitiveCount || primitiveCount > blasPlan.primitiveCapacity ||
         !Number.isSafeInteger(input.rayCount) || input.rayCount < 0 ||
@@ -135,8 +136,8 @@ export class ScgiQueryTraversal {
     let traceSettings: GPUBuffer | undefined;
     const coverageBuffers: GPUBuffer[] = [];
     try {
-      new Uint32Array(settings.getMappedRange()).set([lease.querySectionWordOffset,
-        lease.queryTrianglePrefixWordOffset, input.asset, lease.productGeneration,
+      new Uint32Array(settings.getMappedRange()).set([GEOMETRY_QUERY_DIRECTORY_HEADER_BYTES / 4,
+        input.segment.queryTrianglePrefixWordOffset, input.asset, lease.productGeneration,
         asset.primitiveBegin + primitiveOffset, primitiveCount, asset.cutBegin, asset.cutCount]);
       settings.unmap();
       traceSettings = device.createBuffer({ label: "SCGI/opaque trace parameters", size: 16,
@@ -152,7 +153,7 @@ export class ScgiQueryTraversal {
         { binding: 5, resource: { buffer: input.batch } },
         { binding: 6, resource: { buffer: traceSettings } },
         ...(input.coverageStatus ? [{ binding: 7, resource: { buffer: input.coverageStatus } }] : []),
-        { binding: 8, resource: { buffer: lease.metadata } },
+        { binding: 8, resource: { buffer: input.segment.metadata } },
         ...lease.banks.map((buffer, index) => ({ binding: 9 + index, resource: { buffer } })),
       ] });
       let coverageGroup: GPUBindGroup | undefined;

@@ -518,23 +518,21 @@ async function checkQueryGeometrySnapshot(device, graphics) {
 @group(0) @binding(1) var<storage, read_write> result: array<u32>;
 @compute @workgroup_size(1)
 fn main() {
-  let asset = oengine_geometry_product_resolve_asset_v1(&directory, 0u, ${snapshot.productGeneration}u);
-  let page = oengine_geometry_product_lookup_page_heap_v1(&directory, asset, 2u);
-  result[0] = select(0u, 1u, asset.valid);
-  result[1] = select(0u, 1u, page.valid);
-  result[2] = directory[${snapshot.querySectionWordOffset}u];
-  result[3] = page.byte_offset;
+  result[0] = select(0u, 1u, directory[4] == ${snapshot.productGeneration}u);
+  result[1] = select(0u, 1u, directory[31] == ${snapshot.productGeneration}u);
+  result[2] = directory[0];
+  result[3] = directory[29];
 }` });
     const info = await module.getCompilationInfo();
     assert.deepEqual(info.messages.filter((message) => message.type === "error"), []);
     const pipeline = await device.createComputePipelineAsync({ layout: "auto", compute: { module, entryPoint: "main" } });
     const bindings = device.createBindGroup({
       layout: pipeline.getBindGroupLayout(0), entries: [
-        { binding: 0, resource: { buffer: snapshot.metadata } },
+        { binding: 0, resource: { buffer: snapshot.segments[0].metadata } },
         { binding: 1, resource: { buffer: output } },
       ],
     });
-    geometry = await ScgiQueryGeometry.create(device, plan, scratch, snapshot, 0);
+    geometry = await ScgiQueryGeometry.create(device, plan, scratch, snapshot, 0, snapshot.segments[0]);
     build = await ScgiBvhBuild.create(device, plan, false, graphics.resource_accounting);
     const scene = graphics.gpu_scene;
     const upload = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
@@ -566,7 +564,7 @@ fn main() {
         assetReference: 0, root: 0, shard: 0, asGeneration: 1 }, graphics.resource_accounting);
     tlasBuild = await ScgiBvhBuild.create(device, tlasPlan, false, graphics.resource_accounting);
     query = await ScgiQueryTraversal.create(device, plan, tlasPlan,
-      { lease: snapshot, asset: 0, blas: hierarchy, tlas, instances, batch, rayCount, resultByteOffset: resultOffset });
+      { lease: snapshot, segment: snapshot.segments[0], asset: 0, blas: hierarchy, tlas, instances, batch, rayCount, resultByteOffset: resultOffset });
     const alphaGraph = new AppearanceGraphBuilder();
     const alphaPosition = alphaGraph.input("worldPosition", 3, "geometry");
     // Front plane rejects; the translated rear plane accepts. This is a real
@@ -592,13 +590,13 @@ fn main() {
     material.commit();
     for (let classIndex = 0; classIndex < material.rasterClasses.length; classIndex++) {
       coverageQueries.push(await ScgiQueryTraversal.create(device, plan, tlasPlan,
-        { lease: snapshot, asset: 0, blas: hierarchy, tlas, instances, batch, rayCount,
+        { lease: snapshot, segment: snapshot.segments[0], asset: 0, blas: hierarchy, tlas, instances, batch, rayCount,
           resultByteOffset: resultOffset, merge: classIndex > 0,
           coverage: { publication: material, classIndex, view: identity, camera: [0, 0, 1],
             coneWidth: 0.01, coneSpread: 0.001 } }));
     }
     wavefrontQueries.push(await ScgiQueryTraversal.create(device, plan, tlasPlan,
-      { lease: snapshot, asset: 0, blas: hierarchy, tlas, instances, batch, rayCount,
+      { lease: snapshot, segment: snapshot.segments[0], asset: 0, blas: hierarchy, tlas, instances, batch, rayCount,
         resultByteOffset: resultOffset, wavefront: { phase: "candidate", continuation } }));
     candidateWork = await ScgiQueryHitWork.create(device, instances.sourceSnapshot,
       material.rasterDirectory, batch, rayCount, resultOffset, material.rasterClasses.length);
@@ -606,13 +604,13 @@ fn main() {
       material.rasterDirectory, batch, rayCount, resultOffset, 1, true);
     for (let classIndex = 0; classIndex < material.rasterClasses.length; classIndex++) {
       wavefrontQueries.push(await ScgiQueryTraversal.create(device, plan, tlasPlan,
-        { lease: snapshot, asset: 0, blas: hierarchy, tlas, instances, batch, rayCount,
+        { lease: snapshot, segment: snapshot.segments[0], asset: 0, blas: hierarchy, tlas, instances, batch, rayCount,
           resultByteOffset: resultOffset,
           wavefront: { phase: "coverage", continuation, work: candidateWork },
           coverage: { publication: material, classIndex, view: identity, camera: [0, 0, 1],
             coneWidth: 0.01, coneSpread: 0.001 } }));
       pendingQueries.push(await ScgiQueryTraversal.create(device, plan, tlasPlan,
-        { lease: snapshot, asset: 0, blas: hierarchy, tlas, instances, batch, rayCount,
+        { lease: snapshot, segment: snapshot.segments[0], asset: 0, blas: hierarchy, tlas, instances, batch, rayCount,
           resultByteOffset: resultOffset, merge: classIndex > 0, pendingWork,
           // One step forces suspension on internal/leaf nodes and across the
           // BLAS-to-TLAS return, instead of only testing the single-dispatch case.
@@ -627,7 +625,7 @@ fn main() {
     const hitConstants = new Float32Array(hitProgram.constants.length + 2);
     hitConstants.set(hitProgram.constants);
     diffuseQuery = await ScgiQueryTraversal.create(device, plan, tlasPlan,
-      { lease: snapshot, asset: 0, blas: hierarchy, tlas, instances, batch, rayCount,
+      { lease: snapshot, segment: snapshot.segments[0], asset: 0, blas: hierarchy, tlas, instances, batch, rayCount,
         resultByteOffset: resultOffset,
         diffuse: { material: { materialSlot: 0, constants: hitConstants, unlit: false,
           viewDependent: true, binding: { program: hitProgram, layoutEntries: [], entries: [] } },
@@ -662,7 +660,7 @@ fn main() {
     await read.mapAsync(GPUMapMode.READ);
     const actual = [...new Uint32Array(read.getMappedRange().slice(0))];
     read.unmap();
-    assert.deepEqual(actual, [1, 1, 0x3251474f, snapshot.pages[0].location.byteOffset]);
+    assert.deepEqual(actual, [1, 1, 0x31445147, snapshot.pages[0].location.byteOffset]);
     await boundsRead.mapAsync(GPUMapMode.READ);
     const built = new Float32Array(boundsRead.getMappedRange().slice(0));
     boundsRead.unmap();
@@ -837,8 +835,33 @@ async function checkQueryInstances(device, graphics) {
     const b = source.highWaterCount * 32;
     assert.deepEqual([f[b], f[b + 1], f[b + 2], f[b + 4], f[b + 5], f[b + 6]],
       [99, -1.5, -0.25, 101, 1.5, 0.25]);
+    // Independent transformed-AABB expectations. Merely checking the instance
+    // origin would miss the first domain's boundary intersection at x=101.
+    const domains = [
+      { min: [101, -2, -1], max: [102, 2, 1], included: true },
+      { min: [101.5, -2, -1], max: [102, 2, 1], included: false },
+      { min: [98, 2, -1], max: [102, 3, 1], included: false },
+      { min: [98, -2, 0.25], max: [102, 2, 1], included: true },
+    ];
+    for (const domain of domains) {
+      query.destroy();
+      query = await GeometryQueryInstances.create(device, plan, scratch, instanceSnapshot,
+        { productTableSlot: 0, productGeneration: 1, assetReference: 0, root: 0, shard: 0, asGeneration: 1 },
+        graphics.resource_accounting, domain);
+      const bounded = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
+      query.encode(bounded);
+      bounded.copyBufferToBuffer(query.records, 0, read, 0, source.highWaterCount * 128);
+      bounded.finish();
+      await bounded.gpuDone;
+      await read.mapAsync(GPUMapMode.READ);
+      const actual = new Uint32Array(read.getMappedRange().slice(0));
+      read.unmap();
+      assert.equal(actual[first * 32 + 30], domain.included ? 0xffffffff : 0,
+        "Finite query domain must conservatively intersect the transformed bounds");
+      assert.equal(actual[(first + 1) * 32 + 30], 0, "A finite domain must not reactivate inactive slots");
+    }
     return { highWaterCount: source.highWaterCount, offscreenIncluded: true,
-      negativeNonuniformInverse: true, singularUntrusted: true };
+      negativeNonuniformInverse: true, singularUntrusted: true, finiteDomainBoundaryAndExclusion: true };
   } finally {
     await device.queue.onSubmittedWorkDone();
     query?.destroy();
