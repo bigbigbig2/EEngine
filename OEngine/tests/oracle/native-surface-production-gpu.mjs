@@ -769,9 +769,19 @@ export async function runNativeSurfaceProductionGpuOracle(
         check(product.queryCoveragePages().every((page) => product.pageLocation(page) !== undefined),
           "Scheduled query coverage did not reach the ordinary frame publication");
       }
+      // The v3 directory includes source-primitive remaps. Keep the finite
+      // one-cluster stress route while admitting the complete largest cluster.
+      let directorySegmentBytes = 160;
+      for (const product of queryProducts) {
+        const section = validateGeometryProductQuerySection(product.descriptor);
+        for (let cluster = 0; cluster < section.clusterCount; cluster++) {
+          const triangles = section.view.getUint32(section.clusters + cluster * 80 + 12, true);
+          directorySegmentBytes = Math.max(directorySegmentBytes, Math.ceil((152 + triangles * 4) / 16) * 16);
+        }
+      }
       const profile = { deviceEpoch: 1, originEpoch: 0, primitiveCapacity: 64,
         maximumBytes: 64 * 1024 * 1024, subgroup: false,
-        directorySegmentBytes: 160,
+        directorySegmentBytes,
         domain: { min: [-20, -20, -101], max: [20, 20, 5] } };
       const makeScene = () => ScgiQueryScene.create(device, profile,
         renderer.graphics.render_world.runtime(scene), renderer.graphics.gpu_scene,
@@ -856,11 +866,13 @@ export async function runNativeSurfaceProductionGpuOracle(
           bytes: queryScene.byteLength, coverageDispatches: coverageCount,
           acceptedDistance: values[0], abortRetry: true, actualRenderWorld: true,
           scheduledQueryCoverage: true,
-          finiteDirectorySegments: queryScene.shards.every((shard) => shard.segment.metadata.size <= 160) };
+          finiteDirectorySegments: queryScene.shards.every((shard) => shard.segment.metadata.size <= directorySegmentBytes),
+          directorySegmentBytes, batchCost: null };
         completeBatch = await ScgiQueryBatch.create(device, queryScene, {
           batch, rayCount: 1, resultByteOffset: 48, output, view: camera.view_matrix,
           camera: [-2.4, 0, 4], coneWidth: 0.001, coneSpread: 0.001, wavefrontRounds: 2,
         });
+        queryPublication.batchCost = completeBatch.cost;
         const full = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
         completeBatch.encode(full);
         full.copyBufferToBuffer(batch, 48, read, 0, 32);

@@ -140,6 +140,12 @@ GPU 派生 query directory 为 v2：32B header、112B/cluster、4B prefix/cluste
 
 静态 cluster BLAS 按 `(Product revision, cluster, cut, deformation revision)` 复用；TLAS 引实例 slot+generation、mask、变换、BLAS directory。相同 mesh 多实例共享 BLAS。刚体改变只改 instance view/TLAS；拓扑不变变形重算 leaf bounds/refit，质量恶化触发局部 rebuild/restructure；拓扑变更重建相关 BLAS。
 
+当前静态/刚体 profile 落点为 `ScgiQueryBlas`：设备与不可变 Product descriptor 分域，完整 cut cluster 序列、目录分段及几何 shard 范围作精确键，不用物理页地址或有碰撞的短 hash。cut 键每 lease 只构造/索引一次，避免每 cluster 复制整个 cut 形成平方级冷准备。仅已提交且未失败的 BLAS 可共享；同 queue 顺序保证后续读在 build 后。准备中/abort 的候选不进入共享索引，最后一个 scene 的最终 consumer fence 后释放，不保留无消费者的 GPU cache。
+
+`GeometryQueryTransforms` 每 captured scene 只派生一份 128B/slot affine 与 32B/slot world bounds；源 176B instance+16B lineage 快照同样共享。`GeometryQueryInstances` 对每几何 shard 的 source-slot window 做 GPU classify→block offsets→稳定 scatter，TLAS leaf reference 保留原始 GpuScene slot，不能将 compact index 当实例身份。window 默认最多4096 slots，与 BLAS triangle capacity 分开协商；所有 windows 都参与，不能截掉高槽位对象。CPU 只遍历冷 Product/shard/window，不读取本帧 compact count 或逐对象决定工作。
+
+候选可显式传入上一 submitted scene。BLAS/capacity/window 完整对应时，先把旧 TLAS 拷到独立候选，GPU 比较 compact membership、count、leaf bounds 与旧故障，选择 unchanged/refit/restructure/rebuild；不同对应关系完整重建。refit 后 normalized node-area cost 相对 baseline 超过1.2触发 treelet，超过2.0写下一候选 rebuild request，32次 refit 后也强制重建。这些是可调整的质量调度参数，不是画质容差或已测性能阈值。旧 scene 作为 topology copy consumer 登记 fence，历史资源存活与是否仍能服务新 transport 分开；abort 不写 active。
+
 细页请求是 GPU demand→延迟流送，沿现有 IO/上传/背压。它允许跨帧 CPU 服务磁盘网络，不允许本帧 query count readback 决定本帧 dispatch。fine 未就绪继续用完整 coarse cut；精化发布与 AS directory 交换同事务。BLAS 持 page lease 直到最后一个使用该 AS 的 fence；raster 的 eviction 或紧凑池搬迁必须先发布新地址/重建引用，再退旧区间。不能读已被重用的物理地址。
 
 `ScgiQueryScenePublication` 只持一个 committed active 和一个同 command candidate。完整新 cut 的全部 page leases、directory、material、instance snapshot 与 AS 准备完成后才能 stage；缺页的准备失败保留 active。candidate 在其 build command 内 frame-readable，submit 后一次交换，abort 只撤 candidate；被替换 scene 的退休等待新提交 fence 和其自己登记的全部旧 consumer。失败 fence 保持隔离与退休计数，不释放共享页。旧 cut 只有其世界域、当前 source/material 及 GPU coverage 检查仍满足时才可服务新 transport，不能为了保持更新而使用 stale active。Renderer 默认接入和 geometry/raster/query/cache 联合 activation 仍在 SCGI-8 原子完成。
@@ -166,7 +172,7 @@ GPU 派生 query directory 为 v2：32B header、112B/cluster、4B prefix/cluste
 8. ray-box、triangle、near-first traversal、closest、any-accepted-hit、hit barycentric/primitive/instance、堆栈续跑与完整结束。
 9. query output compaction、material/coverage 分桶、reject continuation、indirect args 与所有 overflow 路径。
 
-节点采用64B binary record、primitive ref16B、instance view128B及独立parent/escape索引；这是本地布局，不与 donor 二进制兼容。§19给出字段、分片物理访问与容量计算，SCGI-1实现该合同并检验pack/unpack，不能再把布局全部留给动工时决定。分片采用有限绑定、GPU筛选与按shard编码，不假定BDA/bindless。
+节点采用64B binary record、4B/primitive 的局部 reference、instance view128B及独立parent/escape索引。triangle 的完整页/group/primitive/格式与 source identity 由共享 Product directory/remap 解析，不重复物化16B/triangle地址表；逻辑 `triangleRef` 的16B字段合同不等于新增持久分配。这是本地布局，不与 donor 二进制兼容。§19给出字段、分片物理访问与容量计算。分片采用有限绑定、GPU筛选与按shard编码，不假定BDA/bindless。
 
 ### 5.2 WGSL 同步，不能照抄 HLSL 原子发布
 
@@ -191,6 +197,8 @@ Scan/radix 的 portable path 为 workgroup scan→block sums→分层扫描→ad
 world ray 归一化后，变到 object space **不再次归一化方向**，使 t 仍可在 world interval 比较；非均匀/负缩放、normal inverse transpose、front-face parity 分别处理。ray-box 对零方向、平行面、NaN/Inf、degenerate bounds 有明确结果；自相交 offset 按尺度/几何误差，不能固定巨大 epsilon 漏薄墙。
 
 不能直接把 donor 的每 ray 64-slot global stack 无限放大。使用有界 ray batch，register/workgroup stack + storage spill 或 parent-pointer continuation；stack 溢出进入完整 continuation，不返回 miss。批次内所有 admitted rays 完成再覆盖 scratch，ray 总预算与 ray batch capacity 分开。输入 worklist 计数、派发参数和 spill 由 GPU 生成，只有统计可延迟 readback。
+
+`ScgiQueryBatchInput.count` 接受 GPU dense-prefix count；分配容量仍为 rayCount。count=0 不产生 traversal 工作；超容量使整 batch fault，不能 clamp 后让部分 cohort 成功。tail 每 quantum 对未完成 rays 重新 compact，GPU 写独立 indirect buffer；默认4096 node steps，结束须检查 continuation 全部完成。静态 quantum 上界为 `ceil((3·Nt + Iwindow·(3·Nb+1)+1)/quantum)`，节点数由完整 source window 与该 shard 实际 primitive count 推导，不拿未使用 arena capacity 放大工作；完整访问包含每实例重复访问 BLAS 和返回。compact/publish/finish 及 zero-work indirect 都计 CPU 编码成本。`ScgiQueryBatch.cost` 报私有 bytes、quanta、完整 dispatch 上界和真实 descriptor inventory；这些数据不代表加速证明。
 
 ### 5.4 Alpha 与 native material dispatch
 
@@ -261,6 +269,10 @@ SCGI-4物理合同：GpuScene同一instantiate/append/replacement事务批量写
 从同 AppearanceGraph 编译需要的 base diffuse reflectance、metallic、emission、coverage、UV transforms、vertex attributes、normal与双面语义。普通非金属 `fd=baseColor·(1-metallic)/π`，coat下层衰减与现行native规则相容；特殊custom graph必须完整编译其依赖，不用默认灰色材质代替。
 
 复用 NativeMaterialBindings 的decode、sampler、texture bank、Product与VT路由。hit footprint由ray cone/patch voxel size、距离、UV metric和query LOD构造显式texture LOD/梯度；compute不使用隐式屏幕导数。coverage采用现行resident完整依赖与匹配采样语义，不能擅自“低mip alpha”改变栅栏拓扑。shading纹理可用coarse mip tail；GI feedback单独标低优先级、去重/限额/age公平，超过容量保留可用coarse并统计，不能把alpha缺页当opaque或透明。
+
+查询 VT 使用现有 residency owner 的独立三槽 feedback channel，保留原 atlas、page table、IO、上传与 frame command；query/primary demand 作并集，互不清除另一通道。物理 admission 默认7/8主视图、1/8查询，未用份额可借，coarse dependency 优先，query-only 同 mip grant 每8帧按 age 轮转。mapping generation 随普通上传提交推进，同 command 可读取候选 token，abort 撤销候选；batch 暴露 token 与 viewDependent，SCGI-6/7 必须将其纳入 cohort/history 接受。双通道 GPU/readback/ring bytes 都计入 VT owner，不能把它藏在“复用现有 VT”里。单面背向 accepted hit 对 diffuse 为不可信 inside，不能当天空；any-hit visibility 仍把真实 accepted backface 当遮挡，双面材质则朝接收方向构造物理响应。两种 query 共享 coverage，visibility 不额外执行 diffuse shading。
+
+使用 owner 内置 feedback 的 batch 在准备后持有 query demand，最终成功 consumer fence 后销毁 batch 才释放；abort/preparation failure 回收相同持有。最后一个 batch 释放时撤销 query-only demand、保留 primary 引用，并拒绝不晚于退休帧的迟到 feedback，不能靠未来恰好产生一次空查询才释放工作集。约2.625MiB的独立feedback ring留在原VT owner供绑定复用，直到该owner teardown；不是每batch重复分配，也不延长无消费者细页的需求。显式外部feedback由调用者维持其生命周期。
 
 算法域固定为 **linear Rec.709、未曝光**，与当前`native_surface.ts`求和前相同；source texture按现行decode转入此域，最终Native一次`oengine_linear_rec709_to_rec2020`并乘preExposure。field、world cache、light sample池和screen diffuse源都不得存pre-exposed Rec.2020后冒称同域。source transform写入publication合同，oracle含彩色发光体/超白HDR；若将来改working domain，必须整generation迁移而不能混历史。
 
@@ -483,7 +495,7 @@ SCGI-3另增双bank cacheState共32K B，不复用patch的postValid/lastCohort/s
 
 小计**不含**目录帧槽、anchor、AS、query新增payload、queues/scratch、VT/VSM/SSSR、gather、retiring和renderer已有资源。中间profile加1080p三目录GI段后已约346.86MiB，再加anchor为410.14MiB，仍未加query。80–160MiB不能代表完整GI预算。
 
-- AS保守容量：每node64B+links8B，按约2T节点预留，refs16T，合约160T B；100万三角约152.59MiB、400万约610.35MiB。最终child/leaf编码可缩小allocated node count，但admission先按保守容量计。另有32B/cluster目录、query instance128B及按2×72B预留的TLAS nodes，约272B/instance；10万实例约25.94MiB。跨shard重复TLAS leaf/索引另加，变换真值不重复。每page额外query lease/目录若16B，10万page约1.53MiB；完整payload与新增proxy分开记。
+- AS当前容量：每node64B+links8B、4B/primitive reference，单shard约`72·(2T−1)+4T+64`，另加range对齐；100万三角约141.14MiB、400万约564.58MiB，均非整个query scene预算。旧16B/triangle独立地址表不物化。每个源slot的176B instance+16B lineage快照、128B affine+32B bounds合计352B；每个TLAS重复leaf域另按约148B/实例计，不能只算128B affine。10万源slot加一份对应TLAS约47.68MiB；跨geometry shard重复TLAS、query directory、构建scratch/参数、old/new/retiring叠加另计。directory为每段`align16(36+116C+4T)`，页pin的完整payload仍计原residency owner。
 - 静态AS不双份copy；动态candidate/rebuild计旧+新node/ref/links与scratch。排序key+index双buffer可按16T估计，parent jumping双ancestor/distance约16Nnode，depth/level lists约8Nnode，histogram/prefix/treelet scratch另列。只有寿命不交叠才alias；多组BLAS build可复用scratch，不永久保留所有资产各自的最大临时量。page lease延长的共享geometry驻留同样计工作集。
 - ray batch基础work48+result32+payload32+continuation64=176B/ray，65536条为11MiB；若采用64×u32 spill再16MiB，共27MiB。另有bin counts/prefix/indirect与light sample pool。64B continuation包括两层遍历上下文，不能只存一个node就声称能恢复TLAS/BLAS。parent-pointer route无64-slot spill但有其state。B控制临时量，Qtotal控制工作量。
 - bounce requests112B/项，双bank若各K=65536则14MiB；visible demand临时若逐H存项则1080p为55.37MiB。anchor完整写H，rank0需求先按commit-only全局窗口轮转，再cell去重；存完整112B request，队列cap显式给出。defer新cache需求是cache miss，不可丢已计划query/cohort。claim索引若每cell4B，R32/C4另8MiB；如复用map sentinel须证明完整恢复才能抵扣。defrag scratch按真实搬迁record计。
@@ -600,21 +612,21 @@ half field/history是**逻辑完整、物理可分片**的112H产品：按线性
 |---|---|---|
 | Binary node | 64B | 两个32B child项，各为min.xyz/ref、max.xyz/flags；leaf/internal的ref是本shard完整索引，编码范围admission先查，不截身份 |
 | Node links | 8B/node | parent、escape/next；支持有界step续跑和深stack替代；restructure后全部重建 |
-| Triangle ref | 16B | pageDirectoryIndex/groupId/localTriangle/materialRemapIndex；stablePrimitiveId从Product remap取，不用这个物理地址作history |
-| AS directory | 32B/cluster | shard/root/nodeCount/refBase、pageLeaseEpoch/geometryGeneration/topologyGeneration/flags |
+| Hierarchy primitive reference | 4B/primitive | TLAS compact index→原 GpuScene slot；BLAS局部索引经Product directory解码。完整逻辑triangleRef16B从已有字段恢复，不增加第二份地址真值 |
+| Query geometry directory | 每段32B header +112B/cluster +4B/cluster prefix +4B terminal +4B/所选triangle remap，16B对齐 | page generation/format与source correspondence；原四bank payload不复制。AS shard/root由有限物理bindings持有 |
 | Query instance | 128B | object→world3×vec4=48、world→object48、instance slot/set/lifetime/BLAS root16、shard/BLAS generation/mask/flags16 |
 | RayWork | 48B | origin+tMin16、direction+tMax16、rayId/mask/queryKind/snapshotGeneration16 |
 | Result | 32B | t/bary.x/bary.y/status16、instanceViewId/primitiveId/geometryGeneration/frontFaceFlags16 |
 | Payload | 32B | patch slot/generation/cohort/sampleId16、PDF bits/pathClass/lightSample/flags16 |
 | Continuation | 64B/ray + optional spill | phase复用同一scratch：tail的byte0 state(initial0/suspended1/done2)、4 node、8 previousNode、12 inTlas、16 instanceSlot、20 tlasReturnNode、24 tlasVisits、28 blasVisits，32…63保留；best hit完整保存在Result32B。candidate的byte0 accepted、4 hasRejected、8 rejectedT、12 rejectedInstance、16 rejectedPrimitive，其余保留。tail开始clear scratch，不把candidate cursor解释为遍历上下文。shard/bin由当前物理dispatch固定，变换从instance读取；完整spill另计 |
 
-每shard node/ref/links分别满足单binding limit；页payload仍用当前Product四bank选择器。**shard不是任意WGSL动态buffer handle**：CPU按已发布有限shards逐个绑定，GPU broad-phase队列筛出可能命中的rays，同ray的best hit跨shard顺序归并。TLAS每shard覆盖其所有BLAS instances；超大单mesh在Product cluster边界切BLAS。instance可出现在多个shard的TLAS索引中，但变换真值仅一份；重复TLAS leaf/index bytes计入AS模型。保守root AABB不相交可跳该shard工作，不能拿screen可见性筛掉离屏实例。
+每shard node/ref/links组成的整个arena满足单binding limit；页payload仍用当前Product四bank选择器。**shard不是任意WGSL动态buffer handle**：CPU按已发布有限shards逐个绑定，GPU broad-phase队列筛出可能命中的rays，同ray的best hit跨shard顺序归并。TLAS每shard覆盖其所有BLAS instances；超大单mesh在Product cluster边界切BLAS。instance可出现在多个shard的TLAS索引中，但变换真值仅一份；重复TLAS leaf/index bytes计入AS模型。保守root AABB不相交可跳该shard工作，不能拿screen可见性筛掉离屏实例。
 
 不同shard复用同一batch scratch，保持rayId/cohort，完成全部相关shards才能认定miss。输入/输出queues采用count→prefix→scatter，容量不足则切更小batch并完整循环，不能atomicAppend后clamp count丢ray。若payload自身新增超过现有四bank，以现有Product publication机制扩有限bank组并按group编码；不在ray shader里假装任意GPU地址可读。query generation pin覆盖目录/页/material常量/coverage纹理；material只持view和lease，不复制整库。
 
-常规trace与coverage tail采用phase-specific布局，不要求一套布局绑完所有算法。选定tail的明确storage清单为：①batch work/result/continuation同一u32 arena，②本shard node/link/ref同一AS arena，③query instance/directory，④原始frame instance+新增identity side view（两binding），⑥ordinary source heap，⑦ordinary vertex payload，⑧Product metadata，⑨～⑫Product四payload bank，⑬native material publication，⑭bin/work queue，⑮counter/indirect args，共15；coverage完整resident依赖不声明shading VT feedback。SH/lighting/SSSR/主Surface outputs均不引入。groups为query、geometry、material constants、material textures四组，uniform/sampler另按设备限额核对。普通trace可裁掉不消费的material/identity项；diffuse-hit在另一个phase运行，因此不用同时绑定AS与所有lighting/cache资源。
+当前 Product query 的实际四组为 query、native constants/source、output/work/continuation、native textures。query组有10 storage：BLAS、TLAS、共享affine、batch、scene coverage、query directory与原四payload banks；native组最多3 storage：原instance、material directory、native constants。tail再加work+continuation共15；diffuse换成output+可选VT feedback+hit work，最满为16。geometry/trace/class/view/frame uniforms、完整sampled textures和samplers另外计入实际descriptor。identity按阶段从共享source/lineage与Product remap消费，不能沿用旧草案清单再绑定无consumer的ordinary heap。非Product或未支持deformation没有凭空生成query几何，coverage明确unknown。SH/lighting/SSSR/主Surface outputs不进入query pipeline；较低limit只能完整分phase或拒绝该profile，不能减少材质输入。
 
-AS arena是本shard唯一节点表示，batch arena是既有临时队列的物理pack，不是第二份geometry。每个arena含明确offset/count、range与access mode，**整体**满足maxStorageBufferBindingSize；不能各段分别满足就声称整体合法。coverage sampled textures≤现有完整coverage graph；没有新增texture。以上是可实施的资源inventory，仍需生成真实descriptor后在SCGI-1/5对所有ordinary/Product/混合/custom/coverage route验证；较低设备limit用更细phase/finite bank group分批，不静默减少材质输入。
+AS arena是本shard唯一节点表示，batch arena是既有临时队列的物理pack，不是第二份geometry。每个arena含明确offset/count、range与access mode，**整体**满足maxStorageBufferBindingSize；不能各段分别满足就声称整体合法。coverage sampled textures≤现有完整coverage graph；没有新增texture。以上为实际资源inventory；SCGI-5验证Product/custom/coverage/VT route，对缺失Product覆盖明确unknown。较低设备limit用更细phase/finite bank group完整分批或拒绝该profile，不静默减少材质输入。
 
 ### 19.4 refit / restructure 的有限调度
 

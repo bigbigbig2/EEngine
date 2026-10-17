@@ -1,7 +1,7 @@
 import {
   SCGI_BVH_MAX_DEPTH,
   SCGI_BVH_WORKGROUP_SIZE as W,
-  type ScgiBvhPlan,
+  type ScgiBvhPlan
 } from "../render/gi/ScgiBvhLayout.js";
 
 /* Altered WGSL adaptation of RadeonRays c8890b96b1f976bedd2cd280cc170dff5d655e0a:
@@ -27,8 +27,9 @@ import {
 export function scgiBvhBuildWgsl(plan: ScgiBvhPlan): string {
   const h = plan.hierarchy.ranges;
   const s = plan.scratch.ranges;
-  const constants = Object.entries(s).map(([name, range]) =>
-    `const S_${name}: u32 = ${range.offset / 4}u;`).join("\n");
+  const constants = Object.entries(s)
+    .map(([name, range]) => `const S_${name}: u32 = ${range.offset / 4}u;`)
+    .join("\n");
   return /* wgsl */ `
 struct BuildSettings {
   count: u32,
@@ -107,13 +108,13 @@ fn set_node_bounds(node: u32, left: Bounds, right: Bounds) {
 fn initialize(@builtin(global_invocation_id) id: vec3u) {
   let index = id.x;
   let nodes = select(0u, settings.count * 2u - 1u, settings.count > 0u);
-  if (index < nodes) {
+  if (index < nodes && atomicLoad(&scratch[S_input + 1u]) != 1u) {
     hierarchy[H_LINKS + index * 2u] = INVALID;
     hierarchy[H_LINKS + index * 2u + 1u] = INVALID;
   }
   if (index < 16u) {
     atomicStore(&scratch[S_control + index], 0u);
-    hierarchy[index] = 0u;
+    if (atomicLoad(&scratch[S_input + 1u]) != 1u) { hierarchy[index] = 0u; }
   }
   if (index <= MAX_DEPTH) {
     atomicStore(&scratch[S_levelCounts + index], 0u);
@@ -200,7 +201,7 @@ fn update_leaves(@builtin(global_invocation_id) id: vec3u) {
   }
   if (id.x >= settings.count) { return; }
   let leaf = settings.count - 1u + id.x;
-  let primitive = hierarchy[H_NODES + leaf * 16u + 3u];
+  let primitive = hierarchy[H_NODES + leaf * 16u + 11u];
   if (primitive >= settings.count) { fault(); return; }
   let bounds = read_bounds(S_primitiveBounds + primitive * 8u);
   if (!valid_bounds(bounds)) { fault(); }
@@ -416,12 +417,100 @@ fn escape_links(@builtin(global_invocation_id) id: vec3u) {
   }
   hierarchy[H_LINKS + node * 2u + 1u] = escape;
 }
+// GPU update classification uses the copied candidate only. Compact source
+// order is deterministic; membership/count changes require a fresh topology.
+@compute @workgroup_size(${W})
+fn update_policy(@builtin(global_invocation_id) id: vec3u) {
+  let count = atomicLoad(&scratch[S_input]);
+  if (id.x == 0u && (hierarchy[0] != count || hierarchy[2] != 0u ||
+      hierarchy[5] >= 32u || hierarchy[7] == 3u)) {
+    atomicOr(&scratch[S_input + 2u], 2u);
+  }
+  if (id.x >= count || hierarchy[0] != count) { return; }
+  let leaf = count - 1u + id.x;
+  let primitive = hierarchy[H_NODES + leaf * 16u + 11u];
+  if (primitive >= count || hierarchy[${h.references!.offset / 4}u + primitive] !=
+      atomicLoad(&scratch[S_primitiveBounds + primitive * 8u + 3u])) {
+    atomicOr(&scratch[S_input + 2u], 2u);
+    return;
+  }
+  for (var axis = 0u; axis < 3u; axis++) {
+    if (hierarchy[H_NODES + leaf * 16u + axis] != atomicLoad(&scratch[S_primitiveBounds + primitive * 8u + axis]) ||
+        hierarchy[H_NODES + leaf * 16u + 4u + axis] != atomicLoad(&scratch[S_primitiveBounds + primitive * 8u + 4u + axis])) {
+      atomicOr(&scratch[S_input + 2u], 1u);
+    }
+  }
+}
+@compute @workgroup_size(1)
+fn update_decide() {
+  let flags = atomicLoad(&scratch[S_input + 2u]);
+  let action = select(select(0u, 1u, flags != 0u), 3u, (flags & 2u) != 0u);
+  atomicStore(&scratch[S_input + 1u], action);
+  hierarchy[8] = action;
+}
+var<workgroup> quality_costs: array<f32, ${W}>;
+fn normalized_area(bounds: Bounds) -> f32 {
+  let scene = read_bounds(S_sceneBounds);
+  let scale = max(max(max(abs(scene.low.x), abs(scene.high.x)),
+    max(abs(scene.low.y), abs(scene.high.y))), max(abs(scene.low.z), abs(scene.high.z)));
+  if (scale == 0.0) { return 0.0; }
+  let exponent = frexp(scale).exp;
+  var extent = vec3f(0.0);
+  for (var axis = 0u; axis < 3u; axis++) {
+    extent[axis] = max(0.0, exponent_scaled(bounds.high[axis], exponent) - exponent_scaled(bounds.low[axis], exponent));
+  }
+  return 2.0 * (extent.x * extent.y + extent.x * extent.z + extent.y * extent.z);
+}
+@compute @workgroup_size(${W})
+fn quality_reduce(@builtin(local_invocation_index) lane: u32, @builtin(workgroup_id) group: vec3u) {
+  let index = group.x * ${W}u + lane;
+  let nodes = select(0u, settings.count * 2u - 1u, settings.count != 0u);
+  var cost = 0.0;
+  // One contribution per binary node; common normalization avoids overflow.
+  if (index < nodes) { cost = normalized_area(node_bounds(index)); }
+  quality_costs[lane] = cost;
+  workgroupBarrier();
+  for (var width = ${W / 2}u; width > 0u; width >>= 1u) {
+    if (lane < width) { quality_costs[lane] += quality_costs[lane + width]; }
+    workgroupBarrier();
+  }
+  if (lane == 0u) { atomicStore(&scratch[S_quality + group.x], bitcast<u32>(quality_costs[0])); }
+}
+@compute @workgroup_size(1)
+fn quality_decide() {
+  var cost = 0.0;
+  let nodes = select(0u, settings.count * 2u - 1u, settings.count != 0u);
+  for (var block = 0u; block < (nodes + ${W - 1}u) / ${W}u; block++) {
+    cost += scratch_float(S_quality + block);
+  }
+  let root_area = select(1.0, normalized_area(node_bounds(0u)), settings.count != 0u);
+  cost /= max(root_area, 1e-30);
+  let baseline = bitcast<f32>(hierarchy[4]);
+  let action = atomicLoad(&scratch[S_input + 1u]);
+  if (settings.phase == 0u && action == 1u && baseline > 0.0 && cost > baseline * 1.2) {
+    atomicStore(&scratch[S_input + 1u], 2u);
+  }
+  if (settings.phase == 1u) {
+    if (action == 3u || baseline <= 0.0) { hierarchy[4] = bitcast<u32>(cost); }
+    hierarchy[6] = bitcast<u32>(cost);
+    // GPU persistent rebuild request, consumed by the next immutable update.
+    hierarchy[7] = select(0u, 3u, baseline > 0.0 && cost > baseline * 2.0);
+  }
+}
+@compute @workgroup_size(${W})
+fn publish_references(@builtin(global_invocation_id) id: vec3u) {
+  if (id.x < settings.count) {
+    hierarchy[${h.references!.offset / 4}u + id.x] = atomicLoad(&scratch[S_primitiveBounds + id.x * 8u + 3u]);
+  }
+}
 @compute @workgroup_size(1)
 fn finalize() {
   hierarchy[0] = settings.count;
   hierarchy[1] = select(INVALID, 0u, settings.count > 0u);
   hierarchy[2] = atomicLoad(&scratch[S_control]);
   hierarchy[3] = atomicLoad(&scratch[S_control + 1u]);
+  hierarchy[5] = select(hierarchy[5] + 1u, 0u, atomicLoad(&scratch[S_input + 1u]) == 3u);
+  hierarchy[8] = atomicLoad(&scratch[S_input + 1u]);
 }
 `;
 }
@@ -506,7 +595,7 @@ fn restructure(@builtin(local_invocation_index) lane: u32, @builtin(workgroup_id
   }
   if (lane == 0u) {
     enabled = 0u;
-    if (root < node_count && root < settings.count - 1u &&
+    if (scratch[${s.input!.offset / 4 + 1}u] >= 2u && root < node_count && root < settings.count - 1u &&
         scratch[${s.depths!.offset / 4}u + root] == settings.depth && scratch[COUNTS + root] >= 7u &&
         scratch[${s.control!.offset / 4}u] == 0u) {
       enabled = 1u;
@@ -644,13 +733,15 @@ export function scgiBvhRadixWgsl(plan: ScgiBvhPlan, subgroup: boolean): string {
   const subgroupReduction = subgroup ? "let total = subgroupAdd(selected);" : "";
   // Subgroup total is used only to avoid shared histogram atomics. Scatter
   // still uses a portable stable partition, independent of subgroup lane size.
-  const histogram = subgroup ? /* wgsl */ `
+  const histogram = subgroup
+    ? /* wgsl */ `
     for (var bin = 0u; bin < 16u; bin++) {
       let selected = select(0u, 1u, index < settings.count && digit == bin);
       ${subgroupReduction}
       if (subgroup_lane == 0u) { atomicAdd(&bins[bin], total); }
     }
-  ` : /* wgsl */ `
+  `
+    : /* wgsl */ `
     if (index < settings.count) { atomicAdd(&bins[digit], 1u); }
   `;
   return /* wgsl */ `

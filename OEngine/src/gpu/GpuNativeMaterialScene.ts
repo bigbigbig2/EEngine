@@ -306,6 +306,10 @@ export class GpuNativeMaterialScene {
     });
   }
 
+  get queryVirtualTextures() {
+    return this.graphics.texture_residency.virtualTextures;
+  }
+
   get viewDependentCoverage(): boolean {
     return (this.prepared ?? this.candidate ?? this.active)?.viewDependentCoverage ?? false;
   }

@@ -35,36 +35,51 @@ import { GEOMETRY_QUERY_DIRECTORY_CLUSTER_BYTES } from "../gpu/GeometryQueryDire
 
 function scgiCoverageWgsl(program: NativeMaterialProgram | null, diffuse = false, unlit = false): string {
   const expressions: Record<string, string> = {
-    uv0: "vec4f(uv0, 0.0, 0.0)", uv1: "vec4f(uv1, 0.0, 0.0)", uv2: "vec4f(0.0)",
-    vertexColor: "color", position: "vec4f(position, 1.0)", worldPosition: "vec4f(position, 1.0)",
-    normal: "vec4f(normal, authored_normal.w)", worldNormal: "vec4f(normal, authored_normal.w)",
+    uv0: "vec4f(uv0, 0.0, 0.0)",
+    uv1: "vec4f(uv1, 0.0, 0.0)",
+    uv2: "vec4f(0.0)",
+    vertexColor: "color",
+    position: "vec4f(position, 1.0)",
+    worldPosition: "vec4f(position, 1.0)",
+    normal: "vec4f(normal, authored_normal.w)",
+    worldNormal: "vec4f(normal, authored_normal.w)",
     tangent: "vec4f(tangent, authored_tangent.w * orientation)",
     worldTangent: "vec4f(tangent, authored_tangent.w * orientation)",
     cameraPosition: "vec4f(coverage_view.camera.xyz, 1.0)",
     viewDirection: "vec4f(query_safe_normal(coverage_view.camera.xyz - position, normal), 0.0)",
     viewPosition: "coverage_view.view * vec4f(position, 1.0)",
-    viewNormal: "coverage_view.view * vec4f(normal, 0.0)",
+    viewNormal: "coverage_view.view * vec4f(normal, 0.0)"
   };
-  const inputSource = program?.inputs.map((input, slot) => {
-    const uniform = input.domain === "dynamic" || input.domain === "nonlocal";
-    const value = uniform
-      ? program.instanceInputs
-        ? `vec4f(${[0, 1, 2, 3].map((channel) =>
-          `native_material_constant(material_base, ${program.constants.length + 2 + slot * 4 + channel}u)`).join(", ")})`
-        : `coverage_frame_inputs[${slot}u]`
-      : expressions[input.name];
-    if (value === undefined) {
-      throw new RangeError(`Query coverage input '${input.name}' requires a shared geometry semantic`);
-    }
-    return `inputs[point][${slot}u] = ${value};`;
-  }).join("\n") ?? "";
+  const inputSource =
+    program?.inputs
+      .map((input, slot) => {
+        const uniform = input.domain === "dynamic" || input.domain === "nonlocal";
+        const value = uniform
+          ? program.instanceInputs
+            ? `vec4f(${[0, 1, 2, 3]
+                .map(
+                  (channel) =>
+                    `native_material_constant(material_base, ${program.constants.length + 2 + slot * 4 + channel}u)`
+                )
+                .join(", ")})`
+            : `coverage_frame_inputs[${slot}u]`
+          : expressions[input.name];
+        if (value === undefined) {
+          throw new RangeError(`Query coverage input '${input.name}' requires a shared geometry semantic`);
+        }
+        return `inputs[point][${slot}u] = ${value};`;
+      })
+      .join("\n") ?? "";
   return /* wgsl */ `
 ${GPU_INSTANCE_RECORD_WGSL}
 struct CoverageView { view: mat4x4f, camera: vec4f, cone: vec4f, }
 @group(1) @binding(0) var<storage, read> query_source: array<OEngineInstanceRecord>;
 @group(1) @binding(1) var<storage, read> coverage_directory: array<vec4u>;
 @group(1) @binding(2) var<uniform> coverage_route: vec4u;
-${program === null ? "" : /* wgsl */ `
+${
+  program === null
+    ? ""
+    : /* wgsl */ `
 @group(1) @binding(3) var<storage, read> coverage_constants: array<f32>;
 @group(1) @binding(4) var<uniform> coverage_view: CoverageView;
 @group(1) @binding(5) var<uniform> coverage_frame_inputs: array<vec4f, ${Math.max(1, program.inputCount)}>;
@@ -149,14 +164,19 @@ fn query_material_inputs(instance_slot: u32, triangle: QueryTriangle, bary: vec2
   }
   return QueryMaterialInputs(NativeMaterialInputs(inputs[0], inputs[1], inputs[2]), basis);
 }
-${diffuse ? "" : /* wgsl */ `
+${
+  diffuse
+    ? ""
+    : /* wgsl */ `
 fn query_coverage_hit(instance_slot: u32, triangle: QueryTriangle, bary: vec2f, t: f32,
     ray_origin: vec3f, ray_direction: vec3f, ray_word: u32) -> bool {
   let source = query_source[instance_slot];
   let material_base = coverage_directory[source.material_handle].x;
   let evaluated = query_material_inputs(instance_slot, triangle, bary, t, ray_direction);
   return native_coverage_alpha(material_base, evaluated.inputs) >= native_coverage_cutoff(material_base);
-}`}`}
+}`
+}`
+}
 fn query_coverage_instance(slot: u32) -> u32 {
   if (slot >= arrayLength(&query_source)) { return 2u; }
   let material = query_source[slot].material_handle;
@@ -172,10 +192,18 @@ import { frameGeometrySourceWgsl, FRAME_ATTRIBUTE_OCT_DECODE_WGSL } from "./geom
 /** Query geometry uses exactly the resident Product decoder used by raster.
  * The only additional persistent data is a triangle prefix over the exact cut.
  * No vertex/index/UV payload or camera-visible meshlet queue is materialized. */
-export function scgiQueryGeometryWgsl(plan: ScgiBvhPlan, tlasPlan = plan,
-  coverage?: NativeMaterialProgram | null, diffuse = false, unlit = false, coveredScene = false,
-  hitListWord?: number, wavefront?: "candidate" | "coverage" | "tail", pendingWork = false,
-  nodeQuantum = 256): string {
+export function scgiQueryGeometryWgsl(
+  plan: ScgiBvhPlan,
+  tlasPlan = plan,
+  coverage?: NativeMaterialProgram | null,
+  diffuse = false,
+  unlit = false,
+  coveredScene = false,
+  hitListWord?: number,
+  wavefront?: "candidate" | "coverage" | "tail",
+  pendingWork = false,
+  nodeQuantum = 256
+): string {
   const cursor = SCGI_QUERY_CONTINUATION.candidate;
   const tail = SCGI_QUERY_CONTINUATION.tail;
   const coverageSource = coverage === undefined ? "" : scgiCoverageWgsl(coverage, diffuse, unlit);
@@ -197,6 +225,10 @@ struct GeometrySettings {
   primitive_count: u32,
   cut_begin: u32,
   cut_count: u32,
+  product_slot: u32,
+  asset_reference: u32,
+  instance_first: u32,
+  instance_count: u32,
 }
 @group(0) @binding(0) var<uniform> geometry: GeometrySettings;
 @group(0) @binding(1) var<storage, read_write> scratch: array<u32>;
@@ -284,7 +316,7 @@ fn bounds(@builtin(global_invocation_id) id: vec3u) {
     scratch[at + axis] = bitcast<u32>(low[axis]);
     scratch[at + 4u + axis] = bitcast<u32>(high[axis]);
   }
-  scratch[at + 3u] = triangle.cluster;
+  scratch[at + 3u] = id.x;
   scratch[at + 7u] = triangle.primitive;
 }
 
@@ -357,21 +389,47 @@ fn affine_point(values: array<f32, 12>, point: vec3f, w: f32) -> vec3f {
 }
 @compute @workgroup_size(64)
 fn trace_opaque(@builtin(global_invocation_id) id: vec3u) {
-  ${pendingWork ? `if (id.x >= hit_work[0]) { return; }
-  let ray_index = hit_work[${hitListWord}u + hit_work[1] + id.x];` : "let ray_index = id.x;"}
+  ${
+    pendingWork
+      ? `if (id.x >= hit_work[0]) { return; }
+  let ray_index = hit_work[${hitListWord}u + hit_work[1] + id.x];`
+      : "let ray_index = id.x;"
+  }
   if (ray_index >= trace.ray_count) { return; }
   let ray = trace.ray_word + ray_index * 12u;
   let result = trace.result_word + ray_index * 8u;
-  ${wavefront === undefined ? "" : `let resume = ray_index * ${SCGI_QUERY_CONTINUATION.words}u;
-  if (continuation[resume] ${wavefront === "tail" ? `== ${tail.done}u` : "!= 0u"}) { return; }`}
-  ${coveredScene ? `if (scene_coverage[0] != 0u) {
+  ${
+    wavefront === undefined
+      ? ""
+      : `let resume = ray_index * ${SCGI_QUERY_CONTINUATION.words}u;
+  if (continuation[resume] ${wavefront === "tail" ? `== ${tail.done}u` : "!= 0u"}) { return; }`
+  }
+  ${
+    coveredScene
+      ? `if (scene_coverage[0] != 0u) {
     batch[result + 3u] = 2u;
+    ${wavefront === "tail" ? "continuation[resume] = 2u;" : ""}
     return;
-  }` : ""}
+  }`
+      : ""
+  }
   let world_origin = vec3f(bitcast<f32>(batch[ray]), bitcast<f32>(batch[ray + 1u]), bitcast<f32>(batch[ray + 2u]));
   let t_min = bitcast<f32>(batch[ray + 3u]);
   let world_direction = vec3f(bitcast<f32>(batch[ray + 4u]), bitcast<f32>(batch[ray + 5u]), bitcast<f32>(batch[ray + 6u]));
-  ${coveredScene ? `// A domain certificate only covers finite ray segments entirely inside
+  let input_max = bitcast<f32>(batch[ray + 7u]);
+  let invalid_max = (bitcast<u32>(input_max) & 0x7f800000u) == 0x7f800000u &&
+    bitcast<u32>(input_max) != 0x7f800000u;
+  if ((bitcast<u32>(t_min) & 0x7f800000u) == 0x7f800000u || invalid_max || t_min > input_max ||
+      any((bitcast<vec3u>(world_origin) & vec3u(0x7f800000u)) == vec3u(0x7f800000u)) ||
+      any((bitcast<vec3u>(world_direction) & vec3u(0x7f800000u)) == vec3u(0x7f800000u)) ||
+      all(world_direction == vec3f(0.0))) {
+    batch[result + 3u] = 5u;
+    ${wavefront === "tail" ? "continuation[resume] = 2u;" : ""}
+    return;
+  }
+  ${
+    coveredScene
+      ? `// A domain certificate only covers finite ray segments entirely inside
   // its conservative cascade+guard envelope. Never clip and call the rest sky.
   if (scene_coverage[7] != 0u) {
     let domain_low = bitcast<vec3f>(vec3u(scene_coverage[4], scene_coverage[5], scene_coverage[6]));
@@ -384,9 +442,12 @@ fn trace_opaque(@builtin(global_invocation_id) id: vec3u) {
     if (!finite || !(t_min <= t_max) || any(start < domain_low) || any(start > domain_high) ||
         any(end < domain_low) || any(end > domain_high)) {
       batch[result + 3u] = 2u;
+      ${wavefront === "tail" ? "continuation[resume] = 2u;" : ""}
       return;
     }
-  }` : ""}
+  }`
+      : ""
+  }
   let merge = (trace.query_kind & 2u) != 0u${wavefront === "tail" ? " || continuation[resume] == 1u" : ""};
   var best = select(bitcast<f32>(batch[ray + 7u]), bitcast<f32>(batch[result]), merge);
   var status = select(1u, batch[result + 3u], merge);
@@ -401,7 +462,10 @@ fn trace_opaque(@builtin(global_invocation_id) id: vec3u) {
     best_bary = vec2f(bitcast<f32>(batch[result + 1u]), bitcast<f32>(batch[result + 2u]));
     best_front = batch[result + 7u];
     best_generation = batch[result + 6u];
-    if (status > 1u || ((trace.query_kind & 1u) != 0u && status == 0u)) { return; }
+    if (status > 1u || ((trace.query_kind & 1u) != 0u && status == 0u)) {
+      ${wavefront === "tail" ? "continuation[resume] = 2u;" : ""}
+      return;
+    }
   }
   var node = tlas[1];
   var previous = 0xffffffffu;
@@ -412,7 +476,9 @@ fn trace_opaque(@builtin(global_invocation_id) id: vec3u) {
   var direction = world_direction;
   var tlas_visits = 0u;
   var blas_visits = 0u;
-  ${wavefront === "tail" ? `if (continuation[resume] == 1u) {
+  ${
+    wavefront === "tail"
+      ? `if (continuation[resume] == 1u) {
     node = continuation[${tail.node}u + resume];
     previous = continuation[${tail.previousNode}u + resume];
     top = continuation[${tail.inTlas}u + resume] != 0u;
@@ -426,7 +492,9 @@ fn trace_opaque(@builtin(global_invocation_id) id: vec3u) {
     }
   }
   var quantum_steps = 0u;
-  var suspended = false;` : ""}
+  var suspended = false;`
+      : ""
+  }
   // Separate counters avoid overflowing the mathematical instance*BLAS visit
   // bound. Each new instance resets BLAS visits; TLAS visits never reset.
   // Parent continuation encounters each internal node at most three times.
@@ -438,16 +506,20 @@ fn trace_opaque(@builtin(global_invocation_id) id: vec3u) {
       ((bitcast<u32>(best) & 0x7f800000u) == 0x7f800000u &&
         (bitcast<u32>(best) != 0x7f800000u)) ||
       any((bitcast<vec3u>(world_origin) & vec3u(0x7f800000u)) == vec3u(0x7f800000u)) ||
-      any((bitcast<vec3u>(world_direction) & vec3u(0x7f800000u)) == vec3u(0x7f800000u))) {
+      any((bitcast<vec3u>(world_direction) & vec3u(0x7f800000u)) == vec3u(0x7f800000u)) || all(world_direction == vec3f(0.0))) {
     status = 5u;
     node = 0xffffffffu;
   }
   loop {
-    ${wavefront === "tail" ? `if (quantum_steps == ${nodeQuantum}u) {
+    ${
+      wavefront === "tail"
+        ? `if (quantum_steps == ${nodeQuantum}u) {
       suspended = true;
       break;
     }
-    quantum_steps++;` : ""}
+    quantum_steps++;`
+        : ""
+    }
     if (node == 0xffffffffu) {
       if (top) { break; }
       top = true;
@@ -508,7 +580,9 @@ fn trace_opaque(@builtin(global_invocation_id) id: vec3u) {
       node = next;
       continue;
     }
-    let primitive = as_word(top, at + 3u);
+    let primitive_index = as_word(top, at + 3u);
+    var primitive = primitive_index;
+    if (top) { primitive = tlas[${tlasPlan.hierarchy.ranges.references!.offset / 4}u + primitive_index]; }
     if (top) {
       if (primitive >= arrayLength(&instances)) { status = 5u; break; }
       let instance = instances[primitive];
@@ -518,13 +592,17 @@ fn trace_opaque(@builtin(global_invocation_id) id: vec3u) {
         node = parent;
         continue;
       }
-      ${coverage === undefined ? "" : `let coverage_class = query_coverage_instance(primitive);
+      ${
+        coverage === undefined
+          ? ""
+          : `let coverage_class = query_coverage_instance(primitive);
       if (coverage_class == 2u) { status = 2u; break; }
       if (coverage_class == 0u) {
         previous = node;
         node = parent;
         continue;
-      }`}
+      }`
+      }
       instance_slot = primitive;
       blas_visits = 0u;
       return_node = node;
@@ -539,18 +617,26 @@ fn trace_opaque(@builtin(global_invocation_id) id: vec3u) {
     if (!triangle.valid) { status = 2u; break; }
     let hit = triangle_hit(origin, direction, triangle, t_min, best);
     var accepted = hit.accepted;
-    ${wavefront === "candidate" ? `if (accepted && continuation[${cursor.hasRejected}u + resume] != 0u) {
+    ${
+      wavefront === "candidate"
+        ? `if (accepted && continuation[${cursor.hasRejected}u + resume] != 0u) {
       let cursor_t = bitcast<f32>(continuation[${cursor.rejectedT}u + resume]);
       let cursor_instance = continuation[${cursor.rejectedInstance}u + resume];
       let cursor_primitive = continuation[${cursor.rejectedPrimitive}u + resume];
       let stable = geometry.primitive_begin + primitive;
       accepted = hit.t > cursor_t || (hit.t == cursor_t &&
         (instance_slot > cursor_instance || (instance_slot == cursor_instance && stable > cursor_primitive)));
-    }` : ""}
-    ${diffuse || coverage === undefined || coverage === null ? "" : `if (accepted) {
+    }`
+        : ""
+    }
+    ${
+      diffuse || coverage === undefined || coverage === null
+        ? ""
+        : `if (accepted) {
       accepted = query_coverage_hit(instance_slot, triangle, hit.bary, hit.t,
         world_origin, world_direction, ray);
-    }`}
+    }`
+    }
     let stable_primitive = geometry.primitive_begin + primitive;
     if (accepted && (hit.t < best || best_instance == 0xffffffffu ||
         (hit.t == best && (instance_slot < best_instance ||
@@ -578,16 +664,22 @@ fn trace_opaque(@builtin(global_invocation_id) id: vec3u) {
   batch[result + 5u] = best_primitive;
   batch[result + 6u] = best_generation;
   batch[result + 7u] = best_front;
-  ${wavefront === "tail" ? `continuation[resume] = select(2u, 1u, suspended);
+  ${
+    wavefront === "tail"
+      ? `continuation[resume] = select(2u, 1u, suspended);
   continuation[${tail.node}u + resume] = node;
   continuation[${tail.previousNode}u + resume] = previous;
   continuation[${tail.inTlas}u + resume] = u32(top);
   continuation[${tail.instanceSlot}u + resume] = instance_slot;
   continuation[${tail.tlasReturnNode}u + resume] = return_node;
   continuation[${tail.tlasVisits}u + resume] = tlas_visits;
-  continuation[${tail.blasVisits}u + resume] = blas_visits;` : ""}
+  continuation[${tail.blasVisits}u + resume] = blas_visits;`
+      : ""
+  }
 }
-${wavefront === "coverage" ? /* wgsl */ `
+${
+  wavefront === "coverage"
+    ? /* wgsl */ `
 @compute @workgroup_size(64)
 fn accept_candidate(@builtin(global_invocation_id) id: vec3u) {
   let bin = coverage_route.x * 8u;
@@ -601,17 +693,24 @@ fn accept_candidate(@builtin(global_invocation_id) id: vec3u) {
   let instance_slot = batch[result + 4u];
   if (instance_slot >= arrayLength(&instances) || instances[instance_slot].shardGenerationMaskFlags[2] == 0u ||
       batch[result + 6u] != geometry.generation) { return; }
+  if (instance_slot < geometry.instance_first || instance_slot - geometry.instance_first >= geometry.instance_count ||
+      query_source[instance_slot].product_table_slot != geometry.product_slot ||
+      query_source[instance_slot].geometry_record_index != geometry.asset_reference) { return; }
   if (query_coverage_instance(instance_slot) != 1u) { return; }
   let primitive = batch[result + 5u];
   if (primitive < geometry.primitive_begin || primitive >= geometry.primitive_begin + geometry.primitive_count) { return; }
   var accepted = true;
-  ${coverage === null ? "" : `let triangle = query_triangle(primitive - geometry.primitive_begin);
+  ${
+    coverage === null
+      ? ""
+      : `let triangle = query_triangle(primitive - geometry.primitive_begin);
   if (!triangle.valid) { batch[result + 3u] = 2u; continuation[resume] = 1u; return; }
   let ray = trace.ray_word + ray_index * 12u;
   let origin = vec3f(bitcast<f32>(batch[ray]), bitcast<f32>(batch[ray + 1u]), bitcast<f32>(batch[ray + 2u]));
   let direction = vec3f(bitcast<f32>(batch[ray + 4u]), bitcast<f32>(batch[ray + 5u]), bitcast<f32>(batch[ray + 6u]));
   let bary = vec2f(bitcast<f32>(batch[result + 1u]), bitcast<f32>(batch[result + 2u]));
-  accepted = query_coverage_hit(instance_slot, triangle, bary, bitcast<f32>(batch[result]), origin, direction, ray);`}
+  accepted = query_coverage_hit(instance_slot, triangle, bary, bitcast<f32>(batch[result]), origin, direction, ray);`
+  }
   if (accepted) {
     continuation[resume] = 1u;
   } else {
@@ -624,13 +723,21 @@ fn accept_candidate(@builtin(global_invocation_id) id: vec3u) {
     batch[result + 3u] = 4u;
   }
 }
-` : ""}
-${diffuse ? /* wgsl */ `
+`
+    : ""
+}
+${
+  diffuse
+    ? /* wgsl */ `
 @compute @workgroup_size(64)
 fn shade_hit(@builtin(global_invocation_id) id: vec3u) {
-  ${hitListWord === undefined ? "let ray_index = id.x;" : `let bin = coverage_route.x * 8u;
+  ${
+    hitListWord === undefined
+      ? "let ray_index = id.x;"
+      : `let bin = coverage_route.x * 8u;
   if (id.x >= hit_work[bin]) { return; }
-  let ray_index = hit_work[${hitListWord}u + hit_work[bin + 1u] + id.x];`}
+  let ray_index = hit_work[${hitListWord}u + hit_work[bin + 1u] + id.x];`
+  }
   if (ray_index >= trace.ray_count) { return; }
   ${coveredScene ? "if (scene_coverage[0] != 0u) { return; }" : ""}
   let result = trace.result_word + ray_index * 8u;
@@ -642,6 +749,8 @@ fn shade_hit(@builtin(global_invocation_id) id: vec3u) {
   if (instances[instance_slot].shardGenerationMaskFlags[2] == 0u ||
       (instances[instance_slot].shardGenerationMaskFlags[3] & 0x80000000u) != 0u) { return; }
   let source = query_source[instance_slot];
+  if (instance_slot < geometry.instance_first || instance_slot - geometry.instance_first >= geometry.instance_count ||
+      source.product_table_slot != geometry.product_slot || source.geometry_record_index != geometry.asset_reference) { return; }
   if (source.material_handle >= arrayLength(&coverage_directory)) { return; }
   let entry = coverage_directory[source.material_handle];
   if (entry.w == 0u || entry.y != coverage_route.x || batch[result + 6u] != geometry.generation) { return; }
@@ -669,6 +778,8 @@ fn shade_hit(@builtin(global_invocation_id) id: vec3u) {
   let position = affine_point(instances[instance_slot].objectToWorld,
     triangle.p0 * (1.0 - bary.x - bary.y) + triangle.p1 * bary.x + triangle.p2 * bary.y, 1.0);
   diffuse_hits[output + 3u] = vec4f(position, bitcast<f32>(source.flags));
-}` : ""}
+}`
+    : ""
+}
 `;
 }

@@ -17,7 +17,7 @@ import { textureProduct } from "../fixtures/texture-product.mjs";
 import {
   validateTiledTextureMetadata,
   TILED_TEXTURE_RECIPE,
-  TILED_TEXTURE_TAIL_ORIGINS,
+  TILED_TEXTURE_TAIL_ORIGINS
 } from "../../.test-dist/assets/TiledTextureProduct.js";
 import { textureProductHash } from "../../.test-dist/assets/TextureProduct.js";
 
@@ -58,11 +58,11 @@ function fixture(cold, delay = false) {
           for (const value of payloads) {
             structuredClone(value.bytes, { transfer: [value.bytes] });
           }
-        },
+        }
       };
       receipts.push(receipt);
       return receipt;
-    },
+    }
   };
   const textures = [];
   const graphics = {
@@ -76,7 +76,7 @@ function fixture(cold, delay = false) {
         maxSampledTexturesPerShaderStage: 19,
         maxSamplersPerShaderStage: 16,
         maxBufferSize: 256 * 1024 ** 2,
-        maxStorageBufferBindingSize: 128 * 1024 ** 2,
+        maxStorageBufferBindingSize: 128 * 1024 ** 2
       },
       lost: loss.promise,
       createTexture(descriptor) {
@@ -91,7 +91,7 @@ function fixture(cold, delay = false) {
           },
           destroy() {
             this.destroyed = true;
-          },
+          }
         };
         if (descriptor.format === "rg32uint") {
           texture.words = new Uint32Array(descriptor.size[0] * descriptor.size[1] * 2);
@@ -111,7 +111,7 @@ function fixture(cold, delay = false) {
           mapAsync: () => new Promise(() => {}),
           destroy() {
             this.destroyed = true;
-          },
+          }
         };
       },
       createBindGroupLayout: (value) => value,
@@ -123,9 +123,9 @@ function fixture(cold, delay = false) {
         writeTexture({ texture }, values) {
           texture.words?.set(values);
         },
-        onSubmittedWorkDone: async () => {},
-      },
-    },
+        onSubmittedWorkDone: async () => {}
+      }
+    }
   };
   const command = () => {
     const finished = [],
@@ -163,8 +163,8 @@ function fixture(cold, delay = false) {
           setBindGroup() {},
           dispatchWorkgroups() {},
           dispatchWorkgroupsIndirect() {},
-          end() {},
-        }),
+          end() {}
+        })
       },
       finish() {
         before.forEach((fn) => fn());
@@ -178,7 +178,7 @@ function fixture(cold, delay = false) {
       },
       complete() {
         done.resolve();
-      },
+      }
     };
   };
   return {
@@ -188,10 +188,127 @@ function fixture(cold, delay = false) {
     reads,
     receipts,
     queued,
-    source: new TiledTextureSource(preparation, "test-session", cold.directory),
+    source: new TiledTextureSource(preparation, "test-session", cold.directory)
   };
 }
 const cold = await makeTiledFixture({ width: 1041, height: 133, channel: 0 });
+
+test("query VT demand survives primary replacement, receives a fair share and rotates under pressure", async () => {
+  const cold = await capacityFixture();
+  const f = fixture(cold);
+  const vt = new VirtualTextureResidency(f.graphics, { scalarBytes: 2654208 });
+  try {
+    const bootstrap = f.command();
+    vt.stage(f.source, bootstrap);
+    await vt.bootstrap(f.source, bootstrap);
+    bootstrap.finish();
+    bootstrap.complete();
+    await tick();
+    const pages = vt.snapshot.filter((page) => page && !page.pinned);
+    const primary = pages.slice(0, 256);
+    const query = pages.slice(256);
+    const observe = (wanted, frame, lowPriority = false) =>
+      vt.observe(
+        {
+          frame,
+          view: 0,
+          snapshot: vt.snapshot,
+          wanted: wanted.map((page) => page.id),
+          used: []
+        },
+        lowPriority
+      );
+    observe(primary, 1);
+    observe(query, 1, true);
+    const first = [...vt.admitted].filter((page) => query.includes(page));
+    assert.ok(
+      first.length >= Math.floor(255 / 8),
+      "query has physical admission even under primary saturation"
+    );
+    observe(primary, 2);
+    assert.ok(
+      query.every((page) => vt.desired.has(page)),
+      "primary feedback cannot erase offscreen query demand"
+    );
+    const everAdmitted = new Set(first);
+    for (let epoch = 1; epoch <= 8; epoch++) {
+      observe(query, epoch * 8, true);
+      for (const page of vt.admitted) {
+        if (query.includes(page)) everAdmitted.add(page);
+      }
+    }
+    assert.equal(
+      everAdmitted.size,
+      query.length,
+      "equal-mip query grants cannot starve behind resident-first demand"
+    );
+    observe([], 80, true);
+    assert.ok(
+      query.every((page) => vt.primaryDemand.has(page) || !vt.desired.has(page)),
+      "query-only demand releases; shared coarse parents retain their primary reference"
+    );
+    assert.ok(
+      primary.every((page) => vt.desired.has(page)),
+      "query release preserves current-view demand"
+    );
+  } finally {
+    vt.destroy();
+    await tick();
+  }
+});
+
+test("query feedback shares the ordinary transaction and mapping generation rolls back on abort", async () => {
+  const f = fixture(cold);
+  const vt = new VirtualTextureResidency(f.graphics);
+  try {
+    const bootstrap = f.command();
+    vt.stage(f.source, bootstrap);
+    await vt.bootstrap(f.source, bootstrap);
+    bootstrap.finish();
+    bootstrap.complete();
+    await vt.ready;
+    await vt.enableQueryFeedback();
+    const releaseQuery = vt.retainQueryDemand();
+    const releaseOther = vt.retainQueryDemand();
+    assert.equal(vt.queryFeedbackBuffers.length, 4, "disabled plus three fenced ring slots");
+    assert.throws(() => vt.beginQueryFeedback(f.command()), /prepared ordinary VT frame/);
+    const page = vt.snapshot.find((page) => page && !page.pinned);
+    vt.observe({ frame: 1, view: 0, snapshot: vt.snapshot, wanted: [page.id], used: [] }, true);
+    await tick();
+    const committed = vt.mappingGeneration();
+    const frame = f.command();
+    vt.prepareFrame(frame, 2, "");
+    const buffer = vt.beginQueryFeedback(frame);
+    assert.notEqual(buffer, vt.frameFeedback, "independent output preserves both demand channels");
+    assert.equal(vt.beginQueryFeedback(frame), buffer, "multiple query batches share one frame channel");
+    vt.encodeUploads(frame);
+    assert.equal(vt.mappingGeneration(frame), committed + 1);
+    assert.equal(vt.mappingGeneration(), committed, "unsubmitted mapping is not globally committed");
+    vt.finishFeedback(frame);
+    frame.abort();
+    assert.equal(vt.mappingGeneration(frame), committed, "aborted upload token cannot survive");
+    const retry = f.command();
+    vt.prepareFrame(retry, 3, "");
+    vt.beginQueryFeedback(retry);
+    vt.encodeUploads(retry);
+    vt.finishFeedback(retry);
+    assert.equal(vt.mappingGeneration(retry), committed + 1);
+    retry.finish();
+    retry.complete();
+    assert.equal(vt.mappingGeneration(), committed + 1);
+    assert.ok(vt.queryDemand.has(page));
+    releaseQuery();
+    assert.ok(vt.queryDemand.has(page), "another prepared query keeps demand alive");
+    releaseOther();
+    assert.equal(vt.queryDemand.size, 0, "last query retirement releases query-only residency");
+    vt.observe({ frame: 3, view: 0, snapshot: vt.snapshot, wanted: [page.id], used: [] }, true);
+    assert.equal(vt.queryDemand.size, 0, "late feedback cannot resurrect retired query demand");
+    releaseOther();
+  } finally {
+    vt.destroy();
+    await tick();
+  }
+});
 
 // Fake-GPU structural fixture only; avoids a huge BC cook for capacity/state
 // transitions. Real encoded filtering is independently tested on hardware.
@@ -220,7 +337,7 @@ async function capacityFixture() {
       gridWidth: tail ? 1 : Math.ceil(mip.width / 128),
       gridHeight: tail ? 1 : Math.ceil(mip.height / 128),
       payloads: ids,
-      ...(tail ? { tailOrigin: TILED_TEXTURE_TAIL_ORIGINS[mip.level - 5] } : {}),
+      ...(tail ? { tailOrigin: TILED_TEXTURE_TAIL_ORIGINS[mip.level - 5] } : {})
     };
   });
   const metadata = {
@@ -230,12 +347,12 @@ async function capacityFixture() {
     source: product.metadata,
     pack: { uri: "capacity.vtpack", byteLength: payloads.length * 10368 },
     payloads: records,
-    planes: [{ sourcePlane: 0, mode: "virtual", address: "repeat", tailFirst: 5, mips }],
+    planes: [{ sourcePlane: 0, mode: "virtual", address: "repeat", tailFirst: 5, mips }]
   };
   const json = new TextEncoder().encode(JSON.stringify(metadata));
   return {
     payloads,
-    directory: validateTiledTextureMetadata(metadata, await textureProductHash(json), json.length),
+    directory: validateTiledTextureMetadata(metadata, await textureProductHash(json), json.length)
   };
 }
 
@@ -315,7 +432,7 @@ test("0/50/100 percent demand cost and real eviction/reload retain bounded slots
         view: 0,
         snapshot: vt.snapshot,
         wanted: wanted.map((p) => p.id),
-        used: [],
+        used: []
       });
       if ([...vt.admitted].every((p) => p.slot !== 0xffffffff)) return;
     }
@@ -335,7 +452,7 @@ test("0/50/100 percent demand cost and real eviction/reload retain bounded slots
       encodedBytes: e.uploadBytes - bytes,
       receiptBytes: e.receiptBytes - receipts,
       allocatedBytes: e.allocatedBytes,
-      stagingPeakBytes: e.stagingPeakBytes,
+      stagingPeakBytes: e.stagingPeakBytes
     });
     assert.ok(e.resident <= 256);
   }
@@ -350,12 +467,12 @@ test("0/50/100 percent demand cost and real eviction/reload retain bounded slots
     view: 0,
     snapshot: vt.snapshot,
     wanted: fine.map((page) => page.id),
-    used: retainedFine.map((page) => page.id),
+    used: retainedFine.map((page) => page.id)
   });
   const addedCoarse = [...vt.admitted].filter((page) => page.level > 0).length - priorCoarse;
   assert.ok(
     retainedFine.filter((page) => !vt.admitted.has(page)).length <= Math.max(0, addedCoarse),
-    "only additional coarse dependencies may displace equal-mip resident demand",
+    "only additional coarse dependencies may displace equal-mip resident demand"
   );
   // Every non-admitted mapped page can still be an actively sampled fallback.
   // A full pool must not read replacements until some backing is reclaimable.
@@ -369,7 +486,7 @@ test("0/50/100 percent demand cost and real eviction/reload retain bounded slots
       view: 0,
       snapshot: vt.snapshot,
       wanted: fine.map((page) => page.id),
-      used: [...vt.resident].map((page) => page.id),
+      used: [...vt.resident].map((page) => page.id)
     });
     await tick();
   }
@@ -388,8 +505,8 @@ test("0/50/100 percent demand cost and real eviction/reload retain bounded slots
       name: "VT demand cost (fake GPU; bytes only)",
       records,
       evictions: vt.evidence().evictions,
-      reloads: vt.evidence().reloads,
-    }),
+      reloads: vt.evidence().reloads
+    })
   );
   vt.destroy();
   assert.ok(f.receipts.every((receipt) => receipt.released));
@@ -417,7 +534,7 @@ test("VT tails, hidden upload abort/retry, NPOT parent coverage, stable identity
     route.mips[3].base,
     route.mips[3].base + 1,
     route.mips[4].base,
-    tail,
+    tail
   ]);
   vt.observe({ frame: 1, view: 0, snapshot: vt.snapshot, wanted: [fine], used: [tail] });
   await tick();
@@ -526,7 +643,7 @@ test("Native VT has no whole-extent BC allocation, complete SSBO profile and exa
     textureRoutingRefs: stage.materialTextureRoutingRefs.get(material),
     textureMipRanges: stage.textureMipRanges,
     texturePublications: stage.surfacePublications,
-    obtainSampler: (value) => value,
+    obtainSampler: (value) => value
   });
   assert.equal(binding.program.virtualTextures, true);
   assert.equal(f.textures.filter((value) => value.format.startsWith("bc")).length, 1);
@@ -538,7 +655,7 @@ test("Native VT has no whole-extent BC allocation, complete SSBO profile and exa
     reactive: true,
     finalPixel: true,
     reflections: "sssr-base-coat",
-    physicalSun: true,
+    physicalSun: true
   });
   assert.equal(descriptor.groups.flat().filter((entry) => entry.buffer?.type.includes("storage")).length, 16);
   assert.equal(descriptor.groups.flat().filter((entry) => entry.storageTexture).length, 4);
@@ -556,21 +673,21 @@ test("Native VT has no whole-extent BC allocation, complete SSBO profile and exa
         texture,
         {
           ...stage.surfacePublications.get(texture),
-          virtual: { ...route, tailFirst: 0, mips: [route.mips.at(-1)] },
-        },
-      ],
+          virtual: { ...route, tailFirst: 0, mips: [route.mips.at(-1)] }
+        }
+      ]
     ]),
-    obtainSampler: (value) => value,
+    obtainSampler: (value) => value
   });
   assert.equal(
     oneLevel.program.key,
     binding.program.key,
-    "mip count and dimensions are instance route data, never new pipeline topology",
+    "mip count and dimensions are instance route data, never new pipeline topology"
   );
   assert.notDeepEqual(
     oneLevel.program.constants,
     binding.program.constants,
-    "sharing a program preserves each texture's actual levels/tail/extent",
+    "sharing a program preserves each texture's actual levels/tail/extent"
   );
   command.finish();
   command.complete();
@@ -600,7 +717,7 @@ test("tiled bootstrap uses four shared-provider jobs and cancellation closes the
       const directory = validateTiledTextureMetadata(
         cold.directory.metadata,
         await textureProductHash(bytes),
-        bytes.length,
+        bytes.length
       );
       const source = new TiledTextureSource(f.source.preparation, "test-session", directory);
       source.read = async (ids, signal) => {
@@ -623,7 +740,7 @@ test("tiled bootstrap uses four shared-provider jobs and cancellation closes the
       const material = new StandardShadeMaterial();
       material.texture_occlusion = ShadeTexture.fromTiled(source);
       return material;
-    }),
+    })
   );
   const command = f.command();
   residency.stage(materials, command);

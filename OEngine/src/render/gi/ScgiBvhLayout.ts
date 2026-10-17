@@ -19,16 +19,20 @@ export function planScgiBvh(limits: ScgiBufferLimits, primitiveCapacity: number)
     ["header", 16, 4],
     ["nodes", nodes, SCGI_ABI.node.stride],
     ["links", nodes, SCGI_ABI.links.stride],
+    ["references", primitiveCapacity, 4]
   ]);
   const scratch = planScgiArena(limits, [
     ["primitiveBounds", primitiveCapacity, 32],
+    ["input", 4, 4],
+    ["selectionCounts", blocks, 4],
+    ["selectionOffsets", blocks, 4],
     ["boundsReduction", blocks, 32],
     ["sceneBounds", 1, 32],
     ["keysA", primitiveCapacity, 8],
     ["keysB", primitiveCapacity, 8],
     ...scanCounts.flatMap((count, level) => [
       [`histogram${level}`, count, 4] as const,
-      [`prefix${level}`, count, 4] as const,
+      [`prefix${level}`, count, 4] as const
     ]),
     ["parentsA", nodes, 8],
     ["parentsB", nodes, 8],
@@ -39,8 +43,9 @@ export function planScgiBvh(limits: ScgiBufferLimits, primitiveCapacity: number)
     ["levelNodes", nodes, 4],
     ["primitiveCounts", nodes, 4],
     ["control", 16, 4],
+    ["quality", Math.ceil(nodes / SCGI_BVH_WORKGROUP_SIZE), 4],
     // Refit uses one lane per node; treelet uses one workgroup per root.
-    ["indirect", (SCGI_BVH_MAX_DEPTH + 1) * 2, 16],
+    ["indirect", (SCGI_BVH_MAX_DEPTH + 1) * 2, 16]
   ]);
   return Object.freeze({ primitiveCapacity, nodes, blocks, scanCounts, hierarchy, scratch });
 }

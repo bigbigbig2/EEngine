@@ -5,7 +5,7 @@ import type { GraphicsContext } from "./GraphicsContext.js";
 import {
   MeshletRangeAllocator,
   type MeshletRangeAllocation,
-  INVALID_MESHLET_ALLOCATION,
+  INVALID_MESHLET_ALLOCATION
 } from "./MeshletRangeAllocator.js";
 import {
   virtualTextureSettings,
@@ -15,7 +15,7 @@ import {
   VT_MISSING,
   type VirtualTextureSettings,
   type VirtualTextureRoute,
-  type VirtualTextureMipRoute,
+  type VirtualTextureMipRoute
 } from "./VirtualTextureAbi.js";
 import { VirtualTextureFeedback, type VirtualTextureObservation } from "./VirtualTextureFeedback.js";
 import type { ResourceHandle } from "../debug/profiling/ResourceAccounting.js";
@@ -121,10 +121,22 @@ export class VirtualTextureResidency {
   private lastDemand = { wanted: 0, used: 0, missing: 0, targetMip: [-1, -1], actualMip: [-1, -1] };
   private receiptBytes = 0;
   private pumpDirty = true;
+  private queryFeedback: VirtualTextureFeedback<readonly (Page | undefined)[]> | null = null;
+  private queryFeedbackCommand: ShadeGPUCommandContext | null = null;
+  private queryFeedbackBuffer: GPUBuffer | null = null;
+  private queryObservedFrame = -1;
+  private queryUsers = 0;
+  private readonly primaryDemand = new Map<Page, number>();
+  private readonly queryDemand = new Map<Page, number>();
+  private queryCursor = 0;
+  private queryGrantEpoch = -1;
+  private readonly queryGrants = new Set<Page>();
+  private readonly lastQueryGrant = new Map<Page, number>();
+  private mappingCandidate: { command: ShadeGPUCommandContext; generation: number } | null = null;
 
   constructor(
     private readonly graphics: GraphicsContext,
-    settings?: Partial<VirtualTextureSettings>,
+    settings?: Partial<VirtualTextureSettings>
   ) {
     this.settings = virtualTextureSettings(settings);
     const device = graphics.device;
@@ -140,7 +152,7 @@ export class VirtualTextureResidency {
       label: "VT/integer page table",
       size: [VT_TABLE_WIDTH, VT_PAGE_CAPACITY / VT_TABLE_WIDTH, 1],
       format: "rg32uint",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
     });
     this.tableView = this.table.createView({ dimension: "2d-array" });
     this.account(this.table, VT_PAGE_CAPACITY * 8);
@@ -151,13 +163,13 @@ export class VirtualTextureResidency {
       { texture: this.table },
       initial,
       { bytesPerRow: VT_TABLE_WIDTH * 8, rowsPerImage: VT_PAGE_CAPACITY / VT_TABLE_WIDTH },
-      [VT_TABLE_WIDTH, VT_PAGE_CAPACITY / VT_TABLE_WIDTH, 1],
+      [VT_TABLE_WIDTH, VT_PAGE_CAPACITY / VT_TABLE_WIDTH, 1]
     );
     this.feedback = new VirtualTextureFeedback(
       device,
       (observation) => this.observe(observation),
       (error) => this.fail(error),
-      graphics.resource_accounting,
+      graphics.resource_accounting
     );
     this.feedbackBuffer = this.feedback.disabled;
     this.ready = this.feedback.ready;
@@ -173,9 +185,9 @@ export class VirtualTextureResidency {
         category: "resident",
         owner: "VirtualTextureResidency",
         bytes,
-        label: texture.label,
+        label: texture.label
       },
-      texture,
+      texture
     );
     if (handle) {
       this.accounting.push(handle);
@@ -186,7 +198,7 @@ export class VirtualTextureResidency {
    * the allocator provides contiguous mip domains without truncating IDs. */
   stage(
     source: TiledTextureSource,
-    command: ShadeGPUCommandContext,
+    command: ShadeGPUCommandContext
   ): ReadonlyMap<number, VirtualTextureRoute> {
     const known = this.sources.get(source);
     if (known) return known.routes;
@@ -197,7 +209,7 @@ export class VirtualTextureResidency {
         (p.mode === "virtual"
           ? p.mips.slice(0, p.tailFirst).reduce((s, mip) => s + mip.payloads.length, 0) + 1
           : 0),
-      0,
+      0
     );
     const routeBytes = profiles.reduce((n, p) => n + (p.mode === "virtual" ? p.mips.length * 7 * 4 : 0), 0);
     // Include records, parent arrays, membership sets and in-flight snapshots.
@@ -210,10 +222,10 @@ export class VirtualTextureResidency {
               .slice(0, profile.tailFirst)
               .reduce(
                 (sum, mip) => sum + mip.payloads.length * (320 + 32 * (profile.tailFirst - mip.level)),
-                320,
+                320
               )
           : 0),
-      routeBytes * 4,
+      routeBytes * 4
     );
     if (
       this.stopped ||
@@ -237,7 +249,7 @@ export class VirtualTextureResidency {
       routes,
       cpuBytes,
       live: true,
-      bootstrap: null,
+      bootstrap: null
     };
     let next = allocation.offset;
     try {
@@ -253,7 +265,7 @@ export class VirtualTextureResidency {
               height: mip.height,
               gridWidth: 1,
               base: tail,
-              origin: mip.tailOrigin!,
+              origin: mip.tailOrigin!
             });
             continue;
           }
@@ -277,7 +289,7 @@ export class VirtualTextureResidency {
               generation: 0,
               lastUsed: -1,
               attempts: 0,
-              everResident: false,
+              everResident: false
             };
             pages.push(page);
           }
@@ -286,7 +298,7 @@ export class VirtualTextureResidency {
             height: mip.height,
             gridWidth: mip.gridWidth,
             base,
-            origin: mip.tailOrigin ?? [0, 0],
+            origin: mip.tailOrigin ?? [0, 0]
           });
         }
         routes.set(
@@ -297,8 +309,8 @@ export class VirtualTextureResidency {
             atlas: pool.texture,
             atlasView: pool.view,
             tailFirst: profile.tailFirst,
-            mips: Object.freeze(mips),
-          }),
+            mips: Object.freeze(mips)
+          })
         );
       }
       for (const page of pages) {
@@ -317,11 +329,11 @@ export class VirtualTextureResidency {
           const y0 = Math.floor((((page.y * 128) / fine.height) * coarse.height) / 128);
           const x1 = Math.min(
             coarse.gridWidth,
-            Math.ceil(((Math.min((page.x + 1) * 128, fine.width) / fine.width) * coarse.width) / 128),
+            Math.ceil(((Math.min((page.x + 1) * 128, fine.width) / fine.width) * coarse.width) / 128)
           );
           const y1 = Math.min(
             Math.ceil(coarse.height / 128),
-            Math.ceil(((Math.min((page.y + 1) * 128, fine.height) / fine.height) * coarse.height) / 128),
+            Math.ceil(((Math.min((page.y + 1) * 128, fine.height) / fine.height) * coarse.height) / 128)
           );
           for (let y = y0; y < y1; y++)
             for (let x = x0; x < x1; x++) {
@@ -378,7 +390,7 @@ export class VirtualTextureResidency {
   async bootstrap(
     source: TiledTextureSource,
     command: ShadeGPUCommandContext,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<void> {
     const record = this.sources.get(source);
     if (!record) return;
@@ -432,6 +444,89 @@ export class VirtualTextureResidency {
   }
   get frameFeedback(): GPUBuffer {
     return this.feedbackBuffer;
+  }
+  /** Prepared only when an actual query material samples VT. It uses the
+   * existing IO/atlas owner, with a separate delayed demand channel. */
+  async enableQueryFeedback(): Promise<void> {
+    if (this.stopped) {
+      throw new Error("VT owner is stopped");
+    }
+    this.queryFeedback ??= new VirtualTextureFeedback(
+      this.graphics.device,
+      (value) => this.observe(value, true),
+      (error) => this.fail(error),
+      this.graphics.resource_accounting
+    );
+    await this.queryFeedback.ready;
+  }
+
+  /** A prepared batch holds demand through its final consumer fence. Keep the
+   * small feedback ring for binding reuse, but release query-only residency
+   * when the last batch retires. Late feedback cannot revive retired demand. */
+  retainQueryDemand(): () => void {
+    if (this.stopped || this.queryFeedback === null) {
+      throw new Error("Query demand requires the prepared live feedback channel");
+    }
+    this.queryUsers++;
+    let released = false;
+    return () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      this.queryUsers--;
+      if (this.stopped || this.queryUsers !== 0) {
+        return;
+      }
+      this.queryObservedFrame = Math.max(this.queryObservedFrame, this.lastFrame);
+      this.queryDemand.clear();
+      this.queryGrants.clear();
+      this.lastQueryGrant.clear();
+      this.reconcileDemand();
+    };
+  }
+
+  get queryFeedbackBuffers(): readonly GPUBuffer[] {
+    if (this.queryFeedback === null) {
+      throw new Error("Prepare query feedback before creating bindings");
+    }
+    return this.queryFeedback.gpuBuffers;
+  }
+
+  beginQueryFeedback(command: ShadeGPUCommandContext): GPUBuffer {
+    if (this.stopped || this.encoded !== command || this.queryFeedback === null) {
+      throw new Error("Query VT feedback requires the prepared ordinary VT frame and ready query channel");
+    }
+    if (this.queryFeedbackCommand !== null) {
+      if (this.queryFeedbackCommand !== command) {
+        throw new Error("Query VT feedback belongs to another command");
+      }
+      return this.queryFeedbackBuffer!;
+    }
+    this.queryFeedbackCommand = command;
+    this.queryFeedbackBuffer = this.queryFeedback.begin(
+      command,
+      this.lastFrame,
+      this.view,
+      this.snapshot,
+      this.snapshot.length
+    );
+    command.onAborted.addOne(() => {
+      this.queryFeedbackCommand = null;
+    });
+    command.onFinished.addOne(() => {
+      this.queryFeedbackCommand = null;
+    });
+    return this.queryFeedbackBuffer;
+  }
+
+  /** Conservative batch-wide invalidation token. A finer mip/mapping change
+   * changes this generation even if material constants remain unchanged.
+   * Candidate generation is readable in its upload command; abort rolls back. */
+  mappingGeneration(command?: ShadeGPUCommandContext): number {
+    return this.mappingCandidate !== null && this.mappingCandidate.command === command
+      ? this.mappingCandidate.generation
+      : this.residencyRevision;
   }
   get resources(): readonly GPUTexture[] {
     return [this.table, ...[...this.pools.values()].map((pool) => pool.texture)];
@@ -500,6 +595,15 @@ export class VirtualTextureResidency {
       this.copyTile(page, slot, page.ready!, command);
       this.copyMapping(page.id, slot, generation, command);
     }
+    if (selected.length !== 0) {
+      if (this.residencyRevision >= 0xfffffffe) {
+        throw new RangeError("VT mapping generation exhausted; retire the owner before reuse");
+      }
+      this.mappingCandidate = { command, generation: this.residencyRevision + 1 };
+      command.onAborted.addOne(() => {
+        this.mappingCandidate = null;
+      });
+    }
     command.onFinished.addOne(() => {
       for (const upload of selected) {
         if (upload.victim) {
@@ -514,12 +618,16 @@ export class VirtualTextureResidency {
       if (selected.length) {
         this.lastPublication = this.lastFrame;
         this.residencyRevision++;
+        this.mappingCandidate = null;
       }
       this.pump();
     });
   }
   finishFeedback(command: ShadeGPUCommandContext): void {
     this.feedback.end(command);
+    if (this.queryFeedbackCommand === command) {
+      this.queryFeedback!.end(command);
+    }
   }
 
   private publish(upload: Upload, frame: number): void {
@@ -535,15 +643,26 @@ export class VirtualTextureResidency {
     page.everResident = true;
     page.attempts = 0;
   }
-  private observe(value: VirtualTextureObservation<readonly (Page | undefined)[]>): void {
+  private observe(value: VirtualTextureObservation<readonly (Page | undefined)[]>, query = false): void {
     if (this.stopped) return;
     for (const id of value.used) {
       const page = value.snapshot[id];
       if (page?.source.live) page.lastUsed = Math.max(page.lastUsed, value.frame);
     }
-    if (value.frame <= this.observedFrame || value.view !== this.view) return;
-    this.observedFrame = value.frame;
-    this.observedView = value.view;
+    if (value.frame <= (query ? this.queryObservedFrame : this.observedFrame) || value.view !== this.view)
+      return;
+    if (query) {
+      this.queryObservedFrame = value.frame;
+      this.queryCursor = (this.queryCursor + 1) % VT_PAGE_CAPACITY;
+      const epoch = Math.floor(value.frame / 8);
+      if (epoch !== this.queryGrantEpoch) {
+        this.queryGrantEpoch = epoch;
+        this.queryGrants.clear();
+      }
+    } else {
+      this.observedFrame = value.frame;
+      this.observedView = value.view;
+    }
     const mipRange = (ids: readonly number[]) => {
       let min = Infinity,
         max = -1;
@@ -556,21 +675,38 @@ export class VirtualTextureResidency {
       }
       return [Number.isFinite(min) ? min : -1, max];
     };
-    this.lastDemand = {
-      wanted: value.wanted.length,
-      used: value.used.length,
-      missing: value.wanted.reduce((n, id) => n + (value.snapshot[id]?.slot === VT_MISSING ? 1 : 0), 0),
-      targetMip: mipRange(value.wanted),
-      actualMip: mipRange(value.used),
-    };
-    const refs = new Map<Page, number>();
+    if (!query) {
+      this.lastDemand = {
+        wanted: value.wanted.length,
+        used: value.used.length,
+        missing: value.wanted.reduce((n, id) => n + (value.snapshot[id]?.slot === VT_MISSING ? 1 : 0), 0),
+        targetMip: mipRange(value.wanted),
+        actualMip: mipRange(value.used)
+      };
+    }
+    const channel = query ? this.queryDemand : this.primaryDemand;
+    channel.clear();
     for (const id of value.wanted) {
       const page = value.snapshot[id];
       if (!page?.source.live || this.snapshot[id] !== page) continue;
-      refs.set(page, (refs.get(page) ?? 0) + 1);
+      channel.set(page, (channel.get(page) ?? 0) + 1);
       for (const parentId of page.parents) {
         const parent = value.snapshot[parentId]!;
-        refs.set(parent, (refs.get(parent) ?? 0) + 1);
+        if (parent?.source.live && this.snapshot[parentId] === parent) {
+          channel.set(parent, (channel.get(parent) ?? 0) + 1);
+        }
+      }
+    }
+    this.reconcileDemand();
+  }
+
+  private reconcileDemand(): void {
+    const refs = new Map<Page, number>();
+    for (const demand of [this.primaryDemand, this.queryDemand]) {
+      for (const [page, count] of demand) {
+        if (page.source.live && this.snapshot[page.id] === page) {
+          refs.set(page, (refs.get(page) ?? 0) + count);
+        }
       }
     }
     for (const page of this.desired) {
@@ -600,15 +736,49 @@ export class VirtualTextureResidency {
           b.level - a.level ||
           Number(b.slot !== VT_MISSING) - Number(a.slot !== VT_MISSING) ||
           Number(!!b.pending) - Number(!!a.pending) ||
-          a.id - b.id,
+          ((a.id - this.queryCursor + VT_PAGE_CAPACITY) % VT_PAGE_CAPACITY) -
+            ((b.id - this.queryCursor + VT_PAGE_CAPACITY) % VT_PAGE_CAPACITY)
+      );
+    const queryPriority = priority
+      .filter((page) => this.queryDemand.has(page))
+      .sort(
+        (a, b) =>
+          b.level - a.level ||
+          Number(this.queryGrants.has(b)) - Number(this.queryGrants.has(a)) ||
+          (this.lastQueryGrant.get(a) ?? -1) - (this.lastQueryGrant.get(b) ?? -1) ||
+          a.id - b.id
       );
     this.limited = false;
+    // Seven primary shares and one query share, with borrowing of unused
+    // capacity. Coarse parents precede fine children inside each channel.
+    // Query-only equal-mip demand rotates; newly visible demand cannot starve
+    // all offscreen query pages indefinitely.
+    for (const pool of this.pools.values()) {
+      const total = capacity.get(pool)!;
+      const queryReserve = this.queryDemand.size === 0 ? 0 : Math.max(1, Math.floor(total / 8));
+      const admit = (matches: (page: Page) => boolean, quota: number, pages = priority): void => {
+        for (const page of pages) {
+          if (quota === 0 || capacity.get(pool) === 0) {
+            break;
+          }
+          if (page.pool !== pool || this.admitted.has(page) || !matches(page)) {
+            continue;
+          }
+          this.admitted.add(page);
+          if (pages === queryPriority && !this.primaryDemand.has(page)) {
+            this.queryGrants.add(page);
+            this.lastQueryGrant.set(page, this.queryGrantEpoch);
+          }
+          capacity.set(pool, capacity.get(pool)! - 1);
+          quota--;
+        }
+      };
+      admit((page) => this.primaryDemand.has(page), Math.max(0, total - queryReserve));
+      admit((page) => this.queryDemand.has(page), queryReserve, queryPriority);
+      admit(() => true, total);
+    }
     for (const page of priority) {
-      const left = capacity.get(page.pool)!;
-      if (left > 0) {
-        this.admitted.add(page);
-        capacity.set(page.pool, left - 1);
-      } else {
+      if (!this.admitted.has(page)) {
         this.limited = true;
         this.discard(page);
       }
@@ -628,8 +798,7 @@ export class VirtualTextureResidency {
     this.pumpDirty = false;
     const pending = [...this.admitted]
       .filter(
-        (page) =>
-          !page.pinned && page.source.live && page.slot === VT_MISSING && !page.pending && !page.ready,
+        (page) => !page.pinned && page.source.live && page.slot === VT_MISSING && !page.pending && !page.ready
       )
       .sort((a, b) => b.level - a.level || a.id - b.id);
     if (pending.length === 0) {
@@ -658,7 +827,7 @@ export class VirtualTextureResidency {
         }
       }
     }
-    for (let index = 0; index < pending.length;) {
+    for (let index = 0; index < pending.length; ) {
       const page = pending[index]!;
       const slots = available.get(page.pool)!;
       if (slots <= 0) {
@@ -671,7 +840,7 @@ export class VirtualTextureResidency {
     while (this.batches.size < 4 && pending.length) {
       const first = pending.shift()!;
       const pages = [first];
-      for (let i = 0; i < pending.length && pages.length < 32;) {
+      for (let i = 0; i < pending.length && pages.length < 32; ) {
         if (pending[i]!.source === first.source) pages.push(pending.splice(i, 1)[0]!);
         else i++;
       }
@@ -681,7 +850,7 @@ export class VirtualTextureResidency {
       void first.source.source
         .read(
           pages.map((page) => page.payload),
-          batch.controller.signal,
+          batch.controller.signal
         )
         .then((lease) => {
           if (!this.batches.has(batch) || this.stopped || batch.controller.signal.aborted) {
@@ -772,6 +941,10 @@ export class VirtualTextureResidency {
         page.pool.pinned--;
       }
       this.desired.delete(page);
+      this.primaryDemand.delete(page);
+      this.queryDemand.delete(page);
+      this.queryGrants.delete(page);
+      this.lastQueryGrant.delete(page);
       this.admitted.delete(page);
       this.discard(page);
       this.resident.delete(page);
@@ -790,7 +963,7 @@ export class VirtualTextureResidency {
     // Keep old snapshot objects alive for delayed feedback identity checks.
     this.routeBytes -= [...record.routes.values()].reduce(
       (bytes, route) => bytes + route.mips.length * 7 * 4,
-      0,
+      0
     );
     this.writeSnapshot();
     for (const page of record.pages) this.snapshot[page.id] = undefined;
@@ -807,14 +980,14 @@ export class VirtualTextureResidency {
         : this.settings.linearBytes;
     const layers = Math.min(
       Math.floor(budget / bytesPerLayer),
-      this.graphics.device.limits.maxTextureArrayLayers,
+      this.graphics.device.limits.maxTextureArrayLayers
     );
     if (layers < 1) throw new RangeError("VT physical format budget cannot hold one atlas layer");
     const texture = this.graphics.device.createTexture({
       label: `VT/${format} atlas`,
       size: [VT_ATLAS_SIZE, VT_ATLAS_SIZE, layers],
       format,
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
     });
     const capacity = layers * 256;
     const pool: Pool = {
@@ -824,7 +997,7 @@ export class VirtualTextureResidency {
       generations: new Uint32Array(capacity),
       owners: new Map(),
       bytes: bytesPerLayer * layers,
-      pinned: 0,
+      pinned: 0
     };
     this.pools.set(format, pool);
     this.account(texture, pool.bytes);
@@ -844,7 +1017,7 @@ export class VirtualTextureResidency {
       label: "VT/transaction staging",
       size,
       usage: GPUBufferUsage.COPY_SRC,
-      mappedAtCreation: true,
+      mappedAtCreation: true
     });
     const accounting = this.graphics.resource_accounting?.created(
       {
@@ -852,9 +1025,9 @@ export class VirtualTextureResidency {
         category: "transient",
         owner: "VirtualTextureResidency/upload",
         bytes: size,
-        label: buffer.label,
+        label: buffer.label
       },
-      buffer,
+      buffer
     );
     this.stagingBytes += size;
     this.stagingPeak = Math.max(this.stagingPeak, this.stagingBytes);
@@ -881,7 +1054,7 @@ export class VirtualTextureResidency {
     command.copyBufferToTexture(
       { buffer, bytesPerRow: 256 },
       { texture: this.table, origin: [page % VT_TABLE_WIDTH, Math.floor(page / VT_TABLE_WIDTH), 0] },
-      [1, 1, 1],
+      [1, 1, 1]
     );
   }
   private invalidateRange(first: number, count: number, command: ShadeGPUCommandContext): void {
@@ -906,7 +1079,7 @@ export class VirtualTextureResidency {
       command.copyBufferToTexture(
         { buffer, bytesPerRow: pitch, rowsPerImage: rows },
         { texture: this.table, origin: [x, Math.floor(page / VT_TABLE_WIDTH), 0] },
-        [width, rows, 1],
+        [width, rows, 1]
       );
       page += width * rows;
     }
@@ -926,9 +1099,9 @@ export class VirtualTextureResidency {
       { buffer, bytesPerRow: pitch, rowsPerImage: 36 },
       {
         texture: page.pool.texture,
-        origin: [(slot % 16) * 144, Math.floor((slot % 256) / 16) * 144, Math.floor(slot / 256)],
+        origin: [(slot % 16) * 144, Math.floor((slot % 256) / 16) * 144, Math.floor(slot / 256)]
       },
-      [144, 144, 1],
+      [144, 144, 1]
     );
     command.onFinished.addOne(() => {
       this.uploadedBytes += logicalBytes;
@@ -955,7 +1128,7 @@ export class VirtualTextureResidency {
       pending,
       limited: this.limited,
       error: this.failure,
-      residencyRevision: this.residencyRevision,
+      residencyRevision: this.residencyRevision
     };
   }
   evidence() {
@@ -980,7 +1153,8 @@ export class VirtualTextureResidency {
       allocatedBytes:
         VT_PAGE_CAPACITY * 8 +
         [...this.pools.values()].reduce((n, p) => n + p.bytes, 0) +
-        this.feedback.evidence().allocatedBytes,
+        this.feedback.evidence().allocatedBytes +
+        (this.queryFeedback?.evidence().allocatedBytes ?? 0),
       stagingBytes: this.stagingBytes,
       cpuMetadataAdmissionBytes: this.cpuBytes,
       stagingPeakBytes: this.stagingPeak,
@@ -993,6 +1167,7 @@ export class VirtualTextureResidency {
       receiptBytes: this.receiptBytes,
       provider: this.sources.values().next().value?.source.preparation.evidence().tiled ?? null,
       feedback: this.feedback.evidence(),
+      queryFeedback: this.queryFeedback?.evidence() ?? null
     };
   }
   private fail(error: unknown): void {
@@ -1008,6 +1183,14 @@ export class VirtualTextureResidency {
     this.batches.clear();
     this.table.destroy();
     this.feedback.destroy();
+    this.queryFeedback?.destroy();
+    this.queryFeedbackCommand = null;
+    this.queryFeedbackBuffer = null;
+    this.mappingCandidate = null;
+    this.primaryDemand.clear();
+    this.queryDemand.clear();
+    this.queryGrants.clear();
+    this.lastQueryGrant.clear();
     for (const pool of this.pools.values()) pool.texture.destroy();
     for (const handle of this.accounting) {
       this.graphics.resource_accounting?.destroyed(handle);

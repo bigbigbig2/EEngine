@@ -33,7 +33,7 @@ const check = (value, message) => {
 /** Analytic, valid BC4 blocks: endpoints equal and indices zero. This fixture
  * does not encode/transcode at runtime and has an independent constant oracle.
  * Production continues using the actual TiledTextureSource/provider contract. */
-async function sourceFixture() {
+export async function sourceFixture() {
   const encoded = (bytes, value) => {
     const data = new Uint8Array(bytes);
     for (let block = 0; block < bytes; block += 8) {

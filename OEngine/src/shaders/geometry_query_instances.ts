@@ -1,46 +1,25 @@
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { SCGI_ABI_WGSL } from "../render/gi/ScgiAbi.js";
 import type { ScgiBvhPlan } from "../render/gi/ScgiBvhLayout.js";
-import { GEOMETRY_QUERY_DOMAIN_WGSL } from "../gpu/GeometryQueryDomain.js";
 
-/** All published slots, including offscreen instances, are considered. Holes
- * remain masked leaves so no CPU-visible compaction count is required. */
-export function geometryQueryInstancesWgsl(plan: ScgiBvhPlan): string {
+/** Shared affine truth. Bounds are computed once, independent of AS shards. */
+export function geometryQueryTransformsWgsl(): string {
   return /* wgsl */ `
 ${GPU_INSTANCE_RECORD_WGSL}
-${GEOMETRY_QUERY_DOMAIN_WGSL}
 ${SCGI_ABI_WGSL}
-struct Settings {
-  count: u32,
-  product_slot: u32,
-  product_generation: u32,
-  asset_reference: u32,
-  root: u32,
-  shard: u32,
-  as_generation: u32,
-  reserved: u32,
-  domain_low: vec4f,
-  domain_high: vec4f,
-}
-@group(0) @binding(0) var<uniform> settings: Settings;
-@group(0) @binding(1) var<storage, read> source: array<OEngineInstanceRecord>;
-@group(0) @binding(2) var<storage, read> identities: array<vec4u>;
-@group(0) @binding(3) var<storage, read_write> output: array<ScgiInstance>;
-@group(0) @binding(4) var<storage, read_write> scratch: array<u32>;
-const BOUNDS: u32 = ${plan.scratch.ranges.primitiveBounds!.offset / 4}u;
+@group(0) @binding(0) var<storage, read> source: array<OEngineInstanceRecord>;
+@group(0) @binding(1) var<storage, read> identities: array<vec4u>;
+@group(0) @binding(2) var<storage, read_write> output: array<ScgiInstance>;
+@group(0) @binding(3) var<storage, read_write> bounds: array<vec4f>;
 @compute @workgroup_size(128)
 fn main(@builtin(global_invocation_id) id: vec3u) {
-  if (id.x >= settings.count) { return; }
+  if (id.x >= arrayLength(&source)) { return; }
   let instance = source[id.x];
-  let in_domain = query_instance_in_domain(instance, settings.domain_low, settings.domain_high);
   let lineage = identities[id.x];
   var result: ScgiInstance;
   var low = vec3f(0.0);
   var high = vec3f(0.0);
-  var valid = in_domain && oengine_instance_active(instance) && oengine_instance_virtual_geometry(instance) &&
-    instance.product_table_slot == settings.product_slot &&
-    oengine_instance_geometry_generation(instance) == settings.product_generation &&
-    instance.geometry_record_index == settings.asset_reference &&
+  var valid = oengine_instance_active(instance) && oengine_instance_virtual_geometry(instance) &&
     lineage.x != 0u && lineage.y == instance.instance_set_generation && lineage.w != 0u;
   if (valid) {
     let model = oengine_instance_current_object_to_world(instance);
@@ -81,15 +60,14 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           low = min(low, world);
           high = max(high, world);
         }
-        result.slotSetLifetimeRoot = array<u32, 4>(id.x, lineage.x, lineage.y, settings.root);
-        result.shardGenerationMaskFlags = array<u32, 4>(settings.shard, settings.as_generation,
+        result.slotSetLifetimeRoot = array<u32, 4>(id.x, lineage.x, lineage.y, 0u);
+        result.shardGenerationMaskFlags = array<u32, 4>(0u, 0u,
           0xffffffffu, instance.flags);
       }
     }
   }
-  // Relevant singular geometry is explicit untrusted coverage, never a miss.
-  if (!valid && in_domain && oengine_instance_active(instance) &&
-      instance.geometry_record_index == settings.asset_reference && instance.product_table_slot == settings.product_slot) {
+
+  if (!valid && oengine_instance_active(instance) && oengine_instance_virtual_geometry(instance)) {
     result.shardGenerationMaskFlags[3] = 0x80000000u;
   }
   // An inverse or transformed corner can overflow even when every source
@@ -109,14 +87,91 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     high = vec3f(3.402823466e38);
     result.shardGenerationMaskFlags[2] = 0xffffffffu;
   }
+
   output[id.x] = result;
-  let at = BOUNDS + id.x * 8u;
-  for (var axis = 0u; axis < 3u; axis++) {
-    scratch[at + axis] = bitcast<u32>(low[axis]);
-    scratch[at + 4u + axis] = bitcast<u32>(high[axis]);
+  bounds[id.x * 2u] = vec4f(low, 0.0);
+  bounds[id.x * 2u + 1u] = vec4f(high, 0.0);
+}
+`;
+}
+
+/** Deterministic GPU block compaction. A source-slot window bounds TLAS
+ * allocation and traversal scheduling; affine records remain shared globally.
+ * Three dispatches publish count, offsets and complete compact primitive facts. */
+export function geometryQueryInstancesWgsl(plan: ScgiBvhPlan): string {
+  return /* wgsl */ `
+${GPU_INSTANCE_RECORD_WGSL}
+${SCGI_ABI_WGSL}
+struct Settings {
+  count: u32, product_slot: u32, product_generation: u32, asset_reference: u32,
+  first: u32, blocks: u32, reserved: vec2u,
+  domain_low: vec4f, domain_high: vec4f,
+}
+@group(0) @binding(0) var<uniform> settings: Settings;
+@group(0) @binding(1) var<storage, read> source: array<OEngineInstanceRecord>;
+@group(0) @binding(2) var<storage, read> instances: array<ScgiInstance>;
+@group(0) @binding(3) var<storage, read> bounds: array<vec4f>;
+@group(0) @binding(4) var<storage, read_write> scratch: array<u32>;
+const BOUNDS: u32 = ${plan.scratch.ranges.primitiveBounds!.offset / 4}u;
+const COUNTS: u32 = ${plan.scratch.ranges.selectionCounts!.offset / 4}u;
+const OFFSETS: u32 = ${plan.scratch.ranges.selectionOffsets!.offset / 4}u;
+const INPUT: u32 = ${plan.scratch.ranges.input!.offset / 4}u;
+var<workgroup> prefix: array<u32, 128>;
+fn selected(index: u32) -> bool {
+  if (index >= settings.count) { return false; }
+  let slot = settings.first + index;
+  let item = source[slot];
+  let low = bounds[slot * 2u].xyz;
+  let high = bounds[slot * 2u + 1u].xyz;
+  let in_domain = settings.domain_low.w == 0.0 ||
+    (all(high >= settings.domain_low.xyz) && all(low <= settings.domain_high.xyz));
+  return in_domain && oengine_instance_active(item) && oengine_instance_virtual_geometry(item) &&
+    item.product_table_slot == settings.product_slot &&
+    oengine_instance_geometry_generation(item) == settings.product_generation &&
+    item.geometry_record_index == settings.asset_reference;
+}
+@compute @workgroup_size(128)
+fn classify(@builtin(local_invocation_index) lane: u32, @builtin(workgroup_id) group: vec3u) {
+  prefix[lane] = u32(selected(group.x * 128u + lane));
+  workgroupBarrier();
+  for (var width = 64u; width > 0u; width >>= 1u) {
+    if (lane < width) { prefix[lane] += prefix[lane + width]; }
+    workgroupBarrier();
   }
-  scratch[at + 3u] = id.x;
-  scratch[at + 7u] = result.shardGenerationMaskFlags[2];
+  if (lane == 0u) { scratch[COUNTS + group.x] = prefix[0]; }
+}
+@compute @workgroup_size(1)
+fn offsets() {
+  // At most ceil(admitted TLAS capacity/128) block counts, never objects.
+  var total = 0u;
+  for (var block = 0u; block < settings.blocks; block++) {
+    scratch[OFFSETS + block] = total;
+    total += scratch[COUNTS + block];
+  }
+  scratch[INPUT] = total;
+}
+@compute @workgroup_size(128)
+fn scatter(@builtin(local_invocation_index) lane: u32, @builtin(workgroup_id) group: vec3u) {
+  let index = group.x * 128u + lane;
+  let keep = u32(selected(index));
+  prefix[lane] = keep;
+  workgroupBarrier();
+  for (var width = 1u; width < 128u; width <<= 1u) {
+    var add = 0u;
+    if (lane >= width) { add = prefix[lane - width]; }
+    workgroupBarrier();
+    prefix[lane] += add;
+    workgroupBarrier();
+  }
+  if (keep == 0u) { return; }
+  let slot = settings.first + index;
+  let at = BOUNDS + (scratch[OFFSETS + group.x] + prefix[lane] - 1u) * 8u;
+  for (var axis = 0u; axis < 3u; axis++) {
+    scratch[at + axis] = bitcast<u32>(bounds[slot * 2u][axis]);
+    scratch[at + 4u + axis] = bitcast<u32>(bounds[slot * 2u + 1u][axis]);
+  }
+  scratch[at + 3u] = slot;
+  scratch[at + 7u] = instances[slot].shardGenerationMaskFlags[2];
 }
 `;
 }

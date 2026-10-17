@@ -11,6 +11,37 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "scgi-query-continuation",
+    file: "OEngine/tests/oracle/geometry-budgeted-residency-gpu.mjs",
+    url: "/OEngine/tests/oracle/geometry-budgeted-residency-gpu.mjs",
+    entry: "runScgiGeometryQueryGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    timeoutMs: 180000,
+    description: "SCGI-5 quantum-one complete continuation, immutable Product relocation and shared instance transforms."
+  }),
+  Object.freeze({
+    name: "scgi-query-vt",
+    file: "OEngine/tests/oracle/scgi-query-vt-gpu.mjs",
+    url: "/OEngine/tests/oracle/scgi-query-vt-gpu.mjs",
+    entry: "runScgiQueryVtGpuOracle",
+    requiredFeatures: ["texture-compression-bc"],
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    timeoutMs: 120000,
+    description:
+      "SCGI-5 actual Native query, independent VT feedback and ordinary coarse-to-fine mapping publication."
+  }),
+  Object.freeze({
+    name: "scgi-query",
+    file: "OEngine/tests/oracle/scgi-query-gpu.mjs",
+    url: "/OEngine/tests/oracle/scgi-query-gpu.mjs",
+    entry: "runScgiQueryGpuOracle",
+    requiredFeatures: ["timestamp-query", "subgroups"],
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    timeoutMs: 180000,
+    description:
+      "SCGI-5 build/update, shared BLAS/affines, compact TLAS, GPU ray count, complete alpha and independent brute-force."
+  }),
+  Object.freeze({
     name: "scgi-anchor-publication",
     file: "OEngine/tests/oracle/scgi-anchor-publication-gpu.mjs",
     url: "/OEngine/tests/oracle/scgi-anchor-publication-gpu.mjs",
@@ -54,7 +85,8 @@ export const oracles = Object.freeze([
     entry: "runScgiTransactionGpuOracle",
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     timeoutMs: 180000,
-    description: "SCGI-1 typed ABI, actual Native descriptors and real command double-bank abort/retry/retirement."
+    description:
+      "SCGI-1 typed ABI, actual Native descriptors and real command double-bank abort/retry/retirement."
   }),
   Object.freeze({
     name: "streaming-vt-feedback",

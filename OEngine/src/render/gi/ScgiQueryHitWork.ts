@@ -173,6 +173,10 @@ fn scatter(@builtin(global_invocation_id) id: vec3u) {
     }
   }
 
+  get dispatchCount(): number {
+    return this.pipelines.length;
+  }
+
   encode(command: ShadeGPUCommandContext): void {
     if (this.destroyed || command.closed || command.device !== this.device) {
       throw new Error("Native hit compaction requires its live admitted batch");

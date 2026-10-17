@@ -47,6 +47,10 @@ export class VirtualTextureFeedback<T> {
   private lastGapFrame = -1;
   private lastFrame = -1;
   private readonly accountingHandles: ResourceHandle[] = [];
+  /** Cold pipeline/binding preparation only; frame selection stays in begin. */
+  get gpuBuffers(): readonly GPUBuffer[] {
+    return [this.disabled, ...this.slots.map((slot) => slot.gpu)];
+  }
   constructor(
     private readonly device: GPUDevice,
     private readonly observe: (value: VirtualTextureObservation<T>) => void,
@@ -124,15 +128,15 @@ export class VirtualTextureFeedback<T> {
         device.createComputePipelineAsync({
           label: "VT/feedback arguments",
           layout,
-          compute: { module, entryPoint: "prepare" },
-        }),
+          compute: { module, entryPoint: "prepare" }
+        })
       ),
       PipelineCompilationQueue.forDevice(device).run(() =>
         device.createComputePipelineAsync({
           label: "VT/feedback flags",
           layout,
-          compute: { module, entryPoint: "finalize" },
-        }),
+          compute: { module, entryPoint: "finalize" }
+        })
       ),
       module.getCompilationInfo().then((info) => {
         const errors = info.messages.filter((message) => message.type === "error");

@@ -8,7 +8,10 @@ const { ScgiQueryScene } = await import("../../.test-dist/render/gi/ScgiQuerySce
 function deferred() {
   let resolve;
   let reject;
-  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  const promise = new Promise((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
   return { promise, resolve, reject };
 }
 
@@ -18,24 +21,55 @@ function fixture() {
   const lease = (name) => ({
     valid: true,
     isCurrent: () => true,
-    release() { released.push(name); },
-    async releaseAfter(fence) {
-      try { await fence; }
-      catch (error) { failed.push([name, error]); throw error; }
+    release() {
+      released.push(name);
     },
+    async releaseAfter(fence) {
+      try {
+        await fence;
+      } catch (error) {
+        failed.push([name, error]);
+        throw error;
+      }
+    }
   });
   const device = {};
   const owner = Object.assign(Object.create(ScgiQueryScene.prototype), {
-    device, state: "submitted", retiring: false, consumers: new Map(),
-    poisonSettlement: null, nativeLease: lease("material"),
+    device,
+    state: "submitted",
+    retiring: false,
+    consumers: new Map(),
+    poisonSettlement: null,
+    nativeLease: lease("material"),
     geometryLeases: [lease("geometry")],
-    sourceInstances: { valid: true, assertCurrent() {}, destroy() { released.push("instances"); } },
-    materials: { destroy() { released.push("directory"); } },
-    shards: [], builders: [], buffers: [], handles: [], coverage: null,
+    sourceInstances: {
+      valid: true,
+      assertCurrent() {},
+      destroy() {
+        released.push("instances");
+      }
+    },
+    materials: {
+      destroy() {
+        released.push("directory");
+      }
+    },
+    shards: [],
+    staticBlas: [],
+    transforms: null,
+    builders: [],
+    buffers: [],
+    handles: [],
+    coverage: null
   });
-  const command = () => ({ device, closed: false, observers: [],
+  const command = () => ({
+    device,
+    closed: false,
+    observers: [],
     onBeforeFinish: new ChangeSignal(),
-    observeSubmission(observer) { this.observers.push(observer); },
+    observeSubmission(observer) {
+      this.observers.push(observer);
+    }
   });
   return { owner, command, released, failed };
 }
@@ -47,7 +81,9 @@ test("scene retirement waits for encoded consumers beyond the caller's earlier f
   f.owner.observeUse(command);
   assert.equal(command.observers.length, 1);
   let retired = false;
-  const retirement = f.owner.releaseAfter(Promise.resolve()).then(() => { retired = true; });
+  const retirement = f.owner.releaseAfter(Promise.resolve()).then(() => {
+    retired = true;
+  });
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(retired, false);
@@ -102,7 +138,10 @@ test("abort settles an unused consumer; failed submission quarantines every sour
     assert.equal(f.owner.state, "poisoned");
     assert.equal(f.owner.valid, false);
     assert.deepEqual(f.released, []);
-    assert.deepEqual(f.failed, [["material", error], ["geometry", error]]);
+    assert.deepEqual(f.failed, [
+      ["material", error],
+      ["geometry", error]
+    ]);
     assert.throws(() => f.owner.destroy(), /failed submission/);
   }
 });

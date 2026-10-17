@@ -106,7 +106,7 @@ async function checkQueryHitWork(device, graphics) {
   }
 }
 
-async function checkBvhBuild(device, graphics) {
+export async function checkBvhBuild(device, graphics) {
   const plan = planScgiBvh(device.limits, 513);
   const hierarchy = device.createBuffer({
     size: plan.hierarchy.bytes,
@@ -452,6 +452,7 @@ async function checkQueryGeometrySnapshot(device, graphics) {
   let tlasBuild;
   let instances;
   let instanceSnapshot;
+  let instanceHandle;
   let query;
   let material;
   let registry;
@@ -475,7 +476,7 @@ async function checkQueryGeometrySnapshot(device, graphics) {
   const hierarchy = device.createBuffer({ size: plan.hierarchy.bytes,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
   const scratch = device.createBuffer({ size: plan.scratch.bytes,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
   const boundsRead = device.createBuffer({ size: 64,
     usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
   const alphaLayers = 81;
@@ -483,7 +484,7 @@ async function checkQueryGeometrySnapshot(device, graphics) {
   const tlas = device.createBuffer({ size: tlasPlan.hierarchy.bytes,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
   const tlasScratch = device.createBuffer({ size: tlasPlan.scratch.bytes,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
   const rayCount = 5;
   const resultOffset = rayCount * 48;
   const batch = device.createBuffer({ size: resultOffset + rayCount * 32,
@@ -550,7 +551,7 @@ fn main() {
     }
     sceneTransforms[(sceneCount - 1) * 16 + 14] = -1;
     sceneMaterials[sceneCount - 1] = 1;
-    scene.instantiate({ count: sceneCount, geometryHandles: [],
+    instanceHandle = scene.instantiate({ count: sceneCount, geometryHandles: [],
       virtualGeometry: { productTableSlot: snapshot.productTableSlot, productGeneration: snapshot.productGeneration, assetCount: 1 },
       geometryIndices: new Uint32Array(sceneCount), materialHandles: sceneMaterials,
       currentTransforms: sceneTransforms, boundsSpheres: sceneSpheres,
@@ -649,7 +650,7 @@ fn main() {
     geometry.encodeBounds(consume);
     build.encode(consume, hierarchy, scratch, geometry.primitiveCount);
     instances.encode(consume);
-    tlasBuild.encode(consume, tlas, tlasScratch, instances.count);
+    tlasBuild.encode(consume, tlas, tlasScratch, instances.count, true);
     consume.uploadRegions([{ destination: batch, destinationOffset: 0, bytes: rays }]);
     query.encode(consume);
     consume.copyBufferToBuffer(batch, resultOffset, hitRead, 0, rayCount * 32);
@@ -671,7 +672,7 @@ fn main() {
     hitRead.unmap();
     const hitWords = new Uint32Array(hits);
     const hitFloats = new Float32Array(hits);
-    assert.deepEqual([hitWords[3], hitWords[11], hitWords[19], hitWords[27], hitWords[35]], [0, 1, 0, 1, 0]);
+    assert.deepEqual([hitWords[3], hitWords[11], hitWords[19], hitWords[27], hitWords[35]], [0, 1, 0, 5, 0]);
     assert.equal(hitFloats[0], 1);
     assert.equal(hitFloats[1], 0.25);
     assert.equal(hitFloats[2], 0.5);
@@ -739,6 +740,12 @@ fn main() {
     return { immutableDirectoryAfterRevokeAndProductDestruction: actual, directoryBytes: snapshot.metadataByteLength };
   } finally {
     await device.queue.onSubmittedWorkDone();
+    if (instanceHandle !== undefined) {
+      const release = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
+      graphics.gpu_scene.release(instanceHandle, release);
+      release.finish();
+      await release.gpuDone;
+    }
     geometry?.destroy();
     build?.destroy();
     query?.destroy();
@@ -813,7 +820,7 @@ async function checkQueryInstances(device, graphics) {
     const command = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
     query.encode(command);
     command.copyBufferToBuffer(query.records, 0, read, 0, source.highWaterCount * 128);
-    command.copyBufferToBuffer(scratch, plan.scratch.ranges.primitiveBounds.offset + scene.range(handle).start * 32,
+    command.copyBufferToBuffer(scratch, plan.scratch.ranges.primitiveBounds.offset,
       read, source.highWaterCount * 128, 32);
     command.finish();
     await command.gpuDone;
@@ -850,15 +857,22 @@ async function checkQueryInstances(device, graphics) {
         graphics.resource_accounting, domain);
       const bounded = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
       query.encode(bounded);
-      bounded.copyBufferToBuffer(query.records, 0, read, 0, source.highWaterCount * 128);
+      bounded.copyBufferToBuffer(scratch, plan.scratch.ranges.primitiveBounds.offset,
+        read, 0, source.highWaterCount * 32);
+      bounded.copyBufferToBuffer(scratch, plan.scratch.ranges.input.offset,
+        read, source.highWaterCount * 32, 4);
       bounded.finish();
       await bounded.gpuDone;
       await read.mapAsync(GPUMapMode.READ);
       const actual = new Uint32Array(read.getMappedRange().slice(0));
       read.unmap();
-      assert.equal(actual[first * 32 + 30], domain.included ? 0xffffffff : 0,
+      // Affine records are shared scene truth; domain selection now belongs
+      // to the compact TLAS primitive list, not per-shard record masks.
+      const selectedSlots = Array.from({ length: actual[source.highWaterCount * 8] },
+        (_, index) => actual[index * 8 + 3]);
+      assert.equal(selectedSlots.includes(first), domain.included,
         "Finite query domain must conservatively intersect the transformed bounds");
-      assert.equal(actual[(first + 1) * 32 + 30], 0, "A finite domain must not reactivate inactive slots");
+      assert.equal(selectedSlots.includes(first + 1), false, "A finite domain must not reactivate inactive slots");
     }
     return { highWaterCount: source.highWaterCount, offscreenIncluded: true,
       negativeNonuniformInverse: true, singularUntrusted: true, finiteDomainBoundaryAndExclusion: true };
@@ -922,6 +936,20 @@ async function checkPendingDemandDeviceLoss() {
     }
   }
   return results;
+}
+
+/** SCGI-5 targeted continuation/physical-directory closure, without unrelated
+ * geometry pressure, renderer scheduling or demand-device-loss cases. */
+export async function runScgiGeometryQueryGpuOracle(device) {
+  const graphics = new GraphicsContext(device);
+  try {
+    return {
+      queryGeometrySnapshot: await checkQueryGeometrySnapshot(device, graphics),
+      queryInstances: await checkQueryInstances(device, graphics)
+    };
+  } finally {
+    graphics.destroy();
+  }
 }
 
 export async function runGeometryBudgetedResidencyGpuOracle(device) {
