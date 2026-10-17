@@ -37,6 +37,9 @@ export interface ScgiFramePublication {
   fieldComplete: boolean;
   cacheComplete: boolean;
   estimateComplete: boolean;
+  /** GPU header owns the scale; normalized field carries the same exponent.
+   * No CPU readback is necessary for seed or later Native consumers. */
+  filteredComplete: boolean;
 }
 
 export interface ScgiCompoundFact {

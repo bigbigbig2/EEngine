@@ -40,17 +40,17 @@ export const SCGI_ABI = Object.freeze({
     ["materialValueRevision", "u32", 1],
     ["deformationRevision", "u32", 1],
     ["localPrimitive", "u32", 1],
-    ["reservedIdentity", "u32", 3],
+    ["reservedIdentity", "u32", 3]
   ]),
   cell: layout("ScgiCell", [
     ["patchIndex", "u32", 1],
-    ["patchSlotGeneration", "u32", 1],
+    ["patchSlotGeneration", "u32", 1]
   ]),
   cacheState: layout("ScgiCacheState", [
     ["demotionFrame", "u32", 1],
     ["dirty", "u32", 1],
     ["selectionFrame", "u32", 1],
-    ["live", "u32", 1],
+    ["live", "u32", 1]
   ]),
   patch: layout("ScgiPatch", [
     ["positionRadius", "f32", 4],
@@ -62,13 +62,14 @@ export const SCGI_ABI = Object.freeze({
     ["countSerialFlags", "u32", 4],
     ["accessUpdateBirthDirty", "u32", 4],
     ["shortMeanConfidence", "f32", 4],
+    // Relative short variance Var(L0)/meanScale², then seed confidence.
     ["varianceSeedConfidence", "f32", 4],
     ["a0", "f32", 12],
     ["a2", "f32", 12],
     ["numericEpochs", "u32", 4],
-    // rank, post-filter validity, last cohort fault bits, missing A0 lookups.
+    // rank, post state (0 absent/1 seed/2 filtered), cohort fault, missing A0.
     ["rankPostCohortStatus", "u32", 4],
-    ["identityTail", "u32", 4],
+    ["identityTail", "u32", 4]
   ]),
   request: layout("ScgiRequest", [
     ["positionRadius", "f32", 4],
@@ -76,7 +77,7 @@ export const SCGI_ABI = Object.freeze({
     ["source", "u32", 1],
     ["identity", "u32", 12],
     ["cellRankPixelStatus", "u32", 4],
-    ["identityTail", "u32", 4],
+    ["identityTail", "u32", 4]
   ]),
   halfField: layout("ScgiHalfField", [
     ["packedCoefficients", "u32", 8],
@@ -84,7 +85,7 @@ export const SCGI_ABI = Object.freeze({
     ["octNormal", "u32", 1],
     ["sourcePixel", "u32", 1],
     ["confidenceFlags", "u32", 1],
-    ["identity", "u32", 16],
+    ["identity", "u32", 16]
   ]),
   anchor: layout("ScgiAnchor", [
     ["positionValid", "f32", 4],
@@ -92,11 +93,11 @@ export const SCGI_ABI = Object.freeze({
     ["sourcePixel", "u32", 1],
     ["previousPositionValid", "f32", 4],
     ["motionDepth", "f32", 4],
-    ["identity", "u32", 16],
+    ["identity", "u32", 16]
   ]),
   raw: layout("ScgiRaw", [
     ["coefficients", "f32", 12],
-    ["cohortPlanCompletionFault", "u32", 4],
+    ["cohortPlanCompletionFault", "u32", 4]
   ]),
   node: layout("ScgiNode", [
     ["leftMin", "f32", 3],
@@ -106,36 +107,36 @@ export const SCGI_ABI = Object.freeze({
     ["rightMin", "f32", 3],
     ["rightRef", "u32", 1],
     ["rightMax", "f32", 3],
-    ["rightFlags", "u32", 1],
+    ["rightFlags", "u32", 1]
   ]),
   links: layout("ScgiLinks", [
     ["parent", "u32", 1],
-    ["escape", "u32", 1],
+    ["escape", "u32", 1]
   ]),
   triangle: layout("ScgiTriangle", [["pageGroupTriangleMaterial", "u32", 4]]),
   directory: layout("ScgiDirectory", [
     ["shardRootCountRef", "u32", 4],
-    ["leaseGeometryTopologyFlags", "u32", 4],
+    ["leaseGeometryTopologyFlags", "u32", 4]
   ]),
   instance: layout("ScgiInstance", [
     ["objectToWorld", "f32", 12],
     ["worldToObject", "f32", 12],
     ["slotSetLifetimeRoot", "u32", 4],
-    ["shardGenerationMaskFlags", "u32", 4],
+    ["shardGenerationMaskFlags", "u32", 4]
   ]),
   ray: layout("ScgiRay", [
     ["originTMin", "f32", 4],
     ["directionTMax", "f32", 4],
-    ["idMaskKindSnapshot", "u32", 4],
+    ["idMaskKindSnapshot", "u32", 4]
   ]),
   result: layout("ScgiResult", [
     ["tBarycentric", "f32", 3],
     ["status", "u32", 1],
-    ["instancePrimitiveGenerationFront", "u32", 4],
+    ["instancePrimitiveGenerationFront", "u32", 4]
   ]),
   payload: layout("ScgiPayload", [
     ["patchGenerationCohortSample", "u32", 4],
-    ["pdfPathLightFlags", "u32", 4],
+    ["pdfPathLightFlags", "u32", 4]
   ]),
   continuation: layout("ScgiContinuation", [
     ["state", "u32", 1],
@@ -146,7 +147,7 @@ export const SCGI_ABI = Object.freeze({
     ["tlasReturnNode", "u32", 1],
     ["tlasVisits", "u32", 1],
     ["blasVisits", "u32", 1],
-    ["reserved", "u32", 8],
+    ["reserved", "u32", 8]
   ]),
   worldHeader: layout("ScgiWorldHeader", [
     ["generationDeviceSceneView", "u32", 4],
@@ -154,12 +155,15 @@ export const SCGI_ABI = Object.freeze({
     ["originScale", "f32", 4],
     ["capacityValidity", "u32", 4],
     ["allocatorStartEndCountSerial", "u32", 4],
+    // words20/21 bounce count/overflow; word22 filter geometry revision.
     ["bounceCountOverflowStatus", "u32", 4],
     ["cascadeOriginScale", "f32", 16],
     ["cascadeOffsetsRing", "u32", 16],
+    // words56/57 address generation/sample serial; word58 GPU f32 scale,
+    // word59 submitted filter configuration serial (preserved by prepare).
     ["addressGenerationSampleSerial", "u32", 4],
-    ["reserved", "u32", 4],
-  ]),
+    ["reserved", "u32", 4]
+  ])
 });
 
 /** One 64B scratch record has phase-specific ownership. Fast candidate rounds
@@ -173,7 +177,7 @@ export const SCGI_QUERY_CONTINUATION = Object.freeze({
     hasRejected: 1,
     rejectedT: 2,
     rejectedInstance: 3,
-    rejectedPrimitive: 4,
+    rejectedPrimitive: 4
   }),
   tail: Object.freeze({
     state: 0,
@@ -186,8 +190,8 @@ export const SCGI_QUERY_CONTINUATION = Object.freeze({
     blasVisits: 7,
     initial: 0,
     suspended: 1,
-    done: 2,
-  }),
+    done: 2
+  })
 });
 
 export type ScgiRecordKind = keyof typeof SCGI_ABI;
@@ -244,7 +248,7 @@ export function unpackScgiRecord(kind: ScgiRecordKind, bytes: Uint8Array): Recor
 /** Half storage uses pack2x16float, independent of optional shader-f16 arithmetic. */
 export function packScgiCoefficients(
   coefficients: ArrayLike<number>,
-  scale: number,
+  scale: number
 ): Uint32Array<ArrayBuffer> {
   if (coefficients.length !== 12 || !Number.isFinite(scale) || scale <= 0) {
     throw new RangeError("SCGI requires 12 coefficients and positive finite scale");
@@ -277,6 +281,83 @@ export function unpackScgiCoefficients(packed: ArrayLike<number>, scale: number)
   }
   return result;
 }
+
+/** World-only nonnegative irradiance encoding. Signed residual continues to use
+ * packScgiCoefficients. Flag bit0 valid, bit1 normalized, bits2..9 signed scale
+ * exponent biased by126, bits10..25 confidence UNORM16. */
+export function packScgiIrradiance(coefficients: ArrayLike<number>, scale: number): Uint32Array {
+  if (coefficients.length !== 12 || !Number.isFinite(scale) || scale <= 0) {
+    throw new RangeError("SCGI irradiance requires finite SH and scale");
+  }
+  const encoded = new Float32Array(12);
+  for (let c = 0; c < 3; c++) {
+    const l0 = coefficients[c]!;
+    if (!Number.isFinite(l0) || l0 < 0 || l0 / scale > 65504) {
+      throw new RangeError("SCGI irradiance L0 exceeds scale");
+    }
+    encoded[c] = l0 / scale;
+    for (let term = 1; term < 4; term++) {
+      const value = coefficients[term * 3 + c]!;
+      const ratio = l0 === 0 ? 0 : value / l0;
+      if (!Number.isFinite(value) || (l0 === 0 && value !== 0) || Math.abs(ratio) > 2 / Math.sqrt(3) + 1e-6) {
+        throw new RangeError("SCGI irradiance is not a nonnegative radiance measure");
+      }
+      encoded[term * 3 + c] = l0 === 0 ? 0 : 0.5 + (Math.sqrt(3) / 4) * ratio;
+    }
+  }
+  return packScgiCoefficients(encoded, 1);
+}
+
+export function unpackScgiIrradiance(packed: ArrayLike<number>, scale: number): Float32Array {
+  const decoded = unpackScgiCoefficients(packed, 1);
+  for (let c = 0; c < 3; c++) {
+    const l0 = decoded[c]! * scale;
+    decoded[c] = l0;
+    for (let term = 1; term < 4; term++) {
+      decoded[term * 3 + c] = l0 === 0 ? 0 : (decoded[term * 3 + c]! - 0.5) * (4 / Math.sqrt(3)) * l0;
+    }
+  }
+  return decoded;
+}
+
+export const SCGI_IRRADIANCE_WGSL = /* wgsl */ `
+fn scgi_irradiance_flags(scale: f32, confidence: f32) -> u32 {
+  let exponent = u32(clamp(round(log2(scale))+126.0, 0.0, 239.0));
+  return 3u|(exponent<<2u)|(u32(round(clamp(confidence, 0.0, 1.0)*65535.0))<<10u);
+}
+fn scgi_field_scale(flags: u32) -> f32 {
+  return exp2(f32(i32((flags>>2u)&255u)-126));
+}
+fn scgi_pack_irradiance(value: array<f32, 12>, scale: f32) -> array<u32, 8> {
+  var encoded: array<vec3f, 4>;
+  encoded[0] = vec3f(value[0], value[1], value[2])/scale;
+  for (var term = 1u; term<4u; term++) {
+    for (var c = 0u; c<3u; c++) {
+      encoded[term][c] = 0.0;
+      if (value[c]>0.0) {
+        encoded[term][c] = 0.5+0.4330127018922193*(value[term*3u+c]/value[c]);
+      }
+    }
+  }
+  var packed: array<u32, 8>;
+  for (var i = 0u; i<4u; i++) {
+    packed[i*2u] = pack2x16float(encoded[i].xy);
+    packed[i*2u+1u] = pack2x16float(vec2f(encoded[i].z, 0.0));
+  }
+  return packed;
+}
+fn scgi_unpack_irradiance(packed: array<u32, 8>, scale: f32) -> array<f32, 12> {
+  var result = scgi_unpack_l1(packed, 1.0);
+  for (var c = 0u; c<3u; c++) {
+    let l0 = result[c]*scale;
+    result[c] = l0;
+    for (var term = 1u; term<4u; term++) {
+      result[term*3u+c] = select((result[term*3u+c]-0.5)*2.309401076758503*l0, 0.0, l0 == 0.0);
+    }
+  }
+  return result;
+}
+`;
 
 /** Typed storage loads/stores have exactly the same scalar layout as packed arenas.
  * WGSL layout is also checked against independent literal offsets by the GPU oracle. */

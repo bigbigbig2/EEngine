@@ -20,7 +20,9 @@ import {
 import { ScgiRuntime } from "../../.test-dist/render/gi/ScgiRuntime.js";
 import { ScgiAnchors } from "../../.test-dist/render/gi/ScgiAnchors.js";
 import { ScgiCache } from "../../.test-dist/render/gi/ScgiCache.js";
-import { packScgiCoefficients } from "../../.test-dist/render/gi/ScgiAbi.js";
+import { ScgiFilter } from "../../.test-dist/render/gi/ScgiFilter.js";
+import { filterSettings } from "./scgi-filter-gpu.mjs";
+import { packScgiIrradiance } from "../../.test-dist/render/gi/ScgiAbi.js";
 import { triangleProductFixture } from "../helpers/geometry-product-fixture.mjs";
 import { scgiCommand, scgiGraphics, scgiProfile } from "./scgi-fixture.mjs";
 
@@ -285,10 +287,10 @@ export async function runScgiAnchorPublicationGpuOracle(device) {
       const bytes = new ArrayBuffer(112),
         u = new Uint32Array(bytes),
         f = new Float32Array(bytes);
-      u.set(packScgiCoefficients(coefficients, 2));
+      u.set(packScgiIrradiance(coefficients, 2));
       f[8] = 0.5;
       u[9] = 0x7fff7fff; // -Z, matching the negative determinant
-      u[11] = 1;
+      u[11] = 3 | (127 << 2) | (65535 << 10);
       u.set(exactIdentity, 12);
       const map = new Uint32Array(plan.cells * 2);
       for (let cell = 0; cell < plan.cells; cell++) map[cell * 2] = 0xffffffff;
@@ -343,8 +345,9 @@ export async function runScgiAnchorPublicationGpuOracle(device) {
           check(u[at + 24] === 0, `${name}: seed cannot fabricate query samples`);
           for (let lane = 0; lane < 12; lane++) {
             check(
-              f[at + 40 + lane] === coefficients[lane] && f[at + 52 + lane] === coefficients[lane],
-              `${name}: A0/A2 consume the committed coefficient scale`
+              Math.abs(f[at + 40 + lane] - coefficients[lane]) <= 0.0025 * coefficients[lane % 3] &&
+                Math.abs(f[at + 52 + lane] - coefficients[lane]) <= 0.0025 * coefficients[lane % 3],
+              `${name}: normalized half L0+q quantization bound lane${lane}, actual${f[at + 40 + lane]}`
             );
           }
         }
@@ -352,6 +355,46 @@ export async function runScgiAnchorPublicationGpuOracle(device) {
       check(live === 1 && seeded === Number(expected), `${name}: ${seeded}/${live}`);
       return new Uint32Array(await getAnchor()).slice(16, 32);
     };
+    // A real filtered field must also be consumable by the real seed owner.
+    // Clear only the world allocation after producing the field to model cold
+    // patch allocation while preserving the submitted screen history.
+    const filter = await ScgiFilter.create(device, plan);
+    const filteredHistory = begin();
+    cache.encode(filteredHistory, { ...settings, frame: ++settings.frame });
+    const raw = new ArrayBuffer(profile.updates * 64);
+    const rawFloats = new Float32Array(raw),
+      rawWords = new Uint32Array(raw);
+    for (let i = 0; i < profile.updates; i++) {
+      rawFloats.set(coefficients, i * 16);
+      rawWords.set([8, 8, 1, 0], i * 16 + 12);
+    }
+    filteredHistory.command.uploadRegions([
+      {
+        destination: filteredHistory.publication.privateScratch.buffer,
+        destinationOffset: plan.scratch.ranges.raw.offset,
+        bytes: new Uint8Array(raw)
+      }
+    ]);
+    filteredHistory.publication.estimateComplete = true;
+    filter.encode(filteredHistory, { ...filterSettings, frame: settings.frame, post: true });
+    const emptyMap = new Uint32Array(plan.cells * 2);
+    for (let i = 0; i < plan.cells; i++) emptyMap[i * 2] = 0xffffffff;
+    filteredHistory.command.uploadRegions([
+      {
+        destination: filteredHistory.publication.candidateWorld.buffer,
+        destinationOffset: plan.world.ranges.map.offset,
+        bytes: new Uint8Array(emptyMap.buffer)
+      }
+    ]);
+    filteredHistory.command.clearBuffer(filteredHistory.publication.candidateWorld.buffer, 64, 16);
+    filteredHistory.command.clearBuffer(
+      filteredHistory.publication.candidateWorld.buffer,
+      plan.world.ranges.cacheState.offset,
+      plan.world.ranges.cacheState.bytes
+    );
+    filteredHistory.command.finish();
+    await filteredHistory.completion;
+    await seed("actual A0/A1/A2 field feeds real publication seed", true);
     await authorHistory();
     await seed("real publication accepts world-only seed", true);
     await authorHistory();

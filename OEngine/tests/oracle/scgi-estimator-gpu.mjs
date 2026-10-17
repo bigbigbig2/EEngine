@@ -18,6 +18,7 @@ import { AppearanceGraphBuilder } from "../../.test-dist/material/AppearanceGrap
 import { compileAppearanceGraph } from "../../.test-dist/material/AppearanceGraphCompiler.js";
 import { ScgiQueryScene } from "../../.test-dist/render/gi/ScgiQueryScene.js";
 import { ScgiEstimator } from "../../.test-dist/render/gi/ScgiEstimator.js";
+import { ScgiFilter } from "../../.test-dist/render/gi/ScgiFilter.js";
 import { ScgiRuntime } from "../../.test-dist/render/gi/ScgiRuntime.js";
 import { ScgiCache } from "../../.test-dist/render/gi/ScgiCache.js";
 import { packScgiRecord } from "../../.test-dist/render/gi/ScgiAbi.js";
@@ -178,6 +179,7 @@ export async function runScgiEstimatorGpuOracle(device) {
       profile
     );
     const cache = await ScgiCache.create(device, plan);
+    const filter = await ScgiFilter.create(device, plan);
     estimator = await ScgiEstimator.create(
       device,
       plan,
@@ -207,7 +209,14 @@ export async function runScgiEstimatorGpuOracle(device) {
     let voxelSize = 1;
     const run = async (
       owner,
-      { abort = false, patchPosition = [0, 0, 0], patchNormal = [0, 0, 1], before, after } = {}
+      {
+        abort = false,
+        patchPosition = [0, 0, 0],
+        patchNormal = [0, 0, 1],
+        before,
+        after,
+        filtered = false
+      } = {}
     ) => {
       const command = scgiCommand(graphics);
       pending = command;
@@ -242,6 +251,29 @@ export async function runScgiEstimatorGpuOracle(device) {
         pass.end();
       }
       owner.encode(tx);
+      if (filtered) {
+        filter.encode(tx, {
+          frame: frame + 1,
+          geometryEpoch: 1,
+          filterEpoch: 1,
+          spatial: true,
+          post: true,
+          spatialTaps: 4,
+          lookupTaps: 4,
+          spatialRadius: 1,
+          lookupRadius: 0.5,
+          normalCosine: 0.9,
+          planeDistanceScale: 0.1,
+          shortHysteresis: 0.5,
+          longHysteresis: 0.98,
+          postHysteresis: 0.8,
+          driftScale: 0.25,
+          maximumCount: 32,
+          maximumAge: 8,
+          invalidDecay: 0.5,
+          revisionDecay: 0.25
+        });
+      }
       if (querySet) {
         const pass = command.gpu_encoder.beginComputePass({
           timestampWrites: { querySet, endOfPassWriteIndex: 1 }
@@ -294,6 +326,18 @@ export async function runScgiEstimatorGpuOracle(device) {
       }
     };
     const first = await run(estimator);
+    const actualFiltered = await run(estimator, { filtered: true });
+    const actualPatch = plan.world.ranges.patches.offset / 4;
+    assert.equal(
+      actualFiltered.world[actualPatch + 24],
+      1,
+      "actual estimator cohort increments filter count"
+    );
+    const actualWorld = new Float32Array(actualFiltered.bytes, 64, plan.world.bytes / 4);
+    assert.ok(
+      Math.abs(actualWorld[actualPatch + 40] - actualFiltered.f[0]) < 1e-5,
+      "real estimator raw is the sole A0 input"
+    );
     const { f, u } = { f: first.f, u: new Uint32Array(first.bytes, 0, 16) };
     assert.equal(u[14], 1, `sky cohort fault ${u[15]}`);
     for (let channel = 0; channel < 3; channel++) {
@@ -308,7 +352,7 @@ export async function runScgiEstimatorGpuOracle(device) {
     await run(estimator, { abort: true });
     const retry = await run(estimator);
     const patchBase = plan.world.ranges.patches.offset / 4;
-    assert.equal(retry.world[patchBase + 25], 2 * (512 + 4));
+    assert.equal(retry.world[patchBase + 25], 3 * (512 + 4));
     assert.equal(retry.u[2], 1);
     sceneEpoch++;
     const tilted = await run(estimator, { patchNormal: [0.6, 0, 0.8] });

@@ -371,6 +371,7 @@ export class ScgiRuntime {
       fieldComplete: false,
       cacheComplete: false,
       estimateComplete: false,
+      filteredComplete: false
     };
     const transaction = new ScgiFrameTransaction(this, command, workset, leases, publication, replaced);
     this.#pending = transaction;
@@ -445,7 +446,9 @@ export class ScgiRuntime {
     command.uploadRegions([
       { destination: world.buffer, destinationOffset: 0, bytes: new Uint8Array(header.buffer) },
     ]);
-    const serial = new Uint32Array([publication.addressGeneration, publication.sampleSerial, 0, 0]);
+    // Header58/59 belong to GPU field scale/filter configuration, copied with
+    // the world bank. They must survive prepare for post-filter reset checks.
+    const serial = new Uint32Array([publication.addressGeneration, publication.sampleSerial]);
     command.uploadRegions([
       { destination: world.buffer, destinationOffset: 224, bytes: new Uint8Array(serial.buffer) },
     ]);

@@ -1,4 +1,4 @@
-import { SCGI_ABI, SCGI_ABI_WGSL } from "../render/gi/ScgiAbi.js";
+import { SCGI_ABI, SCGI_ABI_WGSL, SCGI_IRRADIANCE_WGSL } from "../render/gi/ScgiAbi.js";
 import type { ScgiAllocationPlan } from "../render/gi/ScgiCapacity.js";
 import { surfaceGeometryCompletionWgsl } from "./surface_geometry_completion.js";
 import { PRIMARY_SURFACE_POSITION_WGSL } from "./native_resolved_position.js";
@@ -115,10 +115,14 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     anchors[halfIndex - settings.segment.x] = result;
     return;
   }
-  ${product ? "" : `if oengine_instance_virtual_geometry(instance.source) {
+  ${
+    product
+      ? ""
+      : `if oengine_instance_virtual_geometry(instance.source) {
     anchors[halfIndex - settings.segment.x] = result;
     return;
-  }`}
+  }`
+  }
   var asset = instance.source.geometry_record_index;
   var meshlet = work.meshlet_slot;
   ${
@@ -211,6 +215,7 @@ export function scgiSeedWgsl(plan: ScgiAllocationPlan): string {
   const sources = plan.scratch.ranges.seedSources!.offset / 4;
   return /* wgsl */ `
 ${SCGI_ABI_WGSL}
+${SCGI_IRRADIANCE_WGSL}
 struct SeedSettings {
   previous_inverse_view_projection: mat4x4f,
   previous_view: mat4x4f,
@@ -278,7 +283,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     return;
   }
   let old = history[oldIndex - settings.history_segment.x];
-  if (old.confidenceFlags & 1u) == 0u || !(old.depth > 0.0) || old.sourcePixel >= settings.extent_segment.x * settings.extent_segment.y {
+  if (old.confidenceFlags & 3u) != 3u || !(old.depth > 0.0) || old.sourcePixel >= settings.extent_segment.x * settings.extent_segment.y {
     return;
   }
   for (var lane = 0u; lane < 16u; lane++) {
@@ -318,7 +323,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     length(delta) > settings.thresholds.z || length(worldDelta) > settings.thresholds.z {
     return;
   }
-  let coefficients = scgi_unpack_l1(old.packedCoefficients, settings.thresholds.w);
+  let coefficients = scgi_unpack_irradiance(old.packedCoefficients, scgi_field_scale(old.confidenceFlags));
   for (var lane = 0u; lane < 12u; lane++) {
     if !(abs(coefficients[lane]) <= 3.402823466e38) {
       return;
@@ -327,7 +332,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   for (var lane = 0u; lane < 3u; lane++) {
     world[at + 32u + lane] = bitcast<u32>(coefficients[lane]);
   }
-  world[at + 35u] = bitcast<u32>(1.0);
+  let confidence = f32((old.confidenceFlags >> 10u) & 65535u) / 65535.0 * 0.25;
+  world[at + 35u] = bitcast<u32>(confidence);
   for (var lane = 0u; lane < 12u; lane++) {
     world[at + 40u + lane] = bitcast<u32>(coefficients[lane]);
     world[at + 52u + lane] = bitcast<u32>(coefficients[lane]);
@@ -335,6 +341,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   // Seed confidence is not a real MC cohort. Age/count stay at allocation zero.
   world[at + 39u] = bitcast<u32>(1.0);
   world[at + 69u] = 1u;
+  for(var lane=0u;lane<4u;lane++) {world[at+64u+lane]=world[4u+lane];}
 }
 `;
 }

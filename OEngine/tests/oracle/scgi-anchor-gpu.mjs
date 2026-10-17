@@ -2,7 +2,7 @@ import { ScgiRuntime } from "../../.test-dist/render/gi/ScgiRuntime.js";
 import { ScgiCache } from "../../.test-dist/render/gi/ScgiCache.js";
 import { ScgiAnchors } from "../../.test-dist/render/gi/ScgiAnchors.js";
 import { GpuScene } from "../../.test-dist/gpu/GpuScene.js";
-import { packScgiCoefficients } from "../../.test-dist/render/gi/ScgiAbi.js";
+import { packScgiIrradiance } from "../../.test-dist/render/gi/ScgiAbi.js";
 import { scgiGraphics, scgiCommand, scgiProfile } from "./scgi-fixture.mjs";
 import { createNativeSurfaceFixture, identity } from "./native-surface-fixture.mjs";
 import { GeometryProductMultiRuntimeV1 } from "../../.test-dist/gpu/GeometryProductMultiRuntime.js";
@@ -187,11 +187,11 @@ export async function runScgiAnchorGpuOracle(device) {
         f = new Float32Array(fields);
       for (let h = 0; h < plan.halfPixels; h++) {
         const at = h * 28;
-        u.set(packScgiCoefficients(coefficients, 2), at);
+        u.set(packScgiIrradiance(coefficients, 2), at);
         f[at + 8] = 0.5;
         u[at + 9] = 0; // oct +Z
         u[at + 10] = Math.floor(h / 4) * 2 * 7 + (h % 4) * 2;
-        u[at + 11] = 1;
+        u[at + 11] = 3 | (127 << 2) | (65535 << 10);
         u.set(words.subarray(16, 32), at + 12);
         change(u, f, at);
       }
@@ -259,12 +259,12 @@ export async function runScgiAnchorGpuOracle(device) {
           seeded++;
           for (let lane = 0; lane < 12; lane++) {
             check(
-              f[at + 40 + lane] === coefficients[lane] && f[at + 52 + lane] === coefficients[lane],
+              Math.abs(f[at + 40 + lane] - coefficients[lane]) <= 0.003 && Math.abs(f[at + 52 + lane] - coefficients[lane]) <= 0.003,
               `${name}: A0/A2 preserve previous coefficient scale`,
             );
           }
           check(u[at + 24] === 0 && u[at + 25] === 0, `${name}: seed is not a query cohort`);
-          check(f[at + 35] === 1 && f[at + 39] === 1, `${name}: statistics validity`);
+          check(f[at + 35] === 0.25 && f[at + 39] === 1, `${name}: statistics validity`);
         }
       }
       check(live > 0 && (accepted ? seeded === live : seeded === 0), `${name}: ${seeded}/${live}`);
@@ -742,10 +742,10 @@ async function checkSegmentedSeed(device, graphics, fixture, input, view, settin
       for (let local = 0; local < count; local++) {
         const h = firstPixel + local,
           at = local * 28;
-        words.set(packScgiCoefficients([2, 3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0], 1), at);
+        words.set(packScgiIrradiance([2, 3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0], 1), at);
         floats[at + 8] = 0.5;
         words[at + 10] = Math.floor(h / 33) * 2 * width + (h % 33) * 2;
-        words[at + 11] = 1;
+        words[at + 11] = 3 | (126 << 2) | (65535 << 10);
         words.set(identityWords, at + 12);
       }
       historyCommand.uploadRegions([

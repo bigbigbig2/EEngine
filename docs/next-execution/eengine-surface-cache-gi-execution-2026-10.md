@@ -19,7 +19,7 @@ verifies:
 
 唯一详细设计为[SCGI设计](../next-design/eengine-surface-cache-gi-2026-10.md)。需求输入为[母稿](../reviews/EEngine_Surface_Cache_GI_WebGPU_Mother_Design_2026-10-17.md)；设计§17逐项映射母稿，设计§1列明勘误。本文件是细单元状态与实施结果唯一记录，workstream和粗执行不复制细状态。
 
-**SCGI-1～SCGI-6当前范围的实现及局部验收已闭合，SCGI-6结果见§7.12，生产GI未开启。** SCGI-2当前交付为静态/刚体、精确coverage、GPU世界域工作集及本地publication，结果与边界见§7.9；SCGI-4在当前产品上的复核、接线修复与关单见§7.10。完整Renderer集成仍按既定节奏在SCGI-8/10集中完成。用户确认暂不实现skin/morph；未证保真的raster coarse不当有效遮挡，4GB不作复杂大场景承诺。§7.6～7.8保留此前实施快照，不覆盖§7.9～7.12的当前状态。本轮停在SCGI-7边界，不自动实现filter或开启GI。
+**SCGI-1～SCGI-7当前范围的实现及局部验收已闭合，SCGI-7结果见§7.13，生产GI未开启。** SCGI-2静态/刚体、精确coverage、GPU世界域工作集及本地publication见§7.9；SCGI-4复核见§7.10。完整Renderer集成仍按SCGI-8/10集中完成。skin/morph随共享动画模块延期，4GB不作复杂大场景承诺。§7.6～7.8保留此前快照，不覆盖§7.9～7.13当前状态。本轮停在SCGI-8边界，不自动开启生产GI。
 
 ## 1. 完整范围、依赖与生产切换
 
@@ -31,7 +31,7 @@ verifies:
 | SCGI-4 | half-res anchors、共享identity、screen history seed | 2、3 | 当前静态/刚体范围实现及局部验收完成，见§7.10；真实world field/composition归7/8 |
 | SCGI-5 | 完整RadeonRays算法适配、query、material/alpha/VT | 1、2 | 当前静态/刚体范围实现及局部验收完成，见§7.11；默认生产消费与整链资格仍归8/10 |
 | SCGI-6 | 全光源估计、punctual重连接、multi-bounce | 3、4、5 | 当前范围实现与局部验收闭合；§7.12 |
-| SCGI-7 | 统计、动态失效、A0/A1/A2过滤、L1 screen field | 6 | 待实施 |
+| SCGI-7 | 统计、动态失效、A0/A1/A2过滤、L1 screen field | 6 | 当前范围实现与局部验收闭合；§7.13 |
 | SCGI-8 | FrameProgram+Native全部route原子接线、旧owner退休 | 1–7 | 待实施 |
 | SCGI-9 | Screen Radiance Gather完整近场残差增强 | 8 | 待实施 |
 | SCGI-10 | 全场景、故障、资源峰值、成本与文档闭合 | 8、9 | 待实施 |
@@ -247,7 +247,7 @@ GPU事务fixture可以写固定值验证真资源/command行为，但不接为�
 
 **producer / product / consumer。** raw estimate+active statistics+dirty→candidate filtered cache→field；field→Surface以及下一帧seed。exposure无权改变world cache数值。
 
-**容量/事务。** A0/A2在288K/bank内，A1 48K单scratch；field+guide 96H/role，双history与目录帧槽分别计账。全目录/stripe按设计§10/15计划。settings改常量，表示/extent改变需replacement；filter abort不推进role。
+**容量/事务。** A0/A2在304K/bank内，A1 48K单scratch；field+guide 112H/role，双history与目录帧槽分别计账。全目录/stripe按设计§10/15计划。settings改常量，表示/extent改变需replacement；filter abort不推进role。
 
 **验证。** 0variance/黑场/高HDR/突然开关灯/移动emissive；门打开后远端响应；两薄墙/同向近邻面不串光；cascade边界与scroll稳定；seed不伪造sample count；SH旋转与normal-map方向性；所有texel含background和odd边界完整写；half round-trip误差由量化范围给出。
 
@@ -732,3 +732,43 @@ SCGI-7尚未实现真实world-only field writer，SCGI-8尚未接FrameProgram；
 **来源与关单边界。** 重新研究固定Unity UCL源码仅作Reference；估计器本地独立推导实现，具体入口/差异见source map，不冒称Unity代码port或production adoption。当前静态/刚体opaque+MASK单元闭合；skin/morph按用户授权继续随共享动画后续实现。7必须直接消费`estimateComplete`与raw valid/fault/missing、写真实A0/statistics/epochs，再完成A1/A2与动态失效；8才启用生产。未运行完整Cornell/大场景画质、最终world→Native闭环、跨GPU、正式吞吐/帧时/4GB资格，均保持未验证。本轮停在SCGI-7边界。
 
 文档同步检查：`node tools/docs-verify.mjs`为0 findings / 66 historical warnings / 205 documents；`--staged`为0 findings / 81 historical warnings / 205 documents，差异来自历史文档引用未跟踪本地产物，保留原warnings。`git diff --cached --check`通过。
+
+### 7.13 SCGI-7：累计、动态失效与world-only field闭合（2026-10-17）
+
+**范围与结论。** 对照设计§9–12/19完成ScgiFilter、ScgiInvalidation与WGSL，实际消费SCGI-6 raw/cohort、SCGI-3 map/update/dirty、SCGI-4 anchor/history。当前静态/刚体opaque+MASK实现及局部验收闭合。没有开启RendererCore/FrameProgram生产GI，停在SCGI-8边界；没有把buffer oracle声称为AAA画面资格。
+
+| 合同 | 实现/直接消费 |
+|---|---|
+| A0 | estimate/cache完成前置，完整合法cohort才增加count；物理零正常更新，unknown保旧降confidence |
+| moments/drift | RGB short mean+relative variance，scaled delta避免HDR平方溢出；启动1/count界、drift响应和count饱和 |
+| A1 | immutable本帧A0→48K完整scratch，off复制；tangent jitter/双边plane/normal/身份/coarse过渡，不加count |
+| A2 | 独立上一A2→post，不二次改moments/count；四组合/new/seed/stale/config/owner重建reset；随defrag移址 |
+| dirty | 同GpuScene snapshot GPU比较old/new bounds/affine/identity/material epoch；32区域overflow全dirty；changed/geometry revision降低域外置信，age/dirty轮转刷新 |
+| field | 中心/位置/独立cone方向jitter，center缺失可借rank0邻域；分段完整写含odd/background；guide/identity共同发布 |
+| SH/HDR | 世界正交RGB L1 f32；GPU reduction选择power-of-two scale，逐颜色L1/L0归一half，flags带scale/confidence |
+| history | 实际filter→field→真实scene/Product/material anchor→seed；seed置信×0.25/count0，首真实cohort替换seed |
+| access | lookup原子归并实际消费slot，独立touch写candidate lastAccess，避免并发世界读写冲突 |
+| 事务 | 全部GPU写走原command/candidate；配置和dirty facts role只在submitted推进，abort保旧，提交后失败隔离 |
+
+**表示修正。** 原执行容量288K/96H改当前304K/112H。相对方差为无量纲Var(L0)/meanScale²，cache varianceThreshold同步语义，不存可能溢出的辐射平方。post word69为0 absent/1 seed/2真实post。world header22为geometry revision，58/59为GPU scale/filter serial，prepare不再覆盖58/59。flags bit0/1 valid/normalized、bits2…9 exponent+126、bits10…25 confidence。CPU scale=1仅metadata诊断，实际seed读field exponent；signed residual给SCGI-9独立编码，不建旧world ABI桥。
+
+**生命周期/容量。** filter无私有persistent GPU buffer，借workset/anchor/field；异步PSO准备后encode，同device/plan/tx一次。invalidation私有双128B/source facts+1040B dirty，调用方持snapshot至最后fence，encode/finish前检查current；超capacity拒绝，8按high-water replacement，不能截断。新owner首帧保守dirty，旧ownerfence退休。abort不交换facts/推进配置；失败fence隔离到device teardown。runtime既有异步错误/device-loss/退休合同仍覆盖bank/field，完整组合矩阵归8/10。
+
+**Cost Card（理论，不是benchmark）。** K=patch、U=updates、H=internal half像素、C=cascades、T=spatial taps、J=lookup taps、N=source capacity、S=field segments：
+
+- ADD scratch 4K validity+(64+4K) control及独立range alignment。A1=48K、A0+A2=96K/bank、112H/role双history沿原allocation；无新增output-resolution资源。invalidation=256N+1040B，共享snapshot租约并存按原owner计真实bytes。
+- filter为6+S dispatch、7固定PSO，各96B transient参数；invalidation1 dispatch/48B参数。quality/taps/hysteresis runtime，无组合PSO。
+- integrate≤64U raw读取；qualify/post/touch按K扫描，尚非active-count indirect。A1完整48K写/post读；field112H写、anchor128H读。map探测保守上界C·[K(2T+1)·spatial+H(2J+3)]，不含cache/query/estimate。每有效field tap至多一次touch atomicMax，post每patch最多3次scale atomicMax。
+- disabled零owner工作；enabled静态仍付bank copy/K扫描/H写域；expected按有效tap/coarse支持，worst全dirty仍受U分批预算约束，包含全部探测/N-source比较/overflow域失效。未为降dispatch删必要同步。
+- 1080p/1440p/4K scale1单field=55.37/98.44/221.48MiB，双history=110.74/196.88/442.97MiB；scale0.667近似乘0.444889、odd按ceil。8的最多三份directory、128H anchor及query/VT/VSM/retiring另计，4GB无全效果承诺。
+- Turing/Chrome155小fixture约0.1ms（K16/H12），只证明可执行，不外推真实分辨率吞吐。整场景资源峰值/粗成本归8/10。
+
+**实际验证。** build（含tsc noEmit）及新鲜build:test通过；保留既有Basis/KTX externalize警告。三个相关CPU文件scgi-filter/scgi/scgi-estimator共18/18通过，含独立half量化/旋转/HDR与既有事务/替换/异步错误。
+
+真实GPU scgi-filter通过四组合constant/count饱和/失败保旧/abort-retry/24帧关灯响应、zero variance/1e30 HDR/missing支持、双薄面/跨实例拒绝/相容邻居混合、SH方向、独立mean2/variance1、local dirty/cascade-scroll/post重启/radius reset/seed→real、实际cache defrag+A2身份/slot重用、NaN fault、center-miss邻域、geometry revision域外衰减。真实GpuScene变化验old/new union+guard、移除、abort-retry、40区域overflow；强制64KiB binding三段/1089half完整写及背景。
+
+scgi-estimator验证真实query/Native/LightDatabase/PhysicalEnvironment→filter/A0；scgi-anchor-publication验证真实field→scene/frame/Product/material anchor→下一帧seed，以及late mutation/abort/retry/身份/材质revision拒绝。迁移scgi-anchor通过原运动/身份/分段seed；scgi-cache通过原allocator/scroll/defrag/公平更新，未恢复旧表示。
+
+日志保留于.local/scgi7-reference：filter-final-05、estimator-final、anchor-publication-final、anchor-01、cache-final、contract-final。原失败保留：dirty fixture缺handle；estimator运行中源码改变被stale-build拒绝；normalized half旧绝对误差断言不成立，按独立CPU格式推导0.0025·L0界迁移。center-miss发现位置/方向随机维度相关导致漏采，改独立cone维度后通过，未跳断言。
+
+**来源/边界。** 固定Unity revision/UCL与入口见source map，仅Reference，本地WGSL不复制/逐行翻译。完整Cornell/门打开/移动emissive画面、高spp图像、Native融合、目录stripe+halo、Renderer组合生命周期/峰值与正式P50/P95尚未运行，明确归8/10，不由buffer数值推断。下一单元SCGI-8，本轮停止。

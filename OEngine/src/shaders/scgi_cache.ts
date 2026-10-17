@@ -252,7 +252,7 @@ fn maintain(@builtin(global_invocation_id) tid: vec3u) {
   }
   var dirty = setting(10u) != 0u;
   let pos = position(at);
-  for (var i = 0u; i < setting(9u); i++) {
+  for (var i = 0u; i < min(setting(9u), ${32}u); i++) {
     let region = DIRTY + i * 8u;
     let lo = bitcast<vec3f>(vec3u(atomicLoad(&scratch[region]), atomicLoad(&scratch[region + 1u]), atomicLoad(&scratch[region + 2u])));
     let hi = bitcast<vec3f>(vec3u(atomicLoad(&scratch[region + 4u]), atomicLoad(&scratch[region + 5u]), atomicLoad(&scratch[region + 6u])));

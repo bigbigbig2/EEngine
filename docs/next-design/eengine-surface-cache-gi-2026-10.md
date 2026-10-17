@@ -325,7 +325,7 @@ previous A0 lookup检查world及逐patch numericEpochs、scene/device、slot gen
 
 ## 9. 时域、空间滤波和动态失效
 
-每patch维护short mean、short variance、A0累计L1、A2后滤波L1和real update count。variance非负、stddev有按量纲选定epsilon；由short/long drift平滑选择hysteresis；初始按完整cohort数渐进，饱和后使用长期权重。没有完整cohort时保旧并降低有效性，物理零cohort则必须正常更新到零；filter参数运行时调，不为数值编译PSO。
+每patch维护short mean、short relative variance、A0累计L1、A2后滤波L1和real update count。SCGI-7存无量纲`Var(L0)/meanScale²`，先除有限magnitude再平方，meanScale取`max(abs(mean),magnitude·1e-10)`，最小normal尺度为f32最小normal；避免HDR平方溢出。adaptive比较归一化short/long drift与相对stddev，零variance用无量纲1e-4分母下限。启动权重不大于`1-1/count`且允许drift加速，饱和后采用长期权重。没有完整cohort时保旧并降低有效性，物理零cohort则必须正常更新到零；filter参数运行时调，不为数值编译PSO。
 
 temporal hysteresis与spatial归一化权必须有限、在[0,1]且构成凸组合；无相容邻居使用自身有效A0/显式invalid，不除零。age/sampleSerial计数饱和或换epoch有独立策略，不能让u32回绕把老patch误作新生。signed residual允许负信号值，但其滤波权仍不引入负权外插。
 
@@ -346,6 +346,18 @@ temporal hysteresis与spatial归一化权必须有限、在[0,1]且构成凸组�
 动态几何dirty = old/new bounds并集加query influence guard；局部material/light变化按影响域提高刷新/降confidence。太阳/环境全局变化通过lighting epoch分批重估并迅速降低旧confidence。遮挡变化可能影响远处接收面，局部dirty不是充分证明；需要有界全域age refresh与全局revision衰减，door opening测试验证不会永久保留旧光。
 
 大规模移动、teleport、场景替换只使受影响域失效；不能靠全缓存每帧清空解决动态正确性。dirty队列overflow升级为该域/全域invalidation标记，不能漏dirty region。
+
+### 9.1 SCGI-7具体实现与调用合同
+
+`ScgiInvalidation.encode → ScgiCache.encode → ScgiAnchors.encodeSeeds → ScgiEstimator.encode → ScgiFilter.encode`借同一frame transaction；anchor producer在cache之前。invalidation从同一immutable GeometryQueryInstanceSnapshot读取GpuScene source/lineage，比较identity、geometry/material/global material epoch、bounds与完整affine；移动、移除、AABB不变的旋转均产生old/new并集+guard。私有两份128B/source derived facts不复制顶点或材质truth；32个32B region加16B header，overflow/nonfinite升级全域dirty。changed标记使局部域外接收面也降低confidence并置dirty，没有本帧GPU回读。source超过capacity必须replacement，拒绝截断；新owner首帧保守重建dirty、旧owner按fence退休，SCGI-8负责composition。
+
+filter物理顺序为qualify→integrate→spatial→post→publish→各segment lookup→touch。qualify检查旧数值、epoch、age、geometry revision与GPU changed；成功cohort才写A0/moments/count/逐patch epochs，missing previous-A0比例降低置信。失败保旧，非法SH置sticky fault，不伪装有效黑场。dirty持续到真实更新；原cache配额轮转保证有界工作集可达，不声称U预算内当帧刷新全部dirty。
+
+A2 post状态word69为0=无history、1=seed、2=post history；spatial/post/radius/taps/normal/plane配置变化或owner重建显式reset，host配置只在submitted推进。stale/new cohort在清dirty前记录reset-this-frame位。seed置信为原field置信×0.25，count0，首真实cohort替换seed；A2随304B patch一起defrag，A1每帧重建。
+
+空间与lookup使用双边plane、normal、距离、map generation及同instance/Product前8word身份；允许跨普通primitive/material边界，保守拒绝不同实例，跨对象连续面的接缝仍需画质验收。cascade在外侧两cell用smoothstep向相容粗层过渡，缺粗层保持细层。screen保留中心权重0.1、tangent位置jitter与独立维度cosSpread=0.9均匀cone方向jitter；中心缺失仍可用rank0邻域。实际使用slot在4K control scratch中原子归并，再由touch统一写lastAccess，避免并发世界读写。
+
+filter要求`estimateComplete && cacheComplete`，完整encode后标`filteredComplete/fieldComplete`，不是GPU成功证书。fault使整field invalid。无私有submit/readback/full-res irradiance texture，Native正式consumer仍在SCGI-8接通。
 
 ## 10. Screen lookup、Native integration 与绑定压力
 
@@ -396,7 +408,7 @@ GI更新使material identity未变但照明变化：向现有temporal response�
 
 对每个颜色通道，Unity参考数学为：`q1 = 0.5 + sqrt(3)/4 * c1/c0`，`c1 = (q1-0.5)*4/sqrt(3)*c0`；c0=0时显式零；invalid由独立valid bit表达，不把-1辐射混入压缩。非负radiance样本与凸权滤波满足`|c1/c0|≤2/sqrt(3)`，故q1理论在[0,1]，高噪声本身不是违反该界的理由；越界须区分浮点误差、错误滤波权与signed信号。baseline保留float16而不另引UNORM量化。oct只用于normal orientation bins。负c0/非有限world值为错误诊断；不能把NaN清零当验证通过。
 
-patch accumulation/moments/geometry/bounds维持f32；world screen采用packed half，encoding scale由GPU最大有限L0 reduction按2的幂确定，不随相机曝光改变；scale写在每role header，0场用1，seed读对应header。极小L0的比值求值需有f32下溢/denormal策略与误差oracle，不用任意epsilon把暗彩色光抹黑。signed residual固定采用未归一化scaled half，scale由全部系数最大绝对值确定，不能拿可能为零/负的L0作分母。两种编码有不同语义字段，不能误解码。误差oracle分全球常量与半球常量、单方向、旋转、L0=0、小L0、大HDR和两颜色混合，容差从表示/量化/采样三类误差分别推导。
+patch accumulation/moments/geometry/bounds维持f32；world screen采用packed half，encoding scale由GPU最大有限L0 reduction按2的幂确定，不随相机曝光改变；scale写GPU world header58，同一exponent存该role每个有效field flags，0场用1。seed读对应field exponent，禁止用CPU coefficientScale诊断值1代替GPU值。极小L0的比值求值需有f32下溢/denormal策略与误差oracle，不用任意epsilon把暗彩色光抹黑。signed residual固定采用未归一化scaled half，scale由全部系数最大绝对值确定，不能拿可能为零/负的L0作分母。两种编码有不同语义字段，不能误解码。误差oracle分全球常量与半球常量、单方向、旋转、L0=0、小L0、大HDR和两颜色混合，容差从表示/量化/采样三类误差分别推导。
 
 ## 12. 提交、中止、重试和资源退休：完整事务
 
@@ -606,7 +618,7 @@ Product/table物理迁移不改变语义identity；topology/primitive remap改�
 | 产品 | offset/stride | 完整字段/生命周期 |
 |---|---|---|
 | Cell map | 8B/cell/bank | patchIndex、patchSlotGeneration；EMPTY/CLAIM状态用专门不与合法index冲突的sentinel，claim后下一dispatch才读patch |
-| Patch state | 304B/patch/bank | 0 position.xyz/radius；16 normal.xyz/planeError；32 identity前48B；80 cell/cascade/orientation/patchGeneration；96 updateCount/sampleSerialLo/Hi/flags；112 access/update/birth/dirtyAge；128 shortMean.xyz/confidence；144 variance.xyz/seedConfidence；160 A0 RGBL1 48；208 A2 RGBL1 48；256 geometry/material/light/environment数值epochs；272 rank/postValid/lastCohort/status；288 identity尾16B |
+| Patch state | 304B/patch/bank | 0 position.xyz/radius；16 normal.xyz/planeError；32 identity前48B；80 cell/cascade/orientation/patchGeneration；96 updateCount/sampleSerialLo/Hi/flags；112 access/update/birth/dirtyAge；128 shortMean.xyz/confidence；144 relativeVariance.xyz/seedConfidence；160 A0 RGBL1 48；208 A2 RGBL1 48；256 geometry/material/light/environment数值epochs；272 rank/postState(0/1/2)/lastCohort/status；288 identity尾16B |
 | Cache state | 16B/patch/bank | 0 demotionFrame、4 dirty、8 selectionFrame、12 live；仅allocator/scheduler拥有，不能占用304B patch中的post/cohort状态；随world copy/abort/defrag一起迁移 |
 | Spatial A1 | 48B/patch，单scratch | 4×vec3f按紧凑u32 pack（每色f32），不能用WGSL `array<vec3f>`误变64B；所有live目标完整写 |
 | Allocation/bounce request | 112B/request | position/radius16+normal/source16+identity前48+cell/rank/sourcePixel/status16+identity尾16；队列上界独立，不能只按K假设全部请求都可容纳 |
@@ -615,11 +627,13 @@ Product/table物理迁移不改变语义identity；topology/primitive remap改�
 | Raw estimate | 64B/updated patch | 48B RGBL1+cohortId/plannedN/completion/fault16；单scratch，完整cohort完成后A0消费 |
 | World bank header | 固定256B/bank | generation/epochs/origin/cascade offsets/ring counters/capacity/validity；C有已协商上限，超限扩明确header布局，不越界写 |
 
-confidence可用16-bit unorm，flags16-bit，身份仍完整u32。depth/position不用f16。sourcePixel用线性u32 index前验证Wi×Hi范围；odd extent与inactive padding完全写invalid。raw/patch中的RGBL1按12连续f32存；读helper明确stride，不能混用vec4 padding。
+SCGI-7固定confidenceFlags：bit0 valid、bit1 normalized world irradiance、bits2…9 power-of-two exponent+126（合法0…239）、bits10…25 confidence UNORM16，其余保留。逐颜色L0除GPU scale存half，方向比值q不除scale；signed residual独立编码，禁止旧world decoder兼容分支。depth/position不用f16，身份保持完整。sourcePixel用线性u32 index前验证Wi×Hi范围；odd extent与inactive padding完全写invalid。raw/patch中的RGBL1按12连续f32存；读helper明确stride，不能混用vec4 padding。
 
 双world banks包括map、304K patch、allocator与**上一代bounce request队列**；更新列表、claim scratch、A1、raw cohort为同command transient，可按不重叠寿命复用。candidate内的历史A2和allocator必须copy，A1不copy。screen双history独立于world bank、由提交role推进；同queue有序GPU覆写可复用，但当前FinalPixel目录仍有最多3个fence-held frame槽。
 
 SCGI-1固定world header为256B、最多4 cascades：0 generation/device/scene/view；16 numeric epochs；32 origin/scale；48 patch/cell/bounce capacity/validity；64 allocator start/end/count/serial；80 bounce count/overflow/status；96四组cascade origin/scale；160四组cascade offset/ring；224 addressGeneration/sampleSerialLo/sampleSerialHi/reserved；240 reserved。将来超过4 cascades须显式版本化，不复用reserved偷扩ABI。allocator free-slot数组另按4K B/bank计入完整world arena。
+
+SCGI-7明确word22（88B）为filter geometry revision，word58（232B）为GPU f32 field scale、word59（236B）为提交filter配置序号；prepare只写56/57，不覆盖58/59。scratch增加filterValidity4K与filterControl(64+4K)B（含touch），各range独立按设备alignment对齐。
 
 SCGI-3明确header已有字段的使用：60B为sticky cache fault（非零禁止更新/有效lookup）；64B start/end/count为逻辑active ring；76B为提交frame；80B/84B为candidate bounce count/overflow；160B每cascade为signed integer origin.xyz+originEpoch；240B reserved四word明确分配为四类update cursor，仍保持256B stride和4 cascade上限。frame只接受1…0xfffffffd；序号重启需fresh world，slotGeneration接近sentinel时GPU置fault并停止有效更新，不能wrap重用。纯origin重基当前保守失效world patch；scale变化也失效，即使存储cell数字偶然相同。
 

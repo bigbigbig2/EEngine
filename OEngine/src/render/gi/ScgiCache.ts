@@ -6,7 +6,7 @@ import { assertScgiCacheCapabilities, scgiInteger } from "./ScgiCapacity.js";
 import {
   SCGI_CACHE_DIRTY_CAPACITY,
   SCGI_CACHE_WORKGROUP_SIZE as W,
-  scgiCacheScanDomains,
+  scgiCacheScanDomains
 } from "./ScgiCacheLayout.js";
 
 export interface ScgiCacheSettings {
@@ -20,7 +20,11 @@ export interface ScgiCacheSettings {
   readonly normalCosine: number;
   readonly planeDistanceScale: number;
   readonly updateAge: number;
+  /** Dimensionless short variance / meanScale² from ScgiFilter. */
   readonly varianceThreshold: number;
+  /** ScgiInvalidation GPU product: count/overflow/change/reserved +32 regions.
+   * This is independent of the CPU-authored local dirty input. */
+  readonly gpuDirty?: GPUBuffer;
   readonly dirtyRegions?: readonly {
     readonly min: readonly [number, number, number];
     readonly max: readonly [number, number, number];
@@ -52,7 +56,7 @@ const ENTRIES = [
   "scatter_priority",
   "quotas",
   "select_updates",
-  "finish",
+  "finish"
 ] as const;
 
 /** Cache algorithms borrow the SCGI transaction's arenas. No private resources,
@@ -77,7 +81,7 @@ export class ScgiCache {
     private readonly scanLayout: GPUBindGroupLayout,
     private readonly argsLayout: GPUBindGroupLayout,
     private readonly pipelines: Readonly<Record<(typeof ENTRIES)[number], GPUComputePipeline>>,
-    private readonly scans: ReadonlyMap<string, Scan>,
+    private readonly scans: ReadonlyMap<string, Scan>
   ) {}
 
   static async create(device: GPUDevice, plan: ScgiAllocationPlan): Promise<ScgiCache> {
@@ -85,23 +89,23 @@ export class ScgiCache {
     const storage = (binding: number, type: GPUBufferBindingType): GPUBindGroupLayoutEntry => ({
       binding,
       visibility: GPUShaderStage.COMPUTE,
-      buffer: { type },
+      buffer: { type }
     });
     const layout = device.createBindGroupLayout({
       label: "SCGI/cache world/scratch/previous",
-      entries: [storage(0, "storage"), storage(1, "storage"), storage(2, "read-only-storage")],
+      entries: [storage(0, "storage"), storage(1, "storage"), storage(2, "read-only-storage")]
     });
     const scanLayout = device.createBindGroupLayout({
       label: "SCGI/cache scan",
-      entries: [storage(0, "storage")],
+      entries: [storage(0, "storage")]
     });
     const argsLayout = device.createBindGroupLayout({
       entries: [
         storage(0, "storage"),
         storage(1, "storage"),
         storage(2, "read-only-storage"),
-        storage(3, "storage"),
-      ],
+        storage(3, "storage")
+      ]
     });
     const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
     const argsPipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [argsLayout] });
@@ -113,8 +117,8 @@ export class ScgiCache {
         device.createComputePipelineAsync({
           label: `SCGI/cache/${entryPoint}`,
           layout,
-          compute: { module, entryPoint },
-        }),
+          compute: { module, entryPoint }
+        })
       );
     const pipelines = Object.fromEntries(
       await Promise.all(
@@ -123,16 +127,16 @@ export class ScgiCache {
           await compile(
             module,
             entry,
-            entry === "begin" || entry === "quotas" ? argsPipelineLayout : pipelineLayout,
-          ),
-        ]),
-      ),
+            entry === "begin" || entry === "quotas" ? argsPipelineLayout : pipelineLayout
+          )
+        ])
+      )
     ) as Record<(typeof ENTRIES)[number], GPUComputePipeline>;
     const scans = new Map<string, Scan>();
     const ranges = plan.scratch.ranges;
     for (const [name, capacity] of scgiCacheScanDomains(
       plan.profile.patches,
-      plan.profile.requests + plan.profile.bounceRequests,
+      plan.profile.requests + plan.profile.bounceRequests
     )) {
       const counts: number[] = [capacity];
       while (counts[counts.length - 1]! > W) {
@@ -158,7 +162,7 @@ export class ScgiCache {
           counts[level]!,
           last ? null : ranges[`${name}Flags${level + 1}`]!.offset / 4,
           last ? null : ranges[`${name}Prefix${level + 1}`]!.offset / 4,
-          last ? ranges.cacheControl!.offset / 4 + control : null,
+          last ? ranges.cacheControl!.offset / 4 + control : null
         );
         const module = device.createShaderModule({ label: `SCGI/${name}/${level}`, code });
         up.push(await compile(module, "scan", scanPipelineLayout));
@@ -201,16 +205,28 @@ export class ScgiCache {
     const previous = publication.activeWorld?.buffer ?? publication.candidateWorldField.segments[0]!.buffer;
     const ranges = this.plan.scratch.ranges;
     const regions = [
-      { destination: scratch, destinationOffset: ranges.cacheSettings!.offset, bytes: input.settings },
+      { destination: scratch, destinationOffset: ranges.cacheSettings!.offset, bytes: input.settings }
     ];
     if (input.dirty.byteLength > 0) {
       regions.push({
         destination: scratch,
         destinationOffset: ranges.cacheDirtyRegions!.offset,
-        bytes: input.dirty,
+        bytes: input.dirty
       });
     }
     command.uploadRegions(regions);
+    if (settings.gpuDirty !== undefined) {
+      if (
+        settings.dirtyRegions?.length ||
+        settings.gpuDirty.size < 1040 ||
+        !(settings.gpuDirty.usage & GPUBufferUsage.COPY_SRC)
+      ) {
+        throw new RangeError("SCGI GPU dirty requires a complete exclusive region publication");
+      }
+      command.copyBufferToBuffer(settings.gpuDirty, 0, scratch, ranges.cacheSettings!.offset + 9 * 4, 8);
+      command.copyBufferToBuffer(settings.gpuDirty, 8, scratch, ranges.cacheSettings!.offset + 14 * 4, 4);
+      command.copyBufferToBuffer(settings.gpuDirty, 16, scratch, ranges.cacheDirtyRegions!.offset, 1024);
+    }
     let byPrevious = this.groups.get(world);
     if (byPrevious === undefined) {
       byPrevious = new WeakMap();
@@ -228,8 +244,8 @@ export class ScgiCache {
         entries: [
           { binding: 0, resource: { buffer: world } },
           { binding: 1, resource: { buffer: scratch } },
-          { binding: 2, resource: { buffer: previous } },
-        ],
+          { binding: 2, resource: { buffer: previous } }
+        ]
       });
       byScratch.set(scratch, group);
     }
@@ -237,7 +253,7 @@ export class ScgiCache {
     if (scanGroup === undefined) {
       scanGroup = this.device.createBindGroup({
         layout: this.scanLayout,
-        entries: [{ binding: 0, resource: { buffer: scratch } }],
+        entries: [{ binding: 0, resource: { buffer: scratch } }]
       });
       this.scanGroups.set(scratch, scanGroup);
     }
@@ -259,8 +275,8 @@ export class ScgiCache {
           { binding: 0, resource: { buffer: world } },
           { binding: 1, resource: { buffer: scratch } },
           { binding: 2, resource: { buffer: previous } },
-          { binding: 3, resource: { buffer: publication.queryBatch.buffer } },
-        ],
+          { binding: 3, resource: { buffer: publication.queryBatch.buffer } }
+        ]
       });
       byScratchArgs.set(scratch, argsGroup);
     }
@@ -273,7 +289,7 @@ export class ScgiCache {
       } else {
         pass.dispatchWorkgroupsIndirect(
           publication.queryBatch.buffer,
-          this.plan.batch.ranges.cacheIndirect!.offset + indirect,
+          this.plan.batch.ranges.cacheIndirect!.offset + indirect
         );
       }
       pass.end();
@@ -314,7 +330,7 @@ export class ScgiCache {
         this.lastOriginEpoch = originEpoch;
       },
       aborted: () => {},
-      failed: () => {},
+      failed: () => {}
     });
     dispatch("clear_claims", this.plan.cells);
     dispatch("begin", 1);

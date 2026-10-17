@@ -111,7 +111,9 @@ export function planScgiAllocation(limits: ScgiBufferLimits, profile: ScgiAlloca
     ["updateList", profile.updates, 4],
     ["countersArgs", 16, 4],
     ["seedSources", profile.patches, 4],
+    ["filterValidity", profile.patches, 4],
     ...scgiCacheScratchParts(cells, profile.patches, profile.requests, profile.bounceRequests),
+    ["filterControl", 16 + profile.patches, 4]
   ]);
   const batch = planScgiArena(limits, [
     ["rays", profile.rayBatch, SCGI_ABI.ray.stride],
