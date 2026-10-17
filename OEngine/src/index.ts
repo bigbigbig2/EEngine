@@ -663,3 +663,9 @@ export {
   type ScreenSpaceReflectionsSettings
 } from "./render/reflections/ScreenSpaceReflectionsSettings.js";
 export type { SssrMemorySettings } from "./render/reflections/SssrAbi.js";
+export {
+  SURFACE_CACHE_GI_DEFAULTS,
+  SURFACE_CACHE_GI_PRESETS,
+  surfaceCacheGiSettings,
+  type SurfaceCacheGiSettings
+} from "./render/gi/SurfaceCacheGiSettings.js";

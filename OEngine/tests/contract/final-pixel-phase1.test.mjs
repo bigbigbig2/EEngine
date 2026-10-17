@@ -74,7 +74,10 @@ test("directory retains complete producer domains and rejects capacity overflow 
     assert.ok(plan.lookupOffset >= plan.solarOffset + plan.solarBytes);
     assert.ok(plan.lookupOffset - plan.solarOffset - plan.solarBytes + 16 <= 256);
     assert.equal(plan.bytes, plan.lookupOffset + lookupCount * 8);
-    assert.deepEqual([...plan.words], [plan.lookupOffset / 4, lookupCount, 0, 98688]);
+    assert.equal(plan.words.byteLength, 96);
+    assert.deepEqual([...plan.words.subarray(0, 4)], [plan.lookupOffset / 4, lookupCount, 0, 98688]);
+    assert.equal(plan.words[4], plan.solarOffset / 4);
+    assert.equal(plan.words[7], 0, "disabled GI has no directory segment");
   }
   for (const count of [0, -1, NaN, Infinity, 1.5, 0x100000000]) {
     assert.throws(() => planFinalPixelLightingDirectory(limits, count, 98688));

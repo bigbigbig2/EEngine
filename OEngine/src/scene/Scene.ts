@@ -11,8 +11,6 @@ import type { Mesh } from "./Mesh.js";
 import type { Light } from "../light/Light.js";
 import type { ShadeMaterial } from "../material/ShadeMaterial.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
-import { TetrahedralMesh } from "../geometry/TetrahedralMesh.js";
-import { buildLightProbeTetrahedralMesh } from "../geometry/LightProbeDelaunay.js";
 import { SceneChangeSet, type SceneChangeSnapshot } from "./SceneChangeSet.js";
 import { PhysicalEnvironmentInput } from "../render/environment/PhysicalEnvironmentState.js";
 
@@ -944,189 +942,6 @@ export class SceneLights {
   }
 }
 
-export class LightProbeVolume {
-  #mesh = new TetrahedralMesh();
-  #probeCount = 0;
-  #positions = new Float32Array(0);
-  #coefficients = new Float32Array(0);
-  #version = 0;
-
-  get coefficients(): Float32Array {
-    return this.#coefficients;
-  }
-
-  get mesh(): TetrahedralMesh {
-    return this.#mesh;
-  }
-
-  get positions(): Float32Array {
-    return this.#positions;
-  }
-
-  set positions(e: ArrayLike<number>) {
-    const t = e.length / 3;
-    this.#probeCount = t;
-    this.#ensureCapacity(t);
-    this.#positions.set(e);
-  }
-
-  get probe_count(): number {
-    return this.#probeCount;
-  }
-
-  get version(): number {
-    return this.#version;
-  }
-
-  update(): void {
-    this.#version++;
-  }
-
-  add_point(e: number, t: number, n: number): number {
-    const r = this.#probeCount;
-    this.#ensureCapacity(r + 1);
-    this.#positions[3 * r] = e;
-    this.#positions[3 * r + 1] = t;
-    this.#positions[3 * r + 2] = n;
-    this.#probeCount++;
-    this.#version++;
-    return r;
-  }
-
-  remove_point(e: number): void {
-    for (let t = e + 1; t < this.#probeCount; t++) {
-      this.#positions[3 * (t - 1)] = this.#positions[3 * t]!;
-      this.#positions[3 * (t - 1) + 1] = this.#positions[3 * t + 1]!;
-      this.#positions[3 * (t - 1) + 2] = this.#positions[3 * t + 2]!;
-    }
-    this.#probeCount--;
-    this.#version++;
-  }
-
-  #ensureCapacity(e: number): void {
-    if (this.#positions.length >= 3 * e) return;
-    const t = new Float32Array(3 * e);
-    const n = new Float32Array(27 * e);
-    t.set(this.#positions);
-    n.set(this.#coefficients);
-    this.#positions = t;
-    this.#coefficients = n;
-  }
-
-  build_mesh(): void {
-    this.mesh.clear();
-    buildLightProbeTetrahedralMesh(this.mesh, this.#positions, this.#probeCount);
-    this.mesh.compact();
-    this.#version++;
-  }
-
-  build_grid(bounds: SceneAABB, dimensions: { x: number; y: number; z: number }): void {
-    const sizeX = dimensions.x === undefined ? 2 : dimensions.x;
-    const sizeY = dimensions.y === undefined ? 2 : dimensions.y;
-    const sizeZ = dimensions.z === undefined ? 2 : dimensions.z;
-    this.#ensureCapacity(sizeX * sizeY * sizeZ);
-
-    const mesh = this.#mesh;
-    const positions = this.#positions;
-    mesh.clear();
-
-    const cellsX = sizeX - 1;
-    const cellsY = sizeY - 1;
-    mesh.ensureCapacity(cellsX * cellsY * (sizeZ - 1) * 6);
-
-    const extentX = bounds.getExtentsX();
-    const extentY = bounds.getExtentsY();
-    const extentZ = bounds.getExtentsZ();
-    const vertexIndex = (x: number, y: number, z: number): number => z * sizeY * sizeX + y * sizeX + x;
-    const tetraIndex = (x: number, y: number, z: number, localTetra: number): number =>
-      6 * (z * cellsY * cellsX + y * cellsX + x) + localTetra;
-
-    for (let z = 0; z < sizeZ; z++) {
-      for (let y = 0; y < sizeY; y++) {
-        for (let x = 0; x < sizeX; x++) {
-          const offset = 3 * vertexIndex(x, y, z);
-          positions[offset] = bounds.x0 + (x / (sizeX - 1)) * extentX;
-          positions[offset + 1] = bounds.y0 + (y / (sizeY - 1)) * extentY;
-          positions[offset + 2] = bounds.z0 + (z / (sizeZ - 1)) * extentZ;
-        }
-      }
-    }
-
-    const allocate = (a: number, b: number, c: number, d: number): number => {
-      const tetra = mesh.allocate();
-      mesh.setVertexIndex(tetra, 0, a);
-      mesh.setVertexIndex(tetra, 1, b);
-      mesh.setVertexIndex(tetra, 2, c);
-      mesh.setVertexIndex(tetra, 3, d);
-      return tetra;
-    };
-
-    for (let z = 1; z < sizeZ; z++) {
-      for (let y = 1; y < sizeY; y++) {
-        for (let x = 1; x < sizeX; x++) {
-          const v000 = vertexIndex(x - 1, y - 1, z - 1);
-          const v001 = vertexIndex(x - 1, y - 1, z);
-          const v101 = vertexIndex(x, y - 1, z);
-          const v100 = vertexIndex(x, y - 1, z - 1);
-          const v010 = vertexIndex(x - 1, y, z - 1);
-          const v011 = vertexIndex(x - 1, y, z);
-          const v111 = vertexIndex(x, y, z);
-          const v110 = vertexIndex(x, y, z - 1);
-
-          const t0 = allocate(v001, v000, v100, v110);
-          const t1 = allocate(v001, v000, v110, v010);
-          const t2 = allocate(v110, v001, v010, v011);
-          const t3 = allocate(v101, v001, v100, v110);
-          const t4 = allocate(v101, v001, v110, v111);
-          const t5 = allocate(v001, v110, v111, v011);
-
-          mesh.setNeighbour(t0, 1, t3 << 2);
-          mesh.setNeighbour(t0, 2, (t1 << 2) | 3);
-          mesh.setNeighbour(t1, 1, (t2 << 2) | 3);
-          mesh.setNeighbour(t1, 3, (t0 << 2) | 2);
-          mesh.setNeighbour(t2, 2, (t5 << 2) | 2);
-          mesh.setNeighbour(t2, 3, (t1 << 2) | 1);
-          mesh.setNeighbour(t3, 0, (t0 << 2) | 1);
-          mesh.setNeighbour(t3, 2, (t4 << 2) | 3);
-          mesh.setNeighbour(t4, 0, (t5 << 2) | 3);
-          mesh.setNeighbour(t4, 3, (t3 << 2) | 2);
-          mesh.setNeighbour(t5, 2, (t2 << 2) | 2);
-          mesh.setNeighbour(t5, 3, t4 << 2);
-
-          if (x > 1) {
-            const leftT3 = tetraIndex(x - 2, y - 1, z - 1, 3);
-            const leftT4 = tetraIndex(x - 2, y - 1, z - 1, 4);
-            mesh.setNeighbour(t1, 2, (leftT3 << 2) | 1);
-            mesh.setNeighbour(leftT3, 1, (t1 << 2) | 2);
-            mesh.setNeighbour(t2, 0, (leftT4 << 2) | 1);
-            mesh.setNeighbour(leftT4, 1, t2 << 2);
-          }
-          if (y > 1) {
-            const belowT2 = tetraIndex(x - 1, y - 2, z - 1, 2);
-            const belowT5 = tetraIndex(x - 1, y - 2, z - 1, 5);
-            mesh.setNeighbour(t0, 3, (belowT2 << 2) | 1);
-            mesh.setNeighbour(belowT2, 1, (t0 << 2) | 3);
-            mesh.setNeighbour(t3, 3, belowT5 << 2);
-            mesh.setNeighbour(belowT5, 0, (t3 << 2) | 3);
-          }
-          if (z > 1) {
-            const backT4 = tetraIndex(x - 1, y - 1, z - 2, 4);
-            const backT5 = tetraIndex(x - 1, y - 1, z - 2, 5);
-            mesh.setNeighbour(t0, 0, (backT4 << 2) | 2);
-            mesh.setNeighbour(backT4, 2, t0 << 2);
-            mesh.setNeighbour(t1, 0, (backT5 << 2) | 1);
-            mesh.setNeighbour(backT5, 1, t1 << 2);
-          }
-        }
-      }
-    }
-
-    this.#probeCount = sizeX * sizeY * sizeZ;
-    mesh.compact();
-    this.#version++;
-  }
-}
-
 export interface ParticipatingMediaParticleSpec {
   scattering: ArrayLike<number>;
   extinction: ArrayLike<number>;
@@ -1155,7 +970,6 @@ export class Scene extends Node3D {
   declare readonly isScene: boolean;
   instances = new SceneInstances();
   lights = new SceneLights();
-  light_probe_volume = new LightProbeVolume();
   volumetrics = new SceneVolumetrics();
   /** World environment authority; local lights do not own the physical sun. */
   physical_environment = new PhysicalEnvironmentInput();

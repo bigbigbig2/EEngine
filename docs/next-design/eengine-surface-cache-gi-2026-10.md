@@ -18,6 +18,8 @@ verifies:
     - OEngine/src/shaders/scgi_cache.ts
     - OEngine/src/shaders/scgi_anchor.ts
     - OEngine/src/shaders/scgi_estimator.ts
+    - OEngine/src/shaders/scgi_native.ts
+    - OEngine/src/shaders/scgi_lighting_gather.ts
     - OEngine/src/shaders/primary_surface_identity.ts
     - OEngine/src/shaders/primary_surface_motion.ts
     - OEngine/src/render/reflections
@@ -73,7 +75,7 @@ verifies:
 | HZB 为几何保守层级，XeGTAO weighted depth 为效果私有 | 基础 SCGI 世界 query 不需要把 HZB 冒充 triangle traversal；near-field screen gather 按实际精度决定复用/补层 |
 | 旧 `GeometryBlasPool`、`TopLevelAccelerationStructure` 无主图调用；`GPULightProbeVolume` 经 `GPUSceneEnvironmentContext` 惰性暴露 | 新 query 不接旧长期 ownership；清理包括 accessor/export/fixture，而不仅删 shader；`DynamicBvh` 的 cooker consumer 保留 |
 
-这些是当前实现的边界。`docs/domains/` 只在生产切换后更新，不把本设计写成既成事实。
+上表保留设计建立时的源码基线，不能当作后续实现状态表。SCGI-8的实际生产切换、旧probe/BVH退休与验证边界见执行§7.14；`docs/domains/`随真实切换更新。
 
 ## 3. 总体关系、owner 和图依赖
 
@@ -367,9 +369,11 @@ lookup读已完成candidate filtered cache，保留中心小权重、tangent jit
 
 `nativeSurfaceBindingGroups`最满Product+compact+VT+SSSR route为：geometry组4基础read+5 Product+1 reflection=10 SSBO；lighting组3 SSBO；material组publication+compact+feedback=3，合计16。已有sampled texture为visibility1+lighting5=6，再加material/VT纹理；4个group全部在用；HDR/reactive/seed/identity最多4 storage textures。`GpuNativeMaterialScene.snapshot`按剩余sampled数分bank，某个单材质自身也可能占满；再分更多bin不能让单材质少用必需纹理。
 
-因此默认GI接入 **不增加任何Native sampled/storage/group binding**：在现有`FinalPixelLightingPublication`同一个buffer后追加只读GI segment，Native从`lighting_directory`原有group1/binding2读packed half SH与u32 guide；§19固定112B/half-pixel。GI producer单独以storage子range写该段；local/VSM/solar/noise的写域仍互不重叠，range uniform扩为明确offset/length/extent/scale字段，不能靠“solar后紧接”硬编码推地址。这个publication只管物理拼装，GI仍拥有算法和history，不把VSM/Local owner并进GI。
+因此默认GI接入 **不增加任何Native sampled/storage/group binding**：在现有`FinalPixelLightingPublication`同一个buffer后追加只读GI segment，Native从`lighting_directory`原有group1/binding2读packed half SH与u32 guide；§19固定112B/half-pixel。field由GI私有writer生成，再由同command的copy拼入目录；local/VSM/solar/noise的写域仍互不重叠。这个publication只管物理拼装，GI仍拥有算法和history，不把VSM/Local owner并进GI。
 
-world-only双history仍是GI私有；当前field直接生成到本帧directory segment，随后GPU copy该segment到本帧history role（112H B），供下帧seed。只拷贝一次选定段；残差启用时另有32H的directory段，base保留原值。directory现有实现最多3个未完成frame allocations，故全量segment按最多3份计入峰值，不能以双world bank队列复用推导它也只有两份。
+world-only双history始终为GI私有分片，当前field直接生成到candidate history role，再向Native目录copy（完整域112H B，窗口额外含halo）。全目录与分块采用同一writer，避免4K跨绑定上限时改变生成/历史ownership；不再采用“目录先生成再复制回history”的旧物理计划。残差启用时另有32H的directory段，base保留原值。directory最多3个未完成frame allocations，故全量segment按最多3份计入峰值，不能以双world bank队列复用推导它也只有两份；只按需求实际创建槽。
+
+`FinalPixelLightingRanges`固定96B、六个vec4u：local lookup offset/count与VSM descriptor offset/count；solar/noise/GI word offset及GI word length；全half extent/窗口half起始行/有效标记；窗口x/width/height/y；完整internal extent/debug/lighting response；remap标记/half origin xy/局部field宽。所有offset按u32 word计。逐窗口通过encoder-ordered write更新，不能使用queue.writeBuffer覆盖同command前一个窗口的参数。普通VSM publication与Native窗口分别显式提供自身noise offset，共享滤波算法。
 
 ### 10.2 单binding容量不足时的完整分块route
 
@@ -383,7 +387,9 @@ Stripe数量由extent/capacity计算，bin count来自已有publication，CPU编
 
 fused resolve：从邻近低分辨率样本按source pixel重建位置；先bounds/identity/plane/normal拒绝，再逐tap解压成世界坐标正交L1，线性加权后用当前shaded normal评价§11的E。禁止直接混合归一化压缩系数；法线不同的tap是否相容由guide约束，不能把混合结果宣称精确半球函数。无相容tap时confidence=0。packed-buffer/texture routes都使用实际half extent检查边界，不依赖越界读零。
 
-这里空间identity检查验证实例/几何/材质仍有效及相容性；严格same primitive用于跨帧seed，不能强加给空间邻tap而让所有三角形边缘失效。edge threshold使用实际几何误差/voxel尺度，不能为了减少reject任意跨墙混合。
+这里空间identity检查验证实例/几何/材质仍有效及相容性；严格same primitive用于跨帧seed，不能强加给空间邻tap而让所有三角形边缘失效。当前Native通过tap source pixel的同帧Visibility/work恢复精确instance slot，再核对field中的实例集/几何/材质revision；不新增lineage绑定。双向plane与normal拒绝当前采用保守depth-scaled阈值，可能在极端几何尺度过度拒绝；后续依据图像验证调整，不将其宣称为几何误差证明，不任意放宽跨墙混合。
+
+生产设置为`surfaceCacheGi`，默认关闭、显式启用后只有本SCGI owner；balanced/quality preset与irradiance/confidence调试共用真实生产publication。`ScgiRenderer`组合既有cache/query/anchor/estimator/filter，借用Renderer已打开command异步准备；camera/settings/resize变化在提交前取消旧准备。query revision独立于GpuScene revision，用于cut变化的filter epoch和temporal response；光照数值变化刷新同物理资源的estimator输入。device recovery重放设置和共享Product恢复源，未提交abort不推进active/history，已提交observer异常隔离资源至device loss。此设置不包含尚未实施的SCGI-9 residual。
 
 唯一合成公式：
 

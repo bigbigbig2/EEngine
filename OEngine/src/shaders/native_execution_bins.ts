@@ -31,7 +31,8 @@ fn seed_view() -> NativeTemporalSeedView { return temporal_view; }`
 }
 struct BinSettings {
   width: u32, height: u32, bins: u32, tile_capacity: u32,
-  generation: u32, tiles_x: u32, metadata_words: u32, reserved: u32,
+  generation: u32, tiles_x: u32, metadata_words: u32, windows: u32,
+  window_tiles_x: u32, window_tiles_y: u32, windows_x: u32, bank_capacity: u32,
 }
 @group(0) @binding(0) var<uniform> settings: BinSettings;
 @group(0) @binding(1) var visibility: texture_2d<u32>;
@@ -86,11 +87,15 @@ fn winner_bin(pixel: vec2u, key: u32) -> vec2u {
 }
 
 fn publish_tile(bin: u32, tile: u32, low: u32, high: u32, uniform_primitive: bool) {
-  let at = atomicAdd(&scratch[4u + bin], 1u);
+  let tile_xy = vec2u(tile % settings.tiles_x, tile / settings.tiles_x);
+  let window = tile_xy.x / settings.window_tiles_x +
+    (tile_xy.y / settings.window_tiles_y) * settings.windows_x;
+  let window_bin = window * settings.bins + bin;
+  let at = atomicAdd(&scratch[4u + window_bin], 1u);
   // A bin can occur at most once per tile. Its admitted capacity is all tiles,
   // independent of scene entropy or previous-frame feedback.
-  if at >= settings.tile_capacity { atomicAdd(&scratch[1u], 1u); return; }
-  let destination = settings.metadata_words + (bin * settings.tile_capacity + at) * ${NATIVE_EXECUTION_TILE_WORDS}u;
+  if at >= settings.bank_capacity { atomicAdd(&scratch[1u], 1u); return; }
+  let destination = settings.metadata_words + (window_bin * settings.bank_capacity + at) * ${NATIVE_EXECUTION_TILE_WORDS}u;
   queue[destination] = tile | select(0u, 0x80000000u, uniform_primitive);
   queue[destination + 1u] = low;
   queue[destination + 2u] = high;
@@ -188,7 +193,8 @@ fn classify(@builtin(workgroup_id) group: vec3u, @builtin(num_workgroups) groups
 export const NATIVE_EXECUTION_CLASSIFY_WGSL = nativeExecutionClassifyWgsl();
 
 export const NATIVE_EXECUTION_FINALIZE_WGSL = /* wgsl */ `
-struct FinalizeSettings { bins: u32, tile_capacity: u32, metadata_words: u32, max_groups: u32, }
+struct FinalizeSettings { bins: u32, tile_capacity: u32, metadata_words: u32, max_groups: u32,
+  windows: u32, reserved0: u32, reserved1: u32, reserved2: u32, }
 @group(0) @binding(0) var<uniform> settings: FinalizeSettings;
 @group(0) @binding(1) var<storage, read> scratch: array<u32>;
 @group(0) @binding(2) var<storage, read> known_bins: array<vec2u>;
@@ -196,7 +202,7 @@ struct FinalizeSettings { bins: u32, tile_capacity: u32, metadata_words: u32, ma
 @compute @workgroup_size(64)
 fn finalize(@builtin(global_invocation_id) id: vec3u, @builtin(num_workgroups) groups: vec3u) {
   let bin = id.x + id.y * groups.x * 64u;
-  if bin >= settings.bins { return; }
+  if bin >= settings.bins * settings.windows { return; }
   let count = min(scratch[4u + bin], settings.tile_capacity);
   let x = min(count, settings.max_groups);
   let y = select(0u, (count + max(x, 1u) - 1u) / max(x, 1u), count != 0u);
@@ -206,8 +212,8 @@ fn finalize(@builtin(global_invocation_id) id: vec3u, @builtin(num_workgroups) g
   queue[base + 2u] = x;
   queue[base + 3u] = y;
   queue[base + 4u] = select(0u, 1u, count != 0u);
-  queue[base + 5u] = known_bins[bin].x;
-  queue[base + 6u] = known_bins[bin].y;
+  queue[base + 5u] = known_bins[bin % settings.bins].x;
+  queue[base + 6u] = known_bins[bin % settings.bins].y;
   queue[base + 7u] = scratch[0u] | (scratch[1u] << 16u);
 }
 `;

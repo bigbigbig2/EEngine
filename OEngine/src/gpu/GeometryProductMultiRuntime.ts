@@ -49,7 +49,12 @@ export const GEOMETRY_PRODUCT_MULTI_RUNTIME_ABI_VERSION_V1 = 1;
 export const GEOMETRY_PRODUCT_MULTI_RUNTIME_MIN_CAPACITY_V1 = 1;
 
 export type GeometryProductShardStateV1 =
-  "loading" | "active" | "dormant" | "retiring" | "released" | "failed";
+  | "loading"
+  | "active"
+  | "dormant"
+  | "retiring"
+  | "released"
+  | "failed";
 
 export interface GeometryProductInstanceIdentityV1 {
   readonly productTableSlot: number;
@@ -332,6 +337,12 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
   }
 
   /** Unified production binding consumed by hierarchy, raster and shading. */
+  activeResidencies(): readonly VirtualGeometryResidency[] {
+    return [...this.#current.values()]
+      .filter((entry) => entry.state === "active" && entry.residency !== undefined)
+      .map((entry) => entry.residency!);
+  }
+
   bindings(): GeometryProductGpuBindingsV1 {
     this.assertAlive();
     this.#bindingsExposed = true;
@@ -1643,7 +1654,7 @@ class MetadataRanges {
     if (count === 0) return;
     const index = this.#free.findIndex((range) => range.begin > begin);
     this.#free.splice(index < 0 ? this.#free.length : index, 0, { begin, count });
-    for (let at = 1; at < this.#free.length;) {
+    for (let at = 1; at < this.#free.length; ) {
       const previous = this.#free[at - 1]!;
       const current = this.#free[at]!;
       if (previous.begin + previous.count === current.begin) {

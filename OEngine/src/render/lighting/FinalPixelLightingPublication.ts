@@ -1,6 +1,7 @@
 import {
   planFinalPixelLightingDirectory,
   type FinalPixelLightingDirectoryPlan,
+  FINAL_PIXEL_LIGHTING_RANGES_BYTES,
 } from "../../gpu/FinalPixelAbi.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
@@ -10,10 +11,11 @@ export interface FinalPixelLightingFrame {
   readonly plan: FinalPixelLightingDirectoryPlan;
   readonly buffer: GPUBuffer;
   readonly ranges: GPUBuffer;
+  readonly nativeBuffer: GPUBuffer;
 }
 
 interface Allocation extends FinalPixelLightingFrame {
-  state: "free" | "prepared" | "submitted" | "destroyed";
+  state: "free" | "prepared" | "submitted" | "poisoned" | "destroyed";
   readonly handles: readonly ResourceHandle[];
   readonly filterData?: Uint8Array<ArrayBuffer>;
   retired?: boolean;
@@ -27,12 +29,19 @@ interface Allocation extends FinalPixelLightingFrame {
 export class FinalPixelLightingPublication {
   private readonly allocations: Allocation[] = [];
   private destroyed = false;
+  private deviceLost = false;
 
   constructor(
     private readonly device: GPUDevice,
     private readonly graphics?: GraphicsContext,
   ) {
-    void device.lost.then(() => this.destroy());
+    void device.lost.then(() => {
+      this.deviceLost = true;
+      this.destroy();
+      for (const allocation of [...this.allocations]) {
+        this.release(allocation);
+      }
+    });
   }
 
   prepare(
@@ -40,6 +49,7 @@ export class FinalPixelLightingPublication {
     descriptorCount: number,
     command: ShadeGPUCommandContext,
     filterData?: Uint8Array<ArrayBuffer>,
+    giExtent?: readonly [number, number],
   ): FinalPixelLightingFrame {
     if (this.destroyed || command.closed || command.device !== this.device) {
       throw new Error("Final lighting publication requires a live frame command on its device");
@@ -49,12 +59,15 @@ export class FinalPixelLightingPublication {
       lookupCount,
       descriptorCount,
       filterData?.byteLength ?? 0,
+      giExtent,
     );
     let allocation = this.allocations.find(
       (value) =>
         value.state === "free" &&
         value.plan.lookupCount === lookupCount &&
         value.plan.descriptorCount === descriptorCount &&
+        value.plan.giWidth === plan.giWidth &&
+        value.plan.giHeight === plan.giHeight &&
         value.filterData === filterData,
     );
     if (!allocation) {
@@ -72,13 +85,24 @@ export class FinalPixelLightingPublication {
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
       });
       let ranges: GPUBuffer;
+      let nativeBuffer = buffer;
       try {
+        if (plan.remapped) {
+          nativeBuffer = this.device.createBuffer({
+            label: "Final Pixel/complete local VSM GI window",
+            size: plan.nativeBytes,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+          });
+        }
         ranges = this.device.createBuffer({
           label: "Final Pixel/lighting ranges",
-          size: 16,
+          size: FINAL_PIXEL_LIGHTING_RANGES_BYTES,
           usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
       } catch (error) {
+        if (nativeBuffer !== buffer) {
+          nativeBuffer.destroy();
+        }
         buffer.destroy();
         throw error;
       }
@@ -90,11 +114,14 @@ export class FinalPixelLightingPublication {
           this.device.queue.writeBuffer(buffer, plan.filterNoiseOffset, filterData);
         }
       } catch (error) {
+        if (nativeBuffer !== buffer) {
+          nativeBuffer.destroy();
+        }
         ranges.destroy();
         buffer.destroy();
         throw error;
       }
-      for (const resource of [buffer, ranges]) {
+      for (const resource of new Set([buffer, nativeBuffer, ranges])) {
         const handle = this.graphics?.resource_accounting.created(
           {
             kind: "buffer",
@@ -109,37 +136,58 @@ export class FinalPixelLightingPublication {
           handles.push(handle);
         }
       }
-      allocation = { plan, buffer, ranges, handles, filterData, state: "free" };
+      allocation = { plan, buffer, nativeBuffer, ranges, handles, filterData, state: "free" };
       this.allocations.push(allocation);
     }
     const current = allocation;
     current.state = "prepared";
     current.command = command;
-    command.onAborted.addOne(() => {
-      if (current.state === "prepared") {
-        current.state = "free";
+    command.observeSubmission({
+      aborted: () => {
+        if (current.state === "prepared") {
+          current.state = "free";
+          current.command = undefined;
+          if (this.destroyed || current.retired) {
+            this.release(current);
+          }
+        }
+      },
+      submitted: (fence) => {
+        current.state = "submitted";
         current.command = undefined;
-        if (this.destroyed || current.retired) {
-          this.release(current);
-        }
-      }
-    });
-    command.onFinished.addOne(() => {
-      current.state = "submitted";
-      current.command = undefined;
-      const completed = (): void => {
-        current.state = "free";
-        if (this.destroyed || current.retired) {
-          this.release(current);
-        }
-      };
-      void command.gpuDone.then(completed, completed);
+        const completed = (): void => {
+          if (current.state === "poisoned") {
+            return;
+          }
+          current.state = "free";
+          if (this.destroyed || current.retired) {
+            this.release(current);
+          }
+        };
+        void fence.then(completed, () => {
+          current.state = "poisoned";
+          if (this.deviceLost) {
+            this.release(current);
+          }
+        });
+      },
+      failed: () => {
+        current.state = "poisoned";
+        current.command = undefined;
+      },
     });
     return current;
   }
 
   get allocatedBytes(): number {
-    return this.allocations.reduce((bytes, value) => bytes + value.plan.bytes + 16, 0);
+    return this.allocations.reduce(
+      (bytes, value) =>
+        bytes +
+        value.plan.bytes +
+        (value.nativeBuffer === value.buffer ? 0 : value.plan.nativeBytes) +
+        FINAL_PIXEL_LIGHTING_RANGES_BYTES,
+      0,
+    );
   }
 
   /** Called only after an empty/unlit replacement successfully submits. */
@@ -164,6 +212,9 @@ export class FinalPixelLightingPublication {
     }
     allocation.state = "destroyed";
     allocation.buffer.destroy();
+    if (allocation.nativeBuffer !== allocation.buffer) {
+      allocation.nativeBuffer.destroy();
+    }
     allocation.ranges.destroy();
     for (const handle of allocation.handles) {
       this.graphics?.resource_accounting.destroyed(handle);

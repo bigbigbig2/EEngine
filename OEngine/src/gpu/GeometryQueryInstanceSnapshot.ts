@@ -28,10 +28,13 @@ export class GeometryQueryInstanceSnapshot {
     this.count = this.source.highWaterCount;
     this.contentRevision = this.source.contentRevision;
     const maximum = Math.min(device.limits.maxBufferSize, device.limits.maxStorageBufferBindingSize);
-    if (!Number.isSafeInteger(this.count) || this.count < 0 ||
-        this.count * GPU_INSTANCE_RECORD_STRIDE > maximum ||
-        this.source.instances.size < this.count * GPU_INSTANCE_RECORD_STRIDE ||
-        this.source.identities.size < this.count * GPU_INSTANCE_IDENTITY_STRIDE) {
+    if (
+      !Number.isSafeInteger(this.count) ||
+      this.count < 0 ||
+      this.count * GPU_INSTANCE_RECORD_STRIDE > maximum ||
+      this.source.instances.size < this.count * GPU_INSTANCE_RECORD_STRIDE ||
+      this.source.identities.size < this.count * GPU_INSTANCE_IDENTITY_STRIDE
+    ) {
       throw new RangeError("Query source snapshot exceeds the negotiated instance domain");
     }
     const buffers: GPUBuffer[] = [];
@@ -43,16 +46,30 @@ export class GeometryQueryInstanceSnapshot {
       });
       buffers.push(buffer);
       if (accounting !== undefined) {
-        this.handles.push(accounting.created({ kind: "buffer", category: "transient",
-          owner: "Geometry/query source snapshot", label, bytes: buffer.size }, buffer));
+        this.handles.push(
+          accounting.created(
+            {
+              kind: "buffer",
+              category: "transient",
+              owner: "Geometry/query source snapshot",
+              label,
+              bytes: buffer.size,
+            },
+            buffer,
+          ),
+        );
       }
       return buffer;
     };
     try {
-      this.sourceSnapshot = allocate("Geometry/query immutable source instances",
-        Math.max(GPU_INSTANCE_RECORD_STRIDE, this.count * GPU_INSTANCE_RECORD_STRIDE));
-      this.identitySnapshot = allocate("Geometry/query immutable instance lineage",
-        Math.max(GPU_INSTANCE_IDENTITY_STRIDE, this.count * GPU_INSTANCE_IDENTITY_STRIDE));
+      this.sourceSnapshot = allocate(
+        "Geometry/query immutable source instances",
+        Math.max(GPU_INSTANCE_RECORD_STRIDE, this.count * GPU_INSTANCE_RECORD_STRIDE),
+      );
+      this.identitySnapshot = allocate(
+        "Geometry/query immutable instance lineage",
+        Math.max(GPU_INSTANCE_IDENTITY_STRIDE, this.count * GPU_INSTANCE_IDENTITY_STRIDE),
+      );
     } catch (error) {
       for (const buffer of buffers) {
         buffer.destroy();
@@ -76,12 +93,23 @@ export class GeometryQueryInstanceSnapshot {
     if (!this.valid || command.closed || command.device !== this.device) {
       throw new Error("Query source requires its live current scene and command");
     }
-    const current = this.scene.queryBindings(command);
-    if (current.instances !== this.source.instances || current.identities !== this.source.identities ||
-        current.contentRevision !== (this.publishedRevision ?? this.contentRevision) ||
-        current.highWaterCount !== this.count || current.mutationSerial !== this.source.mutationSerial) {
+    if (!this.isCurrent(command)) {
       throw new Error("GpuScene changed after query capture; prepare a fresh candidate");
     }
+  }
+
+  isCurrent(command: ShadeGPUCommandContext): boolean {
+    if (!this.valid || command.closed || command.device !== this.device) {
+      return false;
+    }
+    const current = this.scene.queryBindings(command);
+    return (
+      current.instances === this.source.instances &&
+      current.identities === this.source.identities &&
+      current.contentRevision === (this.publishedRevision ?? this.contentRevision) &&
+      current.highWaterCount === this.count &&
+      current.mutationSerial === this.source.mutationSerial
+    );
   }
 
   /** The first shard records the copy; other shards in that command share it.
@@ -100,9 +128,13 @@ export class GeometryQueryInstanceSnapshot {
       throw new Error("Query source candidate must be copied in its mutation command");
     }
     const current = this.scene.queryBindings(this.mutationCommand);
-    if (current.instances !== this.source.instances || current.identities !== this.source.identities ||
-        current.contentRevision !== this.contentRevision || current.highWaterCount !== this.count ||
-        current.mutationSerial !== this.source.mutationSerial) {
+    if (
+      current.instances !== this.source.instances ||
+      current.identities !== this.source.identities ||
+      current.contentRevision !== this.contentRevision ||
+      current.highWaterCount !== this.count ||
+      current.mutationSerial !== this.source.mutationSerial
+    ) {
       throw new Error("GpuScene changed while preparing the query snapshot; prepare a fresh candidate");
     }
     this.encodedCommand = command;
@@ -115,16 +147,30 @@ export class GeometryQueryInstanceSnapshot {
     });
     command.observeSubmission({
       submitted: (fence) => {
-        void fence.catch(() => { this.poisoned = true; });
+        void fence.catch(() => {
+          this.poisoned = true;
+        });
       },
       aborted: () => this.destroy(),
-      failed: () => { this.poisoned = true; },
+      failed: () => {
+        this.poisoned = true;
+      },
     });
     if (this.count !== 0) {
-      command.copyBufferToBuffer(this.source.instances, 0, this.sourceSnapshot, 0,
-        this.count * GPU_INSTANCE_RECORD_STRIDE);
-      command.copyBufferToBuffer(this.source.identities, 0, this.identitySnapshot, 0,
-        this.count * GPU_INSTANCE_IDENTITY_STRIDE);
+      command.copyBufferToBuffer(
+        this.source.instances,
+        0,
+        this.sourceSnapshot,
+        0,
+        this.count * GPU_INSTANCE_RECORD_STRIDE,
+      );
+      command.copyBufferToBuffer(
+        this.source.identities,
+        0,
+        this.identitySnapshot,
+        0,
+        this.count * GPU_INSTANCE_IDENTITY_STRIDE,
+      );
     }
   }
 

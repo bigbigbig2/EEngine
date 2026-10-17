@@ -4,15 +4,24 @@ import { GPU_INSTANCE_RECORD_WGSL } from "./GpuInstanceAbi.js";
 import { PipelineCompilationQueue } from "./PipelineCompilationQueue.js";
 import { GpuGeometryDemandReadbackRingV1 } from "./GeometryDemandReadbackRing.js";
 import { GeometryQueryInstanceSnapshot } from "./GeometryQueryInstanceSnapshot.js";
-import { geometryQueryCut, type GeometryQueryAssetDemand, type GeometryQueryCut } from "./GeometryQueryCut.js";
-import { GEOMETRY_QUERY_DOMAIN_WGSL, geometryQueryDomainWords, type GeometryQueryDomain } from "./GeometryQueryDomain.js";
+import {
+  geometryQueryCut,
+  type GeometryQueryAssetDemand,
+  type GeometryQueryCut,
+} from "./GeometryQueryCut.js";
+import {
+  GEOMETRY_QUERY_DOMAIN_WGSL,
+  geometryQueryDomainWords,
+  type GeometryQueryDomain,
+} from "./GeometryQueryDomain.js";
 import type { VirtualGeometryResidency } from "./VirtualGeometryResidency.js";
 import type { GeometryPageStreamingRuntimeV1 } from "./GeometryPageStreamingRuntime.js";
 
 /** Allocation profile for GPU-generated, world-domain query demand. Voxel size
  * and angular footprint are world units/radians, independent of screen LOD. */
 export interface GeometryQueryWorkingSetProfile {
-  readonly domain: GeometryQueryDomain;
+  /** Omitted means the full world, including infinite environment rays. */
+  readonly domain?: GeometryQueryDomain;
   readonly voxelSize: number;
   readonly errorFraction: number;
   readonly receiver: readonly [number, number, number];
@@ -33,11 +42,14 @@ interface WorkingSetWindow {
 
 const RECORD_BYTES = 32;
 const WINDOW_ASSETS = 4096;
-const workingSetPipelines = new WeakMap<GPUDevice, Promise<{
-  layout: GPUBindGroupLayout;
-  initialize: GPUComputePipeline;
-  reduce: GPUComputePipeline;
-}>>();
+const workingSetPipelines = new WeakMap<
+  GPUDevice,
+  Promise<{
+    layout: GPUBindGroupLayout;
+    initialize: GPUComputePipeline;
+    reduce: GPUComputePipeline;
+  }>
+>();
 
 /** Only delayed, complete feedback becomes a cold publication plan. The GPU
  * still checks that every current instance fits the plan when it is consumed.
@@ -49,6 +61,7 @@ export class GeometryQueryWorkingSet {
   private inFlight = 0;
   private failed = false;
   private failure: unknown;
+  private retired = false;
   private readonly windows: WorkingSetWindow[] = [];
   private constructor(
     private readonly device: GPUDevice,
@@ -59,22 +72,43 @@ export class GeometryQueryWorkingSet {
     private readonly reduce: GPUComputePipeline,
   ) {}
 
-  static async create(device: GPUDevice, source: GeometryQueryInstanceSnapshot,
-    product: VirtualGeometryResidency, profile: GeometryQueryWorkingSetProfile): Promise<GeometryQueryWorkingSet> {
+  static async create(
+    device: GPUDevice,
+    source: GeometryQueryInstanceSnapshot,
+    product: VirtualGeometryResidency,
+    profile: GeometryQueryWorkingSetProfile,
+  ): Promise<GeometryQueryWorkingSet> {
     const domain = geometryQueryDomainWords(profile.domain);
-    if (![profile.voxelSize, profile.errorFraction, profile.angularFootprint, ...profile.receiver].every(Number.isFinite) ||
-        profile.voxelSize <= 0 || profile.errorFraction < 0 || profile.angularFootprint < 0 ||
-        Math.ceil(source.count / 128) > device.limits.maxComputeWorkgroupsPerDimension ||
-        device.limits.maxComputeInvocationsPerWorkgroup < 128 || device.limits.maxComputeWorkgroupSizeX < 128) {
-      throw new RangeError("Query working set requires finite world-space quality and representable GPU work");
+    if (
+      ![profile.voxelSize, profile.errorFraction, profile.angularFootprint, ...profile.receiver].every(
+        Number.isFinite,
+      ) ||
+      profile.voxelSize <= 0 ||
+      profile.errorFraction < 0 ||
+      profile.angularFootprint < 0 ||
+      Math.ceil(source.count / 128) > device.limits.maxComputeWorkgroupsPerDimension ||
+      device.limits.maxComputeInvocationsPerWorkgroup < 128 ||
+      device.limits.maxComputeWorkgroupSizeX < 128
+    ) {
+      throw new RangeError(
+        "Query working set requires finite world-space quality and representable GPU work",
+      );
     }
     const descriptor = product.descriptor;
     const assetCount = descriptor.assetRecords.byteLength / 128;
-    const capacity = Math.min(WINDOW_ASSETS, Math.floor(Math.min(device.limits.maxBufferSize,
-      device.limits.maxStorageBufferBindingSize) / RECORD_BYTES));
+    const capacity = Math.min(
+      WINDOW_ASSETS,
+      Math.floor(
+        Math.min(device.limits.maxBufferSize, device.limits.maxStorageBufferBindingSize) / RECORD_BYTES,
+      ),
+    );
     const bytes = assetCount * RECORD_BYTES * 4 + Math.ceil(assetCount / Math.max(1, capacity)) * 96;
-    if (capacity < 1 || !Number.isSafeInteger(profile.maximumBytes) ||
-        profile.maximumBytes < bytes || !source.valid) {
+    if (
+      capacity < 1 ||
+      !Number.isSafeInteger(profile.maximumBytes) ||
+      profile.maximumBytes < bytes ||
+      !source.valid
+    ) {
       throw new RangeError("Query working set exceeds its admitted resource budget");
     }
     const code = /* wgsl */ `
@@ -156,16 +190,26 @@ fn reduce(@builtin(global_invocation_id) id: vec3u) {
       pendingPipelines = (async () => {
         const module = device.createShaderModule({ label: "Geometry/query world working set", code });
         // Keep the layout shared: initialize does not read the instance binding.
-        const layout = device.createBindGroupLayout({ entries: [
-          { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-          { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-          { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-        ] });
+        const layout = device.createBindGroupLayout({
+          entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+          ],
+        });
         const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
         const initialize = await PipelineCompilationQueue.forDevice(device).run(() =>
-          device.createComputePipelineAsync({ layout: pipelineLayout, compute: { module, entryPoint: "initialize" } }));
+          device.createComputePipelineAsync({
+            layout: pipelineLayout,
+            compute: { module, entryPoint: "initialize" },
+          }),
+        );
         const reduce = await PipelineCompilationQueue.forDevice(device).run(() =>
-          device.createComputePipelineAsync({ layout: pipelineLayout, compute: { module, entryPoint: "reduce" } }));
+          device.createComputePipelineAsync({
+            layout: pipelineLayout,
+            compute: { module, entryPoint: "reduce" },
+          }),
+        );
         return { layout, initialize, reduce };
       })();
       workingSetPipelines.set(device, pendingPipelines);
@@ -176,24 +220,44 @@ fn reduce(@builtin(global_invocation_id) id: vec3u) {
     try {
       for (let begin = 0; begin < assetCount; begin += capacity) {
         const count = Math.min(capacity, assetCount - begin);
-        const settings = device.createBuffer({ label: "Geometry/query working-set parameters",
-          size: 96, usage: GPUBufferUsage.UNIFORM, mappedAtCreation: true });
-        const output = device.createBuffer({ label: "Geometry/query asset demand",
-          size: count * RECORD_BYTES, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+        const settings = device.createBuffer({
+          label: "Geometry/query working-set parameters",
+          size: 96,
+          usage: GPUBufferUsage.UNIFORM,
+          mappedAtCreation: true,
+        });
+        const output = device.createBuffer({
+          label: "Geometry/query asset demand",
+          size: count * RECORD_BYTES,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+        });
         let ring: GpuGeometryDemandReadbackRingV1 | undefined;
         try {
           const bytes = settings.getMappedRange();
-          new Uint32Array(bytes).set([product.productTableSlot, product.productGeneration,
-            product.assetReferenceBegin, source.count, begin, count, 0, 0]);
+          new Uint32Array(bytes).set([
+            product.productTableSlot,
+            product.productGeneration,
+            product.assetReferenceBegin,
+            source.count,
+            begin,
+            count,
+            0,
+            0,
+          ]);
           new Float32Array(bytes).set(domain, 8);
-          new Float32Array(bytes).set([profile.voxelSize, profile.errorFraction,
-            profile.angularFootprint, 0, ...profile.receiver, 0], 16);
+          new Float32Array(bytes).set(
+            [profile.voxelSize, profile.errorFraction, profile.angularFootprint, 0, ...profile.receiver, 0],
+            16,
+          );
           settings.unmap();
-          const group = device.createBindGroup({ layout, entries: [
-            { binding: 0, resource: { buffer: settings } },
-            { binding: 1, resource: { buffer: source.sourceSnapshot } },
-            { binding: 2, resource: { buffer: output } },
-          ] });
+          const group = device.createBindGroup({
+            layout,
+            entries: [
+              { binding: 0, resource: { buffer: settings } },
+              { binding: 1, resource: { buffer: source.sourceSnapshot } },
+              { binding: 2, resource: { buffer: output } },
+            ],
+          });
           ring = new GpuGeometryDemandReadbackRingV1({ device, bytesPerSlot: output.size });
           owner.windows.push({ begin, count, settings, output, group, ring });
         } catch (error) {
@@ -221,9 +285,16 @@ fn reduce(@builtin(global_invocation_id) id: vec3u) {
   }
 
   encode(command: ShadeGPUCommandContext, frame: number): void {
-    if (this.destroyed || this.failed || command.closed || command.device !== this.device ||
-        !this.product.publicationActive ||
-        !Number.isSafeInteger(frame) || frame < 0) {
+    if (
+      this.destroyed ||
+      this.retired ||
+      this.failed ||
+      command.closed ||
+      command.device !== this.device ||
+      !this.product.publicationActive ||
+      !Number.isSafeInteger(frame) ||
+      frame < 0
+    ) {
       throw new Error("Query working set requires its live Product and frame");
     }
     this.source.assertCurrent(command);
@@ -237,12 +308,21 @@ fn reduce(@builtin(global_invocation_id) id: vec3u) {
     this.inFlight++;
     command.observeSubmission({
       submitted: (fence) => {
-        void fence.then(() => { this.inFlight--; }, (error) => {
-          this.failed = true;
-          this.failure = error;
-        });
+        void fence.then(
+          () => {
+            this.inFlight--;
+            this.collect();
+          },
+          (error) => {
+            this.failed = true;
+            this.failure = error;
+          },
+        );
       },
-      aborted: () => { this.inFlight--; },
+      aborted: () => {
+        this.inFlight--;
+        this.collect();
+      },
       failed: (error) => {
         this.failed = true;
         this.failure = error;
@@ -263,16 +343,24 @@ fn reduce(@builtin(global_invocation_id) id: vec3u) {
       }
       const slot = window.ring.encode(command.gpu_encoder, window.output, frame, window.output.size);
       if (slot !== undefined) {
-        command.onFinished.addOne(() => window.ring.commit(slot));
-        command.onAborted.addOne(() => window.ring.cancel(slot));
+        command.observeSubmission({
+          submitted: () => window.ring.commit(slot),
+          aborted: () => window.ring.cancel(slot),
+          failed: () => {
+            this.failed = true;
+          },
+        });
       }
     }
   }
 
   /** Called only for a later completed frame. Partial/full-ring feedback never
    * replaces an earlier complete plan and never certifies missing geometry. */
-  async consumeCompleted(completedFrame: number, streaming?: GeometryPageStreamingRuntimeV1,
-    nowMs = performance.now()): Promise<GeometryQueryCut | undefined> {
+  async consumeCompleted(
+    completedFrame: number,
+    streaming?: GeometryPageStreamingRuntimeV1,
+    nowMs = performance.now(),
+  ): Promise<GeometryQueryCut | undefined> {
     if (this.destroyed || this.failed || !this.product.publicationActive) {
       return undefined;
     }
@@ -330,11 +418,17 @@ fn reduce(@builtin(global_invocation_id) id: vec3u) {
       for (let asset = 0; asset < window.count; asset++) {
         const at = asset * 8;
         const flags = words[at + 3]!;
-        demands.push({ active: flags !== 0, maximumError: floats[at + 7]!,
-          domain: (flags & 2) !== 0 || flags === 0 ? null : {
-            min: [decode(words[at]!), decode(words[at + 1]!), decode(words[at + 2]!)],
-            max: [decode(words[at + 4]!), decode(words[at + 5]!), decode(words[at + 6]!)],
-          } });
+        demands.push({
+          active: flags !== 0,
+          maximumError: floats[at + 7]!,
+          domain:
+            (flags & 2) !== 0 || flags === 0
+              ? null
+              : {
+                  min: [decode(words[at]!), decode(words[at + 1]!), decode(words[at + 2]!)],
+                  max: [decode(words[at + 4]!), decode(words[at + 5]!), decode(words[at + 6]!)],
+                },
+        });
       }
     }
     const cut = geometryQueryCut(this.descriptor, demands);
@@ -355,6 +449,17 @@ fn reduce(@builtin(global_invocation_id) id: vec3u) {
       throw new Error("Query working set is retained by GPU work or failed submission");
     }
     this.teardown();
+  }
+
+  retire(): void {
+    this.retired = true;
+    this.collect();
+  }
+
+  private collect(): void {
+    if (this.retired && this.inFlight === 0 && !this.failed) {
+      this.teardown();
+    }
   }
 
   private teardown(): void {

@@ -3,7 +3,7 @@ import {
   VSM_FILTER_NOISE_BYTES,
   VSM_FILTER_NOISE_WIDTH,
   VSM_FILTER_NOISE_HEIGHT,
-  VSM_VOGEL_POINTS,
+  VSM_VOGEL_POINTS
 } from "../gpu/GpuVsmFilterAbi.js";
 import { VSM_PAGE_TABLE_WGSL } from "./vsm_page_table.js";
 
@@ -262,7 +262,10 @@ fn vsm_debug_color(position_ws: vec3f, normal_ws: vec3f, sun_direction: vec3f,
 `;
 }
 
-export const VSM_FILTER_NOISE_WGSL = /* wgsl */ `
+/** Standalone VSM publications and Native directory windows have different
+ * offset owners. The sampling algorithm is shared; each caller names its ABI. */
+export function vsmFilterNoiseWgsl(noiseWordOffset = "vsm_constants.identity.w"): string {
+  return /* wgsl */ `
 fn vsm_filter_rotation(pixel: vec2u) -> vec2f {
   if (vsm_constants.control.z != ${VSM_FILTER_MODES.disk4}u) {
     return vec2f(1.0, 0.0);
@@ -271,11 +274,14 @@ fn vsm_filter_rotation(pixel: vec2u) -> vec2f {
   let index = (pixel.x % ${VSM_FILTER_NOISE_WIDTH}u) +
     (pixel.y % ${VSM_FILTER_NOISE_HEIGHT}u) * ${VSM_FILTER_NOISE_WIDTH}u +
     phase * ${VSM_FILTER_NOISE_WIDTH * VSM_FILTER_NOISE_HEIGHT}u;
-  let packed = lighting_directory[vsm_constants.identity.w + index / 4u];
+  let packed = lighting_directory[${noiseWordOffset} + index / 4u];
   let noise = (packed >> ((index % 4u) * 8u)) & 255u;
-  let at = vsm_constants.identity.w + ${VSM_FILTER_NOISE_BYTES / 4}u + noise * 2u;
+  let at = ${noiseWordOffset} + ${VSM_FILTER_NOISE_BYTES / 4}u + noise * 2u;
   return bitcast<vec2f>(vec2u(lighting_directory[at], lighting_directory[at + 1u]));
 }
 `;
+}
+
+export const VSM_FILTER_NOISE_WGSL = vsmFilterNoiseWgsl();
 
 export const VSM_SAMPLING_WGSL = vsmSamplingWgsl();

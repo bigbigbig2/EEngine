@@ -8,7 +8,7 @@ export function nativeLocalLighting(finalPixel = false): { declarations: string;
     ? ""
     : "@group(1) @binding(2) var<storage, read> local_lookup: array<LocalLightLookup>;";
   const lookup = finalPixel
-    ? "final_pixel_local_lookup(local_light_cluster(vec2u(pixel), view_depth, local_parameters))"
+    ? "final_pixel_receiver_lookup(local_light_cluster(vec2u(pixel), view_depth, local_parameters))"
     : "local_lookup[local_light_cluster(vec2u(pixel), view_depth, local_parameters)]";
   return {
     declarations: /* wgsl */ `

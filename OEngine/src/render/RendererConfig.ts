@@ -1,23 +1,25 @@
 import {
   SCREEN_SPACE_REFLECTIONS_DEFAULT_SETTINGS,
   resolveScreenSpaceReflectionsSettings,
-  type ScreenSpaceReflectionsSettings
+  type ScreenSpaceReflectionsSettings,
 } from "./reflections/ScreenSpaceReflectionsSettings.js";
 import { resolveSssrMemorySettings, type SssrMemorySettings } from "./reflections/SssrAbi.js";
 import { resolveExposureSettings, type ExposureSettings } from "./temporal/ExposureSettings.js";
 import {
   AMBIENT_OCCLUSION_DEFAULT_SETTINGS,
   resolveAmbientOcclusionSettings,
-  type AmbientOcclusionSettings
+  type AmbientOcclusionSettings,
 } from "./ao/AmbientOcclusionSettings.js";
 import {
   DEFAULT_FRAME_GEOMETRY_ARENA_MAX_BYTES,
-  DEFAULT_FRAME_GEOMETRY_OWNER_MAX_BYTES
+  DEFAULT_FRAME_GEOMETRY_OWNER_MAX_BYTES,
 } from "../gpu/GpuFrameGeometryArenaAbi.js";
 import { virtualTextureSettings, type VirtualTextureSettings } from "../gpu/VirtualTextureAbi.js";
+import { surfaceCacheGiSettings, type SurfaceCacheGiSettings } from "./gi/SurfaceCacheGiSettings.js";
 
 /** Immutable Renderer capability and execution configuration. */
 export interface RendererConfig {
+  readonly surfaceCacheGi?: Partial<SurfaceCacheGiSettings>;
   /** Immutable atlas/metadata/upload ceilings, admitted before VT allocation.
    * No VT resources are created until a tiled material actually needs them. */
   readonly virtualTextures?: Partial<VirtualTextureSettings>;
@@ -67,28 +69,30 @@ export function mergeRendererConfig(base: RendererConfig, override?: RendererCon
   return Object.freeze({
     ...base,
     ...override,
+    surfaceCacheGi: Object.freeze({ ...base.surfaceCacheGi, ...override.surfaceCacheGi }),
     virtualTextures: Object.freeze({ ...base.virtualTextures, ...override.virtualTextures }),
     screenSpaceReflections: Object.freeze({
       ...base.screenSpaceReflections,
-      ...override.screenSpaceReflections
+      ...override.screenSpaceReflections,
     }),
     screenSpaceReflectionsMemory: Object.freeze({
       ...base.screenSpaceReflectionsMemory,
-      ...override.screenSpaceReflectionsMemory
+      ...override.screenSpaceReflectionsMemory,
     }),
     ambientOcclusion: Object.freeze({ ...base.ambientOcclusion, ...override.ambientOcclusion }),
     requiredFeatures: Object.freeze([...(base.requiredFeatures ?? []), ...(override.requiredFeatures ?? [])]),
     requiredLimits: Object.freeze({ ...base.requiredLimits, ...override.requiredLimits }),
     geometryResidency: Object.freeze({ ...base.geometryResidency, ...override.geometryResidency }),
-    frameGeometry: Object.freeze({ ...base.frameGeometry, ...override.frameGeometry })
+    frameGeometry: Object.freeze({ ...base.frameGeometry, ...override.frameGeometry }),
   });
 }
 
 export function validateRendererConfig(config: RendererConfig): void {
+  surfaceCacheGiSettings(config.surfaceCacheGi ?? {});
   virtualTextureSettings(config.virtualTextures);
   resolveScreenSpaceReflectionsSettings(
     SCREEN_SPACE_REFLECTIONS_DEFAULT_SETTINGS,
-    config.screenSpaceReflections ?? {}
+    config.screenSpaceReflections ?? {},
   );
   resolveSssrMemorySettings(config.screenSpaceReflectionsMemory);
   resolveAmbientOcclusionSettings(AMBIENT_OCCLUSION_DEFAULT_SETTINGS, config.ambientOcclusion ?? {});

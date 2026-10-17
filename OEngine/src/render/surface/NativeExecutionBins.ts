@@ -85,6 +85,7 @@ export interface NativeExecutionBinsOptions {
   readonly maxWorkgroupsPerDimension?: number;
   /** V5 prototype: classify writes only pixels not assigned to a native bin. */
   readonly finalPixel?: boolean;
+  readonly window?: readonly [number, number];
 }
 
 export interface NativeExecutionBinsInputs {
@@ -104,6 +105,10 @@ export interface NativeExecutionBinsInputs {
 export interface NativeExecutionBinsPlan {
   readonly mode: "empty" | "dense" | "compact";
   readonly pixels: number;
+  readonly windows: number;
+  readonly windowsX: number;
+  readonly bankCapacity: number;
+  readonly windowTiles: readonly [number, number];
   readonly queueBytes: number;
   readonly scratchBytes: number;
   readonly tileCapacity: number;
@@ -168,11 +173,23 @@ export function planNativeExecutionBins(
   uint(pixels, "Pixel count", true);
   const tileCapacity = Math.ceil(options.width / 8) * Math.ceil(options.height / 8);
   const tiles = nativeExecutionDispatch(tileCapacity, maxGroups);
+  const windowTiles: readonly [number, number] =
+    options.window === undefined
+      ? [Math.ceil(options.width / 8), Math.ceil(options.height / 8)]
+      : [Math.ceil(options.window[0] / 8), Math.ceil(options.window[1] / 8)];
+  if (windowTiles.some((v) => !Number.isSafeInteger(v) || v < 1)) {
+    throw new RangeError("Native window requires a complete work tile");
+  }
+  const windowsX = Math.ceil(Math.ceil(options.width / 8) / windowTiles[0]);
+  const windows = windowsX * Math.ceil(Math.ceil(options.height / 8) / windowTiles[1]);
+  const bankCapacity = windowTiles[0] * windowTiles[1];
+  const partition = { windows, windowsX, bankCapacity, windowTiles };
   if (bins <= 1) {
     nativeExecutionDispatch(Math.ceil(pixels / NATIVE_EXECUTION_WORKGROUP_SIZE), maxGroups);
     return Object.freeze({
       mode: bins === 0 ? "empty" : "dense",
       pixels,
+      ...partition,
       queueBytes: 0,
       scratchBytes: 0,
       tileCapacity,
@@ -191,10 +208,11 @@ export function planNativeExecutionBins(
       "Native execution bins require 64-lane tile classification and six storage bindings",
     );
   }
-  const queueWords = bins * (NATIVE_EXECUTION_BIN_WORDS + tileCapacity * NATIVE_EXECUTION_TILE_WORDS);
+  const queueWords =
+    windows * bins * (NATIVE_EXECUTION_BIN_WORDS + bankCapacity * NATIVE_EXECUTION_TILE_WORDS);
   uint(queueWords, "Queue word count", true);
-  const words = 4 + bins;
-  nativeExecutionDispatch(Math.ceil(bins / NATIVE_EXECUTION_WORKGROUP_SIZE), maxGroups);
+  const words = 4 + bins * windows;
+  nativeExecutionDispatch(Math.ceil((bins * windows) / NATIVE_EXECUTION_WORKGROUP_SIZE), maxGroups);
   const maximum = Math.min(Number(limits.maxBufferSize), Number(limits.maxStorageBufferBindingSize));
   if (queueWords * 4 > maximum || words * 4 > maximum || bins * 8 > maximum) {
     throw new RangeError("Complete native execution working set exceeds negotiated buffer limits");
@@ -202,6 +220,7 @@ export function planNativeExecutionBins(
   return Object.freeze({
     mode: "compact",
     pixels,
+    ...partition,
     queueBytes: queueWords * 4,
     scratchBytes: words * 4,
     tileCapacity,
@@ -294,13 +313,17 @@ export class NativeExecutionBins {
       const finalizeLayout = device.createBindGroupLayout(finalizeDescriptor);
       const settings = this.buffer(
         "finalize settings",
-        16,
+        32,
         GPUBufferUsage.UNIFORM,
         new Uint32Array([
           this.bins.length,
-          this.plan.tileCapacity,
-          this.bins.length * NATIVE_EXECUTION_BIN_WORDS,
+          this.plan.bankCapacity,
+          this.bins.length * this.plan.windows * NATIVE_EXECUTION_BIN_WORDS,
           this.plan.maxGroups,
+          this.plan.windows,
+          0,
+          0,
+          0,
         ]),
       );
       this.finalizeGroup = this.bindGroups.create(device, {
@@ -416,7 +439,7 @@ export class NativeExecutionBins {
   }
 
   get allocatedBytes(): number {
-    return this.state === "destroyed" ? 0 : this.baseAllocatedBytes + this.bindingSettings.size * 32;
+    return this.state === "destroyed" ? 0 : this.baseAllocatedBytes + this.bindingSettings.size * 48;
   }
 
   /** Create once per stable input identity and reuse on replay. */
@@ -435,7 +458,7 @@ export class NativeExecutionBins {
       reusedSettings ??
       this.device.createBuffer({
         label: "SurfaceV4/bins frame settings",
-        size: 32,
+        size: 48,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         mappedAtCreation: true,
       });
@@ -447,8 +470,12 @@ export class NativeExecutionBins {
         this.plan.tileCapacity,
         inputs.generation,
         Math.ceil(this.width / 8),
-        this.bins.length * NATIVE_EXECUTION_BIN_WORDS,
-        0,
+        this.bins.length * this.plan.windows * NATIVE_EXECUTION_BIN_WORDS,
+        this.plan.windows,
+        this.plan.windowTiles[0],
+        this.plan.windowTiles[1],
+        this.plan.windowsX,
+        this.plan.bankCapacity,
       ]);
       settings.unmap();
       this.track(settings);
@@ -550,19 +577,25 @@ export class NativeExecutionBins {
       this.finalizePipeline!,
       this.finalizeGroup!,
       nativeExecutionDispatch(
-        Math.ceil(this.bins.length / NATIVE_EXECUTION_WORKGROUP_SIZE),
+        Math.ceil((this.bins.length * this.plan.windows) / NATIVE_EXECUTION_WORKGROUP_SIZE),
         this.plan.maxGroups,
       ),
       "finalize",
     );
   }
 
-  indirectOffset(bin: number): number {
+  indirectOffset(bin: number, window = 0): number {
     uint(bin, "Execution bin");
-    if (bin >= this.bins.length || this.plan.mode !== "compact") {
+    if (
+      bin >= this.bins.length ||
+      !Number.isSafeInteger(window) ||
+      window < 0 ||
+      window >= this.plan.windows ||
+      this.plan.mode !== "compact"
+    ) {
       throw new RangeError("Native execution bin has no indirect queue record");
     }
-    return bin * NATIVE_EXECUTION_BIN_STRIDE + 8;
+    return (window * this.bins.length + bin) * NATIVE_EXECUTION_BIN_STRIDE + 8;
   }
 
   /** No implicit fence or submit. Owner must await its actual last-use fence. */

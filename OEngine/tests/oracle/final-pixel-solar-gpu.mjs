@@ -7,6 +7,7 @@ import { FrameProfiler } from "../../.test-dist/debug/FrameProfiler.js";
 import {
   planFinalPixelLightingDirectory,
   FINAL_PIXEL_SOLAR_SAMPLING_WGSL,
+  FINAL_PIXEL_LIGHTING_RANGES_BYTES,
 } from "../../.test-dist/gpu/FinalPixelAbi.js";
 import { addFinalPixelSolarPublication } from "../../.test-dist/render/environment/FinalPixelSolarPublication.js";
 import { encodeFloat16, decodeFloat16 } from "../../.test-dist/core/Float16.js";
@@ -43,7 +44,7 @@ export async function runFinalPixelSolarGpuOracle(device) {
       GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
       poison,
     );
-    const ranges = buffer(16, GPUBufferUsage.UNIFORM, plan.words);
+    const ranges = buffer(FINAL_PIXEL_LIGHTING_RANGES_BYTES, GPUBufferUsage.UNIFORM, plan.words);
     const half = new Uint16Array(256 * 64 * 4);
     for (let y = 0; y < 64; y++)
       for (let x = 0; x < 256; x++) {
@@ -70,7 +71,15 @@ export async function runFinalPixelSolarGpuOracle(device) {
     const module = device.createShaderModule({
       code: `
 @group(1) @binding(2) var<storage, read> lighting_directory: array<u32>;
-@group(1) @binding(9) var<uniform> lighting_ranges: vec4u;
+struct LightingRanges {
+  local_vsm: vec4u,
+  segments: vec4u,
+  gi: vec4u,
+  window: vec4u,
+  extent_debug: vec4u,
+  remap: vec4u,
+}
+@group(1) @binding(9) var<uniform> lighting_ranges: LightingRanges;
 ${FINAL_PIXEL_SOLAR_SAMPLING_WGSL}
 @group(0) @binding(0) var original: texture_2d<f32>;
 @group(0) @binding(1) var linear_clamp: sampler;

@@ -1,3 +1,4 @@
+import type { ScgiRendererFrame } from "../gi/ScgiRenderer.js";
 import type { ScreenSpaceReflectionsSettings } from "../reflections/ScreenSpaceReflectionsSettings.js";
 import type { SssrRuntime } from "../reflections/SssrRuntime.js";
 import type { FinalPixelLightingFrame } from "../lighting/FinalPixelLightingPublication.js";
@@ -24,6 +25,7 @@ import type { VirtualTextureResidency } from "../../gpu/VirtualTextureResidency.
 /** Only physical, frame-local objects belong here; none enter the topology key. */
 export type SceneFrameBindings = Readonly<{
   kind: "scene";
+  scgi?: ScgiRendererFrame | null;
   virtualTextures?: VirtualTextureResidency | null;
   deviceEpoch: number;
   frameIndex: number;
@@ -84,6 +86,9 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
   }
   if ((request.virtualTextureBanks ?? 0) !== (bindings.virtualTextures?.resources.length ?? 0)) {
     throw new Error("Frame Program virtual texture physical union changed");
+  }
+  if ((request.surfaceCacheGi === true) !== (bindings.scgi != null)) {
+    throw new Error("FrameProgram GI producer and consumer are not atomically ready");
   }
   const reflections = bindings.screenSpaceReflections;
   const reflectionProfile =
@@ -221,7 +226,7 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
   }
   const summary = bindings.runtime.activeShadingSummary;
   const activeSets = Array.from(summary.standardSetRefCounts, (_, setId) => setId).filter(
-    (setId) => summary.standardSetRefCounts[setId]! + summary.coatedSetRefCounts[setId]! > 0
+    (setId) => summary.standardSetRefCounts[setId]! + summary.coatedSetRefCounts[setId]! > 0,
   );
   if (bindings.runtime.nativeMaterials === null) {
     throw new Error("Frame Program requires a native material publication");
@@ -300,7 +305,7 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
       request.internalWidth,
       request.internalHeight,
       request.outputWidth,
-      request.outputHeight
+      request.outputHeight,
     );
   }
   bindings.temporalSeed.assertPreparedFrame(request.internalWidth, request.internalHeight);

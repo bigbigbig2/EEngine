@@ -1,3 +1,4 @@
+import { SCGI_NATIVE_WGSL } from "./scgi_native.js";
 import { nativePublicationAccessors } from "../gpu/NativePublicationAbi.js";
 import { VIRTUAL_TEXTURE_FEEDBACK_WGSL } from "./virtual_texture.js";
 import { VT_FEEDBACK_MAILBOX_WORDS } from "../gpu/VirtualTextureAbi.js";
@@ -19,7 +20,7 @@ import {
   NATIVE_TEMPORAL_SEED_VIEW_BYTES,
 } from "../gpu/FinalPixelAbi.js";
 import { nativeTemporalSeedWgsl, nativeResponseWgsl } from "./native_temporal_seed.js";
-import { vsmSamplingWgsl, VSM_FILTER_NOISE_WGSL } from "./vsm_sampling.js";
+import { vsmSamplingWgsl, vsmFilterNoiseWgsl } from "./vsm_sampling.js";
 import { NATIVE_ENVIRONMENT_SAMPLE_WGSL } from "./native_environment_sample.js";
 import { ENVIRONMENT_BRDF_WGSL } from "./native_environment_brdf.js";
 import { LINEAR_REC709_TO_REC2020_WGSL } from "./working_color.js";
@@ -317,7 +318,10 @@ export function nativeSurfaceWgsl(
   };
   const reflections = profile.reflections === "sssr-base-coat";
   const reactiveDeclaration = profile.finalPixel
-    ? nativeTemporalSeedWgsl(0, 6, 8, 9)
+    ? nativeTemporalSeedWgsl(0, 6, 8, 9).replace(
+        "primary_motion.valid && entry.value_revision != 0u, 0.0, alpha_mask",
+        `primary_motion.valid && entry.value_revision != 0u, ${profile.unlit ? "0.0" : "scgi_reactivity"}, alpha_mask`,
+      )
     : nativeResponseWgsl(!!profile.reactive);
   const reactiveWrite =
     profile.reactive && !profile.finalPixel
@@ -346,7 +350,7 @@ ${localLighting.declarations}
 ${
   fusedSun
     ? `${FINAL_PIXEL_LIGHTING_DIRECTORY_WGSL}
-${VSM_FILTER_NOISE_WGSL}
+${vsmFilterNoiseWgsl("lighting_ranges.segments.y")}
 @group(1) @binding(8) var<uniform> vsm_constants: VsmSamplingConstants;
 @group(1) @binding(10) var vsm_atlas_depth: texture_depth_2d;
 @group(1) @binding(16) var vsm_atlas_sampler: sampler;`
@@ -368,6 +372,7 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
       : ""
   }
   let irradiance = sample_native_environment_mip(environment_diffuse, normal, 0u);
+  ${profile.finalPixel ? "let gi = scgi_native_irradiance(normal, pixel);" : ""}
   let reflection = reflect(-direction, normal);
   let radiance = sample_native_environment(environment_specular, reflection, material.roughness);
   let dfg = sample_environment_dfg(environment_dfg, environment_sampler, saturate(dot(normal, direction)), material.roughness);
@@ -382,7 +387,12 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
       reflect(-direction, material.coatNormal), material.coatRoughness) * coat_fresnel;
   }
   let ao = textureLoad(ambient_occlusion, vec2i(min(pixel, textureDimensions(ambient_occlusion) - vec2u(1u))), 0).r * material.occlusion;
-  let diffuse = irradiance * material.diffuse * RECIPROCAL_PI * ao;
+  ${
+    profile.finalPixel
+      ? `let indirect = mix(irradiance * ao, gi.xyz * material.occlusion, gi.w);
+  let diffuse = indirect * material.diffuse * RECIPROCAL_PI;`
+      : "let diffuse = irradiance * material.diffuse * RECIPROCAL_PI * ao;"
+  }
   let specular = radiance * environment_dfg_single_scatter(dfg, material.specularF0);
   ${
     reflections
@@ -509,7 +519,7 @@ ${materialLighting}
   const sharedCachePopulate = "  let cache_slot = select(0xffffffffu, 0u, tile_broadcast);";
   const pixelSelection = profile.compact
     ? /* wgsl */ `
-  let record = route.x * 8u;
+  let record = (route.x + route.z) * 8u;
   let work_index = group.y * groups.x + group.x;
   let valid_group = work_index < native_tiles[record + 1u];
   let address = select(0u, native_tiles[record] + work_index * 3u, valid_group);
@@ -561,7 +571,7 @@ ${sharedCachePopulate}
   if (!lane_active) { return; }
 `
     : /* wgsl */ `
-  let pixel = id.xy;
+  let pixel = id.xy + vec2u(route.y & 65535u, route.y >> 16u);
   let in_bounds = all(pixel < settings.dimensions.xy);
   let dense_key = select(OENGINE_VISIBILITY_KEY_EMPTY, textureLoad(visibility, vec2i(pixel), 0).r, in_bounds);
   wg_dense_keys[lane] = dense_key;
@@ -674,6 +684,7 @@ ${material}
 ${surfaceGeometryCompletionWgsl(profile.productGeometry, true, false, fusedSun)}
 ${NATIVE_RESOLVED_POSITION_WGSL}
 ${lighting}
+${profile.finalPixel && !profile.unlit ? SCGI_NATIVE_WGSL : ""}
 ${LINEAR_REC709_TO_REC2020_WGSL}
 ${profile.finalPixel ? FINAL_PIXEL_DIRECTORY_WGSL : NATIVE_MATERIAL_DIRECTORY_WGSL}
 struct NativeSurfaceSettings {
@@ -842,7 +853,20 @@ ${
     ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
     return;
   }
-  ${seedSurfaceBlock}
+  ${
+    profile.finalPixel && !profile.unlit
+      ? `final_pixel_receiver = pixel;
+  scgi_receiver_position = resolved_position;
+  scgi_receiver_normal = normalize(resolved.world_plane.xyz);
+  scgi_receiver_instance = frame_instances[work.instance_slot].source;
+  scgi_receiver_slot = work.instance_slot;
+  if ((scgi_receiver_instance.flags & 16u) != 0u &&
+      dot(scgi_receiver_normal, settings.camera_position_exposure.xyz - resolved_position) < 0.0) {
+    scgi_receiver_normal = -scgi_receiver_normal;
+  }
+  scgi_material_revision = entry.value_revision;`
+      : ""
+  }
   var corners: GeometryCompletion;
   if (cache_hit) {
     corners = wg_cache_corners[cache_slot];
@@ -881,7 +905,17 @@ ${
   let contribution = oengine_linear_rec709_to_rec2020(color) * settings.camera_position_exposure.w;
   var output_radiance = contribution;
 ${vsmDebug}
+  ${
+    profile.finalPixel && !profile.unlit
+      ? `if (lighting_ranges.extent_debug.z != 0u) {
+    let debug_gi = scgi_native_irradiance(scgi_receiver_normal, pixel);
+    output_radiance = select(oengine_linear_rec709_to_rec2020(debug_gi.xyz) * settings.camera_position_exposure.w,
+      vec3f(debug_gi.w), lighting_ranges.extent_debug.z == 2u);
+  }`
+      : ""
+  }
   textureStore(hdr, vec2i(pixel), vec4f(output_radiance, 1.0));
+  ${seedSurfaceBlock}
   ${reactiveWrite}
 }
 `;

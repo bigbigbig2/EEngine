@@ -53,7 +53,8 @@ export interface ScgiEstimatorInput {
 }
 
 /** Prepared finite estimator over the existing immutable query publication.
- * One owner per captured scene/light/environment revision. No private queue,
+ * One owner per captured scene and physical light/environment resources;
+ * compatible numeric publications refresh in place. No private queue,
  * scene, material evaluator, geometry payload or same-frame readback exists.
  * All scratch/query resources retire at the last consumer fence. */
 export class ScgiEstimator {
@@ -69,18 +70,18 @@ export class ScgiEstimator {
   private readonly pipelines = {} as Record<Entry, GPUComputePipeline>;
   private closest!: ScgiQueryBatch;
   private shadow!: ScgiQueryBatch;
-  private readonly lightRevision: number;
-  private readonly lightSourceRevision: number;
+  private lightRevision: number;
+  private lightSourceRevision: number;
   private readonly lightBuffer: GPUBuffer;
-  private readonly environmentRevision: number;
-  private readonly physicalGeneration: number;
+  private environmentRevision: number;
+  private physicalGeneration: number;
   private readonly materialRevision: number;
   private readonly environmentView: GPUTextureView;
   private readonly transmittanceView: GPUTextureView;
   private readonly physicalParameters: GPUBuffer;
-  private readonly pointPages: number;
-  private readonly spotPages: number;
-  private readonly directionalSlots: number;
+  private pointPages: number;
+  private spotPages: number;
+  private directionalSlots: number;
   private inFlight = 0;
   private destroyed = false;
   private poisoned = false;
@@ -90,7 +91,7 @@ export class ScgiEstimator {
     private readonly device: GPUDevice,
     readonly plan: ScgiAllocationPlan,
     readonly profile: ScgiEstimatorProfile,
-    readonly input: ScgiEstimatorInput
+    public input: ScgiEstimatorInput
   ) {
     this.arena = planScgiEstimator(device.limits, profile, plan.profile.updates);
     if (
@@ -258,6 +259,42 @@ export class ScgiEstimator {
     }
   }
 
+  /** Refresh finite lighting facts without rebuilding traversal or pipelines.
+   * Resource replacement still selects a new owner before encoding. */
+  refresh(input: ScgiEstimatorInput): boolean {
+    if (
+      this.destroyed ||
+      this.poisoned ||
+      input.scene !== this.input.scene ||
+      input.environment !== this.input.environment ||
+      input.physical !== this.input.physical ||
+      input.lights.buffer_data !== this.lightBuffer ||
+      (input.environment === "physical-scattered-sky" &&
+        input.physical!.ibl.views.specular !== this.environmentView) ||
+      (input.environment === "authored-preserve-asset" &&
+        input.lights.authoredIbl.views.specular !== this.environmentView) ||
+      (input.physical !== null && input.physical.luts.views.transmittance !== this.transmittanceView)
+    ) {
+      return false;
+    }
+    const pointPages = input.lights.pointLights.dispatch_page_count;
+    const spotPages = input.lights.spotLights.dispatch_page_count;
+    if (
+      Math.ceil(Math.max(pointPages, spotPages) / 64) > this.device.limits.maxComputeWorkgroupsPerDimension
+    ) {
+      throw new RangeError("SCGI lighting publication exceeds negotiated dispatch capacity");
+    }
+    this.input = Object.freeze({ ...input });
+    this.pointPages = pointPages;
+    this.spotPages = spotPages;
+    this.directionalSlots = input.lights.directionalLights.count;
+    this.lightRevision = input.lights.publicationRevision;
+    this.lightSourceRevision = input.lights.source.version;
+    this.environmentRevision = input.lights.authoredIbl.publicationRevision;
+    this.physicalGeneration = input.physical?.queryGeneration ?? 0;
+    return true;
+  }
+
   get cost() {
     const p = this.profile;
     const updates = this.plan.profile.updates;
@@ -336,9 +373,21 @@ export class ScgiEstimator {
     }
   }
 
-  encode(transaction: ScgiFrameTransaction): void {
+  encode(
+    transaction: ScgiFrameTransaction,
+    view?: {
+      readonly view: ArrayLike<number>;
+      readonly camera: ArrayLike<number>;
+      readonly coneWidth: number;
+      readonly coneSpread: number;
+    }
+  ): void {
     const { command, publication } = transaction;
     this.assertCurrent(command);
+    if (view !== undefined) {
+      this.closest.updateView(command, view.view, view.camera, view.coneWidth, view.coneSpread);
+      this.shadow.updateView(command, view.view, view.camera, view.coneWidth, view.coneSpread);
+    }
     if (
       publication.deviceEpoch !== this.input.scene.profile.deviceEpoch ||
       transaction.state !== "encoded" ||
@@ -502,10 +551,27 @@ export class ScgiEstimator {
   }
 
   destroy(): void {
+    if (this.destroyed) {
+      return;
+    }
     if (this.inFlight !== 0 || this.poisoned) {
       throw new Error("SCGI estimator retained by a consumer fence or poisoned submission");
     }
     this.destroyResources();
+  }
+
+  /** A failed submitted publication stays quarantined until device loss. */
+  retire(completion: Promise<void>): void {
+    void completion.then(
+      () => {
+        if (!this.poisoned) {
+          this.destroy();
+        }
+      },
+      () => {
+        this.poisoned = true;
+      }
+    );
   }
 
   private destroyResources(deviceLost = false): void {

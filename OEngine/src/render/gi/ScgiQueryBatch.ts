@@ -93,27 +93,27 @@ export class ScgiQueryBatch {
           storage: Math.max(maximum.storage, traversal.descriptors?.storage ?? 0),
           sampled: Math.max(maximum.sampled, traversal.descriptors?.sampled ?? 0),
           sampler: Math.max(maximum.sampler, traversal.descriptors?.sampler ?? 0),
-          uniform: Math.max(maximum.uniform, traversal.descriptors?.uniform ?? 0)
+          uniform: Math.max(maximum.uniform, traversal.descriptors?.uniform ?? 0),
         }),
-        { storage: 0, sampled: 0, sampler: 0, uniform: 0 }
+        { storage: 0, sampled: 0, sampler: 0, uniform: 0 },
       ),
       // Each parent-pointer traversal visits at most three times per node,
       // plus one BLAS return per admitted instance and the final TLAS exit.
-      continuationBytes: this.scene.shards.length === 0 ? 0 : this.input.rayCount * 64
+      continuationBytes: this.scene.shards.length === 0 ? 0 : this.input.rayCount * 64,
     });
   }
 
   private constructor(
     private readonly device: GPUDevice,
     private readonly scene: ScgiQueryScene,
-    private readonly input: ScgiQueryBatchInput
+    private readonly input: ScgiQueryBatchInput,
   ) {
     void device.lost.then(() => this.destroyResources());
   }
 
   private async retainPrepared<T extends { destroy(): void }>(
     resources: T[],
-    pending: Promise<T>
+    pending: Promise<T>,
   ): Promise<T> {
     const resource = await pending;
     if (this.destroyed) {
@@ -127,7 +127,7 @@ export class ScgiQueryBatch {
   static async create(
     device: GPUDevice,
     scene: ScgiQueryScene,
-    input: ScgiQueryBatchInput
+    input: ScgiQueryBatchInput,
   ): Promise<ScgiQueryBatch> {
     scgiInteger(input.wavefrontRounds, "query wavefront rounds", 0, 64);
     scgiInteger(input.rayCount, "query batch ray capacity", 1);
@@ -162,7 +162,7 @@ export class ScgiQueryBatch {
           input.rayCount,
           input.batch,
           input.resultByteOffset,
-          input.count
+          input.count,
         );
         if (owner.destroyed) {
           rayWork.destroy();
@@ -180,7 +180,7 @@ export class ScgiQueryBatch {
       owner.continuation = device.createBuffer({
         label: "SCGI/query continuation",
         size: continuationBytes,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       });
       owner.buffers.push(owner.continuation);
       const source = scene.sourceInstances.sourceSnapshot;
@@ -206,8 +206,8 @@ export class ScgiQueryBatch {
           input.batch,
           input.rayCount,
           input.resultByteOffset,
-          publication.rasterClasses.length
-        )
+          publication.rasterClasses.length,
+        ),
       );
       const pendingWork = await owner.retainPrepared(
         owner.work,
@@ -219,8 +219,8 @@ export class ScgiQueryBatch {
           input.rayCount,
           input.resultByteOffset,
           1,
-          true
-        )
+          true,
+        ),
       );
       const diffuseWork = input.anyHit
         ? undefined
@@ -233,8 +233,8 @@ export class ScgiQueryBatch {
               input.batch,
               input.rayCount,
               input.resultByteOffset,
-              scene.materials.bins.length
-            )
+              scene.materials.bins.length,
+            ),
           );
       const tailWork = await ScgiQueryTailWork.create(
         device,
@@ -243,7 +243,7 @@ export class ScgiQueryBatch {
         input.resultByteOffset,
         owner.continuation,
         input.wavefrontRounds === 0 ? undefined : pendingWork,
-        owner.rayWork === undefined ? undefined : { buffer: owner.rayWork.buffer, offset: 0 }
+        owner.rayWork === undefined ? undefined : { buffer: owner.rayWork.buffer, offset: 0 },
       );
       if (owner.destroyed) {
         tailWork.destroy();
@@ -254,7 +254,7 @@ export class ScgiQueryBatch {
         view: input.view,
         camera: input.camera,
         coneWidth: input.coneWidth,
-        coneSpread: input.coneSpread
+        coneSpread: input.coneSpread,
       };
       for (const shard of scene.shards) {
         const common = {
@@ -270,7 +270,7 @@ export class ScgiQueryBatch {
           rayCount: input.rayCount,
           resultByteOffset: input.resultByteOffset,
           anyHit: input.anyHit,
-          coverageStatus: scene.coverageStatus
+          coverageStatus: scene.coverageStatus,
         };
         const rayWork = owner.rayWork === undefined ? {} : { rayWork: owner.rayWork };
         await owner.retainPrepared(
@@ -280,8 +280,8 @@ export class ScgiQueryBatch {
             ...rayWork,
             merge: owner.candidates.length > 0,
             anyHit: false,
-            wavefront: { phase: "candidate", continuation: owner.continuation }
-          })
+            wavefront: { phase: "candidate", continuation: owner.continuation },
+          }),
         );
         for (let classIndex = 0; classIndex < publication.rasterClasses.length; classIndex++) {
           const coverage = { publication, classIndex, ...view };
@@ -291,8 +291,8 @@ export class ScgiQueryBatch {
               ...common,
               ...rayWork,
               coverage,
-              wavefront: { phase: "coverage", continuation: owner.continuation, work: coverageWork }
-            })
+              wavefront: { phase: "coverage", continuation: owner.continuation, work: coverageWork },
+            }),
           );
           await owner.retainPrepared(
             owner.tail,
@@ -304,8 +304,8 @@ export class ScgiQueryBatch {
               wavefront: { phase: "tail", continuation: owner.continuation },
               tailWork: owner.tailWork,
               // Without a wavefront, the complete tail consumes all input rays.
-              ...(input.wavefrontRounds === 0 ? {} : { pendingWork })
-            })
+              ...(input.wavefrontRounds === 0 ? {} : { pendingWork }),
+            }),
           );
         }
         for (const bin of input.anyHit ? [] : scene.materials.bins) {
@@ -326,9 +326,9 @@ export class ScgiQueryBatch {
                 ...(owner.usesVirtualTextures && input.feedback === undefined
                   ? { feedbackBuffers: scene.virtualTextures!.queryFeedbackBuffers }
                   : {}),
-                ...view
-              }
-            })
+                ...view,
+              },
+            }),
           );
         }
       }
@@ -393,10 +393,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   batch[result + 6u] = 0u;
   batch[result + 7u] = 0u;
 }
-`
+`,
     });
     const pipeline = await PipelineCompilationQueue.forDevice(this.device).run(() =>
-      this.device.createComputePipelineAsync({ layout: "auto", compute: { module, entryPoint: "main" } })
+      this.device.createComputePipelineAsync({ layout: "auto", compute: { module, entryPoint: "main" } }),
     );
     if (this.destroyed) {
       throw new Error("Query device was lost during empty-domain preparation");
@@ -405,14 +405,14 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       label: "SCGI/empty query parameters",
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      mappedAtCreation: true
+      mappedAtCreation: true,
     });
     this.buffers.push(settings);
     new Uint32Array(settings.getMappedRange()).set([
       this.input.rayCount,
       this.input.resultByteOffset / 4,
       0,
-      0
+      0,
     ]);
     settings.unmap();
     const group = this.device.createBindGroup({
@@ -420,8 +420,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       entries: [
         { binding: 0, resource: { buffer: settings } },
         { binding: 1, resource: { buffer: this.input.batch } },
-        { binding: 2, resource: { buffer: this.scene.coverageStatus } }
-      ]
+        { binding: 2, resource: { buffer: this.scene.coverageStatus } },
+      ],
     });
     this.emptyScene = { pipeline, group, settings };
   }
@@ -471,18 +471,18 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       : ""
   }`
   }
-}`
+}`,
     });
     const pipeline = await PipelineCompilationQueue.forDevice(this.device).run(() =>
-      this.device.createComputePipelineAsync({ layout: "auto", compute: { module, entryPoint: "main" } })
+      this.device.createComputePipelineAsync({ layout: "auto", compute: { module, entryPoint: "main" } }),
     );
     const group = this.device.createBindGroup({
       layout: pipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: this.scene.sourceInstances.sourceSnapshot } },
         { binding: 1, resource: { buffer: this.input.batch } },
-        ...(!this.input.anyHit ? [{ binding: 2, resource: { buffer: this.input.output } }] : [])
-      ]
+        ...(!this.input.anyHit ? [{ binding: 2, resource: { buffer: this.input.output } }] : []),
+      ],
     });
     this.resolve = { pipeline, group };
   }
@@ -512,7 +512,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             },
             () => {
               this.poisoned = true;
-            }
+            },
           );
         },
         aborted: () => {
@@ -520,7 +520,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         },
         failed: () => {
           this.poisoned = true;
-        }
+        },
       });
     }
     this.rayWork?.encode(command);
@@ -575,6 +575,18 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     pass.setBindGroup(0, this.resolve!.group);
     pass.dispatchWorkgroups(Math.ceil(this.input.rayCount / 64));
     pass.end();
+  }
+
+  updateView(
+    command: ShadeGPUCommandContext,
+    view: ArrayLike<number>,
+    camera: ArrayLike<number>,
+    coneWidth: number,
+    coneSpread: number,
+  ): void {
+    for (const traversal of [...this.coverage, ...this.tail, ...this.diffuse]) {
+      traversal.updateView(command, view, camera, coneWidth, coneSpread);
+    }
   }
 
   /** Pre-submit cancellation or final successful consumer fence. Scene/page

@@ -19,14 +19,14 @@ export class ScgiInvalidation {
   private constructor(
     private readonly device: GPUDevice,
     readonly capacity: number,
-    private readonly pipeline: GPUComputePipeline
+    private readonly pipeline: GPUComputePipeline,
   ) {
     const allocated: GPUBuffer[] = [];
     const allocate = (label: string, size: number) => {
       const buffer = device.createBuffer({
         label,
         size,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
       });
       allocated.push(buffer);
       return buffer;
@@ -34,7 +34,7 @@ export class ScgiInvalidation {
     try {
       this.banks = [
         allocate("SCGI/old dirty facts", capacity * 128),
-        allocate("SCGI/new dirty facts", capacity * 128)
+        allocate("SCGI/new dirty facts", capacity * 128),
       ];
       this.dirty = allocate("SCGI/dirty count overflow regions", 1040);
     } catch (error) {
@@ -61,8 +61,8 @@ export class ScgiInvalidation {
     const pipeline = await PipelineCompilationQueue.forDevice(device).run(() =>
       device.createComputePipelineAsync({
         layout: "auto",
-        compute: { module, entryPoint: "main" }
-      })
+        compute: { module, entryPoint: "main" },
+      }),
     );
     return new ScgiInvalidation(device, capacity, pipeline);
   }
@@ -71,14 +71,14 @@ export class ScgiInvalidation {
       privateBytes: this.capacity * 256 + 1040,
       bytesPerSource: 256,
       maximumRegions: 32,
-      dispatches: 1
+      dispatches: 1,
     };
   }
   encode(
     transaction: ScgiFrameTransaction,
     source: GeometryQueryInstanceSnapshot,
     materialEpoch: number,
-    guard: number
+    guard: number,
   ): GPUBuffer {
     const command = transaction.command;
     if (
@@ -114,8 +114,8 @@ export class ScgiInvalidation {
         { binding: 2, resource: { buffer: this.banks[this.role]! } },
         { binding: 3, resource: { buffer: this.banks[next]! } },
         { binding: 4, resource: { buffer: this.dirty } },
-        { binding: 5, resource: { buffer: settings, size: 48 } }
-      ]
+        { binding: 5, resource: { buffer: settings, size: 48 } },
+      ],
     });
     const pass = command.beginComputePass({ label: "SCGI/old new bounds invalidation" });
     pass.setPipeline(this.pipeline);
@@ -135,7 +135,7 @@ export class ScgiInvalidation {
           },
           () => {
             this.poisoned = true;
-          }
+          },
         );
       },
       aborted: () => {
@@ -144,15 +144,30 @@ export class ScgiInvalidation {
       },
       failed: () => {
         this.poisoned = true;
-      }
+      },
     });
     return this.dirty;
   }
   destroy(): void {
+    if (this.destroyed) {
+      return;
+    }
     if (this.inFlight || this.pending || this.poisoned) {
       throw new Error("SCGI invalidation retained or poisoned");
     }
     this.release();
+  }
+  retire(completion: Promise<void>): void {
+    void completion.then(
+      () => {
+        if (!this.poisoned) {
+          this.destroy();
+        }
+      },
+      () => {
+        this.poisoned = true;
+      },
+    );
   }
   private release(): void {
     if (this.destroyed) {

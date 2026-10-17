@@ -51,9 +51,6 @@ verifies:
     - OEngine/src/render/passes/MotionBlurPass.ts
     - OEngine/src/render/surface/SurfacePresentPass.ts
     - OEngine/src/render/surface/DisplayColorGrading.ts
-    - OEngine/src/gpu/LightProbeRecord.ts
-    - OEngine/src/gpu/LightProbeAtlas.ts
-    - OEngine/src/gpu/GPULightProbeVolume.ts
 ---
 
 # EEngine Renderer Feature Completion：功能扩展粗路线
@@ -74,7 +71,7 @@ verifies:
 
 | 领域 | 当前源码事实 | 对粗路线的影响 |
 |---|---|---|
-| 主帧与配置 | `RendererCore` 创建 owner；`FrameProgram`/Lowering 形成唯一生产图；`RendererConfig` 已有AO/SSSR及VT配置，GI尚无完整设置；`RenderFeatureRegistry` 不在生产选择链 | 继续扩展真实设置→需求→图/PSO→绑定链，不先加 EffectsManager 或第二个 feature scheduler |
+| 主帧与配置 | `RendererCore` 创建 owner；`FrameProgram`/Lowering 形成唯一生产图；`RendererConfig` 已有AO/SSSR、VT及显式启用的Surface Cache GI设置；`RenderFeatureRegistry` 不在生产选择链 | 继续扩展真实设置→需求→图/PSO→绑定链，不先加 EffectsManager 或第二个 feature scheduler |
 | AO | scalar XeGTAO完整链实际进入Native diffuse IBL；七项设置、Medium/High/0..3去噪和独立AO debug已接通，noise仍固定0，原开关已退休；结果只读模块执行文 | 后续按真实画面需求决定专属temporal/bent normal/specular occlusion，不重新发明或再实施一套AO |
 | HZB | `HierarchicalZBuffer`/`hzb_reduce` 为反向深度 RG16F 保守 min/max，首级从内部尺寸的一半开始，有 current/previous；FrameProgram 目前仅由几何 HZB 需求触发构建，late recheck 后可再构建 final HZB | 可作为 tracing 的候选粗层；SSR 需核对最终可见性版本与精度，裁决是否结合全分辨率 Depth 精细验证或新增必要层级。已有纹理不等于任意效果都拿到了正确版本/精度 |
 | 深度/法线 | XeGTAO 有私有五级 weighted view-depth 和深度重建法线；Native invocation 内有真实材质 normal/roughness/coat | AO weighted depth 与遮挡 HZB 数学不同，不能强行合一；深度法线也不等于 normal-map/coat 法线 |
@@ -82,7 +79,7 @@ verifies:
 | 颜色金字塔/SSR | SSSR已沿Native base/coat receiver→完整追踪/去噪→baseline replacement接入生产；不需要opaque color pyramid，旧SSR shader已删除。`SharedColorPyramidPass`仍未调度；结果只读[SSSR执行](../next-execution/eengine-sssr-execution-2026-10.md) | Surface Cache GI的近场gather按实际采样需要裁决颜色版本/过滤，不恢复旧owner或把SSSR无金字塔的选择强加给新算法 |
 | 纹理 | `TextureResidency`保留完整resident类型，`VirtualTextureResidency`已接tiled Product、physical pools、Native过滤、延迟反馈/背压和逐tile淘汰；完整coverage依赖仍resident | VT模块结果只读其执行文；当前剩余几何固定槽与首帧准备进入独立专项，不能再按“尚无VT”重复规划 |
 | Coverage | exact R8 plane 已独立；`nativeMaterialCoverageProgram` 从任意 graph 提取 alpha 子图，Main/VSM 共用语义 | alpha 可能依赖 RGB/其他 sample，VT v1 排除 coverage 时要保护整个依赖闭包，不能只保护标为 alpha-mask 的贴图 |
-| Probes/GI | 旧 `GPULightProbeVolume`/atlas 是可选惰性数据，record 含低阶系数；没有当前局部镜面反射或 world GI 的生产消费链 | 旧 diffuse probe 数据不等于预滤波 specular probe；不能直接宣布 box-projected reflections 已具备，也不能据此选定 GI |
+| Probes/GI | Surface Cache GI已沿世界query/cache→half directional field→Native接入；旧无consumer的probe/atlas/BLAS/TLAS已退休；近场gather及整链资格只读SCGI执行文 | GI是当前唯一diffuse owner；不据此宣布局部镜面probe、全部AAA画质或整链性能资格已具备 |
 | 阴影/透明/介质 | LocalLightWork 有点/聚光照明与完整 overflow；当前 VSM 服务 Physical Sun；无透明/局部体积主图 stage，transmission>0 仍拒绝 | 局部阴影是独立能力；BLEND、透射、水面和参与介质分别定范围，不只取消拒绝或接一个旧类 |
 | Temporal/显示 | Native 1:1、FSR3 upscale、bypass 各有实际路径；Present 已消费静态 SDR/HDR LUT 与 GT7/曝光，独立 ColorGradingPass 未调度；MotionBlurPass 和 DRS 类不在实际控制链 | 保留现行 AA/FSR/显示；后续完善公开调色控制、DRS、运动模糊等，不把“独立 pass 未调度”误判为“没有色彩分级” |
 

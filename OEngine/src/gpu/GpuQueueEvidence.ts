@@ -8,13 +8,9 @@ export type GpuSubmitOwnerKind = "render-frame" | "one-shot" | "tool" | "debug-r
 const GPU_SUBMIT_OWNER_BY_LABEL = new Map<string, GpuSubmitOwnerKind>([
   ["Renderer/visibility-frame", "render-frame"],
   ["GraphicsContext/one-shot-maintenance", "one-shot"],
-  ["LPV/generate-locations", "tool"],
-  ["LPV/dering", "tool"],
-  ["LPV/bake", "tool"],
   ["GPUCameraState/copy", "tool"],
   ["GPUDatabase/read", "debug-readback"],
   ["GPUCollectionLimits/read", "debug-readback"],
-  ["LightProbeVolume/read", "debug-readback"],
   ["GPUIndexedRecordTable/read", "debug-readback"],
   ["GPUTextureContext/resize-copy", "recovery"],
   ["MeshletGpuPool/compact", "tool"],

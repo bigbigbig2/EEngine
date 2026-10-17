@@ -2,7 +2,6 @@ import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContex
 import type { Scene } from "../scene/Scene.js";
 import { Brick4LightMap } from "./Brick4LightMap.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
-import { GPULightProbeVolume } from "./GPULightProbeVolume.js";
 import { GPULightCollection } from "./LightDatabase.js";
 import { GPUVolumetrics } from "./GPUVolumetrics.js";
 
@@ -24,7 +23,7 @@ let nextEnvironmentId = 1;
  *
  * This owner deliberately contains no geometry, material, skinning, or TLAS
  * state and remains independent from the geometry Render World.
- * Legacy/optional environment tables (probe volume, brick4 lightmap, volumetrics)
+ * Optional environment tables (brick4 lightmap, volumetrics)
  * are lazily allocated only when populated or explicitly requested.
  */
 export class GPUSceneEnvironmentContext {
@@ -33,7 +32,6 @@ export class GPUSceneEnvironmentContext {
   readonly lights: GPULightCollection;
 
   private readonly graphics: GraphicsContext;
-  private _lightProbeVolume: GPULightProbeVolume | null = null;
   private _volumetricLightMap: Brick4LightMap | null = null;
   private _volumetrics: GPUVolumetrics | null = null;
   private lastSceneChangeRevision = -1;
@@ -46,13 +44,6 @@ export class GPUSceneEnvironmentContext {
   ) {
     this.graphics = graphics;
     this.lights = new GPULightCollection(graphics, scene.lights);
-  }
-
-  get light_probe_volume(): GPULightProbeVolume {
-    if (this._lightProbeVolume === null) {
-      this._lightProbeVolume = new GPULightProbeVolume(this.graphics, this.scene.light_probe_volume);
-    }
-    return this._lightProbeVolume;
   }
 
   get volumetric_light_map(): Brick4LightMap {
@@ -87,9 +78,6 @@ export class GPUSceneEnvironmentContext {
     });
 
     const changes = this.scene.changesSince(this.lastSceneChangeRevision);
-    if (this._lightProbeVolume !== null || this.scene.light_probe_volume.probe_count > 0) {
-      this.light_probe_volume.update();
-    }
     this.lights.update(command, changes.fullResyncRequired || changes.changedLights.length > 0);
     if (this._volumetrics !== null || this.scene.volumetrics.volumes.length > 0) {
       this.volumetrics.update(command, timeDeltaSeconds);
@@ -106,9 +94,6 @@ export class GPUSceneEnvironmentContext {
   /** Explicit tool path; render frames use encodeFrame for idempotence. */
   update(command: ShadeGPUCommandContext): void {
     const changes = this.scene.changesSince(this.lastSceneChangeRevision);
-    if (this._lightProbeVolume !== null || this.scene.light_probe_volume.probe_count > 0) {
-      this.light_probe_volume.update();
-    }
     this.lights.update(command, changes.fullResyncRequired || changes.changedLights.length > 0);
     if (this._volumetrics !== null || this.scene.volumetrics.volumes.length > 0) {
       this.volumetrics.update(command, 0);
@@ -125,17 +110,11 @@ export class GPUSceneEnvironmentContext {
   }
 
   get gpu_memory_usage(): number {
-    return (
-      this.lights.gpu_memory_usage +
-      (this._lightProbeVolume?.gpu_memory_usage ?? 0) +
-      (this._volumetricLightMap?.gpu_memory_usage ?? 0)
-    );
+    return this.lights.gpu_memory_usage + (this._volumetricLightMap?.gpu_memory_usage ?? 0);
   }
 
   destroy(): void {
     this.lights.destroy();
-    this._lightProbeVolume?.destroy();
-    this._lightProbeVolume = null;
     this._volumetricLightMap?.destroy();
     this._volumetricLightMap = null;
     this._volumetrics?.destroy();

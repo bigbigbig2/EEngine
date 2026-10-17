@@ -6,7 +6,7 @@ import {
   hierarchyNodeChildCountV3,
   hierarchyNodeChildStartV3,
   hierarchyNodeGroupIdV3,
-  hierarchyNodeIsGroupV3
+  hierarchyNodeIsGroupV3,
 } from "../assets/GeometryAbiV3.js";
 import {
   assertGeometryProductDescriptorV1,
@@ -17,7 +17,7 @@ import {
   snapshotGeometryProductSourceV1,
   type GeometryProductDescriptorV1,
   type GeometryPageProductV1,
-  type GeometryProductRevisionSourceV1
+  type GeometryProductRevisionSourceV1,
 } from "../assets/geometry-product/GeometryProductV1.js";
 import {
   GEOMETRY_PAGE_LOCATION_NON_RESIDENT,
@@ -29,18 +29,18 @@ import {
   packGeometryProductAssetReferenceV1,
   packGeometryProductMetadataHeapHeaderV1,
   packGeometryProductTableRecordV1,
-  encodeGeometryProductGpuLocationV1
+  encodeGeometryProductGpuLocationV1,
 } from "./GeometryProductGpuAbiV1.js";
 import {
   prepareProductResidentAttributes,
   geometryQueryContentHash,
   preparedResidentPage,
   releasePreparedPage,
-  type ProductResidentPage
+  type ProductResidentPage,
 } from "../assets/geometry-product/GeometryProductResidentAttributes.js";
 import {
   geometryProductGpuBudgetEvidence,
-  reserveGeometryProductMetadataBytes
+  reserveGeometryProductMetadataBytes,
 } from "./GeometryProductGpuBudget.js";
 import { GeometryProductBytePool, type GeometryPageLease } from "./GeometryProductBytePool.js";
 import { geometryPagePayloadBytes } from "../assets/geometry-product/GeometryPagePayload.js";
@@ -50,20 +50,20 @@ import {
 } from "../assets/geometry-product/GeometryProductQuerySection.js";
 import {
   GeometryRefineInfluenceV1,
-  GEOMETRY_REFINE_INFLUENCE_FLOATS
+  GEOMETRY_REFINE_INFLUENCE_FLOATS,
 } from "../assets/geometry-product/GeometryRefineInfluenceV1.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { GeometryPagePublicationHintV1 } from "./GeometryPageScheduler.js";
 import {
   selectGeometryProductResidencyProfileV1,
   type GeometryProductResidencyProfileOptionsV1,
-  type GeometryProductResidencyProfilePlanV1
+  type GeometryProductResidencyProfilePlanV1,
 } from "./GeometryProductResidencyProfile.js";
 export {
   GEOMETRY_PAGE_LOCATION_NON_RESIDENT,
   GEOMETRY_PAGE_LOCATION_PINNED,
   GEOMETRY_PAGE_LOCATION_RESIDENT,
-  GEOMETRY_PAGE_LOCATION_STRIDE
+  GEOMETRY_PAGE_LOCATION_STRIDE,
 } from "./GeometryProductGpuAbiV1.js";
 
 export interface GeometryPageLocationV1 {
@@ -222,14 +222,14 @@ export interface GeometryProductPageLocationSinkV1 {
   pageLocationAddress(
     productTableSlot: number,
     productGeneration: number,
-    pageId: number
+    pageId: number,
   ): { readonly buffer: GPUBuffer; readonly byteOffset: number } | undefined;
   /** Immediate publication used only by the Product admission transaction. */
   publishPageLocation(
     productTableSlot: number,
     productGeneration: number,
     pageId: number,
-    location: GeometryPageLocationV1 | undefined
+    location: GeometryPageLocationV1 | undefined,
   ): void;
 }
 
@@ -297,12 +297,10 @@ export class VirtualGeometryResidency {
   readonly #retiringLocations = new Map<number, GeometryPageLocationV1>();
   readonly #requestedRetirements = new Set<number>();
   readonly #pageLeases = new Map<number, GeometryPageLease>();
-  readonly #queryPages = new Map<
-    number,
-    { references: number; readonly allocation: GeometryPageLease }
-  >();
+  readonly #queryPages = new Map<number, { references: number; readonly allocation: GeometryPageLease }>();
   readonly #queryLeaseReleases = new Set<() => void>();
   #queryTeardown = false;
+  #recoverySourceTransferred = false;
   readonly #completedRetirements = new Set<number>();
   readonly #preparedPages = new WeakMap<GeometryPageProductV1, ProductResidentPage>();
   readonly #pagePayloadBytes = new Map<number, number>();
@@ -352,7 +350,7 @@ export class VirtualGeometryResidency {
     productTableSlot: number,
     profile: GeometryProductResidencyProfilePlanV1,
     signal?: AbortSignal,
-    directory?: GeometryProductPageLocationSinkV1
+    directory?: GeometryProductPageLocationSinkV1,
   ) {
     this.#source = source;
     this.#descriptor = source.descriptor;
@@ -373,12 +371,12 @@ export class VirtualGeometryResidency {
     const assets = new DataView(
       source.descriptor.assetRecords.buffer,
       source.descriptor.assetRecords.byteOffset,
-      source.descriptor.assetRecords.byteLength
+      source.descriptor.assetRecords.byteLength,
     );
     const groups = new DataView(
       source.descriptor.groupDirectory.buffer,
       source.descriptor.groupDirectory.byteOffset,
-      source.descriptor.groupDirectory.byteLength
+      source.descriptor.groupDirectory.byteLength,
     );
     for (let asset = 0; asset < assetCount; asset++) {
       const begin = assets.getUint32(asset * 128 + 88, true);
@@ -438,7 +436,7 @@ export class VirtualGeometryResidency {
         productGeneration,
         productTableSlot,
         assetCount,
-        profile.initialBankBytes
+        profile.initialBankBytes,
       );
       device.queue.writeBuffer(this.#metadata, 0, initial);
     } catch (error) {
@@ -454,7 +452,7 @@ export class VirtualGeometryResidency {
     productGeneration = 1,
     productTableSlot = 0,
     signal?: AbortSignal,
-    options: VirtualGeometryResidencyOptionsV1 = {}
+    options: VirtualGeometryResidencyOptionsV1 = {},
   ): Promise<VirtualGeometryResidency> {
     let owner: VirtualGeometryResidency | undefined;
     const cancel = () => owner?.destroy();
@@ -472,9 +470,9 @@ export class VirtualGeometryResidency {
         {
           maxBufferSize: Number(device.limits.maxBufferSize),
           maxStorageBufferBindingSize: Number(device.limits.maxStorageBufferBindingSize),
-          maxStorageBuffersPerShaderStage: Number(device.limits.maxStorageBuffersPerShaderStage ?? 16)
+          maxStorageBuffersPerShaderStage: Number(device.limits.maxStorageBuffersPerShaderStage ?? 16),
         },
-        options
+        options,
       );
       if (!profile.enabled)
         throw new RangeError(`Geometry Product residency is unavailable: ${profile.reason}`);
@@ -485,7 +483,7 @@ export class VirtualGeometryResidency {
         productTableSlot,
         profile,
         signal,
-        options.directory
+        options.directory,
       );
       // Replaced Products can remain alive only through a query snapshot. They
       // no longer occur in the runtime's current directory at device loss.
@@ -509,8 +507,10 @@ export class VirtualGeometryResidency {
     // prevents new/old Product overlap while keeping refinement bindings fixed.
     this.#bytePool = GeometryProductBytePool.retain(this.device, {
       ...this.#residencyProfile,
-      initialBankBytes: Math.min(this.#residencyProfile.bankBytes,
-        Math.max(this.#residencyProfile.initialBankBytes, initialPageBankBytes(this.#descriptor)))
+      initialBankBytes: Math.min(
+        this.#residencyProfile.bankBytes,
+        Math.max(this.#residencyProfile.initialBankBytes, initialPageBankBytes(this.#descriptor)),
+      ),
     });
     this.#removePoolListener = this.#bytePool.onBindings((command, bankBytes) => {
       if (this.#metadata !== undefined && bankBytes !== this.#standaloneBankBytes) {
@@ -533,12 +533,14 @@ export class VirtualGeometryResidency {
       }
     });
     const activation = await this.#bytePool.reserveActivation(
-      pages.map((pageId) => geometryPagePayloadBytes(this.#descriptor, pageId)), this.#signal,
+      pages.map((pageId) => geometryPagePayloadBytes(this.#descriptor, pageId)),
+      this.#signal,
       (leases) => {
         for (let index = 0; index < pages.length; index++) {
           this.#pageLeases.set(pages[index]!, leases[index]!);
         }
-      });
+      },
+    );
     this.#signal?.throwIfAborted();
     const unowned = new Set(activation);
     // Admission owns reserved intervals even while asynchronous IO is pending.
@@ -554,7 +556,10 @@ export class VirtualGeometryResidency {
         if (this.#source.readPages !== undefined && index % bootstrapBatchPages === 0) {
           try {
             prefetchedPages = [
-              ...(await this.#source.readPages(pages.slice(index, index + bootstrapBatchPages), this.#signal))
+              ...(await this.#source.readPages(
+                pages.slice(index, index + bootstrapBatchPages),
+                this.#signal,
+              )),
             ];
           } catch (error) {
             this.#failedPages++;
@@ -569,7 +574,7 @@ export class VirtualGeometryResidency {
           const page = snapshotUnverifiedGeometryPageV1(
             prefetchedPages !== undefined
               ? prefetchedPages[index % bootstrapBatchPages]!
-              : await this.#source.readPage(pageId, this.#signal)
+              : await this.#source.readPage(pageId, this.#signal),
           );
           if (this.#signal?.aborted)
             throw this.#signal.reason ?? new Error("Geometry Product admission was cancelled");
@@ -597,7 +602,7 @@ export class VirtualGeometryResidency {
           const location = this.#writeResidentPage(
             page,
             lease,
-            GEOMETRY_PAGE_LOCATION_RESIDENT | GEOMETRY_PAGE_LOCATION_PINNED
+            GEOMETRY_PAGE_LOCATION_RESIDENT | GEOMETRY_PAGE_LOCATION_PINNED,
           );
           unowned.delete(lease);
           this.#pageLocations.set(pageId, location);
@@ -630,7 +635,7 @@ export class VirtualGeometryResidency {
     const groupView = new DataView(
       this.#descriptor.groupDirectory.buffer,
       this.#descriptor.groupDirectory.byteOffset,
-      this.#descriptor.groupDirectory.byteLength
+      this.#descriptor.groupDirectory.byteLength,
     );
     for (let groupId = 0; groupId < this.#descriptor.groupDirectory.byteLength / 16; groupId++) {
       const pageId = groupView.getUint32(groupId * 16, true),
@@ -640,9 +645,8 @@ export class VirtualGeometryResidency {
           groupId,
           Object.freeze({
             ...location,
-            byteOffset:
-              location.byteOffset + groupView.getUint32(groupId * 16 + 4, true)
-          })
+            byteOffset: location.byteOffset + groupView.getUint32(groupId * 16 + 4, true),
+          }),
         );
     }
     for (const pageId of this.#descriptor.activationPageIds)
@@ -650,7 +654,7 @@ export class VirtualGeometryResidency {
     if (this.#signal?.aborted)
       throw this.#signal.reason ?? new Error("Geometry Product admission was cancelled");
     const locations = new Uint8Array(
-      Math.max(GEOMETRY_PAGE_LOCATION_STRIDE, this.#descriptor.pageRecords.byteLength / 2)
+      Math.max(GEOMETRY_PAGE_LOCATION_STRIDE, this.#descriptor.pageRecords.byteLength / 2),
     );
     const locationView = new DataView(locations.buffer);
     for (let pageId = 0; pageId < this.#descriptor.pageRecords.byteLength / 32; pageId++) {
@@ -679,15 +683,16 @@ export class VirtualGeometryResidency {
     return Object.freeze({
       descriptor: this.#descriptor,
       ...(this.#source.sceneAssetIndices === undefined
-        ? {} : { sceneAssetIndices: this.#source.sceneAssetIndices }),
+        ? {}
+        : { sceneAssetIndices: this.#source.sceneAssetIndices }),
       readPage: (pageId: number, signal?: AbortSignal) => this.#source.readPage(pageId, signal),
       ...(this.#source.readPages === undefined
         ? {}
         : {
             readPages: (pageIds: ArrayLike<number>, signal?: AbortSignal, priority?: 0 | 1 | 2) =>
-              this.#source.readPages!(pageIds, signal, priority)
+              this.#source.readPages!(pageIds, signal, priority),
           }),
-      release: () => undefined
+      release: () => undefined,
     });
   }
   get productGeneration(): number {
@@ -708,7 +713,7 @@ export class VirtualGeometryResidency {
         this.#productTableSlot,
         this.#productGeneration,
         pageId,
-        this.#pageLocations.get(pageId)
+        this.#pageLocations.get(pageId),
       );
   }
   activatePublication(): void {
@@ -749,7 +754,9 @@ export class VirtualGeometryResidency {
     this.#bytePool!.exposeBindings();
     const owner = this;
     return Object.freeze({
-      get bindingEpoch() { return String(owner.#bytePool!.bindingEpoch); },
+      get bindingEpoch() {
+        return String(owner.#bytePool!.bindingEpoch);
+      },
       productTableSlot: this.#productTableSlot,
       productGeneration: this.#productGeneration,
       pageCount: this.#descriptor.pageRecords.byteLength / GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE,
@@ -758,7 +765,9 @@ export class VirtualGeometryResidency {
       productTableByteOffset: this.#metadataLayout.productRecord,
       pageLocationByteOffset: this.#metadataLayout.pageLocations,
       productTable: this.#metadata!,
-      get banks() { return owner.#bytePool!.banks; }
+      get banks() {
+        return owner.#bytePool!.banks;
+      },
     });
   }
   pageLocationTable(): GPUBuffer {
@@ -772,16 +781,25 @@ export class VirtualGeometryResidency {
   }
   /** All-or-nothing acquisition from the committed view or the exact command's
    * frame-readable candidate. Abort revokes candidate leases before slot reuse. */
-  retainQueryPages(
-    pageIds: readonly number[],
-    command?: ShadeGPUCommandContext,
-  ): GeometryQueryPageLease {
-    const candidate = this.#candidateState;
+  queryPagesAvailable(pageIds: readonly number[], command: ShadeGPUCommandContext): boolean {
     if (
       this.#destroyed ||
-      (candidate !== undefined && candidate.command !== command) ||
-      command?.closed
+      command.closed ||
+      (this.#candidateState !== undefined && this.#candidateState.command !== command)
     ) {
+      return false;
+    }
+    return pageIds.every(
+      (pageId) =>
+        !this.#requestedRetirements.has(pageId) &&
+        (this.#pageLocations.has(pageId) ||
+          (this.#candidateState?.pageIds.includes(pageId) === true && this.#stagedPages.has(pageId))),
+    );
+  }
+
+  retainQueryPages(pageIds: readonly number[], command?: ShadeGPUCommandContext): GeometryQueryPageLease {
+    const candidate = this.#candidateState;
+    if (this.#destroyed || (candidate !== undefined && candidate.command !== command) || command?.closed) {
       throw new Error("Query pages require a committed publication or its exact open command");
     }
     if (pageIds.length > this.#residencyProfile.maxPageLeases) {
@@ -890,9 +908,11 @@ export class VirtualGeometryResidency {
     return Object.freeze([...pages]);
   }
 
-  retainQueryGeometry(command?: ShadeGPUCommandContext,
+  retainQueryGeometry(
+    command?: ShadeGPUCommandContext,
     segmentBytes = this.device.limits.maxStorageBufferBindingSize,
-    cut: GeometryQueryCut = geometryQueryCut(this.#descriptor)): GeometryQueryGeometryLease {
+    cut: GeometryQueryCut = geometryQueryCut(this.#descriptor),
+  ): GeometryQueryGeometryLease {
     if (!Number.isSafeInteger(segmentBytes) || segmentBytes < 160) {
       throw new RangeError("Query directory segment budget must hold a complete cluster");
     }
@@ -907,27 +927,40 @@ export class VirtualGeometryResidency {
     let bytes = 0;
     let primitiveCount = 0;
     try {
-      const directory = geometryQueryDirectorySegments(descriptor, pages.pages, this.#productGeneration,
-        Math.min(segmentBytes, this.device.limits.maxBufferSize, this.device.limits.maxStorageBufferBindingSize), cut);
+      const directory = geometryQueryDirectorySegments(
+        descriptor,
+        pages.pages,
+        this.#productGeneration,
+        Math.min(
+          segmentBytes,
+          this.device.limits.maxBufferSize,
+          this.device.limits.maxStorageBufferBindingSize,
+        ),
+        cut,
+      );
       for (const segment of directory) {
         bytes += segment.bytes.byteLength;
         primitiveCount += segment.primitiveCount;
       }
       releaseBudget = reserveGeometryProductMetadataBytes(this.device, bytes);
-      segments = Object.freeze(directory.map((segment, index) => {
-        const metadata = this.device.createBuffer({
-          label: `Geometry immutable query directory segment ${index}`,
-          size: segment.bytes.byteLength,
-          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-          mappedAtCreation: true,
-        });
-        buffers.push(metadata);
-        new Uint8Array(metadata.getMappedRange()).set(segment.bytes);
-        metadata.unmap();
-        return Object.freeze({ metadata,
-          queryTrianglePrefixWordOffset: segment.prefixWordOffset,
-          queryAssets: segment.assets });
-      }));
+      segments = Object.freeze(
+        directory.map((segment, index) => {
+          const metadata = this.device.createBuffer({
+            label: `Geometry immutable query directory segment ${index}`,
+            size: segment.bytes.byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+            mappedAtCreation: true,
+          });
+          buffers.push(metadata);
+          new Uint8Array(metadata.getMappedRange()).set(segment.bytes);
+          metadata.unmap();
+          return Object.freeze({
+            metadata,
+            queryTrianglePrefixWordOffset: segment.prefixWordOffset,
+            queryAssets: segment.assets,
+          });
+        }),
+      );
     } catch (error) {
       for (const buffer of buffers) {
         buffer.destroy();
@@ -965,15 +998,17 @@ export class VirtualGeometryResidency {
     });
     return Object.freeze({
       cut,
-      get valid() { return !released && pages.valid; },
+      get valid() {
+        return !released && pages.valid;
+      },
       productTableSlot: pages.productTableSlot,
       productGeneration: pages.productGeneration,
       bindingEpoch: pages.bindingEpoch,
       banks: pages.banks,
       pages: pages.pages,
       segments,
-      assetReferenceBegin: this.#pageLocationSink?.assetReferenceBegin(
-        this.#productTableSlot, this.#productGeneration) ?? 0,
+      assetReferenceBegin:
+        this.#pageLocationSink?.assetReferenceBegin(this.#productTableSlot, this.#productGeneration) ?? 0,
       metadataByteLength: bytes,
       queryPrimitiveCount: primitiveCount,
       release,
@@ -1012,8 +1047,13 @@ export class VirtualGeometryResidency {
   }
   /** Transfer source ownership to the replacement device, then drop lost GPU data. */
   checkpointForDeviceLoss(): GeometryProductRevisionSourceV1 {
-    if (this.#destroyed) throw new Error("Product residency has already retired");
+    // device.lost listeners may already have abandoned GPU allocations. That
+    // does not release the CPU revision source needed for recovery.
+    if ((this.#destroyed && !this.#queryTeardown) || this.#recoverySourceTransferred) {
+      throw new Error("Product residency has already retired or transferred its recovery source");
+    }
     this.abandonForDeviceLoss();
+    this.#recoverySourceTransferred = true;
     return this.#source;
   }
   /** Records a consumer use for age-aware eviction; it never changes GPU state. */
@@ -1039,7 +1079,7 @@ export class VirtualGeometryResidency {
     frameIndex: number,
     visible: boolean,
     predictive: boolean,
-    refetchCost = 1
+    refetchCost = 1,
   ): void {
     this.#assertPageId(pageId);
     if (
@@ -1073,7 +1113,12 @@ export class VirtualGeometryResidency {
    * Selects non-pinned pages using age and a minimum residency cooldown. The
    * caller must call beginRetirePage() and wait for its submission boundary.
    */
-  selectEvictionCandidates(frameIndex: number, maxBytes: number, minimumAge = 2, maxPages = Infinity): readonly number[] {
+  selectEvictionCandidates(
+    frameIndex: number,
+    maxBytes: number,
+    minimumAge = 2,
+    maxPages = Infinity,
+  ): readonly number[] {
     if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed");
     if (
       !Number.isSafeInteger(frameIndex) ||
@@ -1090,7 +1135,8 @@ export class VirtualGeometryResidency {
       .filter(
         ([pageId, location]) =>
           (location.flags & GEOMETRY_PAGE_LOCATION_PINNED) === 0 &&
-          !this.#requestedRetirements.has(pageId) && !this.#queryPages.has(pageId)
+          !this.#requestedRetirements.has(pageId) &&
+          !this.#queryPages.has(pageId),
       )
       .filter(([pageId]) => {
         const history = this.#history(pageId);
@@ -1103,7 +1149,8 @@ export class VirtualGeometryResidency {
       })
       .sort(
         (a, b) =>
-          this.#evictionKeepScore(a[0], frameIndex) - this.#evictionKeepScore(b[0], frameIndex) || a[0] - b[0]
+          this.#evictionKeepScore(a[0], frameIndex) - this.#evictionKeepScore(b[0], frameIndex) ||
+          a[0] - b[0],
       );
     const selected: number[] = [];
     let bytes = 0;
@@ -1138,19 +1185,35 @@ export class VirtualGeometryResidency {
   /** Capacity pressure leaves a verified completion queued; it never stages
    * only a partial page. */
   tryStagePage(page: GeometryPageProductV1): boolean {
-    if (this.#destroyed) { throw new Error("VirtualGeometryResidency is destroyed"); }
+    if (this.#destroyed) {
+      throw new Error("VirtualGeometryResidency is destroyed");
+    }
     this.#assertPageId(page.pageId);
-    if (page.revision !== this.#descriptor.revision || page.bytes.byteLength !== OEGPACK_V3_PAGE_BYTES ||
-        !sameBytes(page.productId, this.#descriptor.productId) ||
-        !sameBytes(page.decodedHash128, decodeGeometryProductPageRecordV1(this.#descriptor, page.pageId).decodedHash128)) {
+    if (
+      page.revision !== this.#descriptor.revision ||
+      page.bytes.byteLength !== OEGPACK_V3_PAGE_BYTES ||
+      !sameBytes(page.productId, this.#descriptor.productId) ||
+      !sameBytes(
+        page.decodedHash128,
+        decodeGeometryProductPageRecordV1(this.#descriptor, page.pageId).decodedHash128,
+      )
+    ) {
       throw new Error("Geometry Product page identity or payload is invalid");
     }
-    if (this.#pageLocations.has(page.pageId) || this.#stagedPages.has(page.pageId)) { return true; }
-    if (this.#retiringLocations.has(page.pageId)) { return false; }
-    if (this.#contentRevision >= 0xfffffffe) { throw new RangeError("Geometry content revision exhausted"); }
+    if (this.#pageLocations.has(page.pageId) || this.#stagedPages.has(page.pageId)) {
+      return true;
+    }
+    if (this.#retiringLocations.has(page.pageId)) {
+      return false;
+    }
+    if (this.#contentRevision >= 0xfffffffe) {
+      throw new RangeError("Geometry content revision exhausted");
+    }
     const prepared = this.#prepareResidentPage(page);
     const lease = this.#bytePool!.allocate(prepared.rawPayloadBytes);
-    if (lease === undefined) { return false; }
+    if (lease === undefined) {
+      return false;
+    }
     let location: GeometryPageLocationV1;
     try {
       location = this.#writeResidentPage(page, lease, GEOMETRY_PAGE_LOCATION_RESIDENT);
@@ -1190,7 +1253,7 @@ export class VirtualGeometryResidency {
       regions.push({
         destination: address.buffer,
         destinationOffset: address.byteOffset,
-        bytes: encodeGeometryProductGpuLocationV1(staged.location)
+        bytes: encodeGeometryProductGpuLocationV1(staged.location),
       });
       encoded.push(pageId);
     }
@@ -1202,7 +1265,7 @@ export class VirtualGeometryResidency {
         GEOMETRY_PAGE_LOCATION_NON_RESIDENT,
         GEOMETRY_PAGE_LOCATION_NON_RESIDENT,
         0,
-        0
+        0,
       ]);
       regions.push({ destination: address.buffer, destinationOffset: address.byteOffset, bytes });
       retiring.push(pageId);
@@ -1233,7 +1296,7 @@ export class VirtualGeometryResidency {
           min: [0, 0, 0],
           max: [0, 0, 0],
           revision: nextRevision,
-          fullAsset: true
+          fullAsset: true,
         });
       }
       for (const [asset, bounds] of influence.bounds) {
@@ -1241,7 +1304,7 @@ export class VirtualGeometryResidency {
           assetIndex: asset,
           min: [bounds[0]!, bounds[1]!, bounds[2]!],
           max: [bounds[3]!, bounds[4]!, bounds[5]!],
-          revision: nextRevision
+          revision: nextRevision,
         });
       }
     }
@@ -1251,7 +1314,7 @@ export class VirtualGeometryResidency {
       retiringPageIds: retiring,
       nextRevision,
       candidateAssetRevisions,
-      influences: [...influences.values()]
+      influences: [...influences.values()],
     };
     this.#candidateState = candidate;
     command.observeSubmission({
@@ -1313,7 +1376,11 @@ export class VirtualGeometryResidency {
       this.#pageInfluence.delete(pageId);
       this.#pageLastUsed.delete(pageId);
       for (const [groupId, group] of this.#groupLocations) {
-        if (group.bankIndex === location.bankIndex && group.byteOffset >= location.byteOffset && group.byteOffset < location.byteOffset + location.payloadBytes) {
+        if (
+          group.bankIndex === location.bankIndex &&
+          group.byteOffset >= location.byteOffset &&
+          group.byteOffset < location.byteOffset + location.payloadBytes
+        ) {
           this.#groupLocations.delete(groupId);
         }
       }
@@ -1345,24 +1412,26 @@ export class VirtualGeometryResidency {
   }
   #releaseStagedSlot(pageId: number): void {
     const lease = this.#pageLeases.get(pageId);
-    if (lease === undefined) { return; }
+    if (lease === undefined) {
+      return;
+    }
     this.#bytePool!.release(lease);
     this.#pageLeases.delete(pageId);
     this.#pagePayloadBytes.delete(pageId);
   }
   #pageLocationAddress(
-    pageId: number
+    pageId: number,
   ): { readonly buffer: GPUBuffer; readonly byteOffset: number } | undefined {
     const sinkAddress = this.#pageLocationSink?.pageLocationAddress(
       this.#productTableSlot,
       this.#productGeneration,
-      pageId
+      pageId,
     );
     if (sinkAddress !== undefined) return sinkAddress;
     if (this.#pageLocationSink !== undefined || this.#metadata === undefined) return undefined;
     return Object.freeze({
       buffer: this.#metadata,
-      byteOffset: this.#metadataLayout.pageLocations + pageId * GEOMETRY_PAGE_LOCATION_STRIDE
+      byteOffset: this.#metadataLayout.pageLocations + pageId * GEOMETRY_PAGE_LOCATION_STRIDE,
     });
   }
   beginRetirePage(pageId: number): void {
@@ -1397,14 +1466,14 @@ export class VirtualGeometryResidency {
   }
   writePageLocation(
     location: GeometryPageLocationV1,
-    target = new ArrayBuffer(GEOMETRY_PAGE_LOCATION_STRIDE)
+    target = new ArrayBuffer(GEOMETRY_PAGE_LOCATION_STRIDE),
   ): ArrayBuffer {
     new Uint8Array(target).set(encodeGeometryProductGpuLocationV1(location));
     return target;
   }
   evidence(): VirtualGeometryResidencyEvidenceV1 {
     const pinnedPages = [...this.#pageLocations.values()].filter(
-      (location) => (location.flags & GEOMETRY_PAGE_LOCATION_PINNED) !== 0
+      (location) => (location.flags & GEOMETRY_PAGE_LOCATION_PINNED) !== 0,
     ).length;
     const global = geometryProductGpuBudgetEvidence(this.device);
     const residentBytes = this.#pagePhysicalBytes(this.#pageLocations);
@@ -1463,7 +1532,7 @@ export class VirtualGeometryResidency {
       shortTermRerequests: this.#shortTermRerequests,
       thrashBytes: this.#thrashBytes,
       invalidGeneration: 0,
-      failedPages: this.#failedPages
+      failedPages: this.#failedPages,
     });
   }
   #pagePhysicalBytes(pages: ReadonlyMap<number, GeometryPageLocationV1>): number {
@@ -1519,7 +1588,7 @@ export class VirtualGeometryResidency {
         groupId,
         prepared.groupBounds,
         prepared.groupBegin,
-        scratch
+        scratch,
       );
       for (let owner = 0; owner < (shared?.length ?? 1); owner++) {
         const asset = shared === undefined ? this.#groupAsset[groupId] : shared[owner];
@@ -1562,7 +1631,7 @@ export class VirtualGeometryResidency {
       regions,
       triangleCount: prepared.triangleCount,
       // A scheduling estimate only. GPU projection remains the authoritative union.
-      damageUnits: influence.fallbackAssets.size > 0 ? 64 : Math.max(1, regions.length * 4)
+      damageUnits: influence.fallbackAssets.size > 0 ? 64 : Math.max(1, regions.length * 4),
     };
   }
   /** Snapshot, not drain: an aborted VSM command must not consume damage.
@@ -1589,22 +1658,36 @@ export class VirtualGeometryResidency {
     return this.#refineInfluence.indexedGroups;
   }
   /** Upload only the validated prefix into an unpublished, exact-length lease. */
-  #writeResidentPage(page: GeometryPageProductV1, lease: GeometryPageLease, flags: number): GeometryPageLocationV1 {
+  #writeResidentPage(
+    page: GeometryPageProductV1,
+    lease: GeometryPageLease,
+    flags: number,
+  ): GeometryPageLocationV1 {
     const prepared = this.#prepareResidentPage(page);
-    if (prepared.rawPayloadBytes !== geometryPagePayloadBytes(this.#descriptor, page.pageId) ||
-        prepared.rawPayloadBytes > lease.allocatedBytes) {
+    if (
+      prepared.rawPayloadBytes !== geometryPagePayloadBytes(this.#descriptor, page.pageId) ||
+      prepared.rawPayloadBytes > lease.allocatedBytes
+    ) {
       throw new Error("Geometry prepared payload disagrees with its directory allocation");
     }
     if (this.#bytePool!.frozen) {
       throw new Error("Geometry upload cannot write through an unsubmitted bank growth");
     }
-    this.device.queue.writeBuffer(this.#bytePool!.banks[lease.bankIndex]!, lease.byteOffset,
-      new Uint8Array(page.bytes, 0, prepared.rawPayloadBytes));
+    this.device.queue.writeBuffer(
+      this.#bytePool!.banks[lease.bankIndex]!,
+      lease.byteOffset,
+      new Uint8Array(page.bytes, 0, prepared.rawPayloadBytes),
+    );
     this.#pageLeases.set(page.pageId, lease);
     this.#pagePayloadBytes.set(page.pageId, prepared.rawPayloadBytes);
     this.#uploadedBytes += prepared.rawPayloadBytes;
-    return Object.freeze({ bankIndex: lease.bankIndex, byteOffset: lease.byteOffset,
-      payloadBytes: prepared.rawPayloadBytes, productGeneration: this.#productGeneration, flags });
+    return Object.freeze({
+      bankIndex: lease.bankIndex,
+      byteOffset: lease.byteOffset,
+      payloadBytes: prepared.rawPayloadBytes,
+      productGeneration: this.#productGeneration,
+      flags,
+    });
   }
   #history(pageId: number): PageEvictionHistory {
     let history = this.#pageHistory.get(pageId);
@@ -1619,7 +1702,7 @@ export class VirtualGeometryResidency {
         refetchCost: 1,
         lastEvicted: -1,
         rerequestNoted: false,
-        reloads: 0
+        reloads: 0,
       };
       this.#pageHistory.set(pageId, history);
     }
@@ -1653,12 +1736,12 @@ export class VirtualGeometryResidency {
     const nodes = new DataView(
       this.#descriptor.hierarchyNodes.buffer,
       this.#descriptor.hierarchyNodes.byteOffset,
-      this.#descriptor.hierarchyNodes.byteLength
+      this.#descriptor.hierarchyNodes.byteLength,
     );
     const groups = new DataView(
       this.#descriptor.groupDirectory.buffer,
       this.#descriptor.groupDirectory.byteOffset,
-      this.#descriptor.groupDirectory.byteLength
+      this.#descriptor.groupDirectory.byteLength,
     );
     const visited = new Set<number>();
     const walk = (nodeId: number, depth: number): void => {
@@ -1681,7 +1764,7 @@ export class VirtualGeometryResidency {
     const groupView = new DataView(
       this.#descriptor.groupDirectory.buffer,
       this.#descriptor.groupDirectory.byteOffset,
-      this.#descriptor.groupDirectory.byteLength
+      this.#descriptor.groupDirectory.byteLength,
     );
     for (let groupId = 0; groupId < this.#descriptor.groupDirectory.byteLength / 16; groupId++)
       if (groupView.getUint32(groupId * 16, true) === pageId)
@@ -1689,9 +1772,8 @@ export class VirtualGeometryResidency {
           groupId,
           Object.freeze({
             ...location,
-            byteOffset:
-              location.byteOffset + groupView.getUint32(groupId * 16 + 4, true)
-          })
+            byteOffset: location.byteOffset + groupView.getUint32(groupId * 16 + 4, true),
+          }),
         );
   }
   #writeProductRecord(flags: number): void {
@@ -1710,7 +1792,7 @@ export class VirtualGeometryResidency {
       pageBegin: 0,
       pageCount: descriptor.pageRecords.byteLength / 32,
       vertexFormatBegin: 0,
-      vertexFormatCount: descriptor.vertexFormats.byteLength / 16
+      vertexFormatCount: descriptor.vertexFormats.byteLength / 16,
     });
     if (this.#metadata !== undefined) {
       this.device.queue.writeBuffer(this.#metadata, this.#metadataLayout.productRecord, record);
@@ -1831,14 +1913,14 @@ function metadataLayout(descriptor: GeometryProductDescriptorV1, productTableSlo
     hierarchyNodes,
     groupDirectory,
     pageLocations,
-    vertexFormats
+    vertexFormats,
   });
 }
 /** Union across pages and across publications not yet consumed by VSM.
  * One unproven contribution dominates all proven subsets for the same asset. */
 function mergeGeometryInfluence(
   target: Map<number, GeometryResidencyInfluenceV1>,
-  change: GeometryResidencyInfluenceV1
+  change: GeometryResidencyInfluenceV1,
 ): void {
   const previous = target.get(change.assetIndex);
   const fullAsset = previous?.fullAsset === true || change.fullAsset === true;
@@ -1851,14 +1933,14 @@ function mergeGeometryInfluence(
       min: Object.freeze([
         Math.min(previous?.min[0] ?? change.min[0], change.min[0]),
         Math.min(previous?.min[1] ?? change.min[1], change.min[1]),
-        Math.min(previous?.min[2] ?? change.min[2], change.min[2])
+        Math.min(previous?.min[2] ?? change.min[2], change.min[2]),
       ] as const),
       max: Object.freeze([
         Math.max(previous?.max[0] ?? change.max[0], change.max[0]),
         Math.max(previous?.max[1] ?? change.max[1], change.max[1]),
-        Math.max(previous?.max[2] ?? change.max[2], change.max[2])
-      ] as const)
-    })
+        Math.max(previous?.max[2] ?? change.max[2], change.max[2]),
+      ] as const),
+    }),
   );
 }
 
@@ -1868,7 +1950,7 @@ function buildMetadataHeap(
   productGeneration: number,
   productTableSlot: number,
   assetCount: number,
-  bankByteCapacity: number
+  bankByteCapacity: number,
 ): Uint8Array<ArrayBuffer> {
   const bytes = new Uint8Array(layout.byteLength);
   const header = packGeometryProductMetadataHeapHeaderV1({
@@ -1883,7 +1965,7 @@ function buildMetadataHeap(
     hierarchyWordOffset: layout.hierarchyNodes / 4,
     groupDirectoryWordOffset: layout.groupDirectory / 4,
     pageLocationWordOffset: layout.pageLocations / 4,
-    vertexFormatWordOffset: layout.vertexFormats / 4
+    vertexFormatWordOffset: layout.vertexFormats / 4,
   });
   bytes.set(header, 0);
   bytes.set(
@@ -1901,9 +1983,9 @@ function buildMetadataHeap(
       pageBegin: 0,
       pageCount: descriptor.pageRecords.byteLength / 32,
       vertexFormatBegin: 0,
-      vertexFormatCount: descriptor.vertexFormats.byteLength / 16
+      vertexFormatCount: descriptor.vertexFormats.byteLength / 16,
     }),
-    layout.productRecord
+    layout.productRecord,
   );
   for (let asset = 0; asset < assetCount; asset++)
     bytes.set(
@@ -1911,9 +1993,9 @@ function buildMetadataHeap(
         productTableSlot,
         productGeneration,
         assetRecordIndex: asset,
-        flags: 0
+        flags: 0,
       }),
-      layout.assetReferences + asset * 16
+      layout.assetReferences + asset * 16,
     );
   bytes.set(descriptor.assetRecords, layout.assetRecords);
   bytes.set(u32LittleEndian(descriptor.rootNodeIds), layout.rootNodeIds);
@@ -1937,5 +2019,5 @@ function initialPageBankBytes(descriptor: GeometryProductDescriptorV1): number {
     bytes += payload;
     largest = Math.max(largest, payload);
   }
-  return Math.max(largest, Math.ceil(bytes * 1.25 / 64) * 16);
+  return Math.max(largest, Math.ceil((bytes * 1.25) / 64) * 16);
 }

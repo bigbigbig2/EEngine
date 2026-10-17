@@ -4,6 +4,7 @@ import {
   FirstPersonControls,
   PerspectiveCamera,
   Renderer,
+  SURFACE_CACHE_GI_PRESETS,
   RenderDebugView,
   type RenderDebugViewName,
   type ExposureDiagnostics,
@@ -412,7 +413,7 @@ function snapshot() {
       authoredLights: 0,
       authoredHdr: false,
       ssr: renderer?.screenSpaceReflectionsSettings ?? null,
-      screenSpaceGi: "NOT WIRED IN CURRENT FRAME PROGRAM",
+      surfaceCacheGi: renderer?.surfaceCacheGiSettings ?? null,
       stages: renderer?.mainFrameGraphEvidence()?.program.stages ?? [],
       camera: {
         position: [camera.transform.position.x, camera.transform.position.y, camera.transform.position.z],
@@ -707,6 +708,8 @@ async function start(): Promise<void> {
     autoExposure,
     fixedExposure,
     exposure: exposureSettings,
+    surfaceCacheGi: query.get("gi") === "quality" ? SURFACE_CACHE_GI_PRESETS.quality :
+      query.get("gi") === "1" ? SURFACE_CACHE_GI_PRESETS.balanced : { enabled: false },
     renderScale: 1
   });
   await renderer.initialize({ context });
@@ -1071,6 +1074,31 @@ const ssrControls = setupSsrControls(
     resetFrameSamples();
   }
 );
+// Keep the demo on the public settings/producer path, including recovery.
+const giControls = document.createElement("label");
+giControls.textContent = "Surface Cache GI ";
+const giPreset = document.createElement("select");
+for (const value of ["off", "balanced", "quality"]) {
+  giPreset.add(new Option(value, value));
+}
+giPreset.value = query.get("gi") === "quality" ? "quality" : query.get("gi") === "1" ? "balanced" : "off";
+const giDebug = document.createElement("select");
+for (const value of ["off", "irradiance", "confidence"]) {
+  giDebug.add(new Option(`GI ${value}`, value));
+}
+const applyGiControls = (): void => {
+  if (!renderer) return;
+  renderer.setSurfaceCacheGiSettings({
+    ...(giPreset.value === "quality" ? SURFACE_CACHE_GI_PRESETS.quality : SURFACE_CACHE_GI_PRESETS.balanced),
+    enabled: giPreset.value !== "off",
+    debug: giDebug.value as "off" | "irradiance" | "confidence"
+  });
+  resetFrameSamples();
+};
+giPreset.addEventListener("change", applyGiControls);
+giDebug.addEventListener("change", applyGiControls);
+giControls.append(giPreset, giDebug);
+document.querySelector(".diagnostic-controls")!.append(giControls);
 function diagnosticControlsDisabled(disabled: boolean): void {
   for (const control of document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(
     ".diagnostic-controls input, .diagnostic-controls select, .diagnostic-controls button"

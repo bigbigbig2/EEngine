@@ -44,6 +44,15 @@ config:
     - OEngine/src/render/passes/OpaqueLightingResolvePass.ts
     - OEngine/src/render/passes/PackedCsmShadowPass.ts
     - OEngine/src/render/passes/ScreenSpaceDiffuseResolvePass.ts
+    - OEngine/src/shaders/long_range_diffuse_provider.ts
+    - OEngine/src/shaders/screen_space_diffuse_resolve.ts
+    - OEngine/src/gpu/GPULightProbeVolume.ts
+    - OEngine/src/gpu/LightProbeAtlas.ts
+    - OEngine/src/gpu/LightProbeRecord.ts
+    - OEngine/src/gpu/GeometryBlasPool.ts
+    - OEngine/src/gpu/TopLevelAccelerationStructure.ts
+    - OEngine/src/geometry/LightProbeDelaunay.ts
+    - OEngine/src/geometry/TetrahedralMesh.ts
     - OEngine/src/render/passes/ScreenSpaceReflectionsPass.ts
     - OEngine/src/render/passes/SpecularCorrectionPass.ts
     - OEngine/src/render/passes/SsgiPass.ts

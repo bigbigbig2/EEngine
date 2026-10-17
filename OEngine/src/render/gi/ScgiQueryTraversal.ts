@@ -2,7 +2,7 @@ import { geometryQueryPipelines } from "../../gpu/GeometryQueryPipelines.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type {
   GeometryQueryGeometryLease,
-  GeometryQueryGeometrySegment
+  GeometryQueryGeometrySegment,
 } from "../../gpu/VirtualGeometryResidency.js";
 import type { GeometryQueryInstances } from "../../gpu/GeometryQueryInstances.js";
 import { scgiQueryGeometryWgsl } from "../../shaders/scgi_query_geometry.js";
@@ -20,6 +20,7 @@ import { GEOMETRY_QUERY_DIRECTORY_HEADER_BYTES } from "../../gpu/GeometryQueryDi
  * establish domain coverage before a cohort can publish a hit or physical miss. */
 export class ScgiQueryTraversal {
   private destroyed = false;
+  private frameView: GPUBuffer | undefined;
 
   private constructor(
     private readonly device: GPUDevice,
@@ -38,7 +39,7 @@ export class ScgiQueryTraversal {
     private readonly feedbackGroups?: ReadonlyMap<GPUBuffer, GPUBindGroup>,
     private readonly tailWork?: ScgiQueryTailWork,
     private readonly rayWork?: ScgiQueryRayCount,
-    readonly descriptors?: ReturnType<typeof validateScgiDescriptors>
+    readonly descriptors?: ReturnType<typeof validateScgiDescriptors>,
   ) {}
 
   get byteLength(): number {
@@ -109,7 +110,7 @@ export class ScgiQueryTraversal {
         coneWidth: number;
         coneSpread: number;
       };
-    }
+    },
   ): Promise<ScgiQueryTraversal> {
     const { lease } = input;
     const asset = input.segment.queryAssets[input.asset];
@@ -136,7 +137,7 @@ export class ScgiQueryTraversal {
       Math.ceil(input.rayCount / 64) > device.limits.maxComputeWorkgroupsPerDimension
     ) {
       throw new RangeError(
-        "Opaque query requires complete nonoverlapping ray/result ranges and live AS inputs"
+        "Opaque query requires complete nonoverlapping ray/result ranges and live AS inputs",
       );
     }
     const coverage = input.coverage;
@@ -180,7 +181,7 @@ export class ScgiQueryTraversal {
             program: diffuse.material.binding.program,
             layoutEntries: diffuse.material.binding.layoutEntries,
             materialEntries: diffuse.material.binding.entries,
-            frameInputs: new Float32Array(Math.max(1, diffuse.material.binding.program.inputCount) * 4)
+            frameInputs: new Float32Array(Math.max(1, diffuse.material.binding.program.inputCount) * 4),
           };
     if (coverage !== undefined && coverageClass === undefined) {
       throw new RangeError("Unknown native coverage class");
@@ -188,12 +189,12 @@ export class ScgiQueryTraversal {
     const storage = (binding: number, writable = false): GPUBindGroupLayoutEntry => ({
       binding,
       visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: writable ? "storage" : "read-only-storage" }
+      buffer: { type: writable ? "storage" : "read-only-storage" },
     });
     const uniform = (binding: number): GPUBindGroupLayoutEntry => ({
       binding,
       visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "uniform" }
+      buffer: { type: "uniform" },
     });
     const queryEntries = [
       uniform(0),
@@ -207,7 +208,7 @@ export class ScgiQueryTraversal {
       storage(9),
       storage(10),
       storage(11),
-      storage(12)
+      storage(12),
     ];
     const coverageEntries =
       coverageClass === undefined
@@ -216,17 +217,17 @@ export class ScgiQueryTraversal {
             storage(0),
             storage(1),
             uniform(2),
-            ...(coverageClass.program === null ? [] : [storage(3), uniform(4), uniform(5)])
+            ...(coverageClass.program === null ? [] : [storage(3), uniform(4), uniform(5)]),
           ];
     const outputEntries = [
       ...(diffuse === undefined
         ? []
         : [
             storage(0, true),
-            ...(diffuse.material.binding.program.virtualTextures ? [storage(1, true)] : [])
+            ...(diffuse.material.binding.program.virtualTextures ? [storage(1, true)] : []),
           ]),
       ...(work === undefined ? [] : [storage(2)]),
-      ...(wavefront === undefined ? [] : [storage(3, true)])
+      ...(wavefront === undefined ? [] : [storage(3, true)]),
     ];
     const materialEntries =
       coverageClass?.layoutEntries.map((entry) => ({ ...entry, visibility: GPUShaderStage.COMPUTE })) ?? [];
@@ -234,7 +235,7 @@ export class ScgiQueryTraversal {
       queryEntries,
       coverageEntries,
       outputEntries,
-      materialEntries
+      materialEntries,
     ]);
     const cache = geometryQueryPipelines(device);
     const queryLayout = cache.layouts.obtainBindGroupLayout({ entries: queryEntries });
@@ -245,8 +246,8 @@ export class ScgiQueryTraversal {
       label: "SCGI/query traversal",
       layout: {
         bindGroupLayouts: [queryEntries, coverageEntries, outputEntries, materialEntries].map((entries) => ({
-          entries
-        }))
+          entries,
+        })),
       },
       compute: {
         module: {
@@ -261,25 +262,26 @@ export class ScgiQueryTraversal {
             wavefront?.phase,
             input.pendingWork !== undefined || input.tailWork !== undefined,
             nodeQuantum,
-            diffuse?.outputStride ?? 64
-          )
+            diffuse?.outputStride ?? 64,
+          ),
         },
         entryPoint:
           wavefront?.phase === "coverage"
             ? "accept_candidate"
             : diffuse === undefined
               ? "trace_opaque"
-              : "shade_hit"
-      }
+              : "shade_hit",
+      },
     });
     const settings = device.createBuffer({
       label: "SCGI/opaque geometry parameters",
       size: 64,
       usage: GPUBufferUsage.UNIFORM,
-      mappedAtCreation: true
+      mappedAtCreation: true,
     });
     let traceSettings: GPUBuffer | undefined;
     const coverageBuffers: GPUBuffer[] = [];
+    let frameView: GPUBuffer | undefined;
     try {
       new Uint32Array(settings.getMappedRange()).set([
         GEOMETRY_QUERY_DIRECTORY_HEADER_BYTES / 4,
@@ -296,24 +298,24 @@ export class ScgiQueryTraversal {
         input.instances.count,
         new DataView(
           lease.cut.descriptor.assetRecords.buffer,
-          lease.cut.descriptor.assetRecords.byteOffset
+          lease.cut.descriptor.assetRecords.byteOffset,
         ).getUint32(input.asset * 128 + 88, true),
         0,
         0,
-        0
+        0,
       ]);
       settings.unmap();
       traceSettings = device.createBuffer({
         label: "SCGI/opaque trace parameters",
         size: 16,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        mappedAtCreation: true
+        mappedAtCreation: true,
       });
       new Uint32Array(traceSettings.getMappedRange()).set([
         input.rayCount,
         0,
         resultWords,
-        Number(input.anyHit ?? false) | (Number(input.merge ?? false) << 1)
+        Number(input.anyHit ?? false) | (Number(input.merge ?? false) << 1),
       ]);
       traceSettings.unmap();
       const group = device.createBindGroup({
@@ -327,8 +329,8 @@ export class ScgiQueryTraversal {
           { binding: 6, resource: { buffer: traceSettings } },
           ...(input.coverageStatus ? [{ binding: 7, resource: { buffer: input.coverageStatus } }] : []),
           { binding: 8, resource: { buffer: input.segment.metadata } },
-          ...lease.banks.map((buffer, index) => ({ binding: 9 + index, resource: { buffer } }))
-        ]
+          ...lease.banks.map((buffer, index) => ({ binding: 9 + index, resource: { buffer } })),
+        ],
       });
       let coverageGroup: GPUBindGroup | undefined;
       let materialGroup: GPUBindGroup | undefined;
@@ -339,8 +341,8 @@ export class ScgiQueryTraversal {
           const buffer = device.createBuffer({
             label,
             size: bytes.byteLength,
-            usage: GPUBufferUsage.UNIFORM,
-            mappedAtCreation: true
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            mappedAtCreation: true,
           });
           coverageBuffers.push(buffer);
           new Uint8Array(buffer.getMappedRange()).set(bytes);
@@ -349,12 +351,12 @@ export class ScgiQueryTraversal {
         };
         const route = uniformBuffer(
           "SCGI/native coverage class",
-          new Uint8Array(new Uint32Array([coverage?.classIndex ?? diffuse?.binIndex ?? 0, 0, 0, 0]).buffer)
+          new Uint8Array(new Uint32Array([coverage?.classIndex ?? diffuse?.binIndex ?? 0, 0, 0, 0]).buffer),
         );
         const entries: GPUBindGroupEntry[] = [
           { binding: 0, resource: { buffer: input.instances.sourceSnapshot } },
           { binding: 1, resource: { buffer: diffuse?.directory ?? coverage!.publication.rasterDirectory } },
-          { binding: 2, resource: { buffer: route } }
+          { binding: 2, resource: { buffer: route } },
         ];
         if (coverageClass.program !== null) {
           const viewFacts = diffuse ?? coverage!;
@@ -376,13 +378,14 @@ export class ScgiQueryTraversal {
             throw new RangeError("Nonfinite query coverage view");
           }
           const viewBuffer = uniformBuffer("SCGI/native coverage view", new Uint8Array(view.buffer));
+          frameView = viewBuffer;
           const frameInputs = uniformBuffer(
             "SCGI/native coverage frame inputs",
             new Uint8Array(
               coverageClass.frameInputs.buffer,
               coverageClass.frameInputs.byteOffset,
-              coverageClass.frameInputs.byteLength
-            )
+              coverageClass.frameInputs.byteLength,
+            ),
           );
           let constants = diffuse?.constants ?? coverage?.publication.rasterConstants;
           if (diffuse !== undefined && constants === undefined) {
@@ -391,7 +394,7 @@ export class ScgiQueryTraversal {
               label: "SCGI/native diffuse constants",
               size: Math.max(4, data.byteLength),
               usage: GPUBufferUsage.STORAGE,
-              mappedAtCreation: true
+              mappedAtCreation: true,
             });
             coverageBuffers.push(constants);
             new Float32Array(constants.getMappedRange()).set(data);
@@ -400,13 +403,13 @@ export class ScgiQueryTraversal {
           entries.push(
             { binding: 3, resource: { buffer: constants! } },
             { binding: 4, resource: { buffer: viewBuffer } },
-            { binding: 5, resource: { buffer: frameInputs } }
+            { binding: 5, resource: { buffer: frameInputs } },
           );
         }
         coverageGroup = device.createBindGroup({ layout: coverageLayout, entries });
         materialGroup = device.createBindGroup({
           layout: materialLayout,
-          entries: coverageClass.materialEntries
+          entries: coverageClass.materialEntries,
         });
       }
       if (outputEntries.length > 0) {
@@ -417,10 +420,10 @@ export class ScgiQueryTraversal {
                 { binding: 0, resource: { buffer: diffuse.output } },
                 ...(diffuse.material.binding.program.virtualTextures
                   ? [{ binding: 1, resource: { buffer: diffuse.feedback ?? diffuse.feedbackBuffers![0]! } }]
-                  : [])
+                  : []),
               ]),
           ...(work === undefined ? [] : [{ binding: 2, resource: { buffer: work.buffer } }]),
-          ...(wavefront === undefined ? [] : [{ binding: 3, resource: { buffer: wavefront.continuation } }])
+          ...(wavefront === undefined ? [] : [{ binding: 3, resource: { buffer: wavefront.continuation } }]),
         ];
         outputGroup = device.createBindGroup({ layout: outputLayout, entries: outputEntries });
         if (diffuse?.material.binding.program.virtualTextures && diffuse.feedbackBuffers !== undefined) {
@@ -431,14 +434,14 @@ export class ScgiQueryTraversal {
               device.createBindGroup({
                 layout: outputLayout,
                 entries: outputEntries.map((entry) =>
-                  entry.binding === 1 ? { binding: 1, resource: { buffer } } : entry
-                )
-              })
+                  entry.binding === 1 ? { binding: 1, resource: { buffer } } : entry,
+                ),
+              }),
             );
           }
         }
       }
-      return new ScgiQueryTraversal(
+      const traversal = new ScgiQueryTraversal(
         device,
         lease,
         settings,
@@ -457,7 +460,7 @@ export class ScgiQueryTraversal {
               bin:
                 input.pendingWork === undefined && input.tailWork === undefined
                   ? (diffuse?.binIndex ?? coverage?.classIndex ?? 0)
-                  : 0
+                  : 0,
             },
         wavefront?.phase === "tail"
           ? {
@@ -471,15 +474,17 @@ export class ScgiQueryTraversal {
                 (3 * Math.max(0, input.instances.count * 2 - 1) +
                   input.instances.count * (3 * Math.max(0, primitiveCount * 2 - 1) + 1) +
                   1) /
-                  nodeQuantum
-              )
+                  nodeQuantum,
+              ),
             }
           : undefined,
         feedbackGroups,
         input.tailWork,
         input.rayWork,
-        descriptors
+        descriptors,
       );
+      traversal.frameView = frameView;
+      return traversal;
     } catch (error) {
       settings.destroy();
       traceSettings?.destroy();
@@ -488,6 +493,31 @@ export class ScgiQueryTraversal {
       }
       throw error;
     }
+  }
+
+  /** Encoder-ordered camera update. Reusing a scene never freezes camera-driven
+   * material graphs at the camera used during asynchronous pipeline creation. */
+  updateView(
+    command: ShadeGPUCommandContext,
+    view: ArrayLike<number>,
+    camera: ArrayLike<number>,
+    coneWidth: number,
+    coneSpread: number,
+  ): void {
+    if (this.frameView === undefined) {
+      return;
+    }
+    if (view.length !== 16 || camera.length !== 3 || coneWidth < 0 || coneSpread < 0) {
+      throw new RangeError("Query frame view requires complete camera and cone facts");
+    }
+    const values = new Float32Array(24);
+    values.set(Array.from(view));
+    values.set(Array.from(camera), 16);
+    values.set([coneWidth, coneSpread], 20);
+    if (!values.every(Number.isFinite)) {
+      throw new RangeError("Query frame view must be finite f32");
+    }
+    command.writeBuffer(this.frameView, 0, values.buffer, 0, values.byteLength);
   }
 
   encode(command: ShadeGPUCommandContext, feedback?: GPUBuffer): void {
