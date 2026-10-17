@@ -77,10 +77,10 @@ async function emptyDomainBatch(device, graphics, certificate) {
   try {
     // Isolate the zero-shard consumer with the real GPU certificate above.
     // Complete Renderer composition remains the SCGI-8 integration boundary.
-    query = await ScgiQueryBatch.create(device, { prepared: true, valid: true, shards: [],
+    query = await ScgiQueryBatch.create(device, { prepared: true, valid: true, arenas: [],
       coverageStatus: certificate.status, observeUse() {} }, {
       batch, output, rayCount: 2, resultByteOffset: 96, view: identity, camera: [0, 0, 0],
-      coneWidth: 0, coneSpread: 0, wavefrontRounds: 0,
+      coneWidth: 0, coneSpread: 0,
     });
     const command = scgiCommand(graphics);
     query.encode(command);

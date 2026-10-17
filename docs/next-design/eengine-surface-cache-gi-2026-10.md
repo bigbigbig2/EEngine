@@ -15,6 +15,7 @@ verifies:
     - OEngine/src/shaders/native_local_lighting.ts
     - OEngine/src/shaders/vsm_sampling.ts
     - OEngine/src/shaders/scgi_query_geometry.ts
+    - OEngine/src/shaders/scgi_query_scene.ts
     - OEngine/src/shaders/scgi_bvh_build.ts
     - OEngine/src/render/lighting
     - OEngine/src/render/gi
@@ -39,7 +40,7 @@ verifies:
 
 初始设计源码基线：`3000de2ab7caee2f5a20d86ded367ff3ba2e32c5`（2026-10-17）；本轮执行架构重构基线：`2f276576`（2026-10-18）。以下分开写“源码事实”“目标决定”和“待实测参数”。源码核对覆盖本模块 producer→直接 consumer 及生命周期，不声称逐行审计整个引擎。外部固定 revision、许可证、入口与移植范围见 [source map](../porting/next-renderer.md#surface-cache-gi-2026-10-17)。
 
-**本轮重构决定。** 保留完整 SCGI 算法，替换失控的物理工作组织：共享求交 arena 与场景 TLAS、estimator 样本批处理、先需求后 Native 源复用。执行计划只增加 SCGI-R1/R2/R3 三个完整单元，随后回到 SCGI-10。当前示例与本轮最高验收尺寸为 **1920×1080、internalScale=1**；不能降低分辨率、方向数、几何覆盖或材质范围来证明本次重构有效。旧实现的局部功能闭合不代表成本可接受，下面修订的是目标架构，不宣称已经实现。
+**本轮重构决定。** 保留完整 SCGI 算法，替换失控的物理工作组织：共享求交 arena 与场景 TLAS、estimator 样本批处理、先需求后 Native 源复用。执行计划只增加 SCGI-R1/R2/R3 三个完整单元，随后回到 SCGI-10。当前示例与本轮最高验收尺寸为 **1920×1080、internalScale=1**；不能降低分辨率、方向数、几何覆盖或材质范围来证明本次重构有效。旧实现的局部功能闭合不代表成本可接受。本设计描述目标合同；R1已切换的实现和局部验证读执行§8.4，R2/R3仍待实施，不由本文推断整链资格。
 
 ## 1. 选择、范围与必须纠正的母稿问题
 
@@ -134,7 +135,7 @@ GI disabled 时不创建 cache/query/field，也不多绑定一套全屏产品�
 
 Query section 必须含：section version/recipe hash；asset→query cluster root；cluster bounds/error/child ranges；leaf 的 page/group/meshlet/local triangle references；material/primitive remap；decode format；最低覆盖 cut/page list；topology/deformation revision；coverage-critical 标记与误差类别。使用 Product ID+revision 和完整 page identity 校验，不截断为 material hash。
 
-GeometryProduct 继续拥有完整 position/index/UV/normal/material truth；query 从已发布 cut 派生最小 object-space f32 求交数据，初始模型为 `p0/e1/e2 + source reference`、48B/triangle。它是加速数据，不是第二份完整 Vertex/Index/UV/Material 库；不得再为每种 ray 重复构造。opaque triangle test 直接读该 payload，只有 accepted-hit 属性或 MASK coverage 才回原 Product。初始不引入未经误差验证的 fp16/有损量化。若当前 decimated hierarchy 无法提供薄墙/coverage 合格的 coarse cut，仍在同 Product cook 专用 query proxy，完整保留 primitive/material remap、UV/alpha 拓扑并计真实增量；封闭 hull 不是门洞/叶片的等价表示。
+GeometryProduct 继续拥有完整 position/index/UV/normal/material truth；query 从已发布 cut 派生最小 object-space f32 求交数据。实际R1采用 `p0/p1/p2 + source reference`、48B/triangle，以原f32位存储顶点，避免从预计算边恢复顶点的舍入差异；三角形测试中局部相减得e1/e2。它是加速数据，不是第二份完整 Vertex/Index/UV/Material 库；不得再为每种 ray 重复构造。opaque triangle test 直接读该 payload，只有 accepted-hit 属性或 MASK coverage 才回原 Product。初始不引入未经误差验证的 fp16/有损量化。若当前 decimated hierarchy 无法提供薄墙/coverage 合格的 coarse cut，仍在同 Product cook 专用 query proxy，完整保留 primitive/material remap、UV/alpha 拓扑并计真实增量；封闭 hull 不是门洞/叶片的等价表示。
 
 ### 4.2 Active domain 与 LOD
 
@@ -668,8 +669,8 @@ half field/history是**逻辑完整、物理可分片**的112H产品：按线性
 | Binary node | 64B 起点 | 两个32B child项；arena-relative ref 与 BLAS descriptor 区分，admission检查编码范围，不截身份 |
 | Node links | 8B/node 起点 | parent/escape，完整 invocation 的安全遍历；restructure后重建 |
 | Hierarchy primitive reference | 4B/primitive 起点 | TLAS→原 GpuScene slot/BLAS descriptor，BLAS→derived triangle；不能把 compact slot 当稳定身份 |
-| Derived intersection payload | 48B/triangle 模型 | f32 p0/e1/e2 + source reference；原 Product/cluster/primitive/generation经不可变映射解析，覆盖所需属性仍读原页 |
-| Query geometry/source directory | 基线每段32B header +112B/cluster +4B/cluster prefix +4B terminal +4B/triangle remap | coverage/material使用原四bank；普通 triangle test 不再二分prefix和解页。新source map/BLAS descriptor具体字节在R1实现时入账 |
+| Derived intersection payload | 48B/triangle | 三个vec4u：+0/16/32为p0/p1/p2的f32位；+12为localPrimitive+1（0 invalid），+28为asset-local meshlet，+44为source primitive。Product/generation/asset及source范围在96B descriptor，覆盖属性仍读原页 |
+| Query geometry/source directory | 基线每段32B header +112B/cluster +4B/cluster prefix +4B terminal +4B/triangle remap | coverage/material使用原四bank；普通 triangle test 不再二分prefix和解页。R1 arena header16B、descriptor96B/BLAS chunk，原metadata/属性仍归Product lease |
 | Query instance | 128B | object→world3×vec4=48、world→object48、instance slot/set/lifetime/BLAS root16、shard/BLAS generation/mask/flags16 |
 | RayWork | 48B | origin+tMin16、direction+tMax16、rayId/mask/queryKind/snapshotGeneration16 |
 | Result | 32B | t/bary.x/bary.y/status16、instanceViewId/primitiveId/geometryGeneration/frontFaceFlags16 |
@@ -678,9 +679,9 @@ half field/history是**逻辑完整、物理可分片**的112H产品：按线性
 
 每 arena 的整个 binding range 满足 limit，多个 Product 的 payload/BLAS 放入同域，以 scene TLAS 的 descriptor 定位 root/offset/source。超大单 mesh 可在 Product cluster 边界切 BLAS。GPU 保守空间路由到有限 arenas/coverage ranges，false positive只加工作，false negative禁止；source 属性 banks 不再迫使 opaque rays 逐 Product 重扫。跨 arena 保持 rayId/cohort、world t 与稳定 tie-break，全部相关域结束才允许 miss。routing 用有界窗口/队列，完整处理全部相关 pair；不持久分配 rays×assets，也不拿 screen visibility 裁离屏实例。
 
-基线 Product query 四组为 query、native constants/source、output/work/continuation、native textures，最满 diffuse/VT route为16 SSBO。该数是旧实现事实，不能直接当新layout已验证。R1 必须分别列 occlusion、geometry closest、coverage、material closest 的完整 descriptor inventory：普通 traversal 只读 AS/payload/instance/资格及 work/result；MASK 与 material 阶段再绑定原 Product banks、Native constants、完整 textures/samplers、必要 VT feedback。没有新增 sampled 槽承诺须以真实 pipeline 验证，满绑定材质不能减输入。共享 affine/source/lineage 不复制；SH/lighting/SSSR/主Surface outputs 不进入 query pipeline。非Product/未支持形变继续 unknown。
+R1 Product query四组为query、native constants/source、output/work、native textures；实际opaque含空间work为7 SSBO、geometry输出7、完整MASK含空间work14、accepted material15/VT16，满纹理用例16 sampled/8 samplers。完整清单及实际验证读执行§8.4，不能将全Renderer所有组合视为已经验证。普通 traversal 只读 AS/payload/instance/资格及 work/result；MASK 与 material 阶段再绑定原 Product banks、Native constants、完整 textures/samplers、必要 VT feedback。没有新增 sampled 槽承诺须以真实 pipeline 验证，满绑定材质不能减输入。共享 affine/source/lineage 不复制；SH/lighting/SSSR/主Surface outputs 不进入 query pipeline。非Product/未支持形变继续 unknown。
 
-AS arena 是唯一加速节点表示，intersection payload 是显式派生数据；batch arena 仅物理 pack 临时队列。各 offset/count/access mode、整个 buffer 与 binding range 均检查，不能每子段合法就声称整体合法。低 limit 按完整 phase/finite arena 处理或明确能力不支持；不能用容量 admission 掩盖未完成的 custom/MASK/VT 分支。R1 全 consumer 一次切换后删除旧 asset-shard/continuation 调度、绑定和无消费者 scratch，不保留生产 A/B bridge。
+AS arena 是统一生产traversal表示，intersection payload 是显式派生数据；R1当前同时保留immutable build-cache BLAS/payload和packed arena副本，两份均计成本，刚体publication复用同一packed buffer；batch arena 仅物理 pack 临时队列。各 offset/count/access mode、整个 buffer 与 binding range 均检查，不能每子段合法就声称整体合法。低 limit 按完整 phase/finite arena 处理或明确能力不支持；不能用容量 admission 掩盖未完成的 custom/MASK/VT 分支。R1 全 consumer 一次切换后删除旧 asset-shard/continuation 调度、绑定和无消费者 scratch，不保留生产 A/B bridge。
 
 ### 19.4 refit / restructure 的有限调度
 

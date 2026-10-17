@@ -106,7 +106,7 @@ JSON 包括：
 
 ## 数据边界与当前可观察问题
 
-`Renderer.surfaceCacheGiEvidence()` 是按需 CPU 成本快照，生命周期从 GI owner 创建到退休；未创建 / 已退休返回 `null`，不暴露 GPU 产品、不提交命令、不执行 readback。成本里注明排除项。`queryShards` 仅说明 CPU 已提交 publication 的 AS 分片数；零分片的冷启动帧不代表已运行完整几何 query，非零也不替代 GPU coverage 证明。主机循环不依赖 GPU readback 决定效果工作，profiler 的异步时间戳采样只用于显示。
+`Renderer.surfaceCacheGiEvidence()` 是按需 CPU 成本快照，生命周期从 GI owner 创建到退休；未创建 / 已退休返回 `null`，不暴露 GPU 产品、不提交命令、不执行 readback。成本里注明排除项。`queryArenas` 仅说明 CPU 已提交 publication 的共享 AS arena 数；冷启动的零 arena 不代表已运行完整几何 query，非零也不替代 GPU coverage 证明。源 BLAS 块不再等同于 query 调度次数。主机循环不依赖 GPU readback 决定效果工作，profiler 的异步时间戳采样只用于显示。
 
 Owner 字节不是驱动总显存；ray / dispatch 数是编码理论上界，不是实际命中数。GPU command span 只显示实际完整时间戳采样；不可用时明确显示不可用。它不是 P50 / P95 或 FPS 资格。
 

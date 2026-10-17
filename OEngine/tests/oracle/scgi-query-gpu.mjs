@@ -6,17 +6,17 @@ import { AppearanceProgramRegistry } from "../../.test-dist/gpu/AppearanceProgra
 import {
   ShaderModuleCache,
   PipelineLayoutCache,
-  RenderPipelineCache
+  RenderPipelineCache,
 } from "../../.test-dist/gpu/GPUDescriptorCaches.js";
 import { GPUSamplerCache } from "../../.test-dist/gpu/GPUSamplerCache.js";
 import { StandardShadeMaterial } from "../../.test-dist/material/StandardShadeMaterial.js";
 import { AppearanceGraphBuilder } from "../../.test-dist/material/AppearanceGraph.js";
 import { compileAppearanceGraph } from "../../.test-dist/material/AppearanceGraphCompiler.js";
+import { ScgiQueryArena } from "../../.test-dist/render/gi/ScgiQueryArena.js";
 import { ScgiQueryScene } from "../../.test-dist/render/gi/ScgiQueryScene.js";
 import { ScgiQueryBatch } from "../../.test-dist/render/gi/ScgiQueryBatch.js";
 import { triangleProductFixture } from "../helpers/geometry-product-fixture.mjs";
 import { scgiGraphics, scgiCommand } from "./scgi-fixture.mjs";
-import { checkBvhBuild } from "./geometry-budgeted-residency-gpu.mjs";
 
 const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 
@@ -50,7 +50,7 @@ function triangle(origin, direction, vertices, tMin, tMax) {
   if (t < tMin || t > tMax) return null;
   const relative = sub(
     origin.map((v, i) => v + t * direction[i]),
-    vertices[0]
+    vertices[0],
   );
   const a = dot(e1, e1),
     b = dot(e1, e2),
@@ -67,7 +67,7 @@ export async function runScgiQueryGpuOracle(device) {
   graphics.render_pipelines = new RenderPipelineCache(
     device,
     new PipelineLayoutCache(device),
-    new ShaderModuleCache(device)
+    new ShaderModuleCache(device),
   );
   // No sampled textures in this fixture. VT has a separate real atlas oracle.
   graphics.texture_residency = { virtualTextures: null, retainQuery: () => ({ valid: true, release() {} }) };
@@ -79,7 +79,6 @@ export async function runScgiQueryGpuOracle(device) {
   let native;
   let querySet;
   try {
-    const bvh = await checkBvhBuild(device, graphics);
     const { descriptor, page } = triangleProductFixture();
     const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", page)).slice(0, 16);
     descriptor.pageRecords.set(hash);
@@ -92,10 +91,10 @@ export async function runScgiQueryGpuOracle(device) {
           pageId,
           bytes: page.slice().buffer,
           decodedHash128: hash,
-          decodedPageHash128: hash
+          decodedPageHash128: hash,
         };
       },
-      release() {}
+      release() {},
     });
     const material = new StandardShadeMaterial(),
       alpha = new StandardShadeMaterial();
@@ -132,7 +131,7 @@ export async function runScgiQueryGpuOracle(device) {
         virtualGeometry: {
           productTableSlot: product.productTableSlot,
           productGeneration: product.productGeneration,
-          assetCount: 1
+          assetCount: 1,
         },
         geometryIndices: new Uint32Array(count).fill(product.assetReferenceBegin),
         materialHandles: materials,
@@ -140,22 +139,22 @@ export async function runScgiQueryGpuOracle(device) {
         flags,
         boundsSpheres: new Float32Array(count * 4).fill(1),
         boundsMin: new Float32Array(Array.from({ length: count }, () => [-0.5, -0.5, 0]).flat()),
-        boundsMax: new Float32Array(Array.from({ length: count }, () => [0.5, 0.5, 0]).flat())
+        boundsMax: new Float32Array(Array.from({ length: count }, () => [0.5, 0.5, 0]).flat()),
       },
-      upload
+      upload,
     );
     native = new GpuNativeMaterialScene(
       graphics,
       [
         { materialSlot: 0, material: alpha, graph: graph(0), textureBindingSetId: 0, textureRefs: new Map() },
-        { materialSlot: 1, material, graph: graph(1), textureBindingSetId: 0, textureRefs: new Map() }
+        { materialSlot: 1, material, graph: graph(1), textureBindingSetId: 0, textureRefs: new Map() },
       ],
       () => [{ id: 0, generation: 1, textureBanks: [] }],
       new Map(),
       new Map(),
       upload,
       true,
-      false
+      false,
     );
     await native.ready;
     upload.finish();
@@ -175,11 +174,10 @@ export async function runScgiQueryGpuOracle(device) {
       deviceEpoch: 1,
       originEpoch: 0,
       primitiveCapacity: 8,
-      instanceCapacity: 32,
       maximumBytes: 16 * 1024 ** 2,
       subgroup: false,
       directorySegmentBytes: 160,
-      domain: { min: [-20, -20, -20], max: [20, 20, 20] }
+      domain: { min: [-20, -20, -20], max: [20, 20, 20] },
     };
     const create = async (previous) => {
       const value = await ScgiQueryScene.create(
@@ -191,26 +189,19 @@ export async function runScgiQueryGpuOracle(device) {
         undefined,
         undefined,
         undefined,
-        previous
+        previous,
       );
       scenes.push(value);
       return value;
     };
     const first = await create();
-    assert.equal(first.shards.length, 3, "complete source-slot domain is split into three TLAS windows");
-    assert.ok(
-      first.shards.every((s) => s.instances.records === first.shards[0].instances.records),
-      "one shared affine truth"
-    );
-    assert.ok(
-      first.shards.every((s) => s.blas === first.shards[0].blas),
-      "one static BLAS across TLAS windows"
-    );
+    assert.equal(first.arenas.length, 1, "one arena spans the complete scene, not source-slot windows");
+    assert.equal(first.geometries.length, 1, "one source BLAS for all instances");
     const rayCount = 137;
     const allocate = (size, usage) => {
       const buffer = device.createBuffer({
         size,
-        usage: usage | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
+        usage: usage | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
       });
       buffers.push(buffer);
       return buffer;
@@ -243,10 +234,11 @@ export async function runScgiQueryGpuOracle(device) {
       [7, [0, 0, -1, 0.001, 0, 0, -1, 10]],
       [8, [0, 0, 1, 0, 0, 0, -1e-20, 10]],
       [9, [0, 0, 1, 0, 0, 0, -1e20, 10]],
-      [10, [NaN, 0, 1, 0, 0, 0, -1, 10]]
+      [10, [NaN, 0, 1, 0, 0, 0, -1, 10]],
     ])
       rf.set(ray, i * 12);
     const settings = {
+      diagnostics: true,
       batch,
       rayCount,
       resultByteOffset: rayCount * 48,
@@ -255,8 +247,7 @@ export async function runScgiQueryGpuOracle(device) {
       camera: [2, 3, 4],
       coneWidth: 0.01,
       coneSpread: 0.001,
-      wavefrontRounds: 2,
-      count: { buffer: gpuCount, byteOffset: 0 }
+      count: { buffer: gpuCount, byteOffset: 0 },
     };
     const query = await ScgiQueryBatch.create(device, first, settings);
     batches.push(query);
@@ -266,8 +257,8 @@ export async function runScgiQueryGpuOracle(device) {
       const pass = command.gpu_encoder.beginComputePass({
         timestampWrites: {
           querySet,
-          ...(end ? { endOfPassWriteIndex: index } : { beginningOfPassWriteIndex: index })
-        }
+          ...(end ? { endOfPassWriteIndex: index } : { beginningOfPassWriteIndex: index }),
+        },
       });
       pass.end();
     };
@@ -277,8 +268,8 @@ export async function runScgiQueryGpuOracle(device) {
       {
         destination: gpuCount,
         destinationOffset: 0,
-        bytes: new Uint8Array(new Uint32Array([rayCount]).buffer)
-      }
+        bytes: new Uint8Array(new Uint32Array([rayCount]).buffer),
+      },
     ]);
     stamp(buildCommand, 0);
     first.encode(buildCommand);
@@ -294,7 +285,7 @@ export async function runScgiQueryGpuOracle(device) {
     const local = [
       [-0.5, -0.5, 0],
       [0.5, -0.5, 0],
-      [0, 0.5, 0]
+      [0, 0.5, 0],
     ];
     for (let ray = 0; ray < rayCount; ray++) {
       if (ray === 3 || ray === 10) {
@@ -324,17 +315,51 @@ export async function runScgiQueryGpuOracle(device) {
         assert.equal(u[ray * 8 + 7], Number(expected.front));
       }
     }
+    const routeValues = new Uint32Array(
+      await bytes(device, graphics, query.routeCounters, 0, query.routeCounters.size),
+    );
+    assert.ok(routeValues[0] < rayCount, "spatial routing excludes unrelated rays");
+    assert.ok(routeValues[1] > 0 && routeValues[2] > 0, "diagnostics observe actual node and triangle work");
+    assert.equal(routeValues[7], rayCount);
     const shaded = new Float32Array(await bytes(device, graphics, output, 0, rayCount * 64));
     assert.deepEqual([...shaded.subarray(4, 7)], [2, 3, 4], "real camera survives diffuse projection");
     assert.ok(Math.abs(shaded[0] - 0.2 / Math.PI) < 1e-7);
+    const geometryOutput = allocate(rayCount * 96, GPUBufferUsage.STORAGE);
+    const geometryQuery = await ScgiQueryBatch.create(device, first, {
+      ...settings,
+      output: geometryOutput,
+      outputStride: 96,
+      kind: "geometry",
+    });
+    batches.push(geometryQuery);
+    const geometric = scgiCommand(graphics);
+    geometryQuery.encode(geometric);
+    geometric.finish();
+    await geometric.gpuDone;
+    const geometryValues = new Float32Array(await bytes(device, graphics, geometryOutput, 0, 96));
+    assert.deepEqual(
+      [...geometryValues.subarray(0, 8)],
+      Array(8).fill(0),
+      "geometry-only closest does not evaluate camera-dependent diffuse or emission",
+    );
+    assert.equal(geometryValues[11], 1);
+    assert.deepEqual([...geometryValues.subarray(12, 15)], [0, 0, -1]);
+    assert.ok(geometryValues[23] > 0, "geometry closest supplies a positive ray-origin error bound");
+    assert.deepEqual([...new Uint32Array(geometryValues.buffer).subarray(16, 20)], [0, 0, 0, 0]);
+    assert.ok(geometryQuery.cost.descriptors.storage <= 15);
     // Same-source candidate copies the previous topology; static BLAS is retained.
     const unchanged = await create(first);
-    assert.equal(unchanged.shards[0].blas, first.shards[0].blas);
+    assert.equal(unchanged.geometries[0].blas, first.geometries[0].blas);
+    assert.equal(
+      unchanged.arenas[0].buffer,
+      first.arenas[0].buffer,
+      "rigid scene publications share packed AS and positions",
+    );
     const unchangedCommand = scgiCommand(graphics);
     unchanged.encode(unchangedCommand);
     unchangedCommand.finish();
     await unchangedCommand.gpuDone;
-    const clean = new Uint32Array(await bytes(device, graphics, unchanged.shards[0].tlas, 0, 64));
+    const clean = new Uint32Array(await bytes(device, graphics, unchanged.arenas[0].routes[0].tlas, 0, 64));
     assert.equal(clean[8], 0, "GPU dirty policy skips unchanged topology");
     const moved = [...identity];
     moved[14] = -1.5;
@@ -342,7 +367,7 @@ export async function runScgiQueryGpuOracle(device) {
     scene.patch(
       handle,
       { frameId: 1, transforms: { indices: new Uint32Array([81]), transforms: new Float32Array(moved) } },
-      patch
+      patch,
     );
     patch.finish();
     await patch.gpuDone;
@@ -354,19 +379,20 @@ export async function runScgiQueryGpuOracle(device) {
     stamp(updateCommand, 3, true);
     updateCommand.finish();
     await updateCommand.gpuDone;
-    const changed = new Uint32Array(await bytes(device, graphics, update.shards[2].tlas, 0, 64));
+    const changed = new Uint32Array(await bytes(device, graphics, update.arenas[0].routes[0].tlas, 0, 64));
     assert.ok(changed[8] === 1 || changed[8] === 2, "GPU dirty leaf chooses refit/restructure");
     assert.equal(changed[2], 0, "updated topology remains valid");
-    const queryUpdated = await ScgiQueryBatch.create(device, update, { ...settings, wavefrontRounds: 0 });
+    const queryUpdated = await ScgiQueryBatch.create(device, update, { ...settings });
     batches.push(queryUpdated);
+    let previousResult;
     for (const actual of [1, 0, rayCount + 1, rayCount]) {
       const command = scgiCommand(graphics);
       command.uploadRegions([
         {
           destination: gpuCount,
           destinationOffset: 0,
-          bytes: new Uint8Array(new Uint32Array([actual]).buffer)
-        }
+          bytes: new Uint8Array(new Uint32Array([actual]).buffer),
+        },
       ]);
       queryUpdated.encode(command);
       command.finish();
@@ -375,18 +401,18 @@ export async function runScgiQueryGpuOracle(device) {
       if (actual > rayCount)
         assert.ok(Array.from({ length: rayCount }, (_, i) => result[i * 8 + 3]).every((s) => s === 5));
       else if (actual === 0)
-        assert.ok(Array.from({ length: rayCount }, (_, i) => result[i * 8 + 3]).every((s) => s === 2));
+        assert.deepEqual(result, previousResult, "zero count does not touch inactive result records");
       else
         assert.equal(
           new Float32Array(result.buffer)[0],
           2.5,
-          "updated rigid transform consumed by traversal"
+          "updated rigid transform consumed by traversal",
         );
+      previousResult = result;
     }
     const any = await ScgiQueryBatch.create(device, update, {
       ...settings,
       anyHit: true,
-      wavefrontRounds: 0
     });
     batches.push(any);
     const shadow = scgiCommand(graphics);
@@ -405,14 +431,14 @@ export async function runScgiQueryGpuOracle(device) {
     const gpuMs = {
       build: Number(timestamps[1] - timestamps[0]) / 1e6,
       update: Number(timestamps[3] - timestamps[2]) / 1e6,
-      query: Number(timestamps[5] - timestamps[4]) / 1e6
+      query: Number(timestamps[5] - timestamps[4]) / 1e6,
     };
     const warm = [];
     for (const [name, actual, x] of [
       ["alpha-dense", rayCount, 0],
       ["alpha-one", 1, 0],
       ["opaque-one", 1, -2],
-      ["empty", 0, 0]
+      ["empty", 0, 0],
     ]) {
       const command = scgiCommand(graphics);
       rf[0] = x;
@@ -420,9 +446,9 @@ export async function runScgiQueryGpuOracle(device) {
         {
           destination: gpuCount,
           destinationOffset: 0,
-          bytes: new Uint8Array(new Uint32Array([actual]).buffer)
+          bytes: new Uint8Array(new Uint32Array([actual]).buffer),
         },
-        { destination: batch, destinationOffset: 0, bytes: new Uint8Array(rays, 0, 48) }
+        { destination: batch, destinationOffset: 0, bytes: new Uint8Array(rays, 0, 48) },
       ]);
       stamp(command, 6);
       queryUpdated.encode(command);
@@ -438,7 +464,7 @@ export async function runScgiQueryGpuOracle(device) {
     scene.patch(
       handle,
       { frameId: 2, visibility: { indices: new Uint32Array([83]), flags: new Uint32Array([0]) } },
-      hide
+      hide,
     );
     hide.finish();
     await hide.gpuDone;
@@ -448,14 +474,10 @@ export async function runScgiQueryGpuOracle(device) {
     rebuild.finish();
     await rebuild.gpuDone;
     const rebuiltHeader = new Uint32Array(
-      await bytes(device, graphics, changedMembership.shards[2].tlas, 0, 64)
+      await bytes(device, graphics, changedMembership.arenas[0].routes[0].tlas, 0, 64),
     );
     assert.equal(rebuiltHeader[8], 3, "GPU membership change requires rebuild");
-    assert.equal(
-      rebuiltHeader[0],
-      changedMembership.shards[2].instances.count - 1,
-      "complete compact window excludes exactly one inactive slot"
-    );
+    assert.equal(rebuiltHeader[0], 2, "complete compact window excludes exactly one inactive slot");
     const abandoned = await create(changedMembership);
     const cancel = scgiCommand(graphics);
     abandoned.encode(cancel);
@@ -467,24 +489,115 @@ export async function runScgiQueryGpuOracle(device) {
     retryCommand.finish();
     await retryCommand.gpuDone;
     assert.equal(retry.valid, true, "aborted candidate did not modify its committed update source");
+    // Exercise physical arena boundaries with the exact same production arena,
+    // builder and query owners, without allocating hundreds of MiB just to hit
+    // a device's maximum binding size in this small semantic fixture.
+    const extraFixture = triangleProductFixture();
+    extraFixture.descriptor.productId.fill(17);
+    extraFixture.descriptor.pageRecords.set(hash);
+    const extraProduct = await products.load({
+      descriptor: extraFixture.descriptor,
+      async readPage(pageId) {
+        return {
+          productId: extraFixture.descriptor.productId,
+          revision: extraFixture.descriptor.revision,
+          pageId,
+          bytes: extraFixture.page.slice().buffer,
+          decodedHash128: hash,
+          decodedPageHash128: hash,
+        };
+      },
+      release() {},
+    });
+    const extraUpload = scgiCommand(graphics);
+    const extraHandle = scene.instantiate(
+      {
+        count: 2,
+        geometryHandles: [],
+        virtualGeometry: {
+          productTableSlot: extraProduct.productTableSlot,
+          productGeneration: extraProduct.productGeneration,
+          assetCount: 1,
+        },
+        geometryIndices: new Uint32Array(2).fill(extraProduct.assetReferenceBegin),
+        materialHandles: new Uint32Array(2).fill(1),
+        currentTransforms: new Float32Array([...identity, ...identity]),
+        flags: new Uint32Array([1, 1]),
+        boundsSpheres: new Float32Array(8).fill(1),
+        boundsMin: new Float32Array([-0.5, -0.5, 0, -0.5, -0.5, 0]),
+        boundsMax: new Float32Array([0.5, 0.5, 0, 0.5, 0.5, 0]),
+      },
+      extraUpload,
+    );
+    extraUpload.finish();
+    await extraUpload.gpuDone;
+    const multi = await ScgiQueryScene.create(device, profile, runtime, scene, [
+      product.residency,
+      extraProduct.residency,
+    ]);
+    scenes.push(multi);
+    assert.equal(multi.geometries.length, 2, "complete multi-Product geometry publication");
+    for (const arena of multi.arenas) arena.destroy();
+    multi.arenas.length = 0;
+    for (const geometry of multi.geometries) {
+      multi.arenas.push(
+        await ScgiQueryArena.create(
+          device,
+          [geometry],
+          multi.blasPlan,
+          multi.sourceInstances,
+          multi.transforms,
+          multi.materialPublication,
+          false,
+          profile.domain,
+        ),
+      );
+    }
+    const multiQuery = await ScgiQueryBatch.create(device, multi, settings);
+    batches.push(multiQuery);
+    const multiple = scgiCommand(graphics);
+    rf.set([0, 0, 1, 0, 0, 0, -1, 10], 0);
+    multiple.uploadRegions([
+      { destination: gpuCount, destinationOffset: 0, bytes: new Uint8Array(new Uint32Array([1]).buffer) },
+      { destination: batch, destinationOffset: 0, bytes: new Uint8Array(rays, 0, 48) },
+    ]);
+    multi.encode(multiple);
+    multiQuery.encode(multiple);
+    multiple.finish();
+    await multiple.gpuDone;
+    const multiHit = new Uint32Array(await bytes(device, graphics, batch, rayCount * 48, 32));
+    assert.equal(multiHit[3], 0);
+    assert.equal(new Float32Array(multiHit.buffer)[0], 1, "global closest merges both physical arenas");
+    assert.equal(
+      multiHit[4],
+      scene.range(extraHandle).start,
+      "equal-t deterministically chooses the first stable scene slot",
+    );
+    const multiCounters = new Uint32Array(
+      await bytes(device, graphics, multiQuery.routeCounters, 0, multiQuery.routeCounters.size),
+    );
+    assert.ok(multiCounters.filter((_, i) => i % 8 === 0).some((value) => value > 0));
     return {
-      bvh,
+      multiProductPhysicalArenas: multi.arenas.length,
+      equalTAcrossInstances: true,
       randomBruteForceRays: rayCount,
       coplanarRejectedLayers: 81,
       sharedAffine: true,
       staticBlasReuse: true,
       gpuDirtyRefit: true,
-      segmentedTlas: first.shards.length,
+      sceneArenas: first.arenas.length,
+      routeCounters: [...routeValues],
       gpuCountEmptyOverflowRetry: true,
       insideAndDoubleSided: true,
       closestAndOcclusion: true,
+      geometryOnlyAndSharedPackedArena: true,
       membershipRebuildAndAbortRetry: true,
       queryBytes: first.byteLength,
       batchCost: query.cost,
-      zeroWavefrontCost: queryUpdated.cost,
+      updatedBatchCost: queryUpdated.cost,
       gpuMs,
       warm,
-      scope: "small owner/correctness and coarse GPU cost fixture; no full Renderer performance claim"
+      scope: "small owner/correctness and coarse GPU cost fixture; no full Renderer performance claim",
     };
   } finally {
     await device.queue.onSubmittedWorkDone();

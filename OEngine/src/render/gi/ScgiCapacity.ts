@@ -14,7 +14,6 @@ export interface ScgiAllocationProfile {
   readonly bounceRequests: number;
   readonly updates: number;
   readonly rayBatch: number;
-  readonly spillBytesPerRay: number;
 }
 
 export interface ScgiRange {
@@ -80,16 +79,15 @@ export function planScgiArena(
 
 export function planScgiAllocation(limits: ScgiBufferLimits, profile: ScgiAllocationProfile) {
   for (const [name, count] of Object.entries(profile)) {
-    scgiInteger(count, name, name === "spillBytesPerRay" ? 0 : 1);
+    scgiInteger(count, name, 1);
   }
   scgiInteger(profile.cascades, "cascades", 1, SCGI_MAX_CASCADES);
   if (
     profile.updates > profile.patches ||
     (profile.requests + profile.bounceRequests) * 2 >= 0xffffffff ||
-    profile.patches >= 0xfffffffe ||
-    profile.spillBytesPerRay % 4 !== 0
+    profile.patches >= 0xfffffffe
   ) {
-    throw new RangeError("SCGI update/patch/sentinel/spill capacity is not representable");
+    throw new RangeError("SCGI update/patch/sentinel capacity is not representable");
   }
   const pixels = scgiInteger(profile.width * profile.height, "source pixel domain");
   const halfWidth = Math.ceil(profile.width / 2);
@@ -113,15 +111,13 @@ export function planScgiAllocation(limits: ScgiBufferLimits, profile: ScgiAlloca
     ["seedSources", profile.patches, 4],
     ["filterValidity", profile.patches, 4],
     ...scgiCacheScratchParts(cells, profile.patches, profile.requests, profile.bounceRequests),
-    ["filterControl", 16 + profile.patches, 4]
+    ["filterControl", 16 + profile.patches, 4],
   ]);
   const batch = planScgiArena(limits, [
     ["rays", profile.rayBatch, SCGI_ABI.ray.stride],
     ["results", profile.rayBatch, SCGI_ABI.result.stride],
     ["payloads", profile.rayBatch, SCGI_ABI.payload.stride],
-    ["continuations", profile.rayBatch, SCGI_ABI.continuation.stride],
     ["cacheIndirect", 16, 4],
-    ...(profile.spillBytesPerRay > 0 ? [["spill", profile.rayBatch, profile.spillBytesPerRay] as const] : []),
   ]);
   const fieldStride = SCGI_ABI.halfField.stride;
   const pixelsPerSegment = Math.floor(
@@ -438,30 +434,6 @@ export function planScgiNativeDescriptors(
 
 /** Coverage tail inventory from design §19.3. Actual material constants/textures
  * remain their existing Native descriptors; SCGI adds no sampled texture. */
-export function planScgiQueryDescriptors(
-  limits: GPUSupportedLimits,
-  materialConstants: readonly GPUBindGroupLayoutEntry[],
-  materialTextures: readonly GPUBindGroupLayoutEntry[],
-) {
-  const read = (binding: number): GPUBindGroupLayoutEntry => ({
-    binding,
-    visibility: GPUShaderStage.COMPUTE,
-    buffer: { type: "read-only-storage" },
-  });
-  const write = (binding: number): GPUBindGroupLayoutEntry => ({
-    binding,
-    visibility: GPUShaderStage.COMPUTE,
-    buffer: { type: "storage" },
-  });
-  // query: batch, AS arena, instance/directory, bin queue, counters/args.
-  const query = [write(0), read(1), read(2), write(3), write(4)];
-  // frame instance, identity, source heap, vertex payload, Product metadata +4 banks.
-  const geometry = Array.from({ length: 9 }, (_, binding) => read(binding));
-  const groups = [query, geometry, materialConstants, materialTextures];
-  const counts = validateScgiDescriptors(limits, groups);
-  return Object.freeze({ groups, counts });
-}
-
 export function scgiExecutionProfile(device: Pick<GPUDevice, "features" | "limits">) {
   if (
     device.limits.maxComputeInvocationsPerWorkgroup < 128 ||

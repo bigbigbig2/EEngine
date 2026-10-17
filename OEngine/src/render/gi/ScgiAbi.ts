@@ -40,17 +40,17 @@ export const SCGI_ABI = Object.freeze({
     ["materialValueRevision", "u32", 1],
     ["deformationRevision", "u32", 1],
     ["localPrimitive", "u32", 1],
-    ["reservedIdentity", "u32", 3]
+    ["reservedIdentity", "u32", 3],
   ]),
   cell: layout("ScgiCell", [
     ["patchIndex", "u32", 1],
-    ["patchSlotGeneration", "u32", 1]
+    ["patchSlotGeneration", "u32", 1],
   ]),
   cacheState: layout("ScgiCacheState", [
     ["demotionFrame", "u32", 1],
     ["dirty", "u32", 1],
     ["selectionFrame", "u32", 1],
-    ["live", "u32", 1]
+    ["live", "u32", 1],
   ]),
   patch: layout("ScgiPatch", [
     ["positionRadius", "f32", 4],
@@ -69,7 +69,7 @@ export const SCGI_ABI = Object.freeze({
     ["numericEpochs", "u32", 4],
     // rank, post state (0 absent/1 seed/2 filtered), cohort fault, missing A0.
     ["rankPostCohortStatus", "u32", 4],
-    ["identityTail", "u32", 4]
+    ["identityTail", "u32", 4],
   ]),
   request: layout("ScgiRequest", [
     ["positionRadius", "f32", 4],
@@ -77,7 +77,7 @@ export const SCGI_ABI = Object.freeze({
     ["source", "u32", 1],
     ["identity", "u32", 12],
     ["cellRankPixelStatus", "u32", 4],
-    ["identityTail", "u32", 4]
+    ["identityTail", "u32", 4],
   ]),
   halfField: layout("ScgiHalfField", [
     ["packedCoefficients", "u32", 8],
@@ -85,7 +85,7 @@ export const SCGI_ABI = Object.freeze({
     ["octNormal", "u32", 1],
     ["sourcePixel", "u32", 1],
     ["confidenceFlags", "u32", 1],
-    ["identity", "u32", 16]
+    ["identity", "u32", 16],
   ]),
   anchor: layout("ScgiAnchor", [
     ["positionValid", "f32", 4],
@@ -93,11 +93,11 @@ export const SCGI_ABI = Object.freeze({
     ["sourcePixel", "u32", 1],
     ["previousPositionValid", "f32", 4],
     ["motionDepth", "f32", 4],
-    ["identity", "u32", 16]
+    ["identity", "u32", 16],
   ]),
   raw: layout("ScgiRaw", [
     ["coefficients", "f32", 12],
-    ["cohortPlanCompletionFault", "u32", 4]
+    ["cohortPlanCompletionFault", "u32", 4],
   ]),
   node: layout("ScgiNode", [
     ["leftMin", "f32", 3],
@@ -107,47 +107,36 @@ export const SCGI_ABI = Object.freeze({
     ["rightMin", "f32", 3],
     ["rightRef", "u32", 1],
     ["rightMax", "f32", 3],
-    ["rightFlags", "u32", 1]
+    ["rightFlags", "u32", 1],
   ]),
   links: layout("ScgiLinks", [
     ["parent", "u32", 1],
-    ["escape", "u32", 1]
+    ["escape", "u32", 1],
   ]),
   triangle: layout("ScgiTriangle", [["pageGroupTriangleMaterial", "u32", 4]]),
   directory: layout("ScgiDirectory", [
     ["shardRootCountRef", "u32", 4],
-    ["leaseGeometryTopologyFlags", "u32", 4]
+    ["leaseGeometryTopologyFlags", "u32", 4],
   ]),
   instance: layout("ScgiInstance", [
     ["objectToWorld", "f32", 12],
     ["worldToObject", "f32", 12],
     ["slotSetLifetimeRoot", "u32", 4],
-    ["shardGenerationMaskFlags", "u32", 4]
+    ["shardGenerationMaskFlags", "u32", 4],
   ]),
   ray: layout("ScgiRay", [
     ["originTMin", "f32", 4],
     ["directionTMax", "f32", 4],
-    ["idMaskKindSnapshot", "u32", 4]
+    ["idMaskKindSnapshot", "u32", 4],
   ]),
   result: layout("ScgiResult", [
     ["tBarycentric", "f32", 3],
     ["status", "u32", 1],
-    ["instancePrimitiveGenerationFront", "u32", 4]
+    ["instancePrimitiveGenerationFront", "u32", 4],
   ]),
   payload: layout("ScgiPayload", [
     ["patchGenerationCohortSample", "u32", 4],
-    ["pdfPathLightFlags", "u32", 4]
-  ]),
-  continuation: layout("ScgiContinuation", [
-    ["state", "u32", 1],
-    ["node", "u32", 1],
-    ["previousNode", "u32", 1],
-    ["inTlas", "u32", 1],
-    ["instanceSlot", "u32", 1],
-    ["tlasReturnNode", "u32", 1],
-    ["tlasVisits", "u32", 1],
-    ["blasVisits", "u32", 1],
-    ["reserved", "u32", 8]
+    ["pdfPathLightFlags", "u32", 4],
   ]),
   worldHeader: layout("ScgiWorldHeader", [
     ["generationDeviceSceneView", "u32", 4],
@@ -162,36 +151,8 @@ export const SCGI_ABI = Object.freeze({
     // words56/57 address generation/sample serial; word58 GPU f32 scale,
     // word59 submitted filter configuration serial (preserved by prepare).
     ["addressGenerationSampleSerial", "u32", 4],
-    ["reserved", "u32", 4]
-  ])
-});
-
-/** One 64B scratch record has phase-specific ownership. Fast candidate rounds
- * use a rejected-hit cursor; the complete tail clears it and uses the traversal
- * layout above. Closest t/bary/identity/front remain in the 32B result record.
- * Never interpret one phase's words using the other phase's layout. */
-export const SCGI_QUERY_CONTINUATION = Object.freeze({
-  words: SCGI_ABI.continuation.stride / 4,
-  candidate: Object.freeze({
-    accepted: 0,
-    hasRejected: 1,
-    rejectedT: 2,
-    rejectedInstance: 3,
-    rejectedPrimitive: 4
-  }),
-  tail: Object.freeze({
-    state: 0,
-    node: 1,
-    previousNode: 2,
-    inTlas: 3,
-    instanceSlot: 4,
-    tlasReturnNode: 5,
-    tlasVisits: 6,
-    blasVisits: 7,
-    initial: 0,
-    suspended: 1,
-    done: 2
-  })
+    ["reserved", "u32", 4],
+  ]),
 });
 
 export type ScgiRecordKind = keyof typeof SCGI_ABI;
@@ -248,7 +209,7 @@ export function unpackScgiRecord(kind: ScgiRecordKind, bytes: Uint8Array): Recor
 /** Half storage uses pack2x16float, independent of optional shader-f16 arithmetic. */
 export function packScgiCoefficients(
   coefficients: ArrayLike<number>,
-  scale: number
+  scale: number,
 ): Uint32Array<ArrayBuffer> {
   if (coefficients.length !== 12 || !Number.isFinite(scale) || scale <= 0) {
     throw new RangeError("SCGI requires 12 coefficients and positive finite scale");

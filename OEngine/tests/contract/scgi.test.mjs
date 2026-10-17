@@ -11,7 +11,6 @@ const {
   planScgiLightingWindow,
   planScgiShards,
   planScgiNativeDescriptors,
-  planScgiQueryDescriptors,
   scgiExecutionProfile,
 } = await import("../../.test-dist/render/gi/ScgiCapacity.js");
 const { ScgiRuntime } = await import("../../.test-dist/render/gi/ScgiRuntime.js");
@@ -136,7 +135,6 @@ test("SCGI exact nonzero/max ABI and literal offsets", () => {
     ray: 48,
     result: 32,
     payload: 32,
-    continuation: 64,
     worldHeader: 256,
   };
   for (const [kind, bytes] of Object.entries(expected)) {
@@ -159,8 +157,6 @@ test("SCGI exact nonzero/max ABI and literal offsets", () => {
     SCGI_ABI.halfField.fields.map((f) => f.offset),
     [0, 32, 36, 40, 44, 48],
   );
-  assert.deepEqual(SCGI_ABI.continuation.fields.map((field) => field.offset),
-    [0, 4, 8, 12, 16, 20, 24, 28, 32]);
   assert.throws(() => packScgiRecord("cell", { patchIndex: 2 ** 32, patchSlotGeneration: 1 }));
   const coefficients = [1, -2, 3, 0.5, -0.25, 4, 5, 6, -7, 8, 9, 10];
   const packed = packScgiCoefficients(coefficients, 2);
@@ -182,7 +178,7 @@ test("SCGI capacity: total arena, binding ranges, full/window/remap, finite shar
       plan.anchorBytes,
   );
   assert.equal(plan.batch.ranges.spill, undefined);
-  assert.equal(plan.batch.ranges.continuations.bytes, 8 * 64);
+  assert.equal(plan.batch.ranges.continuations, undefined);
   assert.equal(plan.world.ranges.cacheState.bytes, scgiProfile.patches * 16);
   assert.equal(plan.scratch.ranges.cacheMoves.bytes, scgiProfile.patches * 384);
   for (const arena of [plan.world, ...plan.screen, plan.scratch, plan.batch]) {
@@ -281,11 +277,6 @@ test("SCGI descriptors use actual Native routes and complete query coverage inve
     [],
   );
   assert.equal(full.counts.storage, 16);
-  const material = [{ binding: 0, visibility: 4, buffer: { type: "read-only-storage" } }];
-  assert.equal(planScgiQueryDescriptors(limits, material, []).counts.storage, 15);
-  assert.throws(() =>
-    planScgiQueryDescriptors({ ...limits, maxStorageBuffersPerShaderStage: 14 }, material, []),
-  );
   assert.equal(scgiExecutionProfile({ limits, features: new Set() }).scan, "portable");
   assert.equal(scgiExecutionProfile({ limits, features: new Set(["subgroups"]) }).scan, "portable");
 });

@@ -12,6 +12,7 @@ verifies:
     - OEngine/src/render/gi
     - OEngine/src/render/FrameInstanceTransforms.ts
     - OEngine/src/shaders/scgi_anchor.ts
+    - OEngine/src/shaders/scgi_query_scene.ts
     - OEngine/src/shaders/scgi_estimator.ts
     - OEngine/src/shaders/scgi_native.ts
     - OEngine/src/shaders/scgi_gather.ts
@@ -81,6 +82,8 @@ NativeVisibilityPass 和 VSM native alpha caster 消费同一 native material pu
 2026-10-17 SCGI生产切换：`ScgiRenderer`组合真实query/cache/anchor/estimator/filter；公开`surfaceCacheGi`设置、preset与debug沿FrameProgram进入Surface前宏stage。GI私有112B half field/history分片经有序copy/halo供Native消费；96B lighting ranges保留全部local/VSM/solar/noise引用，单次window×bin partition，必要时GPU gather七个keyed VSM descriptor，无新增Native绑定。Native在真实shaded normal评价SH，以confidence混合environment×AO，材质occlusion仅一次，GI lighting response进入原Temporal；SSSR继续消费被GI照亮的Surface。默认关闭，启用后无旧GI选择器。旧probe/atlas/long-range/screen-diffuse与无consumer的旧BLAS/TLAS已删除，DynamicBvh cooker保留。缺页/非Product/不支持的形变保持unknown；不会把不完整AS当天空。近场residual未实施，完整画质与性能资格仍归后续单元。
 
 2026-10-17 SCGI近场接线：可选`ScgiGather`在同一SCGI owner下复用query scene、Native材质bin/几何与VT反馈，Surface后产生RGBA32F diffuse-only源、tile probe signed SH与下一代32B/H residual。Surface前按previous residual配对的world guide/identity重投影，Native通过112B lighting ranges与原目录读取，先合world+signed residual再非负处理。world seed/field/cache与screen残差独立；旧文的96B ranges及“residual未实施”是SCGI-8时点事实，现由该实现替代。专用场景与调试入口为`tools/scgi-lab.mjs`，测试覆盖与画质/成本限制只读执行§7.15；不宣称完整AAA资格。
+
+2026-10-18 SCGI query执行切换：`ScgiQueryArena`按有限storage范围聚合多Product BLAS与48B精确求交payload，以完整GpuScene实例构建scene TLAS；`ScgiQueryRouteWork`空间筛选实际ray，`scgi_query_scene`在invocation内完整遍历并内联Native MASK，最终material按Native Program bin求值。`ScgiGather` probe消费96B geometry closest，不运行diffuse graph；estimator与两类shadow共享同一query scene。旧per-asset实例TLAS、wavefront/quantum/tail控制和64B/ray continuation已删除；packed静态arena可跨刚体publication共享，candidate/fence/abort协议仍由原query publication持有。默认1080p实验屋已接通；R2 estimator批处理、R3 request-first Native源与SCGI-10仍未完成，不能将R1解读为GI质量或整Renderer性能资格。实际成本、诊断与限制只读执行§8.4。
 
 ## 仍需验证
 

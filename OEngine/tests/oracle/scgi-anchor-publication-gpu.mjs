@@ -224,7 +224,6 @@ export async function runScgiAnchorPublicationGpuOracle(device) {
         source: bindings.instances,
         work,
         workCapacity: 1,
-        instanceCapacity: bindings.highWaterCount
       });
       frames.encode(command.gpu_encoder, prepared);
       command.gpuDone.then(

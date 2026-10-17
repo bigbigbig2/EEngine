@@ -81,7 +81,7 @@ export class ScgiRenderer {
     return {
       runtime,
       queryBytes: query,
-      queryShards: this.scenes.current?.shards.length ?? 0,
+      queryArenas: this.scenes.current?.arenas.length ?? 0,
       estimator,
       invalidationBytes: invalidation,
       gather: this.gather?.cost,
@@ -174,7 +174,6 @@ export class ScgiRenderer {
           requests: settings.requests,
           bounceRequests: settings.bounceRequests,
           rayBatch: settings.batchRays,
-          spillBytesPerRay: 0
         }
       );
       assertPreparing();

@@ -244,7 +244,6 @@ export class ScgiEstimator {
         camera: owner.input.camera,
         coneWidth: input.coneWidth,
         coneSpread: input.coneSpread,
-        wavefrontRounds: 0,
         count: { buffer: owner.buffer, byteOffset: 6 * 4 }
       };
       owner.closest = await ScgiQueryBatch.create(device, input.scene, query);

@@ -26,24 +26,31 @@ export class ScgiQueryBlas {
   private submitted = false;
   private poisoned = false;
   private released = false;
-  private handle?: ResourceHandle;
+  private readonly handles: ResourceHandle[] = [];
 
   private constructor(
     readonly buffer: GPUBuffer,
+    readonly triangles: GPUBuffer,
     private readonly cut: BlasCut,
     private readonly key: string,
-    private readonly accounting?: ResourceAccounting
+    private readonly accounting?: ResourceAccounting,
   ) {
-    this.handle = accounting?.created(
-      {
-        kind: "buffer",
-        category: "resident",
-        owner: "SCGI/static BLAS",
-        label: buffer.label,
-        bytes: buffer.size
-      },
-      buffer
-    );
+    if (accounting !== undefined) {
+      for (const resource of [buffer, triangles]) {
+        this.handles.push(
+          accounting.created(
+            {
+              kind: "buffer",
+              category: "resident",
+              owner: "SCGI/static BLAS",
+              label: resource.label,
+              bytes: resource.size,
+            },
+            resource,
+          ),
+        );
+      }
+    }
   }
 
   static acquire(
@@ -54,7 +61,7 @@ export class ScgiQueryBlas {
     asset: number,
     offset: number,
     count: number,
-    accounting?: ResourceAccounting
+    accounting?: ResourceAccounting,
   ): { entry: ScgiQueryBlas; build: boolean } {
     let state = this.devices.get(device);
     if (state === undefined) {
@@ -87,9 +94,20 @@ export class ScgiQueryBlas {
     const buffer = device.createBuffer({
       label: "SCGI/shared static BLAS",
       size: plan.hierarchy.bytes,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });
-    const entry = new ScgiQueryBlas(buffer, cut, key, accounting);
+    let triangles: GPUBuffer;
+    try {
+      triangles = device.createBuffer({
+        label: "SCGI/shared intersection positions",
+        size: Math.max(48, count * 48),
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+      });
+    } catch (error) {
+      buffer.destroy();
+      throw error;
+    }
+    const entry = new ScgiQueryBlas(buffer, triangles, cut, key, accounting);
     cut.liveEntries++;
     // A concurrently prepared candidate may build separately. Only a submitted
     // entry replaces this index; that does not change any retained old entry.
@@ -108,7 +126,7 @@ export class ScgiQueryBlas {
       aborted: () => {},
       failed: () => {
         this.poisoned = true;
-      }
+      },
     });
   }
 
@@ -128,8 +146,9 @@ export class ScgiQueryBlas {
       this.cut.cuts.delete(this.cut.key);
     }
     this.buffer.destroy();
-    if (this.handle !== undefined) {
-      this.accounting!.destroyed(this.handle);
+    this.triangles.destroy();
+    for (const handle of this.handles) {
+      this.accounting!.destroyed(handle);
     }
   }
 }

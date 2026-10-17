@@ -4,7 +4,7 @@ import type { GpuScene } from "../../gpu/GpuScene.js";
 import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import { GeometryQueryInstanceSnapshot } from "../../gpu/GeometryQueryInstanceSnapshot.js";
 import { GeometryQueryCoverage } from "../../gpu/GeometryQueryCoverage.js";
-import { GeometryQueryInstances } from "../../gpu/GeometryQueryInstances.js";
+import { ScgiQueryArena } from "./ScgiQueryArena.js";
 import { GpuQueryMaterialPublication } from "../../gpu/GpuQueryMaterialPublication.js";
 import type { NativeSceneQueryLease } from "../../gpu/GpuNativeMaterialScene.js";
 import type {
@@ -35,15 +35,13 @@ export interface ScgiQuerySceneProfile {
   readonly domain?: GeometryQueryDomain;
   /** Finite physical directory window; defaults to the negotiated binding limit. */
   readonly directorySegmentBytes?: number;
-  /** Source-slot window capacity, independent of BLAS triangle capacity. */
-  readonly instanceCapacity?: number;
   /** Complete delayed GPU demand plans, keyed by the admitted descriptor.
    * Absence explicitly requests the full-world exact Product cut. */
   readonly queryCuts?: readonly GeometryQueryCut[];
   readonly workingSet?: { readonly voxelSize: number; readonly receiver: readonly [number, number, number] };
 }
 
-export interface ScgiQuerySceneShard {
+export interface ScgiQuerySceneGeometry {
   readonly index: number;
   readonly geometry: ScgiQueryGeometry;
   readonly lease: GeometryQueryGeometryLease;
@@ -52,19 +50,18 @@ export interface ScgiQuerySceneShard {
   readonly primitiveOffset: number;
   readonly primitiveCount: number;
   readonly blas: GPUBuffer;
-  readonly tlas: GPUBuffer;
-  readonly instances: GeometryQueryInstances;
+  readonly entry: ScgiQueryBlas;
 }
 
 /** Immutable candidate over existing Product/GpuScene/native material owners.
  * No import, private mesh, visibility readback or frame submit lives here.
  * The publication is usable only after every AS shard has been encoded. */
 export class ScgiQueryScene {
-  readonly shards: ScgiQuerySceneShard[] = [];
+  readonly geometries: ScgiQuerySceneGeometry[] = [];
+  readonly arenas: ScgiQueryArena[] = [];
   readonly materials: GpuQueryMaterialPublication;
   readonly sourceInstances: GeometryQueryInstanceSnapshot;
   readonly blasPlan: ScgiBvhPlan;
-  readonly tlasPlan: ScgiBvhPlan;
   private readonly geometryLeases: GeometryQueryGeometryLease[] = [];
   private readonly buffers: GPUBuffer[] = [];
   private readonly handles: ResourceHandle[] = [];
@@ -79,14 +76,13 @@ export class ScgiQueryScene {
   private state: "preparing" | "ready" | "encoded" | "submitted" | "poisoned" | "destroyed" = "preparing";
   private bytes = 0;
   private blasScratch!: GPUBuffer;
-  private tlasScratch!: GPUBuffer;
   private poisonSettlement: Promise<unknown> | null = null;
   private poisonCause: unknown;
   private coverage: GeometryQueryCoverage | null = null;
   private buildCommand: ShadeGPUCommandContext | null = null;
   private retiring = false;
   private readonly consumers = new Map<ShadeGPUCommandContext, Promise<void>>();
-  private updateSource: ScgiQueryScene | null = null;
+  private updateSource: ScgiQueryScene | undefined;
   private readonly workingSets: GeometryQueryWorkingSet[] = [];
   private completedCuts: readonly GeometryQueryCut[] | undefined;
   private demandFrame = 0;
@@ -115,10 +111,6 @@ export class ScgiQueryScene {
       materials = new GpuQueryMaterialPublication(device, nativeLease, accounting);
       this.materials = materials;
       this.blasPlan = planScgiBvh(device.limits, profile.primitiveCapacity);
-      this.tlasPlan = planScgiBvh(
-        device.limits,
-        Math.max(1, Math.min(this.sourceInstances.count, profile.instanceCapacity ?? 4096)),
-      );
     } catch (error) {
       materials?.destroy();
       this.sourceInstances.destroy();
@@ -146,9 +138,6 @@ export class ScgiQueryScene {
     scgiInteger(profile.originEpoch, "query origin epoch", 0);
     scgiInteger(profile.primitiveCapacity, "query primitive shard capacity");
     scgiInteger(profile.maximumBytes, "query maximum bytes");
-    if (profile.instanceCapacity !== undefined) {
-      scgiInteger(profile.instanceCapacity, "query instance window capacity");
-    }
     profile = Object.freeze({
       ...profile,
       ...(profile.domain === undefined ? {} : { domain: geometryQueryDomain([profile.domain], 0) }),
@@ -165,6 +154,17 @@ export class ScgiQueryScene {
     });
     if (profile.queryCuts !== undefined && profile.queryCuts.length !== products.length) {
       throw new Error("Query cut publication contains an unrelated Product");
+    }
+    // Negotiate the complete source-instance domain before allocating copies.
+    // Raster visibility never limits the captured scene or its TLAS.
+    const sourceCount = scene.queryBindings(command).highWaterCount;
+    const sourceBytes = Math.max(1, sourceCount) * 192;
+    if (
+      sourceBytes > profile.maximumBytes ||
+      Math.max(1, sourceCount) * 176 >
+        Math.min(device.limits.maxBufferSize, device.limits.maxStorageBufferBindingSize)
+    ) {
+      throw new RangeError("Complete immutable query source exceeds admitted capacity before allocation");
     }
     // Request every Product before attempting any lease. A missing early
     // Product must not starve all later Products' coverage IO.
@@ -192,48 +192,17 @@ export class ScgiQueryScene {
           product.retainQueryGeometry(command, profile.directorySegmentBytes, cuts[index]),
         );
       }
-      // Preflight the complete shard domain, including kernel-owned parameter
-      // buffers. Admission never drops an asset or truncates its primitives.
-      let shardCount = 0;
-      let geometryCount = 0;
       for (const lease of owner.geometryLeases) {
         owner.bytes += lease.metadataByteLength;
-        for (const segment of lease.segments) {
-          for (const asset of segment.queryAssets) {
-            geometryCount += Math.ceil(asset.primitiveCount / profile.primitiveCapacity);
-            shardCount +=
-              Math.ceil(asset.primitiveCount / profile.primitiveCapacity) *
-              Math.max(1, Math.ceil(owner.sourceInstances.count / owner.tlasPlan.primitiveCapacity));
-          }
-        }
       }
-      const builderBytes =
-        shardCount === 0
-          ? 0
-          : 4 * device.limits.minUniformBufferOffsetAlignment * 512 +
-            owner.blasPlan.scratch.ranges.indirect!.bytes +
-            owner.tlasPlan.scratch.ranges.indirect!.bytes;
-      const instanceBytes = 64;
-      const sharedTransformBytes =
-        shardCount === 0
-          ? 0
-          : Math.max(128, owner.sourceInstances.count * 128) + Math.max(32, owner.sourceInstances.count * 32);
-      const coverageBytes =
-        Math.max(48, owner.geometryLeases.reduce((count, lease) => count + lease.cut.assets.length, 0) * 48) +
-        48;
-      const scratchBytes = shardCount === 0 ? 0 : owner.blasPlan.scratch.bytes + owner.tlasPlan.scratch.bytes;
-      const finalBytes =
-        owner.bytes +
-        sharedTransformBytes +
-        coverageBytes +
-        builderBytes +
-        scratchBytes +
-        geometryCount * (owner.blasPlan.hierarchy.bytes + 64) +
-        shardCount * (owner.tlasPlan.hierarchy.bytes + instanceBytes);
-      if (!Number.isSafeInteger(finalBytes) || finalBytes > profile.maximumBytes) {
-        throw new RangeError("Complete query AS publication exceeds the admitted working-set budget");
-      }
-      owner.bytes += builderBytes;
+      owner.assertBudget();
+      owner.assertBudget(
+        48 +
+          Math.max(
+            48,
+            owner.geometryLeases.reduce((count, lease) => count + lease.cut.assets.length, 0) * 48,
+          ),
+      );
       const coverage = await GeometryQueryCoverage.create(
         device,
         owner.sourceInstances,
@@ -260,11 +229,16 @@ export class ScgiQueryScene {
           owner.bytes += workingSet.byteLength;
         }
       }
-      if (shardCount === 0) {
+      if (
+        owner.geometryLeases.every((lease) =>
+          lease.segments.every((segment) => segment.queryAssets.every((asset) => asset.primitiveCount === 0)),
+        )
+      ) {
         owner.assertBudget();
         owner.state = "ready";
         return owner;
       }
+      owner.assertBudget(Math.max(1, owner.sourceInstances.count) * 160);
       const transforms = await GeometryQueryTransforms.create(device, owner.sourceInstances, accounting);
       if (owner.destroyed) {
         transforms.destroy();
@@ -277,18 +251,15 @@ export class ScgiQueryScene {
         owner.blasPlan.scratch.bytes,
         GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
       );
-      owner.tlasScratch = owner.allocate(
-        "SCGI/query TLAS build scratch",
-        owner.tlasPlan.scratch.bytes,
-        GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
-      );
-      for (const plan of [owner.blasPlan, owner.tlasPlan]) {
+      for (const plan of [owner.blasPlan]) {
+        owner.assertBudget(ScgiBvhBuild.allocationBytes(device, plan));
         const builder = await ScgiBvhBuild.create(device, plan, profile.subgroup, accounting);
         if (owner.destroyed) {
           builder.destroy();
           throw new Error("Query device was lost during AS preparation");
         }
         owner.builders.push(builder);
+        owner.bytes += builder.byteLength;
       }
       for (const lease of owner.geometryLeases) {
         for (const segment of lease.segments) {
@@ -296,6 +267,7 @@ export class ScgiQueryScene {
             const range = segment.queryAssets[asset]!;
             for (let offset = 0; offset < range.primitiveCount; offset += profile.primitiveCapacity) {
               const count = Math.min(profile.primitiveCapacity, range.primitiveCount - offset);
+              owner.assertBudget(owner.blasPlan.hierarchy.bytes + count * 48 + 64);
               const acquired = ScgiQueryBlas.acquire(
                 device,
                 owner.blasPlan,
@@ -317,6 +289,8 @@ export class ScgiQueryScene {
                   segment,
                   offset,
                   count,
+                  acquired.entry.triangles,
+                  accounting,
                 );
               } catch (error) {
                 acquired.entry.release();
@@ -328,84 +302,73 @@ export class ScgiQueryScene {
                 throw new Error("Query device was lost during BLAS preparation");
               }
               owner.staticBlas.push({ ...acquired, geometry, count });
-              owner.bytes += acquired.entry.buffer.size + 64;
-              for (
-                let first = 0;
-                first < Math.max(1, owner.sourceInstances.count);
-                first += owner.tlasPlan.primitiveCapacity
-              ) {
-                const index = owner.shards.length;
-                const tlas = owner.allocate(
-                  `SCGI/query TLAS ${index}`,
-                  owner.tlasPlan.hierarchy.bytes,
-                  GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
-                );
-                const instanceCount = Math.min(
-                  owner.tlasPlan.primitiveCapacity,
-                  owner.sourceInstances.count - first,
-                );
-                const instances = await GeometryQueryInstances.create(
-                  device,
-                  owner.tlasPlan,
-                  owner.tlasScratch,
-                  owner.sourceInstances,
-                  {
-                    productTableSlot: lease.productTableSlot,
-                    productGeneration: lease.productGeneration,
-                    assetReference: lease.assetReferenceBegin + asset,
-                    root: 0,
-                    shard: index,
-                    asGeneration: 1,
-                  },
-                  accounting,
-                  profile.domain,
-                  owner.transforms,
-                  first,
-                  instanceCount,
-                );
-                if (owner.destroyed) {
-                  instances.destroy();
-                  throw new Error("Query device was lost during instance preparation");
-                }
-                owner.shards.push(
-                  Object.freeze({
-                    index,
-                    geometry,
-                    lease,
-                    segment,
-                    asset,
-                    primitiveOffset: offset,
-                    primitiveCount: count,
-                    blas: acquired.entry.buffer,
-                    tlas,
-                    instances,
-                  }),
-                );
-                owner.bytes += 64;
-                owner.assertBudget();
-              }
+              owner.bytes += acquired.entry.buffer.size + acquired.entry.triangles.size + 64;
+              owner.geometries.push(
+                Object.freeze({
+                  index: owner.geometries.length,
+                  geometry,
+                  lease,
+                  segment,
+                  asset,
+                  primitiveOffset: offset,
+                  primitiveCount: count,
+                  blas: acquired.entry.buffer,
+                  entry: acquired.entry,
+                }),
+              );
             }
           }
         }
       }
       owner.assertBudget();
-      if (
-        previous?.state === "submitted" &&
-        !previous.retiring &&
-        previous.device === device &&
-        previous.tlasPlan.primitiveCapacity === owner.tlasPlan.primitiveCapacity &&
-        previous.shards.length === owner.shards.length &&
-        previous.shards.every((shard, index) => {
-          const next = owner!.shards[index]!;
-          return (
-            shard.blas === next.blas &&
-            shard.instances.first === next.instances.first &&
-            shard.instances.count === next.instances.count
-          );
-        })
-      ) {
-        owner.updateSource = previous;
+      // Arena boundaries follow actual physical limits, never asset count.
+      // Every source chunk is admitted; overflow rejects preparation, not rays.
+      const limit = Math.min(device.limits.maxBufferSize, device.limits.maxStorageBufferBindingSize);
+      const alignment = device.limits.minStorageBufferOffsetAlignment;
+      let pending: ScgiQuerySceneGeometry[] = [];
+      let arenaBytes = alignment;
+      const publishArena = async (): Promise<void> => {
+        if (pending.length === 0) {
+          return;
+        }
+        const arena = await ScgiQueryArena.create(
+          device,
+          pending,
+          owner!.blasPlan,
+          owner!.sourceInstances,
+          transforms,
+          owner!.materialPublication,
+          profile.subgroup,
+          profile.domain,
+          previous?.state === "submitted" && !previous.retiring
+            ? previous.arenas[owner!.arenas.length]
+            : undefined,
+          profile.maximumBytes - owner!.bytes,
+          accounting,
+        );
+        if (owner!.destroyed) {
+          arena.destroy();
+          throw new Error("Query device was lost during shared arena preparation");
+        }
+        owner!.arenas.push(arena);
+        owner!.bytes += arena.byteLength;
+        owner!.assertBudget();
+        pending = [];
+        arenaBytes = alignment;
+      };
+      for (const geometry of owner.geometries) {
+        const added =
+          Math.ceil(owner.blasPlan.hierarchy.bytes / alignment) * alignment +
+          Math.ceil(geometry.entry.triangles.size / alignment) * alignment +
+          alignment;
+        if (arenaBytes + added > limit) {
+          await publishArena();
+        }
+        pending.push(geometry);
+        arenaBytes += added;
       }
+      await publishArena();
+      owner.updateSource = previous?.state === "submitted" && !previous.retiring ? previous : undefined;
       if (!nativeLease.valid || owner.geometryLeases.some((lease) => !lease.valid)) {
         throw new Error("Query source changed during asynchronous AS preparation");
       }
@@ -421,8 +384,8 @@ export class ScgiQueryScene {
     }
   }
 
-  private assertBudget(): void {
-    if (this.bytes > this.profile.maximumBytes) {
+  private assertBudget(additional = 0): void {
+    if (this.bytes + additional > this.profile.maximumBytes) {
       throw new RangeError("Complete query AS publication exceeds the admitted working-set budget");
     }
   }
@@ -492,6 +455,13 @@ export class ScgiQueryScene {
 
   get byteLength(): number {
     return this.bytes;
+  }
+
+  get instanceRecords(): GPUBuffer {
+    if (this.transforms === null) {
+      throw new Error("Empty query scene has no affine consumer");
+    }
+    return this.transforms.records;
   }
 
   get coverageStatus(): GPUBuffer {
@@ -634,19 +604,12 @@ export class ScgiQueryScene {
         blas.entry.observeBuild(command);
       }
     }
-    const previous = this.updateSource;
-    const canUpdate = previous?.state === "submitted" && !previous.retiring;
-    if (canUpdate) {
-      previous.observeResources(command);
+    const reusePrevious = this.updateSource?.state === "submitted" && !this.updateSource.retiring;
+    if (reusePrevious) {
+      this.updateSource!.observeResources(command);
     }
-    for (const shard of this.shards) {
-      shard.instances.encode(command);
-      if (canUpdate) {
-        command.copyBufferToBuffer(previous.shards[shard.index]!.tlas, 0, shard.tlas, 0, shard.tlas.size);
-        this.builders[1]!.encodeUpdate(command, shard.tlas, this.tlasScratch, shard.instances.count);
-      } else {
-        this.builders[1]!.encode(command, shard.tlas, this.tlasScratch, shard.instances.count, true);
-      }
+    for (const arena of this.arenas) {
+      arena.encode(command, reusePrevious);
     }
     this.buildCommand = command;
     this.state = "encoded";
@@ -729,8 +692,8 @@ export class ScgiQueryScene {
     for (const workingSet of this.workingSets) {
       workingSet.retire();
     }
-    for (const shard of this.shards) {
-      shard.instances.destroy();
+    for (const arena of this.arenas) {
+      arena.destroy();
     }
     this.transforms?.destroy();
     for (const blas of this.staticBlas) {

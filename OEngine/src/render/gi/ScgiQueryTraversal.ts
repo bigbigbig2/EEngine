@@ -1,92 +1,56 @@
 import { geometryQueryPipelines } from "../../gpu/GeometryQueryPipelines.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
-import type {
-  GeometryQueryGeometryLease,
-  GeometryQueryGeometrySegment,
-} from "../../gpu/VirtualGeometryResidency.js";
-import type { GeometryQueryInstances } from "../../gpu/GeometryQueryInstances.js";
-import { scgiQueryGeometryWgsl } from "../../shaders/scgi_query_geometry.js";
-import type { ScgiBvhPlan } from "./ScgiBvhLayout.js";
 import type { GpuNativeMaterialPublication } from "../../gpu/GpuNativeMaterialPublication.js";
 import type { NativeSceneQueryMaterial } from "../../gpu/GpuNativeMaterialScene.js";
+import { scgiQuerySceneWgsl } from "../../shaders/scgi_query_scene.js";
 import { validateScgiDescriptors } from "./ScgiCapacity.js";
+import type { ScgiQueryArena, ScgiQueryArenaRoute } from "./ScgiQueryArena.js";
 import type { ScgiQueryHitWork } from "./ScgiQueryHitWork.js";
-import type { ScgiQueryTailWork } from "./ScgiQueryTailWork.js";
 import type { ScgiQueryRayCount } from "./ScgiQueryRayCount.js";
-import { GEOMETRY_QUERY_DIRECTORY_HEADER_BYTES } from "../../gpu/GeometryQueryDirectory.js";
 
-/** Complete native coverage-class traversal used during query construction and
- * validation. The query scene owner must merge all relevant classes/shards and
- * establish domain coverage before a cohort can publish a hit or physical miss. */
+import type { ScgiQueryRouteWork } from "./ScgiQueryRouteWork.js";
+
 export class ScgiQueryTraversal {
   private destroyed = false;
   private frameView: GPUBuffer | undefined;
-
   private constructor(
     private readonly device: GPUDevice,
-    private readonly lease: GeometryQueryGeometryLease,
     private readonly settings: GPUBuffer,
-    private readonly traceSettings: GPUBuffer,
     private readonly group: GPUBindGroup,
     private readonly pipeline: GPUComputePipeline,
     readonly rayCount: number,
-    private readonly coverageGroup?: GPUBindGroup,
-    private readonly materialGroup?: GPUBindGroup,
-    private readonly coverageBuffers: readonly GPUBuffer[] = [],
-    private readonly outputGroup?: GPUBindGroup,
-    private readonly hitWork?: { readonly work: ScgiQueryHitWork | ScgiQueryTailWork; readonly bin: number },
-    private readonly tail?: { readonly continuation: GPUBuffer; readonly dispatches: number },
-    private readonly feedbackGroups?: ReadonlyMap<GPUBuffer, GPUBindGroup>,
-    private readonly tailWork?: ScgiQueryTailWork,
-    private readonly rayWork?: ScgiQueryRayCount,
-    readonly descriptors?: ReturnType<typeof validateScgiDescriptors>,
+    private readonly coverageGroup: GPUBindGroup | undefined,
+    private readonly materialGroup: GPUBindGroup | undefined,
+    private readonly buffers: readonly GPUBuffer[],
+    private readonly outputGroup: GPUBindGroup | undefined,
+    private readonly work: ScgiQueryHitWork | undefined,
+    private readonly bin: number,
+    private readonly rayWork: ScgiQueryRayCount | undefined,
+    private readonly feedbackGroups: ReadonlyMap<GPUBuffer, GPUBindGroup> | undefined,
+    readonly descriptors: ReturnType<typeof validateScgiDescriptors>,
+    private readonly routing?: { work: ScgiQueryRouteWork; route: ScgiQueryArenaRoute },
   ) {}
-
   get byteLength(): number {
-    return (
-      this.settings.size +
-      this.traceSettings.size +
-      this.coverageBuffers.reduce((bytes, buffer) => bytes + buffer.size, 0)
-    );
+    return this.settings.size + this.buffers.reduce((n, b) => n + b.size, 0);
   }
-
-  get dispatchUpperBound(): number {
-    const quanta = this.tail?.dispatches ?? 1;
-    return this.tailWork === undefined ? quanta : quanta * 3 + 1;
-  }
-
-  get tailQuanta(): number {
-    return this.tail?.dispatches ?? 0;
-  }
-
   static async create(
     device: GPUDevice,
-    blasPlan: ScgiBvhPlan,
-    tlasPlan: ScgiBvhPlan,
     input: {
-      lease: GeometryQueryGeometryLease;
-      segment: GeometryQueryGeometrySegment;
-      asset: number;
-      blas: GPUBuffer;
-      tlas: GPUBuffer;
-      instances: GeometryQueryInstances;
+      arena: ScgiQueryArena;
+      route: ScgiQueryArenaRoute;
+      source: GPUBuffer;
+      instances: GPUBuffer;
       batch: GPUBuffer;
+      coverageStatus: GPUBuffer;
       rayCount: number;
       resultByteOffset: number;
+      diagnostics?: boolean;
       anyHit?: boolean;
       merge?: boolean;
-      primitiveOffset?: number;
-      primitiveCount?: number;
-      coverageStatus?: GPUBuffer;
-      pendingWork?: ScgiQueryHitWork;
-      tailWork?: ScgiQueryTailWork;
+      geometryOnly?: boolean;
       rayWork?: ScgiQueryRayCount;
-      wavefront?: {
-        phase: "candidate" | "coverage" | "tail";
-        continuation: GPUBuffer;
-        work?: ScgiQueryHitWork;
-        nodeQuantum?: number;
-      };
+      work?: ScgiQueryHitWork;
+      routing?: { work: ScgiQueryRouteWork; route: ScgiQueryArenaRoute };
       coverage?: {
         publication: GpuNativeMaterialPublication;
         classIndex: number;
@@ -98,9 +62,8 @@ export class ScgiQueryTraversal {
       diffuse?: {
         material: NativeSceneQueryMaterial;
         directory: GPUBuffer;
-        constants?: GPUBuffer;
-        work?: ScgiQueryHitWork;
-        binIndex?: number;
+        constants: GPUBuffer;
+        binIndex: number;
         output: GPUBuffer;
         outputStride?: 64 | 96;
         feedback?: GPUBuffer;
@@ -110,82 +73,24 @@ export class ScgiQueryTraversal {
         coneWidth: number;
         coneSpread: number;
       };
+      geometryOutput?: GPUBuffer;
+      outputStride?: 64 | 96;
     },
   ): Promise<ScgiQueryTraversal> {
-    const { lease } = input;
-    const asset = input.segment.queryAssets[input.asset];
-    const primitiveOffset = input.primitiveOffset ?? 0;
-    const primitiveCount = input.primitiveCount ?? asset?.primitiveCount ?? 0;
-    const resultWords = input.resultByteOffset / 4;
-    if (
-      !lease.valid ||
-      !lease.segments.includes(input.segment) ||
-      asset === undefined ||
-      !Number.isSafeInteger(primitiveOffset) ||
-      primitiveOffset < 0 ||
-      !Number.isSafeInteger(primitiveCount) ||
-      primitiveCount < 0 ||
-      primitiveOffset + primitiveCount > asset.primitiveCount ||
-      primitiveCount > blasPlan.primitiveCapacity ||
-      !Number.isSafeInteger(input.rayCount) ||
-      input.rayCount < 0 ||
-      !Number.isSafeInteger(resultWords) ||
-      resultWords < input.rayCount * 12 ||
-      input.resultByteOffset + input.rayCount * 32 > input.batch.size ||
-      input.blas.size < blasPlan.hierarchy.bytes ||
-      input.tlas.size < tlasPlan.hierarchy.bytes ||
-      Math.ceil(input.rayCount / 64) > device.limits.maxComputeWorkgroupsPerDimension
-    ) {
-      throw new RangeError(
-        "Opaque query requires complete nonoverlapping ray/result ranges and live AS inputs",
-      );
-    }
     const coverage = input.coverage;
     const diffuse = input.diffuse;
-    const wavefront = input.wavefront;
-    const nodeQuantum = wavefront?.nodeQuantum ?? 4096;
-    if (!Number.isSafeInteger(nodeQuantum) || nodeQuantum < 1 || nodeQuantum > 65536) {
-      throw new RangeError("Query node quantum must be a positive finite dispatch bound");
-    }
-    const work = diffuse?.work ?? wavefront?.work ?? input.tailWork ?? input.pendingWork;
-    if (
-      wavefront !== undefined &&
-      (wavefront.continuation.size < input.rayCount * 64 ||
-        (wavefront.phase === "coverage" && (coverage === undefined || work === undefined)) ||
-        (wavefront.phase === "candidate" && coverage !== undefined))
-    ) {
-      throw new RangeError("Query wavefront requires complete continuation and native coverage work");
-    }
-    if (coverage !== undefined && diffuse !== undefined) {
-      throw new Error("Query dispatch must select coverage traversal or accepted-hit shading");
-    }
-    if (
-      diffuse !== undefined &&
-      (diffuse.output.size < input.rayCount * (diffuse.outputStride ?? 64) ||
-        (diffuse.material.binding.program.virtualTextures &&
-          diffuse.feedback === undefined &&
-          !diffuse.feedbackBuffers?.length))
-    ) {
-      throw new RangeError("Diffuse query requires a complete output domain and live VT feedback");
-    }
-    if (
-      diffuse?.work !== undefined &&
-      (diffuse.work.rayCount !== input.rayCount || (diffuse.binIndex ?? 0) >= diffuse.work.binCount)
-    ) {
-      throw new RangeError("Native hit work must match the complete ray batch and material bin");
-    }
+    const attributes = diffuse !== undefined || (coverage !== undefined && coverage.classIndex !== 0);
     const coverageClass =
       diffuse === undefined
-        ? coverage?.publication.rasterClasses[coverage.classIndex]
+        ? coverage === undefined
+          ? { program: null, layoutEntries: [], materialEntries: [], frameInputs: new Float32Array(4) }
+          : coverage.publication.rasterClasses[coverage.classIndex]!
         : {
             program: diffuse.material.binding.program,
             layoutEntries: diffuse.material.binding.layoutEntries,
             materialEntries: diffuse.material.binding.entries,
             frameInputs: new Float32Array(Math.max(1, diffuse.material.binding.program.inputCount) * 4),
           };
-    if (coverage !== undefined && coverageClass === undefined) {
-      throw new RangeError("Unknown native coverage class");
-    }
     const storage = (binding: number, writable = false): GPUBindGroupLayoutEntry => ({
       binding,
       visibility: GPUShaderStage.COMPUTE,
@@ -202,35 +107,23 @@ export class ScgiQueryTraversal {
       storage(3),
       storage(4),
       storage(5, true),
-      uniform(6),
-      ...(input.coverageStatus ? [storage(7)] : []),
-      storage(8),
-      storage(9),
-      storage(10),
-      storage(11),
-      storage(12),
+      storage(7),
+      ...(attributes ? [storage(8), storage(9), storage(10), storage(11), storage(12)] : []),
     ];
-    const coverageEntries =
-      coverageClass === undefined
-        ? []
-        : [
-            storage(0),
-            storage(1),
-            uniform(2),
-            ...(coverageClass.program === null ? [] : [storage(3), uniform(4), uniform(5)]),
-          ];
+    const coverageEntries = [
+      storage(0),
+      ...(coverageClass.program === null ? [] : [storage(1), uniform(2)]),
+      ...(coverageClass.program === null ? [] : [storage(3), uniform(4), uniform(5)]),
+    ];
     const outputEntries = [
-      ...(diffuse === undefined
-        ? []
-        : [
-            storage(0, true),
-            ...(diffuse.material.binding.program.virtualTextures ? [storage(1, true)] : []),
-          ]),
-      ...(work === undefined ? [] : [storage(2)]),
-      ...(wavefront === undefined ? [] : [storage(3, true)]),
+      ...(diffuse === undefined && !input.geometryOnly ? [] : [storage(0, true)]),
+      ...(diffuse?.material.binding.program.virtualTextures ? [storage(1, true)] : []),
+      ...(input.work === undefined && input.routing === undefined ? [] : [storage(2, true)]),
     ];
-    const materialEntries =
-      coverageClass?.layoutEntries.map((entry) => ({ ...entry, visibility: GPUShaderStage.COMPUTE })) ?? [];
+    const materialEntries = coverageClass.layoutEntries.map((entry) => ({
+      ...entry,
+      visibility: GPUShaderStage.COMPUTE,
+    }));
     const descriptors = validateScgiDescriptors(device.limits, [
       queryEntries,
       coverageEntries,
@@ -238,12 +131,18 @@ export class ScgiQueryTraversal {
       materialEntries,
     ]);
     const cache = geometryQueryPipelines(device);
-    const queryLayout = cache.layouts.obtainBindGroupLayout({ entries: queryEntries });
-    const coverageLayout = cache.layouts.obtainBindGroupLayout({ entries: coverageEntries });
-    const outputLayout = cache.layouts.obtainBindGroupLayout({ entries: outputEntries });
-    const materialLayout = cache.layouts.obtainBindGroupLayout({ entries: materialEntries });
+    const layouts = [queryEntries, coverageEntries, outputEntries, materialEntries].map((entries) =>
+      cache.layouts.obtainBindGroupLayout({ entries }),
+    );
+    const [queryLayout, coverageLayout, outputLayout, materialLayout] = layouts as [
+      GPUBindGroupLayout,
+      GPUBindGroupLayout,
+      GPUBindGroupLayout,
+      GPUBindGroupLayout,
+    ];
+    const mode = input.geometryOnly ? "geometry" : diffuse === undefined ? "trace" : "material";
     const pipeline = await cache.prepare({
-      label: "SCGI/query traversal",
+      label: `SCGI/scene query ${mode}`,
       layout: {
         bindGroupLayouts: [queryEntries, coverageEntries, outputEntries, materialEntries].map((entries) => ({
           entries,
@@ -251,92 +150,62 @@ export class ScgiQueryTraversal {
       },
       compute: {
         module: {
-          code: scgiQueryGeometryWgsl(
-            blasPlan,
-            tlasPlan,
-            coverageClass?.program,
-            diffuse !== undefined,
-            diffuse?.material.unlit,
-            input.coverageStatus !== undefined,
-            work?.listWordOffset,
-            wavefront?.phase,
-            input.pendingWork !== undefined || input.tailWork !== undefined,
-            nodeQuantum,
-            diffuse?.outputStride ?? 64,
+          code: scgiQuerySceneWgsl(
+            input.arena.plan,
+            coverageClass.program,
+            mode,
+            diffuse?.material.unlit ?? false,
+            diffuse?.outputStride ?? input.outputStride ?? 64,
+            input.work?.listWordOffset,
+            input.routing !== undefined,
+            input.diagnostics ?? false,
           ),
         },
-        entryPoint:
-          wavefront?.phase === "coverage"
-            ? "accept_candidate"
-            : diffuse === undefined
-              ? "trace_opaque"
-              : "shade_hit",
+        entryPoint: "main",
       },
     });
     const settings = device.createBuffer({
-      label: "SCGI/opaque geometry parameters",
-      size: 64,
-      usage: GPUBufferUsage.UNIFORM,
+      label: "SCGI/scene query settings",
+      size: 32,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       mappedAtCreation: true,
     });
-    let traceSettings: GPUBuffer | undefined;
     const coverageBuffers: GPUBuffer[] = [];
     let frameView: GPUBuffer | undefined;
     try {
       new Uint32Array(settings.getMappedRange()).set([
-        GEOMETRY_QUERY_DIRECTORY_HEADER_BYTES / 4,
-        input.segment.queryTrianglePrefixWordOffset,
-        input.asset,
-        lease.productGeneration,
-        asset.primitiveBegin + primitiveOffset,
-        primitiveCount,
-        asset.cutBegin,
-        asset.cutCount,
-        lease.productTableSlot,
-        lease.assetReferenceBegin + input.asset,
-        input.instances.first,
-        input.instances.count,
-        new DataView(
-          lease.cut.descriptor.assetRecords.buffer,
-          lease.cut.descriptor.assetRecords.byteOffset,
-        ).getUint32(input.asset * 128 + 88, true),
-        0,
+        input.rayCount,
+        input.resultByteOffset / 4,
+        Number(input.anyHit ?? false),
+        Number(input.merge ?? false),
+        input.route.sourceGroup,
+        diffuse?.binIndex ?? 0,
         0,
         0,
       ]);
       settings.unmap();
-      traceSettings = device.createBuffer({
-        label: "SCGI/opaque trace parameters",
-        size: 16,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        mappedAtCreation: true,
-      });
-      new Uint32Array(traceSettings.getMappedRange()).set([
-        input.rayCount,
-        0,
-        resultWords,
-        Number(input.anyHit ?? false) | (Number(input.merge ?? false) << 1),
-      ]);
-      traceSettings.unmap();
       const group = device.createBindGroup({
         layout: queryLayout,
         entries: [
           { binding: 0, resource: { buffer: settings } },
-          { binding: 2, resource: { buffer: input.blas, size: blasPlan.hierarchy.bytes } },
-          { binding: 3, resource: { buffer: input.tlas, size: tlasPlan.hierarchy.bytes } },
-          { binding: 4, resource: { buffer: input.instances.records } },
+          { binding: 2, resource: { buffer: input.arena.buffer } },
+          { binding: 3, resource: { buffer: input.route.tlas } },
+          { binding: 4, resource: { buffer: input.instances } },
           { binding: 5, resource: { buffer: input.batch } },
-          { binding: 6, resource: { buffer: traceSettings } },
-          ...(input.coverageStatus ? [{ binding: 7, resource: { buffer: input.coverageStatus } }] : []),
-          { binding: 8, resource: { buffer: input.segment.metadata } },
-          ...lease.banks.map((buffer, index) => ({ binding: 9 + index, resource: { buffer } })),
+          { binding: 7, resource: { buffer: input.coverageStatus } },
+          ...(attributes
+            ? [
+                { binding: 8, resource: { buffer: input.route.segment.metadata } },
+                ...input.route.lease.banks.map((buffer, i) => ({ binding: 9 + i, resource: { buffer } })),
+              ]
+            : []),
         ],
       });
       let coverageGroup: GPUBindGroup | undefined;
       let materialGroup: GPUBindGroup | undefined;
       let outputGroup: GPUBindGroup | undefined;
       let feedbackGroups: Map<GPUBuffer, GPUBindGroup> | undefined;
-      if ((coverage !== undefined || diffuse !== undefined) && coverageClass !== undefined) {
+      {
         const uniformBuffer = (label: string, bytes: Uint8Array) => {
           const buffer = device.createBuffer({
             label,
@@ -349,14 +218,26 @@ export class ScgiQueryTraversal {
           buffer.unmap();
           return buffer;
         };
-        const route = uniformBuffer(
-          "SCGI/native coverage class",
-          new Uint8Array(new Uint32Array([coverage?.classIndex ?? diffuse?.binIndex ?? 0, 0, 0, 0]).buffer),
-        );
+        const route =
+          coverageClass.program === null
+            ? undefined
+            : uniformBuffer(
+                "SCGI/native coverage class",
+                new Uint8Array(
+                  new Uint32Array([coverage?.classIndex ?? diffuse?.binIndex ?? 0, 0, 0, 0]).buffer,
+                ),
+              );
         const entries: GPUBindGroupEntry[] = [
-          { binding: 0, resource: { buffer: input.instances.sourceSnapshot } },
-          { binding: 1, resource: { buffer: diffuse?.directory ?? coverage!.publication.rasterDirectory } },
-          { binding: 2, resource: { buffer: route } },
+          { binding: 0, resource: { buffer: input.source } },
+          ...(coverageClass.program === null
+            ? []
+            : [
+                {
+                  binding: 1,
+                  resource: { buffer: diffuse?.directory ?? coverage!.publication.rasterDirectory },
+                },
+                { binding: 2, resource: { buffer: route! } },
+              ]),
         ];
         if (coverageClass.program !== null) {
           const viewFacts = diffuse ?? coverage!;
@@ -414,6 +295,7 @@ export class ScgiQueryTraversal {
       }
       if (outputEntries.length > 0) {
         const outputEntries: GPUBindGroupEntry[] = [
+          ...(input.geometryOnly ? [{ binding: 0, resource: { buffer: input.geometryOutput! } }] : []),
           ...(diffuse === undefined
             ? []
             : [
@@ -422,8 +304,9 @@ export class ScgiQueryTraversal {
                   ? [{ binding: 1, resource: { buffer: diffuse.feedback ?? diffuse.feedbackBuffers![0]! } }]
                   : []),
               ]),
-          ...(work === undefined ? [] : [{ binding: 2, resource: { buffer: work.buffer } }]),
-          ...(wavefront === undefined ? [] : [{ binding: 3, resource: { buffer: wavefront.continuation } }]),
+          ...(input.work === undefined && input.routing === undefined
+            ? []
+            : [{ binding: 2, resource: { buffer: input.work?.buffer ?? input.routing!.work.buffer } }]),
         ];
         outputGroup = device.createBindGroup({ layout: outputLayout, entries: outputEntries });
         if (diffuse?.material.binding.program.virtualTextures && diffuse.feedbackBuffers !== undefined) {
@@ -441,11 +324,9 @@ export class ScgiQueryTraversal {
           }
         }
       }
-      const traversal = new ScgiQueryTraversal(
+      const result = new ScgiQueryTraversal(
         device,
-        lease,
         settings,
-        traceSettings,
         group,
         pipeline,
         input.rayCount,
@@ -453,50 +334,23 @@ export class ScgiQueryTraversal {
         materialGroup,
         coverageBuffers,
         outputGroup,
-        work === undefined
-          ? undefined
-          : {
-              work,
-              bin:
-                input.pendingWork === undefined && input.tailWork === undefined
-                  ? (diffuse?.binIndex ?? coverage?.classIndex ?? 0)
-                  : 0,
-            },
-        wavefront?.phase === "tail"
-          ? {
-              continuation: wavefront.continuation,
-              // Each TLAS/BLAS node has at most three parent-continuation visits.
-              // Each instance adds one BLAS-to-TLAS return; the last step exits.
-              // Count repeated BLAS visits per instance, not unique BLAS nodes.
-              // Geometry count and the complete source window are known without
-              // GPU readback. Spare arena capacity is not reachable topology.
-              dispatches: Math.ceil(
-                (3 * Math.max(0, input.instances.count * 2 - 1) +
-                  input.instances.count * (3 * Math.max(0, primitiveCount * 2 - 1) + 1) +
-                  1) /
-                  nodeQuantum,
-              ),
-            }
-          : undefined,
-        feedbackGroups,
-        input.tailWork,
+        input.work,
+        diffuse?.binIndex ?? 0,
         input.rayWork,
+        feedbackGroups,
         descriptors,
+        input.routing,
       );
-      traversal.frameView = frameView;
-      return traversal;
+      result.frameView = frameView;
+      return result;
     } catch (error) {
       settings.destroy();
-      traceSettings?.destroy();
       for (const buffer of coverageBuffers) {
         buffer.destroy();
       }
       throw error;
     }
   }
-
-  /** Encoder-ordered camera update. Reusing a scene never freezes camera-driven
-   * material graphs at the camera used during asynchronous pipeline creation. */
   updateView(
     command: ShadeGPUCommandContext,
     view: ArrayLike<number>,
@@ -511,68 +365,64 @@ export class ScgiQueryTraversal {
       throw new RangeError("Query frame view requires complete camera and cone facts");
     }
     const values = new Float32Array(24);
-    values.set(Array.from(view));
-    values.set(Array.from(camera), 16);
+    for (let i = 0; i < 16; i++) {
+      values[i] = view[i]!;
+    }
+    for (let i = 0; i < 3; i++) {
+      values[16 + i] = camera[i]!;
+    }
     values.set([coneWidth, coneSpread], 20);
     if (!values.every(Number.isFinite)) {
       throw new RangeError("Query frame view must be finite f32");
     }
     command.writeBuffer(this.frameView, 0, values.buffer, 0, values.byteLength);
   }
-
   encode(command: ShadeGPUCommandContext, feedback?: GPUBuffer): void {
-    if (this.destroyed || !this.lease.valid || command.device !== this.device || command.closed) {
-      throw new Error("Opaque query requires its live scene publication");
-    }
-    if (this.tail !== undefined) {
-      command.clearBuffer(this.tail.continuation);
+    if (this.destroyed || command.device !== this.device || command.closed) {
+      throw new Error("Query traversal is not live");
     }
     if (this.rayWork !== undefined) {
-      command.copyBufferToBuffer(this.rayWork.buffer, 0, this.traceSettings, 0, 4);
+      command.copyBufferToBuffer(this.rayWork.buffer, 0, this.settings, 0, 4);
     }
-    for (let dispatch = 0; dispatch < (this.tail?.dispatches ?? 1); dispatch++) {
-      this.tailWork?.compact(command);
-      const pass = command.gpu_encoder.beginComputePass({ label: "SCGI/query traversal" });
-      pass.setPipeline(this.pipeline);
-      pass.setBindGroup(0, this.group);
-      if (this.coverageGroup !== undefined) {
-        pass.setBindGroup(1, this.coverageGroup);
-      }
-      if (this.materialGroup !== undefined) {
-        pass.setBindGroup(3, this.materialGroup);
-      }
-      if (this.outputGroup !== undefined) {
-        const group =
-          feedback === undefined || this.feedbackGroups === undefined
-            ? this.outputGroup
-            : this.feedbackGroups.get(feedback);
-        if (group === undefined) {
-          throw new Error("Query VT feedback has no prepared physical binding");
-        }
-        pass.setBindGroup(2, group);
-      }
-      if (this.hitWork === undefined) {
-        if (this.rayWork !== undefined) {
-          pass.dispatchWorkgroupsIndirect(this.rayWork.indirect, 16);
-        } else {
-          pass.dispatchWorkgroups(Math.ceil(this.rayCount / 64));
-        }
-      } else {
-        pass.dispatchWorkgroupsIndirect(this.hitWork.work.indirect, this.hitWork.bin * 32 + 16);
-      }
-      pass.end();
+    this.routing?.work.encode(command, this.routing.route);
+    const pass = command.beginComputePass({ label: "SCGI/complete scene query" });
+    pass.setPipeline(this.pipeline);
+    pass.setBindGroup(0, this.group);
+    if (this.coverageGroup !== undefined) {
+      pass.setBindGroup(1, this.coverageGroup);
     }
-    this.tailWork?.finish(command);
+    if (this.materialGroup !== undefined) {
+      pass.setBindGroup(3, this.materialGroup);
+    }
+    if (this.outputGroup !== undefined) {
+      const group =
+        feedback === undefined || this.feedbackGroups === undefined
+          ? this.outputGroup
+          : this.feedbackGroups.get(feedback);
+      if (group === undefined) {
+        throw new Error("Query VT feedback has no prepared binding");
+      }
+      pass.setBindGroup(2, group);
+    }
+    if (this.routing !== undefined) {
+      pass.dispatchWorkgroupsIndirect(this.routing.work.indirect, 16);
+    } else if (this.work !== undefined) {
+      pass.dispatchWorkgroupsIndirect(this.work.indirect, this.bin * 32 + 16);
+    } else if (this.rayWork !== undefined) {
+      pass.dispatchWorkgroupsIndirect(this.rayWork.indirect, 16);
+    } else {
+      pass.dispatchWorkgroups(Math.ceil(this.rayCount / 64));
+    }
+    pass.end();
+    this.routing?.work.capture(command, this.routing.route);
   }
-
   destroy(): void {
     if (this.destroyed) {
       return;
     }
     this.destroyed = true;
     this.settings.destroy();
-    this.traceSettings.destroy();
-    for (const buffer of this.coverageBuffers) {
+    for (const buffer of this.buffers) {
       buffer.destroy();
     }
   }

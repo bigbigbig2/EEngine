@@ -61,15 +61,6 @@ export const oracles = Object.freeze([
     description: "SCGI-6 actual Product/native/query/light/cache estimator and independent transport expectations."
   }),
   Object.freeze({
-    name: "scgi-query-continuation",
-    file: "OEngine/tests/oracle/geometry-budgeted-residency-gpu.mjs",
-    url: "/OEngine/tests/oracle/geometry-budgeted-residency-gpu.mjs",
-    entry: "runScgiGeometryQueryGpuOracle",
-    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
-    timeoutMs: 180000,
-    description: "SCGI-5 quantum-one complete continuation, immutable Product relocation and shared instance transforms."
-  }),
-  Object.freeze({
     name: "scgi-query-vt",
     file: "OEngine/tests/oracle/scgi-query-vt-gpu.mjs",
     url: "/OEngine/tests/oracle/scgi-query-vt-gpu.mjs",

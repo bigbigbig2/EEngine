@@ -7,13 +7,13 @@ import { AppearanceProgramRegistry } from "../../.test-dist/gpu/AppearanceProgra
 import {
   ShaderModuleCache,
   PipelineLayoutCache,
-  RenderPipelineCache
+  RenderPipelineCache,
 } from "../../.test-dist/gpu/GPUDescriptorCaches.js";
 import { GPUSamplerCache } from "../../.test-dist/gpu/GPUSamplerCache.js";
 import { StandardShadeMaterial } from "../../.test-dist/material/StandardShadeMaterial.js";
 import {
   AppearanceGraphBuilder,
-  snapshotAppearanceTexture
+  snapshotAppearanceTexture,
 } from "../../.test-dist/material/AppearanceGraph.js";
 import { compileAppearanceGraph } from "../../.test-dist/material/AppearanceGraphCompiler.js";
 import { ShadeTexture } from "../../.test-dist/texture/ShadeTexture.js";
@@ -44,7 +44,7 @@ async function checkFullDescriptors(device, graphics, scene, batch, output, tile
     assert.equal(
       device.limits.maxSampledTexturesPerShaderStage,
       16,
-      "fixture targets the negotiated 16-texture route"
+      "fixture targets the negotiated 16-texture route",
     );
     const graph = new AppearanceGraphBuilder();
     const uv = graph.input("uv0", 2, "surface", undefined, "uv0");
@@ -64,14 +64,14 @@ async function checkFullDescriptors(device, graphics, scene, batch, output, tile
       const gpu = device.createTexture({
         size: [1, 1, 2],
         format: "rgba8unorm",
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
       });
       textures.push(gpu);
       device.queue.writeTexture(
         { texture: gpu, origin: [0, 0, 1] },
         new Uint8Array([64, 64, 64, 255]),
         {},
-        [1, 1, 1]
+        [1, 1, 1],
       );
       views.push(gpu.createView({ dimension: "2d-array" }));
       refs.set(texture, encodeGpuTextureRef(index, 1));
@@ -94,12 +94,12 @@ async function checkFullDescriptors(device, graphics, scene, batch, output, tile
         id: 1,
         generation: 1,
         textureBanks: views,
-        bankDescriptors: views.map((_, segment) => ({ segment }))
+        bankDescriptors: views.map((_, segment) => ({ segment })),
       },
       textureRoutingRefs: refs,
       textureMipRanges: new Map(),
       texturePublications: publications,
-      obtainSampler: (descriptor) => graphics.samplers.obtain(descriptor)
+      obtainSampler: (descriptor) => graphics.samplers.obtain(descriptor),
     });
     work = await ScgiQueryHitWork.create(
       device,
@@ -108,11 +108,15 @@ async function checkFullDescriptors(device, graphics, scene, batch, output, tile
       batch,
       1,
       48,
-      1
+      1,
     );
-    const shard = scene.shards[0];
-    query = await ScgiQueryTraversal.create(device, scene.blasPlan, scene.tlasPlan, {
-      ...shard,
+    const arena = scene.arenas[0];
+    query = await ScgiQueryTraversal.create(device, {
+      arena,
+      route: { ...arena.routes[0], sourceGroup: 0 },
+      source: scene.sourceInstances.sourceSnapshot,
+      instances: scene.instanceRecords,
+      work,
       batch,
       rayCount: 1,
       resultByteOffset: 48,
@@ -122,18 +126,17 @@ async function checkFullDescriptors(device, graphics, scene, batch, output, tile
           materialSlot: 0,
           binding,
           constants: Float32Array.from(binding.program.constants),
-          unlit: false
+          unlit: false,
         },
         directory: scene.materials.directory,
-        work,
         binIndex: 0,
         output,
         feedback: scene.virtualTextures.queryFeedbackBuffers[0],
         view: identity,
         camera: [0, 0, 1],
         coneWidth: 0.00001,
-        coneSpread: 0
-      }
+        coneSpread: 0,
+      },
     });
     assert.equal(query.descriptors.storage, 16);
     assert.equal(query.descriptors.sampled, 16);
@@ -151,7 +154,7 @@ async function checkFullDescriptors(device, graphics, scene, batch, output, tile
     const expected = ((14 * 64) / 255 + (2 * 224) / 255) / 16 / Math.PI;
     assert.ok(
       Math.abs(actual[0] - expected) < 2e-5,
-      `complete native sampled union: ${actual[0]} vs ${expected}`
+      `complete native sampled union: ${actual[0]} vs ${expected}`,
     );
     assert.equal(actual[11], 1);
     return { descriptors: query.descriptors, expected, actual: actual[0] };
@@ -173,7 +176,7 @@ export async function runScgiQueryVtGpuOracle(device) {
   graphics.render_pipelines = new RenderPipelineCache(
     device,
     new PipelineLayoutCache(device),
-    new ShaderModuleCache(device)
+    new ShaderModuleCache(device),
   );
   const textures = (graphics.texture_residency = new TextureResidency(graphics));
   const scene = new GpuScene(device, {});
@@ -203,7 +206,7 @@ export async function runScgiQueryVtGpuOracle(device) {
       specularColor: [1, 1, 1],
       coatWeight: 0,
       coatRoughness: 0,
-      coatNormalTS: [0, 0, 1]
+      coatNormalTS: [0, 0, 1],
     }))
       graph.output(name, graph.constant(value));
     material.appearance_definition = { schemaVersion: 1, graph: graph.build() };
@@ -219,10 +222,10 @@ export async function runScgiQueryVtGpuOracle(device) {
           pageId,
           bytes: page.slice().buffer,
           decodedHash128: hash,
-          decodedPageHash128: hash
+          decodedPageHash128: hash,
         };
       },
-      release() {}
+      release() {},
     });
     upload = scgiCommand(graphics);
     scene.instantiate(
@@ -232,7 +235,7 @@ export async function runScgiQueryVtGpuOracle(device) {
         virtualGeometry: {
           productTableSlot: product.productTableSlot,
           productGeneration: product.productGeneration,
-          assetCount: 1
+          assetCount: 1,
         },
         geometryIndices: new Uint32Array([product.assetReferenceBegin]),
         materialHandles: new Uint32Array([0]),
@@ -240,9 +243,9 @@ export async function runScgiQueryVtGpuOracle(device) {
         flags: new Uint32Array([1]),
         boundsSpheres: new Float32Array([0, 0, 0, 1]),
         boundsMin: new Float32Array([-0.5, -0.5, 0]),
-        boundsMax: new Float32Array([0.5, 0.5, 0])
+        boundsMax: new Float32Array([0.5, 0.5, 0]),
       },
-      upload
+      upload,
     );
     const stage = textures.stage([material], upload);
     await textures.uploadTiled([material], upload);
@@ -254,15 +257,15 @@ export async function runScgiQueryVtGpuOracle(device) {
           material,
           graph: compileAppearanceGraph(graph.build()),
           textureBindingSetId: stage.materialBindingSetIds.get(material),
-          textureRefs: stage.materialTextureRoutingRefs.get(material)
-        }
+          textureRefs: stage.materialTextureRoutingRefs.get(material),
+        },
       ],
       () => stage.bindings.bindingSets,
       stage.textureMipRanges,
       stage.surfacePublications,
       upload,
       true,
-      false
+      false,
     );
     await native.ready;
     upload.finish();
@@ -284,13 +287,12 @@ export async function runScgiQueryVtGpuOracle(device) {
         deviceEpoch: 1,
         originEpoch: 0,
         primitiveCapacity: 8,
-        instanceCapacity: 8,
         maximumBytes: 8 * 1024 ** 2,
-        subgroup: false
+        subgroup: false,
       },
       { nativeMaterials: native, virtualGeometry: products },
       scene,
-      [product.residency]
+      [product.residency],
     );
     candidates.push(queryScene);
     const allocate = (size, usage) => {
@@ -310,13 +312,12 @@ export async function runScgiQueryVtGpuOracle(device) {
       camera: [0, 0, 1],
       coneWidth: 0.00001,
       coneSpread: 0,
-      wavefrontRounds: 0
     });
     batches.push(query);
     assert.equal(
       query.cost.descriptors.storage,
       16,
-      "widest query SSBO route compiles and binds all 16 resources"
+      "widest query SSBO route compiles and binds all 16 resources",
     );
     const ray = new ArrayBuffer(48);
     new Float32Array(ray).set([0, 0, 1, 0, 0, 0, -1, 10]);
@@ -354,11 +355,11 @@ export async function runScgiQueryVtGpuOracle(device) {
     }
     assert.ok(
       query.mappingGeneration > firstGeneration,
-      "query-only feedback advances ordinary mapping publication"
+      "query-only feedback advances ordinary mapping publication",
     );
     assert.ok(
       Math.abs(values.at(-1) - 224 / 255 / Math.PI) < 2e-5,
-      "independent fine-mip value from delayed query demand"
+      "independent fine-mip value from delayed query demand",
     );
     assert.equal(vt.evidence().demand.wanted, 0, "query demand did not enter the primary channel");
     assert.equal(cold.preparation.evidence().tiled.retained, 0, "tile IO receipts all released");
@@ -369,7 +370,7 @@ export async function runScgiQueryVtGpuOracle(device) {
       batch,
       output,
       cold.source,
-      stage.surfacePublications.get(material.texture_occlusion)
+      stage.surfacePublications.get(material.texture_occlusion),
     );
     return {
       values,
@@ -379,7 +380,7 @@ export async function runScgiQueryVtGpuOracle(device) {
       independentTailAndFine: true,
       cost: query.cost,
       fullDescriptors,
-      residentPages: vt.evidence().resident
+      residentPages: vt.evidence().resident,
     };
   } finally {
     if (upload && !upload.closed) upload.abort(new Error("VT query fixture preparation cancelled"));

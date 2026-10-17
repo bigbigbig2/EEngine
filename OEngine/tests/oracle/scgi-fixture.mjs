@@ -12,7 +12,6 @@ export const scgiProfile = {
   bounceRequests: 4,
   updates: 4,
   rayBatch: 8,
-  spillBytesPerRay: 0
 };
 
 /** Real command context and real pooled staging; profiler only disables timing.

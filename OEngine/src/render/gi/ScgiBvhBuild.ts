@@ -4,7 +4,7 @@ import {
   scgiBvhBuildWgsl,
   scgiBvhRadixWgsl,
   scgiBvhScanWgsl,
-  scgiBvhTreeletWgsl
+  scgiBvhTreeletWgsl,
 } from "../../shaders/scgi_bvh_build.js";
 import { scgiInteger } from "./ScgiCapacity.js";
 import { SCGI_BVH_MAX_DEPTH, SCGI_BVH_WORKGROUP_SIZE as W, type ScgiBvhPlan } from "./ScgiBvhLayout.js";
@@ -31,7 +31,7 @@ const ENTRIES = [
   "update_policy",
   "update_decide",
   "quality_reduce",
-  "quality_decide"
+  "quality_decide",
 ] as const;
 
 /** Physical build kernels borrow immutable primitive facts and candidate arenas.
@@ -60,7 +60,7 @@ export class ScgiBvhBuild {
     private readonly treeletPipeline: GPUComputePipeline,
     private readonly resolvedSettings: GPUBuffer,
     private readonly countPipeline: GPUComputePipeline,
-    private readonly accounting?: ResourceAccounting
+    private readonly accounting?: ResourceAccounting,
   ) {
     for (const buffer of [settings, indirect, resolvedSettings]) {
       if (accounting !== undefined) {
@@ -71,20 +71,28 @@ export class ScgiBvhBuild {
               owner: "SCGI/BVH",
               category: "transient",
               bytes: buffer.size,
-              label: buffer.label
+              label: buffer.label,
             },
-            buffer
-          )
+            buffer,
+          ),
         );
       }
     }
+  }
+
+  get byteLength(): number {
+    return this.settings.size + this.resolvedSettings.size + this.indirect.size;
+  }
+
+  static allocationBytes(device: GPUDevice, plan: ScgiBvhPlan): number {
+    return device.limits.minUniformBufferOffsetAlignment * 1024 + plan.scratch.ranges.indirect!.bytes;
   }
 
   static async create(
     device: GPUDevice,
     plan: ScgiBvhPlan,
     subgroup = false,
-    accounting?: ResourceAccounting
+    accounting?: ResourceAccounting,
   ): Promise<ScgiBvhBuild> {
     if (subgroup && !device.features.has("subgroups")) {
       throw new RangeError("Subgroup BVH build requires the negotiated device feature");
@@ -100,12 +108,12 @@ export class ScgiBvhBuild {
     const storage = (binding: number): GPUBindGroupLayoutEntry => ({
       binding,
       visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "storage" }
+      buffer: { type: "storage" },
     });
     const uniform = (binding: number): GPUBindGroupLayoutEntry => ({
       binding,
       visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "uniform", hasDynamicOffset: true, minBindingSize: 16 }
+      buffer: { type: "uniform", hasDynamicOffset: true, minBindingSize: 16 },
     });
     const cache = geometryQueryPipelines(device);
     const buildDescriptor = { label: "SCGI/BVH/build", entries: [storage(0), storage(1), uniform(2)] };
@@ -120,21 +128,21 @@ export class ScgiBvhBuild {
     const compile = (
       module: GPUShaderModuleDescriptor,
       entryPoint: string,
-      descriptor: GPUBindGroupLayoutDescriptor
+      descriptor: GPUBindGroupLayoutDescriptor,
     ) =>
       cache.prepare({
         label: `SCGI/BVH/${entryPoint}`,
         layout: { bindGroupLayouts: [descriptor] },
-        compute: { module, entryPoint }
+        compute: { module, entryPoint },
       });
     const buildPipelines = Object.fromEntries(
       await Promise.all(
-        ENTRIES.map(async (entry) => [entry, await compile(buildModule, entry, buildDescriptor)])
-      )
+        ENTRIES.map(async (entry) => [entry, await compile(buildModule, entry, buildDescriptor)]),
+      ),
     ) as Record<(typeof ENTRIES)[number], GPUComputePipeline>;
     const radixPipelines = (await Promise.all([
       compile(radixModule, "histogram", radixDescriptor),
-      compile(radixModule, "scatter", radixDescriptor)
+      compile(radixModule, "scatter", radixDescriptor),
     ])) as [GPUComputePipeline, GPUComputePipeline];
     const treeletPipeline = await compile(treeletModule, "restructure", buildDescriptor);
     const scans: Array<readonly [GPUComputePipeline, GPUComputePipeline]> = [];
@@ -143,8 +151,8 @@ export class ScgiBvhBuild {
       scans.push(
         (await Promise.all([
           compile(module, "scan_up", scanDescriptor),
-          compile(module, "scan_down", scanDescriptor)
-        ])) as [GPUComputePipeline, GPUComputePipeline]
+          compile(module, "scan_down", scanDescriptor),
+        ])) as [GPUComputePipeline, GPUComputePipeline],
       );
     }
     // One encoded build uses fewer than 512 fixed parameter slots. Writes are command
@@ -165,24 +173,24 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       parameters[at + 4u] = 0u;
     }
   }
-}`
+}`,
     };
     const countPipeline = await compile(countModule, "main", {
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-        storage(1)
-      ]
+        storage(1),
+      ],
     });
     const settings = device.createBuffer({
       label: "SCGI/BVH/build parameters",
       size: alignment * 512,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     const resolvedSettings = device.createBuffer({
       label: "SCGI/BVH/GPU count parameters",
       size: alignment * 512,
       usage:
-        GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.INDIRECT
+        GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.INDIRECT,
     });
     // The build scratch is storage-bound by the consumers. Copy GPU-produced
     // arguments into a separate buffer to avoid storage/indirect usage overlap.
@@ -191,7 +199,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       indirect = device.createBuffer({
         label: "SCGI/BVH/level dispatch arguments",
         size: plan.scratch.ranges.indirect!.bytes,
-        usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST
+        usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST,
       });
       return new ScgiBvhBuild(
         device,
@@ -208,7 +216,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         treeletPipeline,
         resolvedSettings,
         countPipeline,
-        accounting
+        accounting,
       );
     } catch (error) {
       settings.destroy();
@@ -225,7 +233,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     hierarchy: GPUBuffer,
     scratch: GPUBuffer,
     count: number,
-    gpuCount = false
+    gpuCount = false,
   ): void {
     this.encodeBuild(command, hierarchy, scratch, count, false, gpuCount);
   }
@@ -237,7 +245,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     command: ShadeGPUCommandContext,
     hierarchy: GPUBuffer,
     scratch: GPUBuffer,
-    count: number
+    count: number,
   ): void {
     this.encodeBuild(command, hierarchy, scratch, count, true);
   }
@@ -249,7 +257,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     command: ShadeGPUCommandContext,
     hierarchy: GPUBuffer,
     scratch: GPUBuffer,
-    capacity: number
+    capacity: number,
   ): void {
     this.encodeBuild(command, hierarchy, scratch, capacity, false, true, true);
   }
@@ -261,7 +269,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     count: number,
     refitOnly: boolean,
     gpuCount = false,
-    update = false
+    update = false,
   ): void {
     scgiInteger(count, "BVH primitive count", 0, this.plan.primitiveCapacity);
     if (
@@ -287,8 +295,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         entries: [
           { binding: 0, resource: { buffer: hierarchy, size: this.plan.hierarchy.bytes } },
           { binding: 1, resource: { buffer: scratch, size: this.plan.scratch.bytes } },
-          { binding: 2, resource: { buffer: this.settings, size: 16 } }
-        ]
+          { binding: 2, resource: { buffer: this.settings, size: 16 } },
+        ],
       });
       byScratch.set(scratch, buildGroup);
     }
@@ -298,8 +306,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         layout: this.radixLayout,
         entries: [
           { binding: 0, resource: { buffer: scratch, size: this.plan.scratch.bytes } },
-          { binding: 1, resource: { buffer: this.settings, size: 16 } }
-        ]
+          { binding: 1, resource: { buffer: this.settings, size: 16 } },
+        ],
       });
       this.radixGroups.set(scratch, radixGroup);
     }
@@ -307,7 +315,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     if (scanGroup === undefined) {
       scanGroup = this.device.createBindGroup({
         layout: this.scanLayout,
-        entries: [{ binding: 0, resource: { buffer: scratch, size: this.plan.scratch.bytes } }]
+        entries: [{ binding: 0, resource: { buffer: scratch, size: this.plan.scratch.bytes } }],
       });
       this.scanGroups.set(scratch, scanGroup);
     }
@@ -331,7 +339,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       groups: number,
       phase = 0,
       source = 0,
-      mode = 0
+      mode = 0,
     ) => {
       const offset = slot++ * alignment;
       for (const [lane, value] of [count, phase, source, mode].entries()) {
@@ -353,11 +361,11 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       command.clearBuffer(
         scratch,
         this.plan.scratch.ranges.indirect!.offset,
-        this.plan.scratch.ranges.indirect!.bytes
+        this.plan.scratch.ranges.indirect!.bytes,
       );
       for (const [entry, groups] of [
         ["update_policy", primitiveGroups],
-        ["update_decide", 1]
+        ["update_decide", 1],
       ] as const) {
         const pass = command.gpu_encoder.beginComputePass({ label: `SCGI/BVH/${entry}` });
         pass.setPipeline(this.buildPipelines[entry]);
@@ -371,8 +379,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         {
           destination: scratch,
           destinationOffset: this.plan.scratch.ranges.input!.offset + (gpuCount ? 4 : 0),
-          bytes: new Uint8Array(input.buffer, gpuCount ? 4 : 0)
-        }
+          bytes: new Uint8Array(input.buffer, gpuCount ? 4 : 0),
+        },
       ]);
     }
     if (refitOnly) {
@@ -380,7 +388,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       command.gpu_encoder.clearBuffer(
         scratch,
         this.plan.scratch.ranges.control!.offset,
-        this.plan.scratch.ranges.control!.bytes
+        this.plan.scratch.ranges.control!.bytes,
       );
       build("reduce_bounds", this.plan.blocks);
       build("reduce_bounds", 1, 0, 0, 1);
@@ -397,7 +405,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             pipeline: this.scanPipelines[level]![0],
             group: scanGroup,
             count: Math.ceil(this.plan.scanCounts[level]! / W),
-            route: 3
+            route: 3,
           });
         }
         for (let level = this.plan.scanCounts.length - 2; level >= 0; level--) {
@@ -405,7 +413,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             pipeline: this.scanPipelines[level]![1],
             group: scanGroup,
             count: Math.ceil(this.plan.scanCounts[level]! / W),
-            route: 3
+            route: 3,
           });
         }
         step(this.radixPipelines[1], radixGroup, this.plan.blocks, digit * 4, digit & 1).route = 3;
@@ -470,8 +478,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       {
         destination: gpuCount ? this.resolvedSettings : this.settings,
         destinationOffset: 0,
-        bytes: parameters.subarray(0, slot * alignment)
-      }
+        bytes: parameters.subarray(0, slot * alignment),
+      },
     ]);
     if (gpuCount) {
       let group = this.countGroups.get(scratch);
@@ -480,8 +488,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           layout: this.countPipeline.getBindGroupLayout(0),
           entries: [
             { binding: 0, resource: { buffer: scratch } },
-            { binding: 1, resource: { buffer: this.resolvedSettings } }
-          ]
+            { binding: 1, resource: { buffer: this.resolvedSettings } },
+          ],
         });
         this.countGroups.set(scratch, group);
       }
@@ -499,7 +507,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           this.plan.scratch.ranges.indirect!.offset,
           this.indirect,
           0,
-          this.indirect.size
+          this.indirect.size,
         );
         continue;
       }

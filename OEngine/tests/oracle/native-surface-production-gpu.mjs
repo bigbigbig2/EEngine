@@ -766,8 +766,10 @@ export async function runNativeSurfaceProductionGpuOracle(
       await queryStreaming.consumeCompleted(renderer.frame_count, performance.now());
       await tick();
       for (const product of queryProducts) {
-        check(product.queryCoveragePages().every((page) => product.pageLocation(page) !== undefined),
-          "Scheduled query coverage did not reach the ordinary frame publication");
+        check(
+          product.queryCoveragePages().every((page) => product.pageLocation(page) !== undefined),
+          "Scheduled query coverage did not reach the ordinary frame publication",
+        );
       }
       // The v3 directory includes source-primitive remaps. Keep the finite
       // one-cluster stress route while admitting the complete largest cluster.
@@ -779,60 +781,121 @@ export async function runNativeSurfaceProductionGpuOracle(
           directorySegmentBytes = Math.max(directorySegmentBytes, Math.ceil((152 + triangles * 4) / 16) * 16);
         }
       }
-      const profile = { deviceEpoch: 1, originEpoch: 0, primitiveCapacity: 64,
-        maximumBytes: 64 * 1024 * 1024, subgroup: false,
+      const profile = {
+        deviceEpoch: 1,
+        originEpoch: 0,
+        primitiveCapacity: 64,
+        maximumBytes: 64 * 1024 * 1024,
+        subgroup: false,
         directorySegmentBytes,
-        domain: { min: [-20, -20, -101], max: [20, 20, 5] } };
-      const makeScene = () => ScgiQueryScene.create(device, profile,
-        renderer.graphics.render_world.runtime(scene), renderer.graphics.gpu_scene,
-        queryProducts, renderer.graphics.resource_accounting, undefined, queryStreaming);
+        domain: { min: [-20, -20, -101], max: [20, 20, 5] },
+      };
+      const makeScene = () =>
+        ScgiQueryScene.create(
+          device,
+          profile,
+          renderer.graphics.render_world.runtime(scene),
+          renderer.graphics.gpu_scene,
+          queryProducts,
+          renderer.graphics.resource_accounting,
+          undefined,
+          queryStreaming,
+        );
       const aborted = await makeScene();
       const cancel = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
       aborted.encode(cancel);
       cancel.abort(new Error("query publication abort fixture"));
       check(!aborted.valid, "Aborted query candidate remained publishable");
       const queryScene = await makeScene();
-      const batch = device.createBuffer({ size: 80,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
-      const output = device.createBuffer({ size: 64,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
-      const read = device.createBuffer({ size: 96, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+      const batch = device.createBuffer({
+        size: 80,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+      });
+      const output = device.createBuffer({
+        size: 64,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+      });
+      const read = device.createBuffer({
+        size: 96,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      });
       const queries = [];
       let consumed = false;
       let incompleteCoverage = null;
       let hitWork = null;
       let completeBatch = null;
       try {
-        for (const shard of queryScene.shards) {
-          for (let classIndex = 0; classIndex < world.nativeMaterials.publication.rasterClasses.length; classIndex++) {
-            queries.push(await ScgiQueryTraversal.create(device, queryScene.blasPlan, queryScene.tlasPlan, {
-              lease: shard.lease, segment: shard.segment, asset: shard.asset, primitiveOffset: shard.primitiveOffset,
-              primitiveCount: shard.primitiveCount, blas: shard.blas, tlas: shard.tlas,
-              instances: shard.instances, batch, rayCount: 1, resultByteOffset: 48,
-              coverageStatus: queryScene.coverageStatus,
-              merge: queries.length > 0,
-              coverage: { publication: world.nativeMaterials.publication, classIndex,
-                view: camera.view_matrix.elements ?? camera.view_matrix,
-                camera: [-2.4, 0, 4], coneWidth: 0.001, coneSpread: 0.001 },
-            }));
+        for (const arena of queryScene.arenas) {
+          for (const route of arena.routes) {
+            queries.push(
+              await ScgiQueryTraversal.create(device, {
+                arena,
+                route,
+                source: queryScene.sourceInstances.sourceSnapshot,
+                instances: queryScene.instanceRecords,
+                batch,
+                rayCount: 1,
+                resultByteOffset: 48,
+                coverageStatus: queryScene.coverageStatus,
+                merge: queries.length > 0,
+                coverage: {
+                  publication: world.nativeMaterials.publication,
+                  classIndex: route.classIndex,
+                  view: camera.view_matrix.elements ?? camera.view_matrix,
+                  camera: [-2.4, 0, 4],
+                  coneWidth: 0.001,
+                  coneSpread: 0.001,
+                },
+              }),
+            );
           }
         }
         const coverageCount = queries.length;
-        hitWork = await ScgiQueryHitWork.create(device, queryScene.sourceInstances.sourceSnapshot,
-          queryScene.materials.directory, batch, 1, 48, queryScene.materials.bins.length);
-        for (const shard of queryScene.shards) {
-          for (const bin of queryScene.materials.bins) {
-            queries.push(await ScgiQueryTraversal.create(device, queryScene.blasPlan, queryScene.tlasPlan, {
-              lease: shard.lease, segment: shard.segment, asset: shard.asset, primitiveOffset: shard.primitiveOffset,
-              primitiveCount: shard.primitiveCount, blas: shard.blas, tlas: shard.tlas,
-              instances: shard.instances, batch, rayCount: 1, resultByteOffset: 48,
-              coverageStatus: queryScene.coverageStatus,
-              diffuse: { material: bin.material, constants: bin.constants,
-                work: hitWork,
-                directory: queryScene.materials.directory, binIndex: bin.index, output,
-                view: camera.view_matrix.elements ?? camera.view_matrix,
-                camera: [-2.4, 0, 4], coneWidth: 0.001, coneSpread: 0.001 },
-            }));
+        hitWork = await ScgiQueryHitWork.create(
+          device,
+          queryScene.sourceInstances.sourceSnapshot,
+          queryScene.materials.directory,
+          batch,
+          1,
+          48,
+          queryScene.materials.bins.length,
+        );
+        for (const arena of queryScene.arenas) {
+          const segments = [...new Set(arena.geometries.map((item) => item.segment))];
+          for (let sourceGroup = 0; sourceGroup < segments.length; sourceGroup++) {
+            const segment = segments[sourceGroup];
+            const route = {
+              ...arena.routes[0],
+              sourceGroup,
+              segment,
+              lease: arena.geometries.find((item) => item.segment === segment).lease,
+            };
+            for (const bin of queryScene.materials.bins) {
+              queries.push(
+                await ScgiQueryTraversal.create(device, {
+                  arena,
+                  route,
+                  source: queryScene.sourceInstances.sourceSnapshot,
+                  instances: queryScene.instanceRecords,
+                  batch,
+                  rayCount: 1,
+                  resultByteOffset: 48,
+                  coverageStatus: queryScene.coverageStatus,
+                  work: hitWork,
+                  diffuse: {
+                    material: bin.material,
+                    constants: bin.constants,
+                    directory: queryScene.materials.directory,
+                    binIndex: bin.index,
+                    output,
+                    view: camera.view_matrix.elements ?? camera.view_matrix,
+                    camera: [-2.4, 0, 4],
+                    coneWidth: 0.001,
+                    coneSpread: 0.001,
+                  },
+                }),
+              );
+            }
           }
         }
         const command = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
@@ -856,21 +919,40 @@ export async function runNativeSurfaceProductionGpuOracle(
         read.unmap();
         const words = new Uint32Array(bytes);
         const values = new Float32Array(bytes);
-        check(words[3] === 0 && Math.abs(values[0] - 3.3) < 1e-5,
-          `Real multi-Product query failed: ${[...words.subarray(0, 8)]}`);
+        check(
+          words[3] === 0 && Math.abs(values[0] - 3.3) < 1e-5,
+          `Real multi-Product query failed: ${[...words.subarray(0, 8)]}`,
+        );
         for (let channel = 0; channel < 3; channel++) {
-          check(Math.abs(values[12 + channel] - [0.2, 0.3, 0.1][channel]) < 1e-5,
-            "Accepted hit did not consume the existing native unlit material projection");
+          check(
+            Math.abs(values[12 + channel] - [0.2, 0.3, 0.1][channel]) < 1e-5,
+            "Accepted hit did not consume the existing native unlit material projection",
+          );
         }
-        queryPublication = { shards: queryScene.shards.length, bins: queryScene.materials.bins.length,
-          bytes: queryScene.byteLength, coverageDispatches: coverageCount,
-          acceptedDistance: values[0], abortRetry: true, actualRenderWorld: true,
+        queryPublication = {
+          arenas: queryScene.arenas.length,
+          bins: queryScene.materials.bins.length,
+          bytes: queryScene.byteLength,
+          coverageDispatches: coverageCount,
+          acceptedDistance: values[0],
+          abortRetry: true,
+          actualRenderWorld: true,
           scheduledQueryCoverage: true,
-          finiteDirectorySegments: queryScene.shards.every((shard) => shard.segment.metadata.size <= directorySegmentBytes),
-          directorySegmentBytes, batchCost: null };
+          finiteDirectorySegments: queryScene.geometries.every(
+            (shard) => shard.segment.metadata.size <= directorySegmentBytes,
+          ),
+          directorySegmentBytes,
+          batchCost: null,
+        };
         completeBatch = await ScgiQueryBatch.create(device, queryScene, {
-          batch, rayCount: 1, resultByteOffset: 48, output, view: camera.view_matrix,
-          camera: [-2.4, 0, 4], coneWidth: 0.001, coneSpread: 0.001, wavefrontRounds: 2,
+          batch,
+          rayCount: 1,
+          resultByteOffset: 48,
+          output,
+          view: camera.view_matrix,
+          camera: [-2.4, 0, 4],
+          coneWidth: 0.001,
+          coneSpread: 0.001,
         });
         queryPublication.batchCost = completeBatch.cost;
         const full = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
@@ -882,19 +964,25 @@ export async function runNativeSurfaceProductionGpuOracle(
         await read.mapAsync(GPUMapMode.READ);
         const fullBytes = read.getMappedRange().slice(0);
         read.unmap();
-        check(new Uint32Array(fullBytes)[3] === 0 && Math.abs(new Float32Array(fullBytes)[0] - 3.3) < 1e-5,
-          "Complete multi-Product wavefront batch did not preserve accepted hit");
+        check(
+          new Uint32Array(fullBytes)[3] === 0 && Math.abs(new Float32Array(fullBytes)[0] - 3.3) < 1e-5,
+          "Complete multi-Product complete batch did not preserve accepted hit",
+        );
         for (let channel = 0; channel < 3; channel++) {
-          check(Math.abs(new Float32Array(fullBytes)[12 + channel] - [0.2, 0.3, 0.1][channel]) < 1e-5,
-            "Complete query batch did not shade its accepted native material");
+          check(
+            Math.abs(new Float32Array(fullBytes)[12 + channel] - [0.2, 0.3, 0.1][channel]) < 1e-5,
+            "Complete query batch did not shade its accepted native material",
+          );
         }
-        queryPublication.wavefrontBatch = true;
+        queryPublication.completeBatch = true;
         // The same live scene/batch must reject a ray escaping its certified
         // finite domain; a previous accepted result must not survive that ray.
         const escaped = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
         const escapedRay = ray.slice(0);
         new Float32Array(escapedRay)[7] = 200;
-        escaped.uploadRegions([{ destination: batch, destinationOffset: 0, bytes: new Uint8Array(escapedRay) }]);
+        escaped.uploadRegions([
+          { destination: batch, destinationOffset: 0, bytes: new Uint8Array(escapedRay) },
+        ]);
         completeBatch.encode(escaped);
         escaped.copyBufferToBuffer(batch, 48, read, 0, 32);
         escaped.finish();
@@ -902,7 +990,10 @@ export async function runNativeSurfaceProductionGpuOracle(
         await read.mapAsync(GPUMapMode.READ);
         const escapedResult = new Uint32Array(read.getMappedRange().slice(0));
         read.unmap();
-        check(escapedResult[3] === 2, "Query outside cascade+guard domain was classified as hit or physical miss");
+        check(
+          escapedResult[3] === 2,
+          "Query outside cascade+guard domain was classified as hit or physical miss",
+        );
         const restored = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
         restored.uploadRegions([{ destination: batch, destinationOffset: 0, bytes: new Uint8Array(ray) }]);
         completeBatch.encode(restored);
@@ -914,16 +1005,24 @@ export async function runNativeSurfaceProductionGpuOracle(
         read.unmap();
         check(restoredResult[3] === 0, "Finite-domain rejection contaminated a later valid query");
         queryPublication.finiteDomainUnknownAndRetry = true;
-        incompleteCoverage = await GeometryQueryCoverage.create(device, queryScene.sourceInstances,
-          [queryScene.shards[0].lease], queryScene.materials.directory);
+        incompleteCoverage = await GeometryQueryCoverage.create(
+          device,
+          queryScene.sourceInstances,
+          [queryScene.geometries[0].lease],
+          queryScene.materials.directory,
+        );
         const incomplete = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
         incompleteCoverage.encode(incomplete);
         // Replace the certificate in a separate complete native traversal.
-        const shard = queryScene.shards[0];
-        const unknown = await ScgiQueryTraversal.create(device, queryScene.blasPlan, queryScene.tlasPlan, {
-          lease: shard.lease, segment: shard.segment, asset: shard.asset, primitiveOffset: shard.primitiveOffset,
-          primitiveCount: shard.primitiveCount, blas: shard.blas, tlas: shard.tlas,
-          instances: shard.instances, batch, rayCount: 1, resultByteOffset: 48,
+        const arena = queryScene.arenas[0];
+        const unknown = await ScgiQueryTraversal.create(device, {
+          arena,
+          route: arena.routes[0],
+          source: queryScene.sourceInstances.sourceSnapshot,
+          instances: queryScene.instanceRecords,
+          batch,
+          rayCount: 1,
+          resultByteOffset: 48,
           coverageStatus: incompleteCoverage.status,
         });
         queries.push(unknown);
@@ -935,8 +1034,10 @@ export async function runNativeSurfaceProductionGpuOracle(
         await read.mapAsync(GPUMapMode.READ);
         const missing = new Uint32Array(read.getMappedRange().slice(0));
         read.unmap();
-        check(missing[3] === 2 && (missing[8] & 1) !== 0 && missing[9] > 0,
-          "Missing Product coverage was misclassified as hit or physical miss");
+        check(
+          missing[3] === 2 && (missing[8] & 1) !== 0 && missing[9] > 0,
+          "Missing Product coverage was misclassified as hit or physical miss",
+        );
         queryPublication.missingProductUnknown = true;
         const cancelled = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
         completeBatch.encode(cancelled);
@@ -948,20 +1049,32 @@ export async function runNativeSurfaceProductionGpuOracle(
         completeBatch.encode(stale);
         const moved = Float32Array.from(meshes[0].transform_global.matrix);
         moved[12] += 0.02;
-        renderer.patchInstances(world.instanceHandle, {
-          frameId: renderer.frame_count,
-          transforms: { indices: new Uint32Array([0]), transforms: moved },
-        }, stale);
+        renderer.patchInstances(
+          world.instanceHandle,
+          {
+            frameId: renderer.frame_count,
+            transforms: { indices: new Uint32Array([0]), transforms: moved },
+          },
+          stale,
+        );
         let rejectedStale = false;
-        try { stale.finish(); }
-        catch (error) { rejectedStale = /GpuScene changed/.test(String(error)); }
-        check(rejectedStale && !stale.wasSubmitted,
-          "A post-copy instance mutation submitted stale query truth");
+        try {
+          stale.finish();
+        } catch (error) {
+          rejectedStale = /GpuScene changed/.test(String(error));
+        }
+        check(
+          rejectedStale && !stale.wasSubmitted,
+          "A post-copy instance mutation submitted stale query truth",
+        );
         check(queryScene.valid, "Aborted source edit destroyed retained historical query resources");
         const obsolete = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
         let rejectedReuse = false;
-        try { completeBatch.encode(obsolete); }
-        catch (error) { rejectedReuse = /GpuScene changed/.test(String(error)); }
+        try {
+          completeBatch.encode(obsolete);
+        } catch (error) {
+          rejectedReuse = /GpuScene changed/.test(String(error));
+        }
         obsolete.abort(new Error("stale query snapshot"));
         check(rejectedReuse, "Aborted source mutation serial allowed stale query reuse");
         queryPublication.staleScenePreSubmitRejected = true;
@@ -973,8 +1086,14 @@ export async function runNativeSurfaceProductionGpuOracle(
         freshBuild.finish();
         await freshBuild.gpuDone;
         const freshBatch = await ScgiQueryBatch.create(device, freshScene, {
-          batch, rayCount: 1, resultByteOffset: 48, output, view: camera.view_matrix,
-          camera: [-2.4, 0, 4], coneWidth: 0.001, coneSpread: 0.001, wavefrontRounds: 2,
+          batch,
+          rayCount: 1,
+          resultByteOffset: 48,
+          output,
+          view: camera.view_matrix,
+          camera: [-2.4, 0, 4],
+          coneWidth: 0.001,
+          coneSpread: 0.001,
         });
         await queryScene.releaseAfter(command.gpuDone);
         completeBatch.destroy();
@@ -989,8 +1108,11 @@ export async function runNativeSurfaceProductionGpuOracle(
         await Promise.resolve();
         check(!retirementCompleted, "An older fence released a scene with an unsubmitted query consumer");
         let earlyDestroyRejected = false;
-        try { completeBatch.destroy(); }
-        catch (error) { earlyDestroyRejected = /retained/.test(String(error)); }
+        try {
+          completeBatch.destroy();
+        } catch (error) {
+          earlyDestroyRejected = /retained/.test(String(error));
+        }
         check(earlyDestroyRejected, "Batch destruction released an encoded consumer's scratch");
         last.finish();
         await last.gpuDone;
@@ -1177,42 +1299,55 @@ export async function runNativeSurfaceProductionGpuOracle(
       // identities; a retry must use a new binding epoch without changing pixels.
       const binding = growthRuntime.bindings();
       const pool = GeometryProductBytePool.retain(
-        device, selectGeometryProductResidencyProfileV1(device.limits),
+        device,
+        selectGeometryProductResidencyProfileV1(device.limits),
       );
       const originalBanks = binding.banks;
       const originalMetadata = binding.metadata;
       const originalEpoch = binding.bindingEpoch;
       const expected = hdrSnapshot.slice();
       const compare = (observed, label) => {
-        check(observed.visiblePixels === preparedRestored.visiblePixels, `${label} changed MASK/opaque coverage`);
+        check(
+          observed.visiblePixels === preparedRestored.visiblePixels,
+          `${label} changed MASK/opaque coverage`,
+        );
         let maximumError = 0;
         for (let i = 0; i < expected.length; i++) {
-          maximumError = Math.max(maximumError,
-            Math.abs(decodeFloat16(expected[i]) - decodeFloat16(hdrSnapshot[i])));
+          maximumError = Math.max(
+            maximumError,
+            Math.abs(decodeFloat16(expected[i]) - decodeFloat16(hdrSnapshot[i])),
+          );
         }
         check(maximumError <= 0.002, `${label} changed native HDR: ${maximumError}`);
         return maximumError;
       };
       try {
-        pool.requestGrowth(Math.ceil(pool.bankBytes * 1.5 / 16) * 16);
+        pool.requestGrowth(Math.ceil((pool.bankBytes * 1.5) / 16) * 16);
         fail = true;
         let aborted = false;
         try {
           await tick();
         } catch (error) {
-          check(error.message.includes("injected native production abort"), `Unexpected growth failure: ${error}`);
+          check(
+            error.message.includes("injected native production abort"),
+            `Unexpected growth failure: ${error}`,
+          );
           aborted = true;
         } finally {
           fail = false;
         }
         check(aborted, "Bank growth abort was not exercised");
-        check(binding.banks === originalBanks && binding.bindingEpoch === originalEpoch,
-          "Aborted bank growth published its candidate");
+        check(
+          binding.banks === originalBanks && binding.bindingEpoch === originalEpoch,
+          "Aborted bank growth published its candidate",
+        );
         renderer._vsmGeneration.invalidate();
         await tick();
         const bank = await inspect();
-        check(binding.banks !== originalBanks && binding.bindingEpoch !== originalEpoch,
-          "Bank growth failed to replace production bindings");
+        check(
+          binding.banks !== originalBanks && binding.bindingEpoch !== originalEpoch,
+          "Bank growth failed to replace production bindings",
+        );
         const bankMaximumError = compare(bank, "Bank growth");
         const bankVsm = await inspectVsm();
         check(bankVsm.contentValidPages > 0, "Bank growth lost VSM caster output");
@@ -1220,7 +1355,7 @@ export async function runNativeSurfaceProductionGpuOracle(
         // A third source exceeds the exact two-record Product table. Its IO
         // resumes only after an ordinary Renderer frame copies the new layout.
         const pending = growthRuntime.load(growthSource());
-        await new Promise(resolve => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
         renderer._vsmGeneration.invalidate();
         await tick();
         const extra = await pending;
@@ -1230,9 +1365,13 @@ export async function runNativeSurfaceProductionGpuOracle(
         const metadataVsm = await inspectVsm();
         check(metadataVsm.contentValidPages > 0, "Metadata relocation lost VSM caster output");
         geometryGrowth = {
-          actualRenderer: true, abortRetainedEpoch: true,
-          bankMaximumError, metadataMaximumError,
-          bankVsm, metadataVsm, peak: geometryProductGpuBudgetEvidence(device),
+          actualRenderer: true,
+          abortRetainedEpoch: true,
+          bankMaximumError,
+          metadataMaximumError,
+          bankVsm,
+          metadataVsm,
+          peak: geometryProductGpuBudgetEvidence(device),
         };
         await growthRuntime.release(extra.productTableSlot, extra.productGeneration);
       } finally {

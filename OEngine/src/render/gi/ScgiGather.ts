@@ -345,10 +345,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         camera: estimator.input.camera,
         coneWidth: 0,
         coneSpread: estimator.input.coneSpread,
-        wavefrontRounds: 0,
         count: { buffer: owner.count, byteOffset: 0 }
       };
-      owner.closest = await ScgiQueryBatch.create(device, estimator.input.scene, input);
+      owner.closest = await ScgiQueryBatch.create(device, estimator.input.scene, { ...input, kind: "geometry" });
       owner.shadow = await ScgiQueryBatch.create(device, estimator.input.scene, { ...input, anyHit: true });
       return owner;
     } catch (error) {
@@ -396,7 +395,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         probeBatches * (2 + this.allocation.screen.length + (this.closest?.cost.totalDispatches ?? 0)),
       sourceBatches,
       probeBatches,
-      note: "Upper bound, not GPU time; query tail dispatches and native-bin indirect slots included; debug view adds one dispatch"
+      note: "Upper bound, not GPU time; routing and native-bin indirect slots included; debug view adds one dispatch"
     };
   }
 

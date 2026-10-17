@@ -727,7 +727,7 @@ function updateMetrics(): void {
     ["SCGI 当前 owner*", scgi ? mib(scgi.currentOwnedBytes) : "未分配"],
     [
       "Query 已发布 AS 分片",
-      scgi ? `${scgi.queryShards}${scgi.queryShards === 0 ? " · 冷准备 / 无分片" : ""}` : "未分配"
+      scgi ? `${scgi.queryArenas}${scgi.queryArenas === 0 ? " · 冷准备 / 无分片" : ""}` : "未分配"
     ],
     [
       "CPU 主图编码",

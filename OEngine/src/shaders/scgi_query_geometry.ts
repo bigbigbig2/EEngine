@@ -1,11 +1,11 @@
 import type { ScgiBvhPlan } from "../render/gi/ScgiBvhLayout.js";
-import { SCGI_ABI_WGSL, SCGI_QUERY_CONTINUATION } from "../render/gi/ScgiAbi.js";
+import { SCGI_ABI_WGSL } from "../render/gi/ScgiAbi.js";
 import type { NativeMaterialProgram } from "./native_material.js";
 import { nativeCoverageEvaluationWgsl } from "./native_visibility.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { nativeDiffuseHitEvaluationWgsl } from "./native_diffuse_hit.js";
-import { VIRTUAL_TEXTURE_FEEDBACK_WGSL } from "./virtual_texture.js";
 import { GEOMETRY_QUERY_DIRECTORY_CLUSTER_BYTES } from "../gpu/GeometryQueryDirectory.js";
+import { frameGeometrySourceWgsl, FRAME_ATTRIBUTE_OCT_DECODE_WGSL } from "./geometry_source_decode.js";
 
 /* Altered WGSL adaptation of RadeonRays
  * c8890b96b1f976bedd2cd280cc170dff5d655e0a,
@@ -48,7 +48,7 @@ function scgiCoverageWgsl(program: NativeMaterialProgram | null, diffuse = false
     cameraPosition: "vec4f(coverage_view.camera.xyz, 1.0)",
     viewDirection: "vec4f(query_safe_normal(coverage_view.camera.xyz - position, normal), 0.0)",
     viewPosition: "coverage_view.view * vec4f(position, 1.0)",
-    viewNormal: "coverage_view.view * vec4f(normal, 0.0)"
+    viewNormal: "coverage_view.view * vec4f(normal, 0.0)",
   };
   const inputSource =
     program?.inputs
@@ -59,7 +59,7 @@ function scgiCoverageWgsl(program: NativeMaterialProgram | null, diffuse = false
             ? `vec4f(${[0, 1, 2, 3]
                 .map(
                   (channel) =>
-                    `native_material_constant(material_base, ${program.constants.length + 2 + slot * 4 + channel}u)`
+                    `native_material_constant(material_base, ${program.constants.length + 2 + slot * 4 + channel}u)`,
                 )
                 .join(", ")})`
             : `coverage_frame_inputs[${slot}u]`
@@ -187,36 +187,18 @@ fn query_coverage_instance(slot: u32) -> u32 {
 }
 `;
 }
-import { frameGeometrySourceWgsl, FRAME_ATTRIBUTE_OCT_DECODE_WGSL } from "./geometry_source_decode.js";
 
-/** Query geometry uses exactly the resident Product decoder used by raster.
- * The only additional persistent data is a triangle prefix over the exact cut.
- * No vertex/index/UV payload or camera-visible meshlet queue is materialized. */
-export function scgiQueryGeometryWgsl(
-  plan: ScgiBvhPlan,
-  tlasPlan = plan,
+/** Canonical Product attributes and Native graph inputs. Geometry is selected
+ * from the immutable scene descriptor before calling query_triangle. */
+export function scgiQuerySourceWgsl(
   coverage?: NativeMaterialProgram | null,
   diffuse = false,
   unlit = false,
-  coveredScene = false,
-  hitListWord?: number,
-  wavefront?: "candidate" | "coverage" | "tail",
-  pendingWork = false,
-  nodeQuantum = 256,
-  outputStride = 64
 ): string {
-  const cursor = SCGI_QUERY_CONTINUATION.candidate;
-  const tail = SCGI_QUERY_CONTINUATION.tail;
-  const coverageSource = coverage === undefined ? "" : scgiCoverageWgsl(coverage, diffuse, unlit);
   return /* wgsl */ `
 ${FRAME_ATTRIBUTE_OCT_DECODE_WGSL}
 ${frameGeometrySourceWgsl(true, true, true)}
 ${SCGI_ABI_WGSL}
-${coverageSource}
-${diffuse && coverage?.virtualTextures ? VIRTUAL_TEXTURE_FEEDBACK_WGSL : ""}
-${diffuse ? "@group(2) @binding(0) var<storage, read_write> diffuse_hits: array<vec4f>;" : ""}
-${hitListWord === undefined ? "" : "@group(2) @binding(2) var<storage, read> hit_work: array<u32>;"}
-${wavefront === undefined ? "" : "@group(2) @binding(3) var<storage, read_write> continuation: array<u32>;"}
 struct GeometrySettings {
   query_word: u32,
   prefix_word: u32,
@@ -235,17 +217,8 @@ struct GeometrySettings {
   reserved1: u32,
   reserved2: u32,
 }
-@group(0) @binding(0) var<uniform> geometry: GeometrySettings;
-@group(0) @binding(1) var<storage, read_write> scratch: array<u32>;
-@group(0) @binding(2) var<storage, read> blas: array<u32>;
-@group(0) @binding(3) var<storage, read> tlas: array<u32>;
+var<private> geometry: GeometrySettings;
 @group(0) @binding(4) var<storage, read> instances: array<ScgiInstance>;
-@group(0) @binding(5) var<storage, read_write> batch: array<u32>;
-struct TraceSettings { ray_count: u32, ray_word: u32, result_word: u32, query_kind: u32, }
-@group(0) @binding(6) var<uniform> trace: TraceSettings;
-${coveredScene ? "@group(0) @binding(7) var<storage, read> scene_coverage: array<u32>;" : ""}
-const BOUNDS: u32 = ${plan.scratch.ranges.primitiveBounds!.offset / 4}u;
-const CONTROL: u32 = ${plan.scratch.ranges.control!.offset / 4}u;
 struct QueryTriangle {
   valid: bool,
   cluster: u32,
@@ -306,19 +279,40 @@ fn query_triangle(index: u32) -> QueryTriangle {
   result.p2 = frame_vertex_position(v2);
   return result;
 }
+fn affine_point(values: array<f32, 12>, point: vec3f, w: f32) -> vec3f {
+  return vec3f(values[0], values[1], values[2]) * point.x +
+    vec3f(values[4], values[5], values[6]) * point.y +
+    vec3f(values[8], values[9], values[10]) * point.z + vec3f(values[3], values[7], values[11]) * w;
+}
+${coverage === undefined ? "" : scgiCoverageWgsl(coverage, diffuse, unlit)}
+`;
+}
+
+/** Build-only projection. Exact f32 positions are derived once per content/cut
+ * and shared across scene instances. No ray work is performed here. */
+export function scgiQueryGeometryWgsl(plan: ScgiBvhPlan, writePositions = false): string {
+  return /* wgsl */ `
+${scgiQuerySourceWgsl()}
+@group(0) @binding(0) var<uniform> source_geometry: GeometrySettings;
+@group(0) @binding(1) var<storage, read_write> scratch: array<u32>;
+${writePositions ? "@group(0) @binding(13) var<storage, read_write> intersection_positions: array<vec4u>;" : ""}
 @compute @workgroup_size(128)
 fn bounds(@builtin(global_invocation_id) id: vec3u) {
+  geometry = source_geometry;
   if (id.x >= geometry.primitive_count) { return; }
   let triangle = query_triangle(id.x);
+  ${
+    writePositions
+      ? `
+  intersection_positions[id.x * 3u] = vec4u(bitcast<vec3u>(triangle.p0), select(0u, triangle.primitive + 1u, triangle.valid));
+  intersection_positions[id.x * 3u + 1u] = vec4u(bitcast<vec3u>(triangle.p1), triangle.meshlet);
+  intersection_positions[id.x * 3u + 2u] = vec4u(bitcast<vec3u>(triangle.p2), triangle.source_primitive);`
+      : ""
+  }
   var low = min(min(triangle.p0, triangle.p1), triangle.p2);
   var high = max(max(triangle.p0, triangle.p1), triangle.p2);
-  if (!triangle.valid) {
-    // The build's ordered-bounds validation publishes a hierarchy fault. Unknown
-    // geometry must never become an empty primitive or a physical ray miss.
-    low = vec3f(1.0);
-    high = vec3f(-1.0);
-  }
-  let at = BOUNDS + id.x * 8u;
+  if (!triangle.valid) { low = vec3f(1.0); high = vec3f(-1.0); }
+  let at = ${plan.scratch.ranges.primitiveBounds!.offset / 4}u + id.x * 8u;
   for (var axis = 0u; axis < 3u; axis++) {
     scratch[at + axis] = bitcast<u32>(low[axis]);
     scratch[at + 4u + axis] = bitcast<u32>(high[axis]);
@@ -326,7 +320,10 @@ fn bounds(@builtin(global_invocation_id) id: vec3u) {
   scratch[at + 3u] = id.x;
   scratch[at + 7u] = triangle.primitive;
 }
+`;
+}
 
+export const SCGI_QUERY_INTERSECTION_WGSL = /* wgsl */ `
 // Moller-Trumbore follows RadeonRays intersector_common.hlsl at the fixed
 // revision in scgi_bvh_build.ts. Parallel and nonfinite cases are explicit;
 // the donor's 1e-5 direction replacement is deliberately not used for slabs.
@@ -375,437 +372,4 @@ fn box_near(origin: vec3f, direction: vec3f, low: vec3f, high: vec3f, t_min: f32
   }
   return near;
 }
-fn as_word(top: bool, at: u32) -> u32 {
-  if (top) { return tlas[at]; }
-  return blas[at];
-}
-fn as_float(top: bool, at: u32) -> f32 { return bitcast<f32>(as_word(top, at)); }
-fn as_bounds(top: bool, node: u32) -> mat2x3f {
-  let at = select(${plan.hierarchy.ranges.nodes!.offset / 4}u,
-    ${tlasPlan.hierarchy.ranges.nodes!.offset / 4}u, top) + node * 16u;
-  let low = min(vec3f(as_float(top, at), as_float(top, at + 1u), as_float(top, at + 2u)),
-    vec3f(as_float(top, at + 8u), as_float(top, at + 9u), as_float(top, at + 10u)));
-  let high = max(vec3f(as_float(top, at + 4u), as_float(top, at + 5u), as_float(top, at + 6u)),
-    vec3f(as_float(top, at + 12u), as_float(top, at + 13u), as_float(top, at + 14u)));
-  return mat2x3f(low, high);
-}
-fn affine_point(values: array<f32, 12>, point: vec3f, w: f32) -> vec3f {
-  return vec3f(values[0], values[1], values[2]) * point.x +
-    vec3f(values[4], values[5], values[6]) * point.y +
-    vec3f(values[8], values[9], values[10]) * point.z + vec3f(values[3], values[7], values[11]) * w;
-}
-@compute @workgroup_size(64)
-fn trace_opaque(@builtin(global_invocation_id) id: vec3u) {
-  ${
-    pendingWork
-      ? `if (id.x >= hit_work[0]) { return; }
-  let ray_index = hit_work[${hitListWord}u + hit_work[1] + id.x];`
-      : "let ray_index = id.x;"
-  }
-  if (ray_index >= trace.ray_count) { return; }
-  let ray = trace.ray_word + ray_index * 12u;
-  let result = trace.result_word + ray_index * 8u;
-  ${
-    wavefront === undefined
-      ? ""
-      : `let resume = ray_index * ${SCGI_QUERY_CONTINUATION.words}u;
-  if (continuation[resume] ${wavefront === "tail" ? `== ${tail.done}u` : "!= 0u"}) { return; }`
-  }
-  ${
-    coveredScene
-      ? `if (scene_coverage[0] != 0u) {
-    batch[result + 3u] = 2u;
-    ${wavefront === "tail" ? "continuation[resume] = 2u;" : ""}
-    return;
-  }`
-      : ""
-  }
-  let world_origin = vec3f(bitcast<f32>(batch[ray]), bitcast<f32>(batch[ray + 1u]), bitcast<f32>(batch[ray + 2u]));
-  let t_min = bitcast<f32>(batch[ray + 3u]);
-  let world_direction = vec3f(bitcast<f32>(batch[ray + 4u]), bitcast<f32>(batch[ray + 5u]), bitcast<f32>(batch[ray + 6u]));
-  let input_max = bitcast<f32>(batch[ray + 7u]);
-  let invalid_max = (bitcast<u32>(input_max) & 0x7f800000u) == 0x7f800000u &&
-    bitcast<u32>(input_max) != 0x7f800000u;
-  if ((bitcast<u32>(t_min) & 0x7f800000u) == 0x7f800000u || invalid_max || t_min > input_max ||
-      any((bitcast<vec3u>(world_origin) & vec3u(0x7f800000u)) == vec3u(0x7f800000u)) ||
-      any((bitcast<vec3u>(world_direction) & vec3u(0x7f800000u)) == vec3u(0x7f800000u)) ||
-      all(world_direction == vec3f(0.0))) {
-    batch[result + 3u] = 5u;
-    ${wavefront === "tail" ? "continuation[resume] = 2u;" : ""}
-    return;
-  }
-  ${
-    coveredScene
-      ? `// A domain certificate only covers finite ray segments entirely inside
-  // its conservative cascade+guard envelope. Never clip and call the rest sky.
-  if (scene_coverage[7] != 0u) {
-    let domain_low = bitcast<vec3f>(vec3u(scene_coverage[4], scene_coverage[5], scene_coverage[6]));
-    let domain_high = bitcast<vec3f>(vec3u(scene_coverage[8], scene_coverage[9], scene_coverage[10]));
-    let t_max = bitcast<f32>(batch[ray + 7u]);
-    let start = world_origin + world_direction * t_min;
-    let end = world_origin + world_direction * t_max;
-    let finite = all((bitcast<vec3u>(start) & vec3u(0x7f800000u)) != vec3u(0x7f800000u)) &&
-      all((bitcast<vec3u>(end) & vec3u(0x7f800000u)) != vec3u(0x7f800000u));
-    if (!finite || !(t_min <= t_max) || any(start < domain_low) || any(start > domain_high) ||
-        any(end < domain_low) || any(end > domain_high)) {
-      batch[result + 3u] = 2u;
-      ${wavefront === "tail" ? "continuation[resume] = 2u;" : ""}
-      return;
-    }
-  }`
-      : ""
-  }
-  let merge = (trace.query_kind & 2u) != 0u${wavefront === "tail" ? " || continuation[resume] == 1u" : ""};
-  var best = select(bitcast<f32>(batch[ray + 7u]), bitcast<f32>(batch[result]), merge);
-  var status = select(1u, batch[result + 3u], merge);
-  var best_instance = 0xffffffffu;
-  var best_primitive = 0xffffffffu;
-  var best_bary = vec2f(0.0);
-  var best_front = 0u;
-  var best_generation = 0u;
-  if (merge) {
-    best_instance = batch[result + 4u];
-    best_primitive = batch[result + 5u];
-    best_bary = vec2f(bitcast<f32>(batch[result + 1u]), bitcast<f32>(batch[result + 2u]));
-    best_front = batch[result + 7u];
-    best_generation = batch[result + 6u];
-    if (status > 1u || ((trace.query_kind & 1u) != 0u && status == 0u)) {
-      ${wavefront === "tail" ? "continuation[resume] = 2u;" : ""}
-      return;
-    }
-  }
-  var node = tlas[1];
-  var previous = 0xffffffffu;
-  var top = true;
-  var instance_slot = 0xffffffffu;
-  var return_node = 0xffffffffu;
-  var origin = world_origin;
-  var direction = world_direction;
-  var tlas_visits = 0u;
-  var blas_visits = 0u;
-  ${
-    wavefront === "tail"
-      ? `if (continuation[resume] == 1u) {
-    node = continuation[${tail.node}u + resume];
-    previous = continuation[${tail.previousNode}u + resume];
-    top = continuation[${tail.inTlas}u + resume] != 0u;
-    instance_slot = continuation[${tail.instanceSlot}u + resume];
-    return_node = continuation[${tail.tlasReturnNode}u + resume];
-    tlas_visits = continuation[${tail.tlasVisits}u + resume];
-    blas_visits = continuation[${tail.blasVisits}u + resume];
-    if (!top) {
-      origin = affine_point(instances[instance_slot].worldToObject, world_origin, 1.0);
-      direction = affine_point(instances[instance_slot].worldToObject, world_direction, 0.0);
-    }
-  }
-  var quantum_steps = 0u;
-  var suspended = false;`
-      : ""
-  }
-  // Separate counters avoid overflowing the mathematical instance*BLAS visit
-  // bound. Each new instance resets BLAS visits; TLAS visits never reset.
-  // Parent continuation encounters each internal node at most three times.
-  // Admitted shard capacity makes these arithmetic bounds nonwrapping.
-  let tlas_bound = (tlas[0] * 2u - min(tlas[0], 1u)) * 3u;
-  let blas_bound = (blas[0] * 2u - min(blas[0], 1u)) * 3u;
-  if (tlas[2] != 0u || blas[2] != 0u || t_min > best ||
-      (bitcast<u32>(t_min) & 0x7f800000u) == 0x7f800000u ||
-      ((bitcast<u32>(best) & 0x7f800000u) == 0x7f800000u &&
-        (bitcast<u32>(best) != 0x7f800000u)) ||
-      any((bitcast<vec3u>(world_origin) & vec3u(0x7f800000u)) == vec3u(0x7f800000u)) ||
-      any((bitcast<vec3u>(world_direction) & vec3u(0x7f800000u)) == vec3u(0x7f800000u)) || all(world_direction == vec3f(0.0))) {
-    status = 5u;
-    node = 0xffffffffu;
-  }
-  loop {
-    ${
-      wavefront === "tail"
-        ? `if (quantum_steps == ${nodeQuantum}u) {
-      suspended = true;
-      break;
-    }
-    quantum_steps++;`
-        : ""
-    }
-    if (node == 0xffffffffu) {
-      if (top) { break; }
-      top = true;
-      node = return_node;
-      previous = node;
-      node = tlas[${tlasPlan.hierarchy.ranges.links!.offset / 4}u + node * 2u];
-      origin = world_origin;
-      direction = world_direction;
-      continue;
-    }
-    if (top) {
-      if (tlas_visits >= tlas_bound) { status = 5u; break; }
-      tlas_visits++;
-    } else {
-      if (blas_visits >= blas_bound) { status = 5u; break; }
-      blas_visits++;
-    }
-    let count = as_word(top, 0u);
-    if (count == 0u || node >= count * 2u - 1u) { status = 5u; break; }
-    let links = select(${plan.hierarchy.ranges.links!.offset / 4}u,
-      ${tlasPlan.hierarchy.ranges.links!.offset / 4}u, top);
-    let parent = as_word(top, links + node * 2u);
-    let bounds = as_bounds(top, node);
-    if (previous == parent && !box_hit(origin, direction, bounds[0], bounds[1], t_min, best)) {
-      previous = node;
-      node = parent;
-      continue;
-    }
-    let at = select(${plan.hierarchy.ranges.nodes!.offset / 4}u,
-      ${tlasPlan.hierarchy.ranges.nodes!.offset / 4}u, top) + node * 16u;
-    if (node < count - 1u) {
-      let left = as_word(top, at + 3u);
-      let right = as_word(top, at + 11u);
-      if (left >= count * 2u - 1u || right >= count * 2u - 1u || left == right) {
-        status = 5u;
-        break;
-      }
-      let left_bounds = as_bounds(top, left);
-      let right_bounds = as_bounds(top, right);
-      // Ordering uses the original interval, so an accepted closer hit cannot
-      // swap siblings while returning through parent pointers. Pruning still
-      // uses the current best distance. No per-ray 64-entry global stack.
-      let left_near = box_near(origin, direction, left_bounds[0], left_bounds[1], t_min);
-      let right_near = box_near(origin, direction, right_bounds[0], right_bounds[1], t_min);
-      let right_first = right_near < left_near || (right_near == left_near && right < left);
-      let first = select(left, right, right_first);
-      let second = select(right, left, right_first);
-      var next = parent;
-      if (previous == parent) {
-        next = first;
-      } else if (previous == first) {
-        next = second;
-      } else if (previous != second) {
-        status = 5u;
-        break;
-      }
-      previous = node;
-      node = next;
-      continue;
-    }
-    let primitive_index = as_word(top, at + 3u);
-    var primitive = primitive_index;
-    if (top) { primitive = tlas[${tlasPlan.hierarchy.ranges.references!.offset / 4}u + primitive_index]; }
-    if (top) {
-      if (primitive >= arrayLength(&instances)) { status = 5u; break; }
-      let instance = instances[primitive];
-      if ((instance.shardGenerationMaskFlags[3] & 0x80000000u) != 0u) { status = 3u; break; }
-      // Ray kind bit 0 selects shadow visibility. Transport/reconnection sees
-      // every admitted surface, including surfaces which do not cast shadows.
-      if ((batch[ray + 10u] & 1u) != 0u && (instance.shardGenerationMaskFlags[3] & 2u) == 0u) {
-        previous = node;
-        node = parent;
-        continue;
-      }
-      if ((instance.shardGenerationMaskFlags[2] & batch[ray + 9u]) == 0u) {
-        previous = node;
-        node = parent;
-        continue;
-      }
-      ${
-        coverage === undefined
-          ? ""
-          : `let coverage_class = query_coverage_instance(primitive);
-      if (coverage_class == 2u) { status = 2u; break; }
-      if (coverage_class == 0u) {
-        previous = node;
-        node = parent;
-        continue;
-      }`
-      }
-      instance_slot = primitive;
-      blas_visits = 0u;
-      return_node = node;
-      origin = affine_point(instance.worldToObject, world_origin, 1.0);
-      direction = affine_point(instance.worldToObject, world_direction, 0.0);
-      top = false;
-      node = instance.slotSetLifetimeRoot[3];
-      previous = 0xffffffffu;
-      continue;
-    }
-    let triangle = query_triangle(primitive);
-    if (!triangle.valid) { status = 2u; break; }
-    let hit = triangle_hit(origin, direction, triangle, t_min, best);
-    var accepted = hit.accepted;
-    ${
-      wavefront === "candidate"
-        ? `if (accepted && continuation[${cursor.hasRejected}u + resume] != 0u) {
-      let cursor_t = bitcast<f32>(continuation[${cursor.rejectedT}u + resume]);
-      let cursor_instance = continuation[${cursor.rejectedInstance}u + resume];
-      let cursor_primitive = continuation[${cursor.rejectedPrimitive}u + resume];
-      let stable = geometry.primitive_begin + primitive;
-      accepted = hit.t > cursor_t || (hit.t == cursor_t &&
-        (instance_slot > cursor_instance || (instance_slot == cursor_instance && stable > cursor_primitive)));
-    }`
-        : ""
-    }
-    ${
-      diffuse || coverage === undefined || coverage === null
-        ? ""
-        : `if (accepted) {
-      accepted = query_coverage_hit(instance_slot, triangle, hit.bary, hit.t,
-        world_origin, world_direction, ray);
-    }`
-    }
-    let stable_primitive = geometry.primitive_begin + primitive;
-    if (accepted && (hit.t < best || best_instance == 0xffffffffu ||
-        (hit.t == best && (instance_slot < best_instance ||
-          (instance_slot == best_instance && stable_primitive < best_primitive))))) {
-      best = hit.t;
-      best_bary = hit.bary;
-      best_instance = instance_slot;
-      best_primitive = stable_primitive;
-      best_generation = geometry.generation;
-      let affine = instances[instance_slot].objectToWorld;
-      let determinant = dot(vec3f(affine[0], affine[1], affine[2]),
-        cross(vec3f(affine[4], affine[5], affine[6]), vec3f(affine[8], affine[9], affine[10])));
-      best_front = hit.front ^ select(0u, 1u, determinant < 0.0);
-      status = 0u;
-      if ((trace.query_kind & 1u) != 0u) { break; }
-    }
-    previous = node;
-    node = parent;
-  }
-  batch[result] = bitcast<u32>(best);
-  batch[result + 1u] = bitcast<u32>(best_bary.x);
-  batch[result + 2u] = bitcast<u32>(best_bary.y);
-  batch[result + 3u] = status;
-  batch[result + 4u] = best_instance;
-  batch[result + 5u] = best_primitive;
-  batch[result + 6u] = best_generation;
-  batch[result + 7u] = best_front;
-  ${
-    wavefront === "tail"
-      ? `continuation[resume] = select(2u, 1u, suspended);
-  continuation[${tail.node}u + resume] = node;
-  continuation[${tail.previousNode}u + resume] = previous;
-  continuation[${tail.inTlas}u + resume] = u32(top);
-  continuation[${tail.instanceSlot}u + resume] = instance_slot;
-  continuation[${tail.tlasReturnNode}u + resume] = return_node;
-  continuation[${tail.tlasVisits}u + resume] = tlas_visits;
-  continuation[${tail.blasVisits}u + resume] = blas_visits;`
-      : ""
-  }
-}
-${
-  wavefront === "coverage"
-    ? /* wgsl */ `
-@compute @workgroup_size(64)
-fn accept_candidate(@builtin(global_invocation_id) id: vec3u) {
-  let bin = coverage_route.x * 8u;
-  if (id.x >= hit_work[bin]) { return; }
-  let ray_index = hit_work[${hitListWord}u + hit_work[bin + 1u] + id.x];
-  if (ray_index >= trace.ray_count) { return; }
-  let resume = ray_index * ${SCGI_QUERY_CONTINUATION.words}u;
-  if (continuation[resume] != 0u) { return; }
-  let result = trace.result_word + ray_index * 8u;
-  if (batch[result + 3u] != 0u) { return; }
-  let instance_slot = batch[result + 4u];
-  if (instance_slot >= arrayLength(&instances) || instances[instance_slot].shardGenerationMaskFlags[2] == 0u ||
-      batch[result + 6u] != geometry.generation) { return; }
-  if (instance_slot < geometry.instance_first || instance_slot - geometry.instance_first >= geometry.instance_count ||
-      query_source[instance_slot].product_table_slot != geometry.product_slot ||
-      query_source[instance_slot].geometry_record_index != geometry.asset_reference) { return; }
-  if (query_coverage_instance(instance_slot) != 1u) { return; }
-  let primitive = batch[result + 5u];
-  if (primitive < geometry.primitive_begin || primitive >= geometry.primitive_begin + geometry.primitive_count) { return; }
-  var accepted = true;
-  ${
-    coverage === null
-      ? ""
-      : `let triangle = query_triangle(primitive - geometry.primitive_begin);
-  if (!triangle.valid) { batch[result + 3u] = 2u; continuation[resume] = 1u; return; }
-  let ray = trace.ray_word + ray_index * 12u;
-  let origin = vec3f(bitcast<f32>(batch[ray]), bitcast<f32>(batch[ray + 1u]), bitcast<f32>(batch[ray + 2u]));
-  let direction = vec3f(bitcast<f32>(batch[ray + 4u]), bitcast<f32>(batch[ray + 5u]), bitcast<f32>(batch[ray + 6u]));
-  let bary = vec2f(bitcast<f32>(batch[result + 1u]), bitcast<f32>(batch[result + 2u]));
-  accepted = query_coverage_hit(instance_slot, triangle, bary, bitcast<f32>(batch[result]), origin, direction, ray);`
-  }
-  if (accepted) {
-    continuation[resume] = 1u;
-  } else {
-    // Strict lexicographic cursor preserves coplanar candidates. Advancing t
-    // by epsilon here would silently skip equal-distance leaves/instances.
-    continuation[${cursor.hasRejected}u + resume] = 1u;
-    continuation[${cursor.rejectedT}u + resume] = batch[result];
-    continuation[${cursor.rejectedInstance}u + resume] = instance_slot;
-    continuation[${cursor.rejectedPrimitive}u + resume] = primitive;
-    batch[result + 3u] = 4u;
-  }
-}
-`
-    : ""
-}
-${
-  diffuse
-    ? /* wgsl */ `
-@compute @workgroup_size(64)
-fn shade_hit(@builtin(global_invocation_id) id: vec3u) {
-  ${
-    hitListWord === undefined
-      ? "let ray_index = id.x;"
-      : `let bin = coverage_route.x * 8u;
-  if (id.x >= hit_work[bin]) { return; }
-  let ray_index = hit_work[${hitListWord}u + hit_work[bin + 1u] + id.x];`
-  }
-  if (ray_index >= trace.ray_count) { return; }
-  ${coveredScene ? "if (scene_coverage[0] != 0u) { return; }" : ""}
-  let result = trace.result_word + ray_index * 8u;
-  if (batch[result + 3u] != 0u) { return; }
-  let instance_slot = batch[result + 4u];
-  if (instance_slot >= arrayLength(&instances) || instance_slot >= arrayLength(&query_source)) { return; }
-  // Every shard's instance view masks all other Products/assets. Generation
-  // alone is insufficient: different Product slots can share a generation.
-  if (instances[instance_slot].shardGenerationMaskFlags[2] == 0u ||
-      (instances[instance_slot].shardGenerationMaskFlags[3] & 0x80000000u) != 0u) { return; }
-  let source = query_source[instance_slot];
-  if (instance_slot < geometry.instance_first || instance_slot - geometry.instance_first >= geometry.instance_count ||
-      source.product_table_slot != geometry.product_slot || source.geometry_record_index != geometry.asset_reference) { return; }
-  if (source.material_handle >= arrayLength(&coverage_directory)) { return; }
-  let entry = coverage_directory[source.material_handle];
-  if (entry.w == 0u || entry.y != coverage_route.x || batch[result + 6u] != geometry.generation) { return; }
-  let primitive = batch[result + 5u];
-  if (primitive < geometry.primitive_begin || primitive >= geometry.primitive_begin + geometry.primitive_count) { return; }
-  let triangle = query_triangle(primitive - geometry.primitive_begin);
-  if (!triangle.valid) { return; }
-  let ray = trace.ray_word + ray_index * 12u;
-  let direction = vec3f(bitcast<f32>(batch[ray + 4u]), bitcast<f32>(batch[ray + 5u]),
-    bitcast<f32>(batch[ray + 6u]));
-  let bary = vec2f(bitcast<f32>(batch[result + 1u]), bitcast<f32>(batch[result + 2u]));
-  let inputs = query_material_inputs(instance_slot, triangle, bary, bitcast<f32>(batch[result]), direction);
-  // Graph inputs retain authored camera semantics. The physical two-sided
-  // response instead faces the receiving transport direction at this hit.
-  var transport_basis = inputs.basis;
-  if ((source.flags & 16u) != 0u && dot(transport_basis[2], -direction) < 0.0) {
-    transport_basis[0] = -transport_basis[0];
-    transport_basis[2] = -transport_basis[2];
-  }
-  let hit = native_diffuse_hit(entry.x, inputs.inputs, transport_basis, -direction);
-  let output = ray_index * ${outputStride / 16}u;
-  diffuse_hits[output] = vec4f(hit.diffuse, hit.occlusion);
-  diffuse_hits[output + 1u] = vec4f(hit.emission, hit.underlayer);
-  diffuse_hits[output + 2u] = vec4f(hit.normal, f32(hit.valid));
-  let position = affine_point(instances[instance_slot].objectToWorld,
-    triangle.p0 * (1.0 - bary.x - bary.y) + triangle.p1 * bary.x + triangle.p2 * bary.y, 1.0);
-  diffuse_hits[output + 3u] = vec4f(position, bitcast<f32>(source.flags));
-  ${outputStride === 96 ? `
-  diffuse_hits[output + 4u] = bitcast<vec4f>(vec4u(geometry.asset, triangle.meshlet,
-    triangle.primitive, triangle.source_primitive));
-  let world0 = affine_point(instances[instance_slot].objectToWorld, triangle.p0, 1.0);
-  let world1 = affine_point(instances[instance_slot].objectToWorld, triangle.p1, 1.0);
-  let world2 = affine_point(instances[instance_slot].objectToWorld, triangle.p2, 1.0);
-  var flat = normalize(cross(world1 - world0, world2 - world0));
-  if (dot(flat, -direction) < 0.0) { flat = -flat; }
-  // Forward-error bound, scaled by world-coordinate magnitude and triangle extent.
-  let error = 32.0 * 1.1920928955078125e-7 *
-    max(max(length(position), max(length(world1 - world0), length(world2 - world0))), 1.0);
-  diffuse_hits[output + 5u] = vec4f(flat, error);` : ""}
-}`
-    : ""
-}
 `;
-}

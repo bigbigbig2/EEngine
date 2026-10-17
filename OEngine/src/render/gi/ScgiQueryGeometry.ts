@@ -1,7 +1,8 @@
+import type { ResourceAccounting, ResourceHandle } from "../../debug/profiling/ResourceAccounting.js";
 import { PipelineCompilationQueue } from "../../gpu/PipelineCompilationQueue.js";
 import type {
   GeometryQueryGeometryLease,
-  GeometryQueryGeometrySegment
+  GeometryQueryGeometrySegment,
 } from "../../gpu/VirtualGeometryResidency.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { scgiQueryGeometryWgsl } from "../../shaders/scgi_query_geometry.js";
@@ -23,7 +24,9 @@ export class ScgiQueryGeometry {
     private readonly scratch: GPUBuffer,
     private readonly pipeline: GPUComputePipeline,
     private readonly bindings: GPUBindGroup,
-    private readonly plan: ScgiBvhPlan
+    private readonly plan: ScgiBvhPlan,
+    private readonly accounting?: ResourceAccounting,
+    private readonly handle?: ResourceHandle,
   ) {}
 
   static async create(
@@ -34,7 +37,9 @@ export class ScgiQueryGeometry {
     asset: number,
     segment: GeometryQueryGeometrySegment,
     primitiveOffset = 0,
-    primitiveCount = segment.queryAssets[asset]?.primitiveCount ?? 0
+    primitiveCount = segment.queryAssets[asset]?.primitiveCount ?? 0,
+    triangles?: GPUBuffer,
+    accounting?: ResourceAccounting,
   ): Promise<ScgiQueryGeometry> {
     scgiInteger(asset, "query asset", 0, segment.queryAssets.length - 1);
     const range = segment.queryAssets[asset]!;
@@ -51,14 +56,14 @@ export class ScgiQueryGeometry {
     }
     const module = device.createShaderModule({
       label: "SCGI/shared Product triangle bounds",
-      code: scgiQueryGeometryWgsl(plan)
+      code: scgiQueryGeometryWgsl(plan, triangles !== undefined),
     });
     const pipeline = await PipelineCompilationQueue.forDevice(device).run(() =>
       device.createComputePipelineAsync({
         label: "SCGI/shared Product triangle bounds",
         layout: "auto",
-        compute: { module, entryPoint: "bounds" }
-      })
+        compute: { module, entryPoint: "bounds" },
+      }),
     );
     if (!lease.valid) {
       throw new Error("Query geometry lease retired during pipeline compilation");
@@ -67,7 +72,7 @@ export class ScgiQueryGeometry {
       label: "SCGI/query geometry parameters",
       size: 64,
       usage: GPUBufferUsage.UNIFORM,
-      mappedAtCreation: true
+      mappedAtCreation: true,
     });
     try {
       new Uint32Array(settings.getMappedRange()).set([
@@ -85,11 +90,11 @@ export class ScgiQueryGeometry {
         0,
         new DataView(
           lease.cut.descriptor.assetRecords.buffer,
-          lease.cut.descriptor.assetRecords.byteOffset
+          lease.cut.descriptor.assetRecords.byteOffset,
         ).getUint32(asset * 128 + 88, true),
         0,
         0,
-        0
+        0,
       ]);
       settings.unmap();
       const bindings = device.createBindGroup({
@@ -97,9 +102,10 @@ export class ScgiQueryGeometry {
         entries: [
           { binding: 0, resource: { buffer: settings } },
           { binding: 1, resource: { buffer: scratch, size: plan.scratch.bytes } },
+          ...(triangles === undefined ? [] : [{ binding: 13, resource: { buffer: triangles } }]),
           { binding: 8, resource: { buffer: segment.metadata } },
-          ...lease.banks.map((buffer, index) => ({ binding: 9 + index, resource: { buffer } }))
-        ]
+          ...lease.banks.map((buffer, index) => ({ binding: 9 + index, resource: { buffer } })),
+        ],
       });
       return new ScgiQueryGeometry(
         lease,
@@ -110,7 +116,18 @@ export class ScgiQueryGeometry {
         scratch,
         pipeline,
         bindings,
-        plan
+        plan,
+        accounting,
+        accounting?.created(
+          {
+            kind: "buffer",
+            owner: "SCGI/query geometry",
+            category: "resident",
+            label: settings.label,
+            bytes: settings.size,
+          },
+          settings,
+        ),
       );
     } catch (error) {
       settings.destroy();
@@ -142,5 +159,8 @@ export class ScgiQueryGeometry {
     }
     this.destroyed = true;
     this.settings.destroy();
+    if (this.handle !== undefined) {
+      this.accounting!.destroyed(this.handle);
+    }
   }
 }

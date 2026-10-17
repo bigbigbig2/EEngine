@@ -1,8 +1,8 @@
 import { GPU_INSTANCE_RECORD_WGSL } from "../../gpu/GpuInstanceAbi.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { ScgiQueryHitWork } from "./ScgiQueryHitWork.js";
-import { ScgiQueryTailWork } from "./ScgiQueryTailWork.js";
 import { ScgiQueryRayCount } from "./ScgiQueryRayCount.js";
+import { ScgiQueryRouteWork } from "./ScgiQueryRouteWork.js";
 import { ScgiQueryTraversal } from "./ScgiQueryTraversal.js";
 import type { ScgiQueryScene } from "./ScgiQueryScene.js";
 import { scgiInteger } from "./ScgiCapacity.js";
@@ -19,7 +19,8 @@ export interface ScgiQueryBatchInput {
   readonly camera: ArrayLike<number>;
   readonly coneWidth: number;
   readonly coneSpread: number;
-  readonly wavefrontRounds: number;
+  readonly diagnostics?: boolean;
+  readonly kind?: "geometry" | "material";
   readonly anyHit?: boolean;
   readonly feedback?: GPUBuffer;
   /** GPU-produced dense prefix, rayCount remains allocation capacity. */
@@ -27,18 +28,15 @@ export interface ScgiQueryBatchInput {
 }
 
 /** One finite work batch over one immutable scene. All native coverage bins
- * and AS shards participate before a physical miss is observable. K is only
- * the fast-path schedule: remaining candidates compact into the complete
- * inline native tail in the same command. No internal submit/readback exists.
+ * and finite AS arenas participate before a physical miss is observable.
+ * Each traversal invocation completes its tree, including inline MASK.
+ * No internal submit/readback or quantum tail exists.
  * Creation is asynchronous preparation; encoding creates no GPU objects. */
 export class ScgiQueryBatch {
-  private readonly candidates: ScgiQueryTraversal[] = [];
-  private readonly coverage: ScgiQueryTraversal[] = [];
-  private readonly tail: ScgiQueryTraversal[] = [];
+  private readonly traversal: ScgiQueryTraversal[] = [];
   private readonly diffuse: ScgiQueryTraversal[] = [];
   private readonly work: ScgiQueryHitWork[] = [];
   private readonly buffers: GPUBuffer[] = [];
-  private continuation!: GPUBuffer;
   private destroyed = false;
   private inFlight = 0;
   private poisoned = false;
@@ -47,9 +45,15 @@ export class ScgiQueryBatch {
   private resolve: { pipeline: GPUComputePipeline; group: GPUBindGroup } | undefined;
   private usesVirtualTextures = false;
   private releaseQueryDemand: (() => void) | undefined;
-  private tailWork: ScgiQueryTailWork | undefined;
+  private routing: ScgiQueryRouteWork | undefined;
   private rayWork: ScgiQueryRayCount | undefined;
   private mappingRevision = 0;
+
+  /** Borrowed last-encode diagnostics; caller must retain this batch through
+   * the copy fence. Rows: routed/node/triangle/coverage/xyz/active, 32B each. */
+  get routeCounters(): GPUBuffer | undefined {
+    return this.routing?.counters;
+  }
 
   get mappingGeneration(): number {
     return this.mappingRevision;
@@ -62,44 +66,37 @@ export class ScgiQueryBatch {
    * owners. This reports every private batch byte, including bin parameters.
    * Upper-bound dispatches count encoded zero-work commands as real host work. */
   get cost() {
-    const traversals = [...this.candidates, ...this.coverage, ...this.tail, ...this.diffuse];
+    const traversals = [...this.traversal, ...this.diffuse];
     return Object.freeze({
       privateBytes:
+        (this.routing === undefined
+          ? 0
+          : this.routing.buffer.size + this.routing.indirect.size + (this.routing.counters?.size ?? 0)) +
         this.buffers.reduce((bytes, buffer) => bytes + buffer.size, 0) +
         this.work.reduce((bytes, work) => bytes + work.buffer.size + work.indirect.size, 0) +
         traversals.reduce((bytes, traversal) => bytes + traversal.byteLength, 0) +
-        (this.tailWork === undefined ? 0 : this.tailWork.buffer.size + this.tailWork.indirect.size) +
         (this.rayWork === undefined ? 0 : this.rayWork.buffer.size + this.rayWork.indirect.size),
-      tailQuanta: this.tail.reduce((count, traversal) => count + traversal.tailQuanta, 0),
-      traversalDispatches:
-        (this.candidates.length + this.coverage.length) * this.input.wavefrontRounds +
-        this.tail.reduce((count, traversal) => count + traversal.dispatchUpperBound, 0) +
-        (this.input.anyHit ? 0 : this.diffuse.length),
-      // Count validation and final resolve plus complete hit-list scans. Tail
-      // counts above already include compact/publish/finish dispatches.
+      traversalDispatches: this.traversal.length,
+      acceptedDispatches: this.diffuse.length,
+      routingDispatches: this.traversal.length * 2,
       totalDispatches:
-        this.scene.shards.length === 0
-          ? 1 + Number(this.rayWork !== undefined)
-          : (this.candidates.length + this.coverage.length + this.work[0]!.dispatchCount) *
-              this.input.wavefrontRounds +
-            (this.input.wavefrontRounds === 0 ? 0 : this.work[1]!.dispatchCount) +
-            this.tail.reduce((count, traversal) => count + traversal.dispatchUpperBound, 0) +
-            (this.input.anyHit ? 0 : this.diffuse.length + this.work[2]!.dispatchCount) +
-            1 +
-            Number(this.rayWork !== undefined),
+        (this.scene.arenas.length === 0
+          ? 1
+          : traversals.length +
+            this.traversal.length * 2 +
+            this.work.reduce((count, work) => count + work.dispatchCount, 0) +
+            1) +
+        2 * Number(this.rayWork !== undefined),
       rayCapacity: this.input.rayCount,
       descriptors: traversals.reduce(
         (maximum, traversal) => ({
-          storage: Math.max(maximum.storage, traversal.descriptors?.storage ?? 0),
-          sampled: Math.max(maximum.sampled, traversal.descriptors?.sampled ?? 0),
-          sampler: Math.max(maximum.sampler, traversal.descriptors?.sampler ?? 0),
-          uniform: Math.max(maximum.uniform, traversal.descriptors?.uniform ?? 0),
+          storage: Math.max(maximum.storage, traversal.descriptors.storage),
+          sampled: Math.max(maximum.sampled, traversal.descriptors.sampled),
+          sampler: Math.max(maximum.sampler, traversal.descriptors.sampler),
+          uniform: Math.max(maximum.uniform, traversal.descriptors.uniform),
         }),
         { storage: 0, sampled: 0, sampler: 0, uniform: 0 },
       ),
-      // Each parent-pointer traversal visits at most three times per node,
-      // plus one BLAS return per admitted instance and the final TLAS exit.
-      continuationBytes: this.scene.shards.length === 0 ? 0 : this.input.rayCount * 64,
     });
   }
 
@@ -129,9 +126,9 @@ export class ScgiQueryBatch {
     scene: ScgiQueryScene,
     input: ScgiQueryBatchInput,
   ): Promise<ScgiQueryBatch> {
-    scgiInteger(input.wavefrontRounds, "query wavefront rounds", 0, 64);
     scgiInteger(input.rayCount, "query batch ray capacity", 1);
     if (
+      (input.kind === "geometry" && input.outputStride !== 96) ||
       (input.outputStride !== undefined && input.outputStride !== 64 && input.outputStride !== 96) ||
       !Number.isSafeInteger(input.resultByteOffset) ||
       input.resultByteOffset % 4 !== 0 ||
@@ -141,28 +138,25 @@ export class ScgiQueryBatch {
       input.output.size > device.limits.maxStorageBufferBindingSize ||
       !(input.batch.usage & GPUBufferUsage.STORAGE) ||
       !(input.output.usage & GPUBufferUsage.STORAGE) ||
-      !(input.output.usage & GPUBufferUsage.COPY_DST) ||
       input.output.size < input.rayCount * (input.outputStride ?? 64) ||
       Math.ceil(input.rayCount / 64) > device.limits.maxComputeWorkgroupsPerDimension
     ) {
       throw new RangeError("Query batch requires complete nonoverlapping ray/result ranges");
     }
-    const continuationBytes = scene.shards.length === 0 ? 0 : input.rayCount * 64;
-    if (
-      (!scene.prepared && !scene.valid) ||
-      continuationBytes > Math.min(device.limits.maxBufferSize, device.limits.maxStorageBufferBindingSize)
-    ) {
-      throw new RangeError("Query batch requires its complete live scene and admitted continuation arena");
+    if (!scene.prepared && !scene.valid) {
+      throw new Error("Query batch requires its complete live scene");
     }
     const owner = new ScgiQueryBatch(device, scene, input);
     try {
-      if (input.count !== undefined) {
+      {
         const rayWork = await ScgiQueryRayCount.create(
           device,
           input.rayCount,
           input.batch,
           input.resultByteOffset,
           input.count,
+          scene.coverageStatus,
+          input.anyHit ? undefined : { buffer: input.output, stride: input.outputStride ?? 64 },
         );
         if (owner.destroyed) {
           rayWork.destroy();
@@ -170,166 +164,139 @@ export class ScgiQueryBatch {
         }
         owner.rayWork = rayWork;
       }
-      if (scene.shards.length === 0) {
+      if (scene.arenas.length === 0) {
         await owner.prepareEmptyScene();
         if (!scene.prepared && !scene.valid) {
           throw new Error("Query scene retired during empty-domain preparation");
         }
         return owner;
       }
-      owner.continuation = device.createBuffer({
-        label: "SCGI/query continuation",
-        size: continuationBytes,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      });
-      owner.buffers.push(owner.continuation);
+      owner.routing = await ScgiQueryRouteWork.create(
+        device,
+        scene,
+        input.batch,
+        input.rayCount,
+        input.resultByteOffset,
+        owner.rayWork!,
+        input.anyHit ?? false,
+        input.diagnostics ?? false,
+      );
       const source = scene.sourceInstances.sourceSnapshot;
       const publication = scene.materialPublication;
       owner.usesVirtualTextures =
-        !input.anyHit && scene.materials.bins.some((bin) => bin.material.binding.program.virtualTextures);
+        !input.anyHit &&
+        input.kind !== "geometry" &&
+        scene.materials.bins.some((bin) => bin.material.binding.program.virtualTextures);
       if (owner.usesVirtualTextures && input.feedback === undefined) {
         if (scene.virtualTextures === null) {
-          throw new Error("Query VT material has no resident texture owner");
+          throw new Error("Query VT material has no texture owner");
         }
         await scene.virtualTextures.enableQueryFeedback();
-        if (owner.destroyed) {
-          throw new Error("Query device was lost during VT feedback preparation");
-        }
         owner.releaseQueryDemand = scene.virtualTextures.retainQueryDemand();
       }
-      const coverageWork = await owner.retainPrepared(
-        owner.work,
-        ScgiQueryHitWork.create(
-          device,
-          source,
-          publication.rasterDirectory,
-          input.batch,
-          input.rayCount,
-          input.resultByteOffset,
-          publication.rasterClasses.length,
-        ),
-      );
-      const pendingWork = await owner.retainPrepared(
-        owner.work,
-        ScgiQueryHitWork.create(
-          device,
-          source,
-          publication.rasterDirectory,
-          input.batch,
-          input.rayCount,
-          input.resultByteOffset,
-          1,
-          true,
-        ),
-      );
-      const diffuseWork = input.anyHit
-        ? undefined
-        : await owner.retainPrepared(
-            owner.work,
-            ScgiQueryHitWork.create(
-              device,
-              source,
-              scene.materials.directory,
-              input.batch,
-              input.rayCount,
-              input.resultByteOffset,
-              scene.materials.bins.length,
-            ),
-          );
-      const tailWork = await ScgiQueryTailWork.create(
-        device,
-        input.rayCount,
-        input.batch,
-        input.resultByteOffset,
-        owner.continuation,
-        input.wavefrontRounds === 0 ? undefined : pendingWork,
-        owner.rayWork === undefined ? undefined : { buffer: owner.rayWork.buffer, offset: 0 },
-      );
-      if (owner.destroyed) {
-        tailWork.destroy();
-        throw new Error("Query device was lost during tail preparation");
-      }
-      owner.tailWork = tailWork;
+      const diffuseWork =
+        input.anyHit || input.kind === "geometry"
+          ? undefined
+          : await owner.retainPrepared(
+              owner.work,
+              ScgiQueryHitWork.create(
+                device,
+                source,
+                scene.materials.directory,
+                input.batch,
+                input.rayCount,
+                input.resultByteOffset,
+                scene.materials.bins.length,
+                owner.rayWork,
+              ),
+            );
       const view = {
         view: input.view,
         camera: input.camera,
         coneWidth: input.coneWidth,
         coneSpread: input.coneSpread,
       };
-      for (const shard of scene.shards) {
-        const common = {
-          lease: shard.lease,
-          segment: shard.segment,
-          asset: shard.asset,
-          blas: shard.blas,
-          tlas: shard.tlas,
-          instances: shard.instances,
-          primitiveOffset: shard.primitiveOffset,
-          primitiveCount: shard.primitiveCount,
-          batch: input.batch,
-          rayCount: input.rayCount,
-          resultByteOffset: input.resultByteOffset,
-          anyHit: input.anyHit,
-          coverageStatus: scene.coverageStatus,
-        };
-        const rayWork = owner.rayWork === undefined ? {} : { rayWork: owner.rayWork };
-        await owner.retainPrepared(
-          owner.candidates,
-          ScgiQueryTraversal.create(device, scene.blasPlan, scene.tlasPlan, {
-            ...common,
-            ...rayWork,
-            merge: owner.candidates.length > 0,
-            anyHit: false,
-            wavefront: { phase: "candidate", continuation: owner.continuation },
-          }),
-        );
-        for (let classIndex = 0; classIndex < publication.rasterClasses.length; classIndex++) {
-          const coverage = { publication, classIndex, ...view };
+      for (const arena of scene.arenas) {
+        for (const route of arena.routes) {
           await owner.retainPrepared(
-            owner.coverage,
-            ScgiQueryTraversal.create(device, scene.blasPlan, scene.tlasPlan, {
-              ...common,
-              ...rayWork,
-              coverage,
-              wavefront: { phase: "coverage", continuation: owner.continuation, work: coverageWork },
-            }),
-          );
-          await owner.retainPrepared(
-            owner.tail,
-            ScgiQueryTraversal.create(device, scene.blasPlan, scene.tlasPlan, {
-              ...common,
-              ...rayWork,
-              coverage,
-              merge: owner.tail.length > 0,
-              wavefront: { phase: "tail", continuation: owner.continuation },
-              tailWork: owner.tailWork,
-              // Without a wavefront, the complete tail consumes all input rays.
-              ...(input.wavefrontRounds === 0 ? {} : { pendingWork }),
+            owner.traversal,
+            ScgiQueryTraversal.create(device, {
+              diagnostics: input.diagnostics,
+              arena,
+              route,
+              source,
+              instances: scene.instanceRecords,
+              batch: input.batch,
+              coverageStatus: scene.coverageStatus,
+              rayCount: input.rayCount,
+              resultByteOffset: input.resultByteOffset,
+              anyHit: input.anyHit,
+              merge: true,
+              rayWork: owner.rayWork,
+              routing: { work: owner.routing, route },
+              coverage: { publication, classIndex: route.classIndex, ...view },
             }),
           );
         }
-        for (const bin of input.anyHit ? [] : scene.materials.bins) {
-          await owner.retainPrepared(
-            owner.diffuse,
-            ScgiQueryTraversal.create(device, scene.blasPlan, scene.tlasPlan, {
-              ...common,
-              ...rayWork,
-              diffuse: {
-                material: bin.material,
-                constants: bin.constants,
-                directory: scene.materials.directory,
-                binIndex: bin.index,
-                work: diffuseWork,
-                output: input.output,
+        // Attributes are evaluated once per accepted ray/source segment and
+        // actual Native Program, never once per asset or BLAS.
+        const segments = [...new Set(arena.geometries.map((item) => item.segment))];
+        for (let sourceGroup = 0; sourceGroup < segments.length; sourceGroup++) {
+          const route = {
+            ...arena.routes[0]!,
+            segment: segments[sourceGroup]!,
+            sourceGroup,
+            lease: arena.geometries.find((item) => item.segment === segments[sourceGroup])!.lease,
+          };
+          const common = {
+            diagnostics: input.diagnostics,
+            arena,
+            route,
+            source,
+            instances: scene.instanceRecords,
+            batch: input.batch,
+            coverageStatus: scene.coverageStatus,
+            rayCount: input.rayCount,
+            resultByteOffset: input.resultByteOffset,
+            rayWork: owner.rayWork,
+          };
+          if (input.anyHit) {
+            continue;
+          }
+          if (input.kind === "geometry") {
+            await owner.retainPrepared(
+              owner.diffuse,
+              ScgiQueryTraversal.create(device, {
+                ...common,
+                geometryOnly: true,
+                geometryOutput: input.output,
                 outputStride: input.outputStride,
-                feedback: input.feedback,
-                ...(owner.usesVirtualTextures && input.feedback === undefined
-                  ? { feedbackBuffers: scene.virtualTextures!.queryFeedbackBuffers }
-                  : {}),
-                ...view,
-              },
-            }),
-          );
+              }),
+            );
+          } else {
+            for (const bin of scene.materials.bins) {
+              await owner.retainPrepared(
+                owner.diffuse,
+                ScgiQueryTraversal.create(device, {
+                  ...common,
+                  work: diffuseWork,
+                  diffuse: {
+                    material: bin.material,
+                    constants: bin.constants,
+                    directory: scene.materials.directory,
+                    binIndex: bin.index,
+                    output: input.output,
+                    outputStride: input.outputStride,
+                    feedback: input.feedback,
+                    ...(owner.usesVirtualTextures && input.feedback === undefined
+                      ? { feedbackBuffers: scene.virtualTextures!.queryFeedbackBuffers }
+                      : {}),
+                    ...view,
+                  },
+                }),
+              );
+            }
+          }
         }
       }
       if (!scene.prepared && !scene.valid) {
@@ -537,28 +504,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         pass.dispatchWorkgroups(Math.ceil(this.input.rayCount / 64));
       }
       pass.end();
-      command.clearBuffer(this.input.output);
       return;
     }
-    command.clearBuffer(this.continuation);
-    for (let round = 0; round < this.input.wavefrontRounds; round++) {
-      for (const candidate of this.candidates) {
-        candidate.encode(command);
-      }
-      this.work[0]!.encode(command);
-      for (const coverage of this.coverage) {
-        coverage.encode(command);
-      }
+    for (const traversal of this.traversal) {
+      traversal.encode(command);
     }
-    if (this.input.wavefrontRounds !== 0) {
-      this.work[1]!.encode(command);
-    }
-    for (const tail of this.tail) {
-      tail.encode(command);
-    }
-    command.clearBuffer(this.input.output);
-    if (!this.input.anyHit) {
-      this.work[2]!.encode(command);
+    // Output records are only read for Hit. Accepted stages completely write
+    // their own record; misses/unknown never require full-capacity clears.
+    for (const work of this.work) {
+      work.encode(command);
     }
     const feedback =
       this.usesVirtualTextures && this.input.feedback === undefined
@@ -573,7 +527,11 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     const pass = command.gpu_encoder.beginComputePass({ label: "SCGI/query final status" });
     pass.setPipeline(this.resolve!.pipeline);
     pass.setBindGroup(0, this.resolve!.group);
-    pass.dispatchWorkgroups(Math.ceil(this.input.rayCount / 64));
+    if (this.rayWork !== undefined) {
+      pass.dispatchWorkgroupsIndirect(this.rayWork.indirect, 16);
+    } else {
+      pass.dispatchWorkgroups(Math.ceil(this.input.rayCount / 64));
+    }
     pass.end();
   }
 
@@ -584,7 +542,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     coneWidth: number,
     coneSpread: number,
   ): void {
-    for (const traversal of [...this.coverage, ...this.tail, ...this.diffuse]) {
+    for (const traversal of [...this.traversal, ...this.diffuse]) {
       traversal.updateView(command, view, camera, coneWidth, coneSpread);
     }
   }
@@ -603,7 +561,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       return;
     }
     this.destroyed = true;
-    for (const queries of [this.candidates, this.coverage, this.tail, this.diffuse]) {
+    for (const queries of [this.traversal, this.diffuse]) {
       for (const query of queries) {
         query.destroy();
       }
@@ -611,7 +569,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     for (const work of this.work) {
       work.destroy();
     }
-    this.tailWork?.destroy();
+    this.routing?.destroy();
     this.rayWork?.destroy();
     for (const buffer of this.buffers) {
       buffer.destroy();
