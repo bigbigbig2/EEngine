@@ -19,7 +19,7 @@ verifies:
 
 唯一详细设计为[SCGI设计](../next-design/eengine-surface-cache-gi-2026-10.md)。需求输入为[母稿](../reviews/EEngine_Surface_Cache_GI_WebGPU_Mother_Design_2026-10-17.md)；设计§17逐项映射母稿，设计§1列明勘误。本文件是细单元状态与实施结果唯一记录，workstream和粗执行不复制细状态。
 
-**SCGI-1～SCGI-9当前范围已闭合，基础GI与可选近场signed residual已接通，默认GI/gather关闭、显式启用使用唯一SCGI路径。** SCGI-9实现、专用场景、独立数值参照与画质限制见§7.15；SCGI-8基础生产切换见§7.14。skin/morph随共享动画模块延期，4GB不作复杂大场景承诺。此前各节保留其当时快照，不覆盖本节最新状态。停在SCGI-10边界；全场景整链画质/成本验收尚未完成，不能将当前小场景通过写成整个模块或AAA画质资格完成。
+**当前状态：SCGI-1～9 的历史功能实现与局部验证保留；1080p 实验屋暴露的工作量/调度问题尚未解决，不能认定效果可用或整个模块完成。** 基线为 `2f276576`（2026-10-18），实测与限制见§8。下一步按 **SCGI-R1→R2→R3→SCGI-10** 推进，三个重构单元均待实施；本次仅修订设计/执行依据，不代表代码已切换。旧实施记录见§7，保留当时结果与失败，不逐项重开未受影响的cache/滤波/事务机制，也不把旧通过当成新架构验证。skin/morph随共享动画延期，4GB不作复杂大场景承诺。当前示例和本轮最高验收尺寸为 **1920×1080、internalScale=1**；不新增1440p/4K要求，不靠缩场景或降方向数关单。
 
 ## 1. 完整范围、依赖与生产切换
 
@@ -34,9 +34,14 @@ verifies:
 | SCGI-7 | 统计、动态失效、A0/A1/A2过滤、L1 screen field | 6 | 当前范围实现与局部验收闭合；§7.13 |
 | SCGI-8 | FrameProgram+Native全部route原子接线、旧owner退休 | 1–7 | 当前范围完成；见§7.14 |
 | SCGI-9 | Screen Radiance Gather完整近场残差增强 | 8 | 当前范围实现与局部验收闭合；见§7.15，画质收益有限且未获整链资格 |
-| SCGI-10 | 全场景、故障、资源峰值、成本与文档闭合 | 8、9 | 待实施 |
+| SCGI-R1 | 共享求交arena、scene TLAS、完整query执行与全部直接consumer切换 | 已有2/5/8/9事实 | 待实施 |
+| SCGI-R2 | estimator样本扁平批处理、紧凑shadow与确定性reduce | R1 | 待实施 |
+| SCGI-R3 | Gather先需求后Native共享源、合格visibility复用与补缺 | R1、R2稳定边界 | 待实施 |
+| SCGI-10 | 全场景、故障、资源峰值、成本与文档闭合 | R1、R2、R3 | 待实施 |
 
 SCGI-2与3算法依赖可独立准备，但遵守本仓库不使用子agent、GPU验证串行的要求。单元内允许代码暂时不可运行；稳定边界不能有两套production GI。SCGI-1～7构建完整新闭包并用真实算法fixture验证，**SCGI-8之前不把部分实现打开为默认生产功能**。既有renderer保持当前行为；测试fixture不是生产fallback。
+
+上述1～9为原始施工序列，生产切换已发生，不能把其中的“8之前”解释成重新建设旧owner。R1/R2/R3按实际工作量划分：R1涉及query核心及全部consumer，体量最大；R2集中estimator，体量中等；R3跨Gather/Native/FrameProgram/window，体量较大。每个都是一个完整producer→consumer原子切换单元，内部工作不是额外几十个门禁；不承诺未实测的工期。完成一个单元后停在下一边界，连续推进须有用户相应授权。
 
 母稿Phase A的“架构Cutover”拆为SCGI-1定义接口和SCGI-8完整切换，避免空owner先上线。Phase B/C/D/E/F/G/H/I分别覆盖3/4/2+5/6/7/8/10/9；没有删除Phase I或把alpha/动态留到不明确的未来版本。
 
@@ -83,7 +88,7 @@ SCGI-2与3算法依赖可独立准备，但遵守本仓库不使用子agent、GP
 | screen role | world-only双history与directory最多3槽分别记账；resize保world换screen；gather未启用不分配其资源 |
 | identity与lease | address generation、semantic identity、numeric revision、device/view epoch分离；cached graph每帧解析当前资源 |
 | error state | 提交后observer错误不rollback；validation/OOM/loss poison后继history；迟到callback不改新epoch |
-| descriptor inventory | 现行16 SSBO/4 groups Native组合零新增binding；query tail的目标清单按设计§19建plan，sampler/texture/uniform独立核对 |
+| descriptor inventory | 现行16 SSBO/4 groups Native组合；R1分query kind重列真实清单，R3补Native source range/access mode，sampler/texture/uniform独立核对 |
 
 GPU事务fixture可以写固定值验证真资源/command行为，但不接为生产GI。后续query/cache尚不存在是本单元边界，不创建假的算法来凑consumer；应交付可运行的资源/事务骨架与生命周期验证，而非只有interface。
 
@@ -184,12 +189,12 @@ GPU事务fixture可以写固定值验证真资源/command行为，但不接为�
 - WGSL跨workgroup采用dispatch边界；parent pointer-jumping→depth histogram/scan/scatter→level-list/refit，不能同轮原地读写ancestor。treelet重排后重建links/levels，再refit；异常深度用完整balanced-range rebuild，不能反复重建同一失败拓扑。
 - 静态BLAS复用，动态leaf/refit/restructure/rebuild，TLAS instance transform/mask/目录；dirty/rebuild队列由GPU写。
 - ray-box/triangle、t interval、barycentric、frontFace、negative scale；closest/any accepted query、完整traversal stack/spill/continuation。
-- native coverage bin分类→shader execution→accept/reject→继续遍历；K轮快速wavefront后由同提交native coverage-bin+shard完整遍历收尾。Program/physical banks复用Native体系，不造VM；node quantum不是透明层数上限。
-- 收尾state保存TLAS/BLAS入口/返回、instance与best hit，上界计每instance的BLAS重复访问；零count indirect仍计CPU编码成本。共面/等t候选使用原区间与稳定顺序，不能epsilon跳过未接受alpha面。
+- native coverage完整求值、reject后继续搜索，Program/physical banks复用Native体系，不造VM。原K轮wavefront+quantum收尾是历史实现，目标被R1的共享scene/coverage范围内联完整遍历取代，不截透明层数。
+- parent/escape保完整TLAS/BLAS返回和best hit；访问上界计每instance重复BLAS，非法cycle为fault。共面/等t用原区间和稳定顺序，不用epsilon跳过候选。删除旧continuation与零count尾巴的具体工作归R1。
 - hit diffuse/emissive projection保留custom graph、UV/vertex inputs、ray-cone C/X/Y footprint、显式梯度、颜色解码、VT低优先feedback及coverage resident闭包。真实camera graph输入不能被transport direction替代，view-dependent输出参与失效。
 - status区分hit、miss、unknown、不可信inside、pending、fault；pending仅存在同command内部，结束必须accepted/miss或明确cohort-invalid，不跨帧保留未完成alpha。
 
-**容量。** ray batch重用scratch、finite sharded node arenas；stack超界spill或parent continuation；batch/AS arena各自整体满足单binding上限。全部相关shard/bin完成才能判miss；counter溢出、cycle或无进展是fault。静态dispatch上界、coverage tail与最满custom材质均须测，有界但过大仍是本单元待解决成本。
+**容量。** ray batch复用scratch，finite shared AS arenas整体满足binding上限，完整parent遍历无深度截断。全部相关arena/coverage范围结束才能判miss；overflow/cycle/无进展为fault。R1替换旧物理布局与尾调度，保留本单元query语义；bounded但失控不能当通过。
 
 **事务。** 本提交scene snapshot immutable，所有alpha续跑在其中完成，不因下一帧动态revision变化取消本帧工作。整patch cohort完成才发布；unknown/fault保留旧信号、降低confidence。动态AS candidate不覆盖仍在读取的active数据；fence退休包含page/material/coverage leases。
 
@@ -198,7 +203,7 @@ GPU事务fixture可以写固定值验证真资源/command行为，但不接为�
 1. CPU brute-force triangle oracle独立于BVH，验证closest t/primitive/barycentric和any visibility；包含三角形边/顶点、平行ray、zero direction、极大/极小坐标与自交。
 2. GPU排序/拓扑/每node bounds与CPU reference；shuffle输入/重复keys；所有leaf可达且只出现一次；parent覆盖children，refit与full rebuild一致。
 3. 同ray集跨portable/subgroup/不同合法workgroup尺寸；GPU层间结果不得靠驱动偶然可见。
-4. MASK多层栅栏/叶片与custom alpha RGB依赖；最前候选reject后命中后方；多实例同primitive id；深度超过单wavefront预算后完整结束。
+4. MASK多层栅栏/叶片与custom alpha RGB依赖；最前reject后命中后方，多实例同primitive id；深alpha不截层并完整结束。
 5. 真实GpuRenderWorld/Product/VT输入，无独立测试mesh替代生产数据；page evict/move/revision/rigid transform发生时hit仍匹配。skin/morph 有效输入随共享动画模块扩展。
 6. 同ray跨shard/coverage Program的最近accepted合并；透明面后不同bin的不透明面；全透明物理miss与domain unknown区别。持续移动的深alpha场景完成cohort，不发生跨帧重启饥饿。
 7. 最满storage/sampled/sampler/groups route真实创建和编译；无第二完整vertex/index库。GPU fault不能被延迟统计伪装成valid。
@@ -229,6 +234,8 @@ GPU事务fixture可以写固定值验证真资源/command行为，但不接为�
 **验证。** 恒定天空`E=πL`；黑反射/白漫反射/Cornell红绿墙；单太阳遮挡与开门；点/spot的range与cone；emission-only黑albedo仍发光；单跳/多跳开关、反射率变化收敛；普通hit+reconnect无双计；相同几何多实例重连接身份；空间外unknown不能漏天光。使用高样本CPU/offline reference确定统计容差和收敛窗口，不能以单帧随机误差判错误或放任长期能量偏差。
 
 **成本卡。** 每类query数、shadow ratio、alpha rejects、cache lookup次数、更新率、light sample池bytes与dispatch；理想无hit/常规场景/最坏alpha+多灯分列。
+
+**后续物理重构。** 以上积分/身份/事务保持；旧per-sample query循环由R2完整替换，不再按其历史dispatch公式继续扩功能。新query产品与R1一致，不为保旧fixture另接旧owner。
 
 **关单条件。** 所有光源类别、alpha、offscreen和multi-bounce均实际完成，不能用“以后接Local Shadows”推迟GI hit处的遮挡。
 
@@ -273,7 +280,7 @@ GPU事务fixture可以写固定值验证真资源/command行为，但不接为�
 
 **事务。** 启用/关闭、debug route、Native physical route变化、resize、scene switch/device recovery都挂单一command；同帧candidate被Surface读取不等于CPU已committed。提交后observer异常仍保留GPU资源。
 
-**验证。** 真实生产链；Standard/Unlit/Clearcoat/custom、resident/VT、Main/VSM alpha；AO×GI×SSSR和Native/FSR3/旁路；scale 1/upscale、奇数尺寸、HDR/exposure；全目录/stripe/可选texture等价。强制最满16 SSBO/4 groups与sampled限额、4K internal/128MiB binding、halo边缘、VSM跨页/PCF fallback/local overflow。cached graph换代不读旧field；唯一submit/唯一HDR writer。
+**验证。** 真实生产链；Standard/Unlit/Clearcoat/custom、resident/VT、Main/VSM alpha；AO×GI×SSSR和Native/FSR3/旁路；scale 1/upscale、奇数尺寸、HDR/exposure；实际全目录/stripe/remap等价。最满16 SSBO/4 groups与sampled限额、受控binding容量/halo边缘、VSM跨页/PCF fallback/local overflow；无需4K输出制造容量用例。cached graph换代不读旧field；唯一submit/唯一HDR writer。历史4K测试保留§7记录，不成为本轮重复前置。
 
 **成本卡。** 双history、最多3目录槽、stripe/halo/partition/copy、Native ALU/taps、VSM remap单列。0/50/100%覆盖报告增量，省full纹理不等于总体更快；旧资源实际无consumer才计REMOVE。
 
@@ -283,18 +290,18 @@ GPU事务fixture可以写固定值验证真资源/command行为，但不接为�
 
 **选定方案。** Brixelizer GI screen-probe阶段作为MIT参考/局部移植，采用本地world query+cache预测残差；不引入其SDF renderer，不同时堆Horizon GI。
 
-**图接线。** 同GI owner新增可选`surface-cache-gi-gather`宏stage，Surface之后生成下一代residual；pre-Surface stage只读previous role并产当前重投影段。private dispatch不全部提升为主stage，真实compound products/ranges与read/write进入Lowering，不通过finish callback隐藏编码或新增submit。
+**图接线。** 同GI owner的pre-Surface阶段读previous residual/重投影，并按R3生成本帧probe geometry查询与source requests；Native共享本次源准备，Surface后`surface-cache-gi-gather`补缺并生成下一代residual。真实compound products/ranges读写进入Lowering，不通过finish callback隐藏编码或新增submit。
 
 **具体工作。**
 
-- Surface后仅在启用时生成低分辨率diffuse-only unexposed radiance与exact guide，排除specular/sky/aerial/bloom；不能从最终HDR猜diffuse。
+- 仅在启用时对预先请求的exact sourcePixel共享Native evaluated material，post补缺生成diffuse-only unexposed radiance与guide，排除specular/sky/aerial/bloom；不从最终HDR猜diffuse，不整H重复graph。
 - screen tile probe spawn、disocclusion重置、方向样本、visibility确认、reproject、radiance fill、L1投影、edge-aware interpolation全部闭合。
 - 对同方向/同PDF/相容epoch的screen source与world预测求residual；missing screen coverage为零修正，不是零世界GI。
 - residual自有variance/history/motion reject；t+1先reproject至当前anchor再给Native，base/residual分开，world-only history不覆写，不能经newpatch seed回灌。
-- source用direct+Le+world-only求Lo，排除此前residual。当前主Surface local尚无完整阴影，half源须用同query visibility/采样PDF，不能把未遮挡local radiance反馈成GI。
+- source用direct+Le+exact world-only求Lo，排除residual/fallback。主Surface local/普通directional无shadow；R3只复用资格完整的太阳VSM，对requested source缺失visibility用同query/PDF补齐。
 - world prediction逆cosine卷积得moments，再用设计§13半球Gram解析inverse求a，Lhat=a·Y；直接标准SH评价moments不满足恒定半球零残差。同方向/PDF/epoch/coverage/window配对、固定N，mask=0贡献零修正；条件数约13.928的噪声放大纳入variance/confidence验收。
-- probe history保SH/guide/identity/variance，方向数组仅当帧scratch；half residual用signed scaled half、复用同代world guide，不拿零/负L0作分母。half diffuse source另用Native projection/bin，camera graph/VT语义保持。
-- diffuse源RGBA32F、16H B，显式采样不要求float32-filterable；方向scratch的half采用源最大值reduction所得scale，signed residual独立scale。检验大HDR/曝光突变不溢出且不混编码。
+- probe history保SH/guide/identity/variance，方向数组仅当帧scratch；half residual用signed scaled half、复用同代world guide，不拿零/负L0作分母。R3共享exact anchor/sourcePixel的camera graph/VT，保持各route合法。
+- diffuse源RGBA32F、16H B基线，显式采样不要求float32-filterable；方向scratch使用32B/方向f32布局，无源最大值reduction，signed residual独立scale。检验大HDR/曝光突变不溢出且不混编码。
 - settings/debug/capacity、enable/disable/resize/cut和错误生命周期齐备；query预算与基础SCGI区分。
 
 **producer / product / consumer。** diffuse-only source+guide+world prediction→signed residual history→下一帧重投影publication→Native与world-only合成。没有独立SSGI owner，没有同帧返回world estimate的边。
@@ -303,13 +310,50 @@ GPU事务fixture可以写固定值验证真资源/command行为，但不接为�
 
 **验证。** micro-geometry/接触色溢出对比高spp；关闭gather仍有worldGI；同支持法线恒定半球零残差，部分coverage不偏置；不同normal/support测试表示误差，不能滥用常量证明。local遮挡/specular排除/移动emissive/freeze能量/world seed无残差；全目录/stripe与Native/FSR3真实消费。δL/δE允许负值，合成前单独clamp判失败。
 
-**成本卡。** H级source生成、screen probe directions/query、depth sample/radiance fetch、reprojection/SH与residual history；patch GI与screen work分别记录，不能藏在基础GI预算。
+**成本卡。** 基线H级source生成被R3的query→去重请求→Native共享→缺失visibility取代，新增mapping/preparation显式入账；probe query、depth/radiance fetch、reprojection/SH与history分别记录，不藏在基础GI预算。实际收益须同工作量测量。
 
 **关单条件。** 母稿Phase I真实完成并有独立开关/增益与失败边界；不能以存在一个future interface关单。
 
+### SCGI-R1：共享求交场景与完整query执行重构
+
+**为什么先做。** 当前简单实验屋也有39个query shards，每个query batch重复shard与最坏quantum调度；只先减少Gather射线会掩盖query底层税。先使所有现有消费者使用真实scene TLAS与直接求交payload，保留完整材质/coverage能力，不先改GI积分算法。依据设计§4/5/19.3，R1是R2/R3必要前置。
+
+**完整修改范围。** `GeometryQueryDirectory`/residency publication与`render/gi/ScgiQueryBlas`、`ScgiQueryScene`、`ScgiQueryBatch`及build/material/hit-work相关owner，`scgi_query_geometry`/`scgi_bvh_build`；直接消费方包括estimator、Gather probe/source shadow与有关debug/cost。名称以实际文件为准，不新造一套Ray Renderer。先完成以下闭包，末尾一次切全部生产调用并删旧路径：
+
+- 从已发布Product cut生成object-space f32 `p0/e1/e2 + source ref`最小payload（48B/triangle模型）；opaque测试不再逐候选二分cluster/解page/取index/解3个position。原UV/normal/material仍归Product，只在coverage或accepted shading读取。源reference保存完整Product/cluster/primitive/generation映射，不能与cut-local地址混淆。共享BLAS和payload，rigid transform只更新TLAS；移动物理页而内容未变只更新source directory/leases，内容/cut/topology变化发布新payload+BLAS。
+- 多Product BLAS放共享AS/payload arena，GPU compact实例构建scene TLAS，leaf指向BLAS descriptor/root/offset；现有HLBVH/radix/refit/treelet先保留。有限arena只因真实buffer/binding limits产生，由GPU保守空间路由ray、完整合并closest，禁止每asset全batch重扫和持久ray×asset pair数组。coverage按真实Native Program/physical bin子树/ranges路由并inline完整coverage，原MASK/custom/VT全部保留，不每asset编码所有bin。
+- 三种query产品一次落实：occlusion/status；geometry closest的t/bary/identity/position/flat normal/error；accepted material closest的完整Native材质/VT结果。geometry-only不跑diffuse，但不省略MASK/unsupported/缺页/numeric资格。遍历在invocation内完整结束，parent/escape基线或小栈+完整回退；不预编码quantum尾巴、不每shard清全容量continuation，不限制alpha层数。真实active count、工作组prefix预留、有效记录写域和少量header reset闭合；队列溢出fault整个admitted batch/cohort，不clamp漏ray。
+- affine方向不二次归一化、negative/nonuniform scale、casting/receiving masks、equal-t稳定规则和全域unknown语义保持。payload/BLAS/TLAS/source leases在同command publication事务内切换；pre-submit abort保留active，提交后failure poison，last-consumer fence后退休。所有直接consumer迁到新产品，删除旧asset-shard遍历、wavefront/quantum/tail控制及无consumer绑定/scratch，相关旧表示测试迁移语义，不建立A/B bridge。
+
+**成本与失败边界。** 动工先记录48T及source/coverage索引、AS arena碎片、build scratch和replacement峰值；列出每种query的真实storage/sampled/group inventory，尤其满16 SSBO/完整VT材质。REMOVE只认实际删掉的续跑/clear/空dispatch。cold build、静态复用、全动态、很多Program/arena、深alpha分开算；parent访问上界检测cycle/越界，但不把“可结束”等同浏览器安全。若长invocation真实失控，在本单元调整空间范围/有界队列组织，保持同snapshot完整查询，不以alpha截断或恢复全容量量子链收口。WebGPU indirect只控制预编码命令尺寸，不生成任意命令；不做跨workgroup busy-wait或本帧readback。
+
+**必要验证与关单。** 单元末集中typecheck/相关shader compile，小型真实GPU对brute-force oracle覆盖closest/occlusion/geometry-only、深MASK/custom/VT、多个Product/共享mesh多instance、negative scale、equal-t、domain unknown；少量payload内容换代/搬页/abort-retry/退休用例。静态实验屋固定1080p现有质量参数，核对所有consumer能用新链、active/routed计数与CPU编码/dispatch/clear/copy，保留旧失败。长alpha、不同coverage bins和跨arena至少一组最小完整查询。只有旧生产调度零consumer、descriptor真实合法、无漏query和新增失控容量才关单；整套Renderer画质/故障矩阵留SCGI-10，不每patch跑大回归。
+
+### SCGI-R2：estimator样本队列与批量transport
+
+**为什么做、依赖和产出。** R1稳定后移除`ScgiEstimator.encode`中sample/directional循环重复整套QueryBatch的物理乘法，得到相同随机样本/积分意义的批量light transport；不重写cache/rank/A0/A1/A2。修改`ScgiEstimator`/layout与`scgi_estimator`和R1 query接口，必要的raw cohort消费同步调整。
+
+**完整工作。** light-origin固定池、patch×hemi、patch×connection扁平化为有稳定sample语义的工作，GPU生成有效count，在有界窗口内批量closest→最终accepted material bins→仅实际非零贡献的shadow队列→确定性逐patch归约。RNG由patch generation/sample serial/path/light ID决定，与压紧次序无关；physical nohit、遮挡、黑反射率仍占固定N。保留pool原始nohit、reconnection面积PDF/Jacobian、normal/coat、Le不乘albedo、punctual/hemisphere类别分工、previous A0 multi-bounce和全部source身份检查。unknown/fault使整patch cohort不发布，不按完成子集重归一化；pre-submit abort不推进提交序号，已尝试但unknown按既定序列推进。不能用float atomic的顺序不确定性替代reduce。
+
+**资源/切换。** batch capacity控制scratch窗口，不是样本预算；所有selected updates/样本完整覆盖且归约跨窗口正确，count=0和overflow显式处理。原path224B、pool192B、cohort96B是布局基线，按真实活跃阶段重算ADD/REMOVE/alias，不机械永久保留新旧两套。保留同publication lease和单submit；一次切换所有estimator query调用，删除旧逐sample调度，不能为了旧测试混接。
+
+**必要验证与关单。** 集中编译加一组固定seed独立高spp/解析输入，核对样本集合、物理零分母、PDF/Jacobian、black-emissive、shadow、unknown整cohort与abort序号；同一输入改变batch/window容量和压紧次序，验证估计相容。记录`L+U(Hsample+Csample)+UHsampleD` admitted上界和实际各类ray/材质求值/dispatch；0/50/100%有效贡献列队列与reduce税。不要求把R1已验证的全部材质矩阵再跑一轮。所有样本完整执行、旧逐sample整scene调度删除后关单；时间收益只写真实同条件结果。
+
+### SCGI-R3：Gather请求驱动Native源与visibility补缺
+
+**为什么做、依赖和产出。** R1/R2稳定后，把整半屏source重算改为实际probe命中的唯一anchor请求，复用主Native已求值材质及有资格的visibility。涉及`ScgiGather`/source、`scgi_gather`/`scgi_gather_source`、Native shader生成与diffuse数学、lighting directory/window/FinalPixelAbi、VSM helper及FrameProgram/Bindings/Lowering，必须在一个单元完成所有full/stripe/remap生产route。
+
+**完整工作。** 按设计§13落实pre-Native spawn/geometry-only closest→screen身份/plane验证→exact anchor.sourcePixel请求→GPU bitset去重与方向映射。Native只在被请求pixel共享本次material/camera/derivatives/VT求值，直接读对应world-only base anchor；transport diffuse/coat公式独立核对，排除specular/HDR/环境fallback/residual。point/spot/普通directional当前无shadow，不能当可复用阴影；VSM额外返回invocation-local资格，缺合法页/深度的返回1不合格。太阳只有同epoch/receiver/coverage/filter语义一致才复用，其余真实非零贡献compact shadow，在post-Native完成source。local light采样/PDF不被主Surface确定性全灯总和替换。unknown源无效，不当无遮挡；未请求source明确未产生。
+
+**绑定和寿命必须落到实处。** 不增第五张storage texture或拒绝合法满绑定材质。优先复用既有lighting directory/window binding的request/source-preparation独立range，WGSL read_write、host bind layout/usage、输入输出不重叠、Lowering读写与唯一writer完整更新；在合法phase边界消费，不依赖“GPU将来会写完”的假设。若route需要独立source phase，只消费本次Native真实最小preparation，按请求执行，不重复全graph。实现时交付逐route实际descriptor/range清单；窗口覆盖前drain/copy已写source，跨pre/post保留方向映射/请求与必要material量，不能引用复用scratch。bitset/ID/mapping按设计§15.2计账，禁止为调序保存全帧96B hit。Surface仅出本次preparation，GI继续拥有source/history/残差。
+
+**保持全部数学/原子切换。** post补缺后沿同方向/固定N/PDF、Gram预测、signed delta、distance window、variance/history/reproject/interpolate产生下一帧residual；不改16方向同工作量比较，不让残差进入world seed/multi-bounce。pre只读previous residual、post只写next，不形成当前帧环。全部source消费者/调试/compound facts一起切换，删除旧全H source projection和每灯H shadow组织，旧source表示测试迁移，历史失败保留。
+
+**必要验证与关单。** 集中编译与少量真实GPU输入输出：多方向同一source去重、2×2不同材质exact sourcePixel、camera graph/VT、clearcoat/metal/emissive、仅requested源写域；local遮挡、太阳合法fine/coarse与缺页补ray、薄墙/门边VSM近似误差。保留独立source能量oracle，区分VSM近似与数学错误；full/stripe/remap及满4 storage textures/16 sampled/16 SSBO至少覆盖真实route，不以shader能编译冒充接通。固定world场测试signed residual/next-frame消费和world字节未被回灌，再做一组abort/retry/window复用。记录Q、unique source、reuse-qualified、missing shadow、actual material eval、dispatch/clear/copy/peak；0/50/100%请求与visibility复用给break-even。全部绑定合法、无未请求全域source税、原数学和coverage完整后关单；整场动态画质和组合故障归SCGI-10。
+
 ### SCGI-10：全场景/故障/容量集中验收与文档收口
 
-依§4矩阵完整运行；代码最后变更后集中编译/build、新鲜build:test，GPU作业串行。模块画质/正确性/资源与粗粒度成本是本轮必需；正式全Renderer长窗口P50/P95、跨设备性能资格留最终集成，不能把本模块实际无法运行或query coverage缺失也延期。
+前置为R1/R2/R3闭合，依§4矩阵集中运行；代码最后变更后集中编译/build、新鲜build:test，GPU作业串行。实验屋最高/默认1920×1080、internalScale=1，以§8固定灯/场景/16方向等参数作同条件比较；另测小型边界输入，奇数尺寸/受限binding容量不要求1440p/4K。world-only与gather组合分别记录冷暖、static/moving、收敛阶段及actual rays，截图检查最终画面、world/raw/residual/source/debug，结合真实计数判断漏工作/重复工作。模块画质/正确性/资源与粗粒度成本是本轮必需；正式全Renderer长窗口P50/P95、跨设备性能资格留最终集成，不能把实际无法运行或coverage缺失也延期，更不能编造目标ms。
 
 记录真实adapter、driver/browser/backend、device features/limits、internal/output、scale、所有quality knobs、scene revision、triangles/instances/pages、K/U/rays、cold/warm、static/moving/dynamic状态。理论表全部用实际ResourceAccounting校验，差额解释padding、retained、driver未计入与查询新增共享驻留。
 
@@ -322,6 +366,8 @@ GPU事务fixture可以写固定值验证真资源/command行为，但不接为�
 ### 4.1 必备视图与计数
 
 视图：cascade/cell/orientation、patch occupancy/rank/generation/age/update、raw/A0/A1/A2 L1、world-only field/final E/confidence、query cut/covered-domain/hit/unknown/alpha/pending、material projection/VT LOD、signed screen residual、dirty域。debug只观察真实生产数据，不改生产quality。
+
+R1～R3增加真实观测：admitted/active/routed/实际完成query数、node/triangle/coverage/material evaluations、arena/BLAS/TLAS数量；Q→screen-valid→unique requested source→Native material reuse→visibility-qualified/missing/fault→finalised source计数。debug分别显示未请求、请求待补、合法源、缺页/unknown，不能把未产生源伪装有效黑色。记录CPU编码、dispatch/compute pass、clear/copy调用及声明bytes、live/transient/retiring峰值；声明bytes不冒充物理DRAM流量。
 
 GPU counters至少包含：requested/claimed/allocated/deferred/failed、evictions/defrag moves、rank0/rank1/promotion、dirty/age updates、bounce requests/overflow、各类query数量、node/triangle visits、stack spill、alpha rejects/continuation pending、VT coarse/feedback/drop、seed accept/reject分原因、drift reset、lookup miss/unknown、invalid radiance、AS rebuild/refit/quality触发、retired bytes。计数不能溢出后默默wrap成正常小值。
 
@@ -850,3 +896,37 @@ Native最多四次112B逻辑field读、四次Visibility/work验证与guide/SH数
 320×240 lab实际gather owner 2,866,816B + query private169,508B；history1,612,800B，当前重投影614,400B，方向scratch32768B；1200 probes×64=76800方向，source19200 texel，单local阴影上界19200。正常未冻结编码dispatch上界5059（含完整query tail与bin槽），**不是GPU ms**。低memory需独立关闭gather或降低internal/tile/profile；1080p tile8全probe64方向约207万query，当前软件triangle transport不承诺实时。带宽包括source写16H、interpolate写32H、reproject读previous guide112H+residual32H/写32H、Native最多4 tap×新增32B及目录copy读写；随机triangle/material/VT访问另外计。0/50/100%覆盖仍付全域source/guide与probe槽调度税，当前仅hit/material通过GPU indirect缩减，不能说空覆盖零成本。未来优化可融合准备、减少query尾调度、调节probe更新，但不得删除完整visibility、固定N或事务。
 
 **构建、失败与停止点。** `build`包含typecheck/Vite/declarations通过，fresh `build:test`通过；四个focused contract文件28/28通过。最终原始GPU结果`.local/scgi9-gpu-final.log`，材料矩阵`.local/scgi9-materials-final.log`，截图`.local/scgi9-capture-06.log`与同目录PNG/JSON；两份GPU测试source SHA `e9efb6b7fd30b8286487d9a3414a80d7f39189a4e31fc1cb49ad71a1898ead85`（随后仅补batch dispatch上限的host admission，未改受测GPU算法）。保留01～18及早期build/capture失败：WGSL保留字/非法常量、admission误算真实segment、fixture light默认1m、mesh transform字段和截图wrapper丢参数；已按根因修复、仅重跑相关检查。没有删除原失败或放宽断言。没有跑全仓回归、跨GPU/浏览器、全场景path-traced图像、正式P50/P95和claims。上述未获资格不等于生产算法缺机制；当前局部功能验收闭合，停在SCGI-10，不自动跨单元。
+
+## 8. 2026-10-18执行架构重构依据与尚未实施边界
+
+§7为原始实施快照，包含当时停止点、参数及曾运行的更高尺寸测试，不构成本轮重复要求。最新状态只读本文开头和§1；本轮设计批准不提升任何新代码adoption或性能资格。
+
+### 8.1 源码与实验屋失败快照
+
+源码基线`2f276576`。`ScgiRenderer`/query scene把当前实例拆成39个query shards；实验屋共39实例、1324三角形（37个box与2个UV sphere）、一个cooked Product。`scgi_query_geometry::query_triangle`对候选做cluster prefix查找、directory/page/meshlet/index/position解码；不是每个opaque候选都完整求值UV/normal/diffuse material。`shade_hit`恢复最终hit属性，并不再次遍历BVH。`ScgiEstimator.encode`按sample/directional重复query；`ScgiGather`先做全half源材质/灯光阶段，再做probe查询，尚无本轮request-first共享。
+
+固定快照：1920×1080、internalScale1，main视角、sun preset、门/百叶打开、静止，physical sun=3、sky=0.15、point=0、emission=0；world R8/C3/K4096/U128、hemi8/connect2/lightPool32、batch128、multiBounce/spatial/post开启、spatial/lookup taps8；gather tile12/directions16/batch65536/distance3、freeze=false/debug=off。设备为Chrome155/NVIDIA Turing硬件、16 SSBO，浏览器未给精确GPU型号，不写成特定显卡。原始诊断来自本地实验屋捕获（非受版本管理的资格artifact）；这里保留关键数值和条件，后续必须新鲜测量，不能只靠不可用的本地文件证明。
+
+| 观测 | 同次已采样GPU frame 8（host frame 9读取） |
+|---|---:|
+| command span | 316.952896ms |
+| gather-source / gather-probes | 180.578336 / 50.132128ms |
+| estimator | 49.584352ms |
+| anchors-cache / filter / gather-reproject | 3.174176 / 2.992128 / 2.015232ms |
+| Native / VSM / Temporal | 13.563904 / 9.027936 / 4.009984ms |
+| CPU graph-execute | 30.48ms；不与GPU span直接相加 |
+| encoded dispatch / compute pass | 13009 / 12968 |
+| clearBuffer / copyBuffer | 5163 / 7000次 |
+| clear / copy声明范围 | 3,630,104,540 / 76,372,380B；非实际DRAM流量 |
+
+这是静态启动后的单次诊断样本，含timestamp观测开销，不是长窗口P50/P95、统一收敛状态benchmark或AAA画质资格。后续world-only采样GPU frame12为76.649664ms，off采样frame16为18.104128ms；frame/cache状态不同，不能直接作严格因果减法，host切换时还可能读到上一mode的timestamp，必须按sampled frame识别。原失败保留，不改写成性能通过。
+
+### 8.2 工作量推导与选择理由
+
+`H=518400`，`Np=14400`，`Q=230400`。旧source组织上界为两次H级灯光phase（即使local为0仍有其capacity/编码），再加Q：`Q+2H=1267200`；乘39shards为49,420,800 lane/shard理论域，**不是实测独立ray数或完整遍历次数**。当前Gather20次query（16shadow、4closest），tail静态89quanta、shadow/closest分别308/352 dispatch上界；仅continuation清零模型`20×39×65536×64=3120MiB`，compact上界116,654,080 lane invocations，均为源码推导，不冒充GPU硬件counter。
+
+因此选择三项结构性重构，而非先调nodeQuantum、微调WGSL、缩scale或砍方向。R1打掉asset×batch×quantum税，代价为最小派生位置存储与新的arena/routing；R2消除per-sample整scene调度，代价为样本队列和跨窗口reduce；R3消除无人消费源的graph/visibility重复，代价为请求去重、Native接口与pre/post映射。保留cache/A0/A1/A2/rank、query cut、完整MASK/custom/VT、物理零固定N、世界only seed/multi-bounce和signed residual数学，不重新移植一个独立renderer。多Program/跨arena/深alpha仍有真实成本，不能宣称三个单元保证所有场景达到某FPS。
+
+### 8.3 当前交付与后续顺序
+
+本轮只更新现有设计/执行与source map，R1/R2/R3均未实施，未运行新的GPU/画面测试或性能benchmark。三个单元按§3连续构建各自完整闭包，单元末集中必要验证；SCGI-10再集中同条件画面、动态响应、整链故障/容量/成本。用户没有授权降实验屋分辨率/方向/几何质量；自适应方向、HZB近似、粗query proxy、wide BVH等按设计§20.4另行判断，不作为本轮效果缩水或无限增加施工步骤的理由。
