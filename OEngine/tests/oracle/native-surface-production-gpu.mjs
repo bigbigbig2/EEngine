@@ -33,6 +33,12 @@ import { GPU_INSTANCE_FLAGS, GPU_INSTANCE_RECORD_OFFSETS } from "../../.test-dis
 import { createPackedSceneSourceFromScene } from "../../.test-dist/gpu/GpuSceneAdapter.js";
 import { cookSceneGeometryProductV1 } from "../../.test-dist/assets/geometry-product/SceneGeometryCanonicalizerV1.js";
 import { createDefaultWebGeometryCookerModule } from "../../.test-dist/assets/web-cook/wasm/WebGeometryCookerAbi.js";
+import { ScgiQueryScene } from "../../.test-dist/render/gi/ScgiQueryScene.js";
+import { ScgiQueryTraversal } from "../../.test-dist/render/gi/ScgiQueryTraversal.js";
+import { validateGeometryProductQuerySection } from "../../.test-dist/assets/geometry-product/GeometryProductQuerySection.js";
+import { GeometryQueryCoverage } from "../../.test-dist/gpu/GeometryQueryCoverage.js";
+import { ScgiQueryHitWork } from "../../.test-dist/render/gi/ScgiQueryHitWork.js";
+import { ScgiQueryBatch } from "../../.test-dist/render/gi/ScgiQueryBatch.js";
 
 const check = (condition, message) => {
   if (!condition) {
@@ -402,6 +408,8 @@ export async function runNativeSurfaceProductionGpuOracle(
   let hdrSnapshot = null;
   let growthRuntime = null;
   let growthSource = null;
+  const queryProducts = [];
+  let queryPublication = null;
   let geometryGrowth = null;
   const occlusionCases = [];
   let arenaOwnerPeakBytes = 0;
@@ -699,6 +707,7 @@ export async function runNativeSurfaceProductionGpuOracle(
           };
           const shard = await runtime.load(source);
           shards.push(shard);
+          queryProducts.push(shard.residency);
           const instances = product.canonicalization.instances.filter(
             (_instance, index) => index % 2 === shardIndex,
           );
@@ -742,6 +751,198 @@ export async function runNativeSurfaceProductionGpuOracle(
     }
     await tick();
     const first = await inspect();
+    if (productGeometry === "multi") {
+      const world = renderer.graphics.render_world.runtime(scene);
+      world.nativeMaterials.setQueryProjectionEnabled(true);
+      await tick();
+      // Admit the actual cooker's exact query cut through the existing page
+      // publication owner; no test-only vertex/index geometry is supplied.
+      for (const product of queryProducts) {
+        const section = validateGeometryProductQuerySection(product.descriptor);
+        const pages = [];
+        for (let asset = 0; asset < section.assetCount; asset++) {
+          const at = section.assets + asset * 32;
+          const begin = section.view.getUint32(at + 16, true);
+          const count = section.view.getUint32(at + 20, true);
+          for (let index = 0; index < count; index++) {
+            const page = section.view.getUint32(section.minimumPages + (begin + index) * 4, true);
+            if (!pages.includes(page)) pages.push(page);
+          }
+        }
+        const missing = pages.filter((page) => product.pageLocation(page) === undefined);
+        if (missing.length > 0) {
+          const source = product.sourceForStreaming();
+          for (const page of missing) product.stagePage(await source.readPage(page));
+          const upload = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
+          product.preparePublication(upload, missing);
+          upload.finish();
+          await upload.gpuDone;
+        }
+      }
+      const profile = { deviceEpoch: 1, originEpoch: 0, primitiveCapacity: 64,
+        maximumBytes: 64 * 1024 * 1024, subgroup: false };
+      const makeScene = () => ScgiQueryScene.create(device, profile,
+        renderer.graphics.render_world.runtime(scene), renderer.graphics.gpu_scene,
+        queryProducts, renderer.graphics.resource_accounting);
+      const aborted = await makeScene();
+      const cancel = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
+      aborted.encode(cancel);
+      cancel.abort(new Error("query publication abort fixture"));
+      check(!aborted.valid, "Aborted query candidate remained publishable");
+      const queryScene = await makeScene();
+      const batch = device.createBuffer({ size: 80,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
+      const output = device.createBuffer({ size: 64,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+      const read = device.createBuffer({ size: 96, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+      const queries = [];
+      let consumed = false;
+      let incompleteCoverage = null;
+      let hitWork = null;
+      let completeBatch = null;
+      try {
+        for (const shard of queryScene.shards) {
+          for (let classIndex = 0; classIndex < world.nativeMaterials.publication.rasterClasses.length; classIndex++) {
+            queries.push(await ScgiQueryTraversal.create(device, queryScene.blasPlan, queryScene.tlasPlan, {
+              lease: shard.lease, asset: shard.asset, primitiveOffset: shard.primitiveOffset,
+              primitiveCount: shard.primitiveCount, blas: shard.blas, tlas: shard.tlas,
+              instances: shard.instances, batch, rayCount: 1, resultByteOffset: 48,
+              coverageStatus: queryScene.coverageStatus,
+              merge: queries.length > 0,
+              coverage: { publication: world.nativeMaterials.publication, classIndex,
+                view: camera.view_matrix.elements ?? camera.view_matrix,
+                camera: [-2.4, 0, 4], coneWidth: 0.001, coneSpread: 0.001 },
+            }));
+          }
+        }
+        const coverageCount = queries.length;
+        hitWork = await ScgiQueryHitWork.create(device, queryScene.sourceInstances.sourceSnapshot,
+          queryScene.materials.directory, batch, 1, 48, queryScene.materials.bins.length);
+        for (const shard of queryScene.shards) {
+          for (const bin of queryScene.materials.bins) {
+            queries.push(await ScgiQueryTraversal.create(device, queryScene.blasPlan, queryScene.tlasPlan, {
+              lease: shard.lease, asset: shard.asset, primitiveOffset: shard.primitiveOffset,
+              primitiveCount: shard.primitiveCount, blas: shard.blas, tlas: shard.tlas,
+              instances: shard.instances, batch, rayCount: 1, resultByteOffset: 48,
+              coverageStatus: queryScene.coverageStatus,
+              diffuse: { material: bin.material, constants: bin.constants,
+                work: hitWork,
+                directory: queryScene.materials.directory, binIndex: bin.index, output,
+                view: camera.view_matrix.elements ?? camera.view_matrix,
+                camera: [-2.4, 0, 4], coneWidth: 0.001, coneSpread: 0.001 },
+            }));
+          }
+        }
+        const command = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
+        const ray = new ArrayBuffer(48);
+        new Float32Array(ray).set([-2.4, 0, 4, 0, 0, 0, -1, 100]);
+        new Uint32Array(ray)[9] = 0xffffffff;
+        command.uploadRegions([{ destination: batch, destinationOffset: 0, bytes: new Uint8Array(ray) }]);
+        queryScene.encode(command);
+        command.clearBuffer(output);
+        for (let index = 0; index < queries.length; index++) {
+          if (index === coverageCount) hitWork.encode(command);
+          queries[index].encode(command);
+        }
+        command.copyBufferToBuffer(batch, 48, read, 0, 32);
+        command.copyBufferToBuffer(output, 0, read, 32, 64);
+        command.finish();
+        consumed = true;
+        await command.gpuDone;
+        await read.mapAsync(GPUMapMode.READ);
+        const bytes = read.getMappedRange().slice(0);
+        read.unmap();
+        const words = new Uint32Array(bytes);
+        const values = new Float32Array(bytes);
+        check(words[3] === 0 && Math.abs(values[0] - 3.3) < 1e-5,
+          `Real multi-Product query failed: ${[...words.subarray(0, 8)]}`);
+        for (let channel = 0; channel < 3; channel++) {
+          check(Math.abs(values[12 + channel] - [0.2, 0.3, 0.1][channel]) < 1e-5,
+            "Accepted hit did not consume the existing native unlit material projection");
+        }
+        queryPublication = { shards: queryScene.shards.length, bins: queryScene.materials.bins.length,
+          bytes: queryScene.byteLength, coverageDispatches: coverageCount,
+          acceptedDistance: values[0], abortRetry: true, actualRenderWorld: true };
+        completeBatch = await ScgiQueryBatch.create(device, queryScene, {
+          batch, rayCount: 1, resultByteOffset: 48, output, view: camera.view_matrix,
+          camera: [-2.4, 0, 4], coneWidth: 0.001, coneSpread: 0.001, wavefrontRounds: 2,
+        });
+        const full = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
+        completeBatch.encode(full);
+        full.copyBufferToBuffer(batch, 48, read, 0, 32);
+        full.copyBufferToBuffer(output, 0, read, 32, 64);
+        full.finish();
+        await full.gpuDone;
+        await read.mapAsync(GPUMapMode.READ);
+        const fullBytes = read.getMappedRange().slice(0);
+        read.unmap();
+        check(new Uint32Array(fullBytes)[3] === 0 && Math.abs(new Float32Array(fullBytes)[0] - 3.3) < 1e-5,
+          "Complete multi-Product wavefront batch did not preserve accepted hit");
+        for (let channel = 0; channel < 3; channel++) {
+          check(Math.abs(new Float32Array(fullBytes)[12 + channel] - [0.2, 0.3, 0.1][channel]) < 1e-5,
+            "Complete query batch did not shade its accepted native material");
+        }
+        queryPublication.wavefrontBatch = true;
+        incompleteCoverage = await GeometryQueryCoverage.create(device, queryScene.sourceInstances,
+          [queryScene.shards[0].lease], queryScene.materials.directory);
+        const incomplete = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
+        incompleteCoverage.encode(incomplete);
+        // Replace the certificate in a separate complete native traversal.
+        const shard = queryScene.shards[0];
+        const unknown = await ScgiQueryTraversal.create(device, queryScene.blasPlan, queryScene.tlasPlan, {
+          lease: shard.lease, asset: shard.asset, primitiveOffset: shard.primitiveOffset,
+          primitiveCount: shard.primitiveCount, blas: shard.blas, tlas: shard.tlas,
+          instances: shard.instances, batch, rayCount: 1, resultByteOffset: 48,
+          coverageStatus: incompleteCoverage.status,
+        });
+        queries.push(unknown);
+        unknown.encode(incomplete);
+        incomplete.copyBufferToBuffer(batch, 48, read, 0, 32);
+        incomplete.copyBufferToBuffer(incompleteCoverage.status, 0, read, 32, 16);
+        incomplete.finish();
+        await incomplete.gpuDone;
+        await read.mapAsync(GPUMapMode.READ);
+        const missing = new Uint32Array(read.getMappedRange().slice(0));
+        read.unmap();
+        check(missing[3] === 2 && (missing[8] & 1) !== 0 && missing[9] > 0,
+          "Missing Product coverage was misclassified as hit or physical miss");
+        queryPublication.missingProductUnknown = true;
+        const cancelled = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
+        completeBatch.encode(cancelled);
+        cancelled.abort(new Error("query consumer cancelled before submission"));
+        check(queryScene.valid, "Consumer abort invalidated the already committed scene");
+        const last = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
+        completeBatch.encode(last);
+        let retirementCompleted = false;
+        const retirement = queryScene.releaseAfter(command.gpuDone).then(() => {
+          retirementCompleted = true;
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+        check(!retirementCompleted, "An older fence released a scene with an unsubmitted query consumer");
+        let earlyDestroyRejected = false;
+        try { completeBatch.destroy(); }
+        catch (error) { earlyDestroyRejected = /retained/.test(String(error)); }
+        check(earlyDestroyRejected, "Batch destruction released an encoded consumer's scratch");
+        last.finish();
+        await last.gpuDone;
+        await retirement;
+        check(retirementCompleted, "Final consumer completion failed to retire its query scene");
+        queryPublication.finalConsumerRetirement = true;
+      } finally {
+        await device.queue.onSubmittedWorkDone();
+        for (const query of queries) query.destroy();
+        incompleteCoverage?.destroy();
+        hitWork?.destroy();
+        completeBatch?.destroy();
+        if (!consumed) queryScene.destroy();
+        batch.destroy();
+        output.destroy();
+        read.destroy();
+      }
+      world.nativeMaterials.setQueryProjectionEnabled(false);
+      await tick();
+    }
     const initialization = renderer.initializationEvidence(scene);
     check(
       initialization.firstSubmittedAtMs !== null &&
@@ -1738,6 +1939,7 @@ export async function runNativeSurfaceProductionGpuOracle(
       cookedTextureWorkerCount: textureWorkerCount,
       textureEvidence,
       productGeometry,
+      queryPublication,
       limitations: [
         "Correctness closure only; no S3 P50/P95 or image acceptance",
         "Resident cooked geometry, no streamed VG acceptance",

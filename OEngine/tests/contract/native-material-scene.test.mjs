@@ -20,6 +20,120 @@ globalThis.GPUBufferUsage = { STORAGE: 128, UNIFORM: 64, COPY_DST: 8, COPY_SRC: 
 const { GpuNativeMaterialScene } = await import("../../.test-dist/gpu/GpuNativeMaterialScene.js");
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
+test("native scene query snapshot survives scene retirement until its final fence", async () => {
+  const f = fixture();
+  let textureReferences = 0;
+  f.graphics.texture_residency.retainQuery = () => {
+    textureReferences++;
+    let valid = true;
+    return {
+      get valid() { return valid; },
+      release() { if (valid) { valid = false; textureReferences--; } },
+    };
+  };
+  const material = new StandardShadeMaterial();
+  const upload = f.command();
+  const scene = new GpuNativeMaterialScene(f.graphics, [{ materialSlot: 0, material,
+    graph: compileAppearanceGraph(lowerStandardAppearanceGraph(material, [])),
+    textureBindingSetId: 0, textureRefs: new Map(),
+  }], () => [{ id: 0, generation: 1, textureBanks: [] }],
+  new Map(), new Map(), upload, true, false);
+  await scene.ready;
+  assert.throws(() => scene.retainQuery(), /prepared or committed/);
+  upload.onBeforeFinish.send1(upload);
+  upload.onFinished.send1(upload);
+  const query = scene.retainQuery();
+  assert.equal(textureReferences, 1);
+  const retired = f.command();
+  scene.release(retired);
+  retired.onFinished.send1(retired);
+  await tick();
+  assert.equal(query.valid, true);
+  assert.ok(f.buffers.every((buffer) => !buffer.destroyed));
+  assert.throws(() => scene.retainQuery(), /live scene/);
+  await query.releaseAfter(Promise.resolve());
+  assert.equal(textureReferences, 0);
+  assert.equal(query.valid, false);
+  assert.ok(f.buffers.every((buffer) => buffer.destroyed));
+  f.registry.destroy();
+});
+
+test("query projection demand follows native candidate commit/abort and preserves custom numeric inputs", async () => {
+  const f = fixture();
+  const material = new StandardShadeMaterial();
+  material.appearance_inputs.set("queryEmission", [2, 3, 4]);
+  const graph = new AppearanceGraphBuilder();
+  graph.output("baseColor", graph.constant([0.2, 0.3, 0.4]));
+  graph.output("emissive", graph.input("queryEmission", 3, "dynamic"));
+  const upload = f.command();
+  const scene = new GpuNativeMaterialScene(f.graphics, [{ materialSlot: 0, material,
+    graph: compileAppearanceGraph(graph.build()), textureBindingSetId: 0, textureRefs: new Map(),
+  }], () => [{ id: 0, generation: 1, textureBanks: [] }],
+  new Map(), new Map(), upload, true, false);
+  await scene.ready;
+  upload.onBeforeFinish.send1(upload);
+  upload.onFinished.send1(upload);
+  assert.equal(scene.active.queryMaterials.length, 0);
+  scene.setQueryProjectionEnabled(true);
+  assert.equal(scene.canPrepareFrame(), false);
+  await tick();
+  assert.equal(scene.canPrepareFrame(), true);
+  const candidate = scene.candidate;
+  const projected = candidate.queryMaterials[0];
+  assert.deepEqual(Object.keys(projected.binding.program.outputs), ["baseColor", "emissive"]);
+  const slot = projected.binding.program.inputs.findIndex((input) => input.name === "queryEmission");
+  const offset = projected.binding.program.constants.length + 2 + slot * 4;
+  assert.deepEqual([...projected.constants.subarray(offset, offset + 3)], [2, 3, 4]);
+  const aborted = f.command();
+  scene.prepareFrame(aborted);
+  f.graphics.texture_residency.retainQuery = () => ({ valid: true, release() {} });
+  assert.throws(() => scene.retainQuery(), /native frame command/);
+  assert.throws(() => scene.retainQuery(f.command()), /native frame command/);
+  const candidateLease = scene.retainQuery(aborted);
+  assert.equal(candidateLease.revision, candidate.revision);
+  candidateLease.release();
+  aborted.onAborted.send1(aborted);
+  assert.equal(scene.active.queryMaterials.length, 0);
+  assert.equal(scene.candidate, candidate);
+  const commit = f.command();
+  scene.prepareFrame(commit);
+  commit.onFinished.send1(commit);
+  assert.equal(scene.active.queryMaterials[0], projected);
+  material.appearance_inputs.set("queryEmission", [7, 8, 9]);
+  scene.canPrepareFrame();
+  await tick();
+  assert.deepEqual([...projected.constants.subarray(offset, offset + 3)], [2, 3, 4],
+    "old query numeric data remains immutable");
+  assert.deepEqual([...scene.candidate.queryMaterials[0].constants.subarray(offset, offset + 3)], [7, 8, 9]);
+  scene.destroy();
+  f.registry.destroy();
+});
+
+test("query camera semantics remain view dependent even under a geometry input domain", async () => {
+  const f = fixture();
+  const material = new StandardShadeMaterial();
+  material.transparency_mode = ShadeTransparencyMode.AlphaTested;
+  const graph = new AppearanceGraphBuilder();
+  const camera = graph.input("cameraPosition", 3, "geometry");
+  graph.output("baseColor", camera);
+  graph.output("alpha", graph.swizzle(camera, [0]));
+  const upload = f.command();
+  const scene = new GpuNativeMaterialScene(f.graphics, [{ materialSlot: 0, material,
+    graph: compileAppearanceGraph(graph.build()), textureBindingSetId: 0, textureRefs: new Map(),
+  }], () => [{ id: 0, generation: 1, textureBanks: [] }],
+  new Map(), new Map(), upload, true, false);
+  await scene.ready;
+  upload.onBeforeFinish.send1(upload);
+  upload.onFinished.send1(upload);
+  scene.setQueryProjectionEnabled(true);
+  scene.canPrepareFrame();
+  await tick();
+  assert.equal(scene.candidate.queryMaterials[0].viewDependent, true);
+  assert.equal(scene.candidate.viewDependentCoverage, true);
+  scene.destroy();
+  f.registry.destroy();
+});
+
 test("initial native reflection output is ready without an off-to-on candidate rebuild", async () => {
   const f = fixture();
   const material = new StandardShadeMaterial();

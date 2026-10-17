@@ -1,3 +1,4 @@
+import { attachTriangleQuerySection } from "../helpers/geometry-query-fixture.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
@@ -56,23 +57,25 @@ function productFixture(revision = 1, productIdFill = 7) {
   asset.fill(1, 0, 32);
   for (const [at, value] of [
     [72, 0],
-    [76, 1],
+    [76, 2],
     [80, 0],
-    [84, 1],
+    [84, 2],
     [88, 0],
     [92, 2],
     [96, 0],
     [100, 1],
-    [104, 1],
-    [108, 1],
-    [112, 1],
+    [104, 2],
+    [108, 2],
+    [112, 2],
     [116, 0],
   ])
     av.setUint32(at, value, true);
-  const hierarchy = new Uint8Array(48);
+  const hierarchy = new Uint8Array(96);
   const hv = new DataView(hierarchy.buffer);
   hv.setFloat32(12, 1, true);
   hv.setUint32(44, 1, true);
+  hv.setFloat32(60, 1, true);
+  hv.setUint32(92, 3, true);
   const groups = new Uint8Array(32);
   const gv = new DataView(groups.buffer);
   gv.setUint32(8, 64, true);
@@ -94,7 +97,7 @@ function productFixture(revision = 1, productIdFill = 7) {
   fv.setUint8(5, 6);
   fv.setUint8(10, 1); // Current Product ABI: Float32x3 position encoding.
   const descriptor = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     productId,
     revision,
     producerKind: "web-runtime",
@@ -103,10 +106,10 @@ function productFixture(revision = 1, productIdFill = 7) {
     sourceIdentityKind: "session",
     sourceIdentityHash: new Uint8Array(32).fill(3),
     recipeHash: new Uint8Array(32).fill(4),
-    runtimeProfile: "oengine-vg-v1-v3-decoded",
+    runtimeProfile: "oengine-vg-v2-v3-decoded-query2",
     decodedPageBytes: PAGE_BYTES,
     assetRecords: asset,
-    rootNodeIds: new Uint32Array([0]),
+    rootNodeIds: new Uint32Array([0, 1]),
     hierarchyNodes: hierarchy,
     groupDirectory: groups,
     pageRecords: records,
@@ -114,6 +117,7 @@ function productFixture(revision = 1, productIdFill = 7) {
     vertexFormats: formats,
     activationPageIds: new Uint32Array([0, 1]),
   };
+  attachTriangleQuerySection(descriptor);
   return { descriptor, productId, pages, hashes, revision };
 }
 

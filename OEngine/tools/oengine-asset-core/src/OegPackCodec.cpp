@@ -46,6 +46,7 @@ void EncodeRecordV3(std::uint8_t* out, const OegPackHeaderV3& v) {
     const std::uint64_t offsets[] = {v.assetDirectoryOffset,v.rootNodeIndexOffset,v.hierarchyOffset,v.groupDirectoryOffset,v.pageDirectoryOffset,v.vertexFormatOffset,v.bootstrapPageOffset,v.pageBlobOffset,v.fileBytes};
     for (std::uint32_t i = 0u; i < 9u; ++i) U64(out, 72u + i * 8u, offsets[i]);
     std::copy(v.recipeHash, v.recipeHash + 32u, out + 144u); std::copy(v.packContentHash, v.packContentHash + 32u, out + 176u);
+    U64(out, 208u, v.querySectionOffset); U64(out, 216u, v.querySectionBytes);
 }
 void DecodeRecordV3(const std::uint8_t* in, OegPackHeaderV3* v) {
     *v = {}; std::copy(in, in + 8u, v->magic);
@@ -53,7 +54,9 @@ void DecodeRecordV3(const std::uint8_t* in, OegPackHeaderV3* v) {
     for (std::uint32_t i = 0u; i < 16u; ++i) *fields[i] = U32(in, 8u + i * 4u);
     std::uint64_t* offsets[] = {&v->assetDirectoryOffset,&v->rootNodeIndexOffset,&v->hierarchyOffset,&v->groupDirectoryOffset,&v->pageDirectoryOffset,&v->vertexFormatOffset,&v->bootstrapPageOffset,&v->pageBlobOffset,&v->fileBytes};
     for (std::uint32_t i = 0u; i < 9u; ++i) *offsets[i] = U64(in, 72u + i * 8u);
-    std::copy(in + 144u, in + 176u, v->recipeHash); std::copy(in + 176u, in + 208u, v->packContentHash); std::copy(in + 208u, in + 256u, v->reserved);
+    std::copy(in + 144u, in + 176u, v->recipeHash); std::copy(in + 176u, in + 208u, v->packContentHash);
+    v->querySectionOffset = U64(in, 208u); v->querySectionBytes = U64(in, 216u);
+    std::copy(in + 224u, in + 256u, v->reserved);
 }
 
 void EncodeRecordV3(std::uint8_t* out, const GeometryAssetRecordV3& v) {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
+import { attachTriangleQuerySection } from "../helpers/geometry-query-fixture.mjs";
 
 const { NyxWebRuntimeCooker, NYX_WEB_RUNTIME_PRODUCER_ID } = await import(
   "../../.test-dist/assets/web-cook/NyxWebRuntimeCooker.js"
@@ -61,7 +62,12 @@ function productSections() {
     values.forEach((value, index) => view.setUint32(index * 4, value, true));
     return bytes;
   };
+  const queryDescriptor = attachTriangleQuerySection({
+    assetRecords: asset, hierarchyNodes: hierarchy, groupDirectory: group,
+    recipeHash: new Uint8Array(32).fill(4),
+  });
   return {
+    11: queryDescriptor.querySection,
     1: asset,
     2: u32([0]),
     3: hierarchy,
@@ -119,7 +125,7 @@ function fakeModule(sections) {
     },
     _free() {},
     _oengine_web_geometry_cook_abi_version() {
-      return 4;
+      return 5;
     },
     _oengine_web_geometry_cook(address, bytes) {
       canonicalInput = heap.slice(address, address + bytes);

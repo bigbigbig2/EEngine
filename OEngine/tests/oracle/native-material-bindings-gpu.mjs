@@ -8,6 +8,8 @@ import {
   createNativeCoverageBindings,
   nativeMaterialCoverageProgram
 } from "../../.test-dist/gpu/NativeMaterialBindings.js";
+import { createNativeDiffuseBindings } from "../../.test-dist/gpu/NativeMaterialBindings.js";
+import { nativeDiffuseHitEvaluationWgsl } from "../../.test-dist/shaders/native_diffuse_hit.js";
 import { ShadeGPUCommandContext } from "../../.test-dist/framegraph/ShadeGPUCommandContext.js";
 import { GPUBufferAllocator } from "../../.test-dist/gpu/GPUBufferAllocator.js";
 import { GPUStagingBufferAllocator } from "../../.test-dist/gpu/GPUStagingBufferAllocator.js";
@@ -328,10 +330,11 @@ export async function runNativeMaterialBindingsGpuOracle(device) {
     retained.push(buffer);
     return buffer;
   };
-  const run = async (bindings, inputValues, referenceSource = "", referenceEntries = []) => {
+  const run = async (bindings, inputValues, referenceSource = "", referenceEntries = [], diffuseHit = false) => {
     const program = bindings.program;
     const input = makeBuffer(inputValues, GPUBufferUsage.STORAGE);
-    const size = program.outputCount * 8 * 4;
+    const outputCount = diffuseHit ? 12 : program.outputCount;
+    const size = outputCount * 8 * 4;
     const output = device.createBuffer({ size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
     const readback = device.createBuffer({ size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
     retained.push(output, readback);
@@ -342,13 +345,21 @@ export async function runNativeMaterialBindingsGpuOracle(device) {
 fn native_material_constant(base: u32, slot: u32) -> f32 { return bitcast<f32>(publication_data[publication_data[2u] + base + slot]); }
 ${program.source}
 ${referenceSource}
+${diffuseHit ? nativeDiffuseHitEvaluationWgsl(program) : ""}
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   if id.x >= 8u { return; }
-  let result = native_material_evaluate(0u, input_data[id.x]);
+  ${diffuseHit ? `
+  let direction = select(vec3f(0.0, 0.0, 1.0), vec3f(1.0, 0.0, 0.0), (id.x & 1u) != 0u);
+  let hit = native_diffuse_hit(0u, input_data[id.x],
+    mat3x3f(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, 1.0)), direction);
+  let result = array<f32, 12>(hit.diffuse.x, hit.diffuse.y, hit.diffuse.z, hit.occlusion,
+    hit.emission.x, hit.emission.y, hit.emission.z, hit.underlayer,
+    hit.normal.x, hit.normal.y, hit.normal.z, f32(hit.valid));`
+    : "let result = native_material_evaluate(0u, input_data[id.x]);"}
   ${referenceSource ? "let expected = independent_reference(input_data[id.x]);" : ""}
-  for (var channel = 0u; channel < ${program.outputCount}u; channel++) {
-    output_data[id.x * ${program.outputCount}u + channel] = ${referenceSource ? "result[channel] - expected[channel]" : "result[channel]"};
+  for (var channel = 0u; channel < ${outputCount}u; channel++) {
+    output_data[id.x * ${outputCount}u + channel] = ${referenceSource ? "result[channel] - expected[channel]" : "result[channel]"};
   }
 }`;
     const groups = [
@@ -459,6 +470,38 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       "Unrelated color/normal promotion invalidated exact coverage values"
     );
     const fineValues = await run(fine, makeInputs(native));
+    const diffuseBuilder = new AppearanceGraphBuilder();
+    const diffuseUv = diffuseBuilder.input("uv0", 2, "surface", undefined, "uv0");
+    const diffuseSample = diffuseBuilder.texture(snapshotAppearanceTexture(texture, "srgb-rgb"), diffuseUv);
+    diffuseBuilder.output("baseColor", diffuseBuilder.swizzle(diffuseSample, [0, 1, 2]));
+    diffuseBuilder.output("metallic", diffuseBuilder.constant(0.25));
+    diffuseBuilder.output("emissive", diffuseBuilder.input("cameraPosition", 3, "view"));
+    diffuseBuilder.output("coatWeight", diffuseBuilder.constant(0.5));
+    diffuseBuilder.output("roughness", diffuseBuilder.input("unconsumed", 1, "dynamic"));
+    const diffuseGraph = compileAppearanceGraph(diffuseBuilder.build());
+    const diffuseBindings = createNativeDiffuseBindings({ ...common, graph: diffuseGraph,
+      program: lowerNativeMaterial(diffuseGraph) });
+    const diffuseInputs = makeInputs(diffuseBindings.program);
+    for (let lane = 0; lane < 8; lane++) {
+      const program = diffuseBindings.program;
+      const cameraSlot = program.inputs.findIndex((input) => input.name === "cameraPosition");
+      for (let point = 0; point < 3; point++) {
+        diffuseInputs.set([2, 3, 4, 0], lane * program.inputCount * 12 +
+          point * program.inputCount * 4 + cameraSlot * 4);
+      }
+    }
+    const diffuseValues = await run(diffuseBindings, diffuseInputs, "", [], true);
+    let maxDiffuseError = 0;
+    const decodeSrgb = (value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    for (let lane = 0; lane < 8; lane++) {
+      const expected = [128, 64, 32].map((channel) => decodeSrgb(channel / 255) * 0.75 / Math.PI);
+      expected.push(1, 2, 3, 4, lane % 2 ? 0.5 : 0.98, 0, 0, 1, 1);
+      for (let channel = 0; channel < 12; channel++) {
+        maxDiffuseError = Math.max(maxDiffuseError,
+          Math.abs(diffuseValues[lane * 12 + channel] - expected[channel]));
+      }
+    }
+    check(maxDiffuseError < budget, "Native diffuse-hit response disagrees with independent CPU Lambert/coat/camera oracle");
     const coverageGraph = nativeMaterialCoverageProgram(graph);
     const coverage = createNativeMaterialBindings({
       ...common,
@@ -585,14 +628,15 @@ fn independent_reference(inputs: NativeMaterialInputs) -> array<f32, ${productNa
           magFilter: "linear",
           mipmapFilter: "linear",
           addressModeU: "clamp-to-edge",
-          addressModeV: "clamp-to-edge"
+          addressModeV: "clamp-to-edge",
+          maxAnisotropy: 8
         })
       }
     ]);
     const maxProductError = Math.max(...residuals.map(Math.abs));
     check(
       Number.isFinite(maxProductError) && maxProductError < budget,
-      "Native Product/normal decode differs from independent hardware reference"
+      `Native Product/normal decode differs from independent hardware reference: ${maxProductError}`
     );
     // A genuinely wider legal graph: twenty differently sized cooked fields.
     // Its hardware layout exceeds the portable 16-texture stage profile. The
@@ -676,6 +720,8 @@ fn independent_reference(inputs: NativeMaterialInputs) -> array<f32, ${productNa
       coverageAlpha: "matches native shading",
       productTextureCount: products.productTextureCount,
       maxProductError,
+      diffuseHit: { maxAbsoluteError: maxDiffuseError, actualResidentTexture: true,
+        actualCameraInput: true, independentTransportDirection: true },
       packedProducts: {
         fields: 20,
         textureBindings: 1,

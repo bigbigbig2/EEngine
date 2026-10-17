@@ -191,7 +191,9 @@ WrittenPackV3 WritePack(
     header.groupDirectoryOffset = cursor; cursor = AlignUp64(cursor + product.groups.size() * sizeof(GeometryGroupDirectoryV3), 16u);
     header.pageDirectoryOffset = cursor; cursor = AlignUp64(cursor + encodedPages.size() * sizeof(GeometryPageDirectoryV3), 16u);
     header.bootstrapPageOffset = cursor; cursor = AlignUp64(cursor + product.bootstrapPages.size() * sizeof(std::uint32_t), 16u);
-    header.vertexFormatOffset = cursor; cursor = AlignUp64(cursor + product.formats.size() * sizeof(VertexFormatRecordV3), 256u);
+    header.vertexFormatOffset = cursor; cursor = AlignUp64(cursor + product.formats.size() * sizeof(VertexFormatRecordV3), 16u);
+    header.querySectionOffset = cursor; header.querySectionBytes = product.querySection.size();
+    cursor = AlignUp64(cursor + header.querySectionBytes, 256u);
     header.pageBlobOffset = cursor;
     for (EncodedPage& page : encodedPages) {
         page.directory.compressedFileOffset = cursor;
@@ -211,6 +213,7 @@ WrittenPackV3 WritePack(
     WriteRecords(bytes, header.pageDirectoryOffset, pageDirectories);
     WriteRecords(bytes, header.bootstrapPageOffset, product.bootstrapPages);
     WriteRecords(bytes, header.vertexFormatOffset, product.formats);
+    std::copy(product.querySection.begin(), product.querySection.end(), bytes.begin() + header.querySectionOffset);
     for (const EncodedPage& page : encodedPages) std::copy(page.encoded.begin(), page.encoded.end(), bytes.begin() + page.directory.compressedFileOffset);
     const Hash256 packHash = Sha256(bytes.data(), std::size_t(header.pageBlobOffset));
     std::copy(packHash.begin(), packHash.end(), header.packContentHash);
@@ -335,7 +338,7 @@ void ValidateOegPackV3File(const std::string& path, bool verifyPages) {
     if (bytes.size() < sizeof(OegPackHeaderV3)) throw std::runtime_error("pack is shorter than V3 header");
     OegPackHeaderV3 header{}; DecodeRecordV3(bytes.data(), &header);
     if (!std::equal(kOegPackMagicV3.begin(), kOegPackMagicV3.end(), header.magic)) throw std::runtime_error("invalid OEGPACK magic");
-    if (header.formatMajor != 3u || header.formatMinor != 0u) throw std::runtime_error("unsupported OEGPACK version");
+    if (header.formatMajor != 3u || header.formatMinor != 1u) throw std::runtime_error("OEGPACK query geometry requires V3.1; recook source");
     if (header.endianMarker != kOegPackEndianMarker || header.headerBytes != 256u) throw std::runtime_error("invalid endian/header contract");
     if (header.pageShift != 18u || header.pageBytes != kGeometryPageBytesV3) throw std::runtime_error("invalid V3 page size contract");
     if (header.flags != 0u || header.defaultCodec != kPageCodecLz4Block || header.reserved0 != 0u || std::any_of(std::begin(header.reserved), std::end(header.reserved), [](std::uint8_t value) { return value != 0u; })) throw std::runtime_error("header flags/default codec/reserved bytes are invalid");
@@ -356,6 +359,9 @@ void ValidateOegPackV3File(const std::string& path, bool verifyPages) {
     validateTable(header.pageDirectoryOffset, header.pageCount, sizeof(GeometryPageDirectoryV3), 16u, "page");
     validateTable(header.bootstrapPageOffset, header.bootstrapPageCount, sizeof(std::uint32_t), 16u, "bootstrap");
     validateTable(header.vertexFormatOffset, header.vertexFormatCount, sizeof(VertexFormatRecordV3), 16u, "vertex format");
+    if (header.querySectionBytes < 128u || header.querySectionBytes >= kInvalidId)
+        throw std::runtime_error("query section size is invalid");
+    validateTable(header.querySectionOffset, std::uint32_t(header.querySectionBytes), 1u, 16u, "query section");
     std::vector<std::uint8_t> metadata(bytes.begin(), bytes.begin() + header.pageBlobOffset);
     const Hash256 expectedPackHash = [&]() { Hash256 h{}; std::copy(header.packContentHash, header.packContentHash + 32u, h.begin()); return h; }();
     std::fill(metadata.begin() + 176u, metadata.begin() + 208u, 0u);

@@ -14,6 +14,7 @@ enum OengineWebGeometryCookSectionV1 : std::uint32_t {
     OENGINE_WEB_COOK_SECTION_RECIPE_HASH = 8u,
     OENGINE_WEB_COOK_SECTION_PAGE_BYTES = 9u,
     OENGINE_WEB_COOK_SECTION_CONTENT_MANIFEST_HASH = 10u,
+    OENGINE_WEB_COOK_SECTION_QUERY = 11u,
 };
 
 /** Result codes for the two-phase payload stage. */

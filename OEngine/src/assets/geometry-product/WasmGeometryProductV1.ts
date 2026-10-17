@@ -253,7 +253,7 @@ async function assembleWasmGeometryProductRevisionV1(
     productScopeHash,
   );
   const descriptor: GeometryProductDescriptorV1 = Object.freeze({
-    schemaVersion: 1,
+    schemaVersion: 2,
     productId,
     revision: options.revision,
     ...(options.replaces === undefined
@@ -280,6 +280,7 @@ async function assembleWasmGeometryProductRevisionV1(
     bootstrapPageIds: sections.bootstrapPageIds,
     activationPageIds: sections.activationPageIds,
     vertexFormats: sections.vertexFormats,
+    querySection: sections.querySection,
   });
   assertGeometryProductDescriptorV1(descriptor);
   return new WasmGeometryProductRevision(createPageSource(descriptor), descriptor, options.sceneAssetIndices);

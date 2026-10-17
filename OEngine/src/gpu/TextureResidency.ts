@@ -133,6 +133,12 @@ interface MaterialEntry {
   releasing?: ShadeGPUCommandContext;
 }
 
+export interface TextureQueryLease {
+  readonly valid: boolean;
+  release(): void;
+  releaseAfter(completion: PromiseLike<void>): Promise<void>;
+}
+
 /** Sole material GPU owner. Immutable segments follow batch demand. Uploads
  * and sampling clamps share a command transaction; retirement waits for its
  * actual queue fence. Handles and material tuples are CPU-owned. */
@@ -1100,6 +1106,44 @@ export class TextureResidency {
       throw error;
     }
   }
+  /** Retains the exact current allocations, not mutable material identity. The
+   * same queue orders finer-mip uploads; coverage uses its resident closure. */
+  retainQuery(materials: readonly StandardShadeMaterial[]): TextureQueryLease {
+    this.assertAlive();
+    const entries = new Set<Entry>();
+    for (const material of materials) {
+      const owner = this.materials.get(material);
+      if (owner === undefined || owner.staging !== undefined || owner.releasing !== undefined || owner.refs === 0) {
+        throw new Error("Query textures require a committed resident material tuple");
+      }
+      for (const entry of owner.entries) { entries.add(entry); }
+    }
+    for (const entry of entries) { entry.refs++; }
+    let released = false;
+    let poisoned = false;
+    const owner = this;
+    const release = () => {
+      // A rejected completion is not permission to recycle a physical layer.
+      // Keep these references until the residency owner tears down the device.
+      if (released || poisoned) { return; }
+      released = true;
+      if (this.destroyed) { return; }
+      for (const entry of entries) {
+        entry.refs--;
+        if (entry.refs === 0) { this.retireEntry(entry, Promise.resolve()); }
+      }
+    };
+    return Object.freeze({
+      get valid() { return !released && !poisoned && !owner.destroyed; },
+      release,
+      releaseAfter: async (completion: PromiseLike<void>) => {
+        try { await completion; }
+        catch (error) { poisoned = true; throw error; }
+        release();
+      },
+    });
+  }
+
   release(materials: readonly StandardShadeMaterial[], command: ShadeGPUCommandContext): void {
     this.assertCommand(command);
     const counts = countMaterials(materials);

@@ -1,3 +1,4 @@
+import { attachTriangleQuerySection } from "../helpers/geometry-query-fixture.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
@@ -106,8 +107,8 @@ function fixture({ identity }) {
   fv.setUint16(2, 3, true);
   fv.setUint8(5, 12);
   fv.setUint8(10, 1);
-  return {
-    schemaVersion: 1,
+  return attachTriangleQuerySection({
+    schemaVersion: 2,
     productId: new Uint8Array(32).fill(2),
     revision: 0,
     producerKind: "offline-native",
@@ -116,7 +117,7 @@ function fixture({ identity }) {
     sourceIdentityKind: "session",
     sourceIdentityHash: new Uint8Array(32).fill(3),
     recipeHash: new Uint8Array(32).fill(4),
-    runtimeProfile: "oengine-vg-v1-v3-decoded",
+    runtimeProfile: "oengine-vg-v2-v3-decoded-query2",
     decodedPageBytes: 262144,
     assetRecords: asset,
     rootNodeIds: new Uint32Array([0]),
@@ -126,5 +127,5 @@ function fixture({ identity }) {
     bootstrapPageIds: new Uint32Array([0]),
     vertexFormats: formats,
     activationPageIds: new Uint32Array([0]),
-  };
+  });
 }

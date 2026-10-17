@@ -144,7 +144,7 @@ test("S1 OEGPACK adapter emits a producer-neutral Product V1 descriptor and excl
   const descriptor = descriptorFromOegPack(opened);
   const report = validateGeometryProductDescriptorV1(descriptor);
   assert.equal(report.valid, true, report.issues.map((issue) => issue.message).join("; "));
-  assert.equal(descriptor.runtimeProfile, "oengine-vg-v1-v3-decoded");
+  assert.equal(descriptor.runtimeProfile, "oengine-vg-v2-v3-decoded-query2");
   assert.equal(descriptor.producerKind, "offline-native");
   assert.equal(descriptor.assetRecords.byteLength, opened.assets.length * 128);
   assert.equal(descriptor.hierarchyNodes.byteLength, opened.hierarchy.length * 48);
@@ -329,14 +329,20 @@ test("A8 bootstrap owner uploads fixed slots, resolves groups, and destroys ever
     1,
     "Product admission publishes one batched page-location table update",
   );
-  assert.ok(pageWrites.every((write) => write.offset % 262144 === 0));
+  assert.ok(pageWrites.every((write) => write.offset % 16 === 0));
   for (let groupId = 0; groupId < opened.groups.length; groupId++) {
     const expected = new Set(opened.bootstrapPageIds).has(opened.groups[groupId].pageId);
     assert.equal(residency.groupAddress(groupId) !== undefined, expected);
   }
   const physicalUploads = writes.filter((write) => banks.includes(write.buffer));
   assert.equal(residency.evidence().uploadedBytes, physicalUploads.reduce((sum, write) => sum + write.bytes, 0));
-  assert.equal(residency.evidence().residentBytes, pageWrites.length * 262144, "each page occupies strictly one 256 KiB slot with zero extra attribute slots");
+  const compactBytes = [...new Set(opened.bootstrapPageIds)].reduce((sum, pageId) => {
+    const extent = opened.groups.filter((group) => group.pageId === pageId)
+      .reduce((end, group) => Math.max(end, group.offsetInDecodedPage + group.payloadBytes), 0);
+    return sum + Math.ceil(extent / 16) * 16;
+  }, 0);
+  assert.equal(residency.evidence().residentBytes, compactBytes,
+    "shared byte pool retains the complete page payload with 16-byte alignment");
   assert.ok(residency.evidence().uploadedBytes <= pageWrites.length * 262144, "only raw page payload bytes are uploaded");
   residency.destroy();
   assert.ok(buffers.every((buffer) => buffer.destroyed));
@@ -648,4 +654,4 @@ function buildFixtureGlb({ distinctMaterialIds = false } = {}) {
 // v4.1 makes sphere merging conservative about the stored f32 center. The
 // independent translated-hierarchy oracle and native/Web parity validate the
 // numerical change before this content/recipe golden is advanced.
-const GOLDEN_PACK_SHA256 = "9b37730ed34b34f6b61b16ad66e5a0dd6789fd9f07a5e3ea150a90450b263dce";
+const GOLDEN_PACK_SHA256 = "1331a5e97c8e52c7e414d6d772725d34be3feebc3d113256965ff3a3d12a58fb";

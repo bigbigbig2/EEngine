@@ -30,6 +30,7 @@ struct GeometryCookRecipeV3 {
     std::uint32_t rawCodecThresholdBytes = 256u;
     std::string vertexProfileVersion = "static-pbr-page-local-f32-lean-v7";
     std::string positionQuantization = "float32-object-space";
+    std::string queryProfile = "shared-meshlet-exact-leaf-cut-v2";
     std::uint64_t bootstrapGeometryBudgetBytes = 64ull * 1024ull * 1024ull;
     std::string bootstrapBudgetPolicy = "scene-decoded-payload-hard-fail-v1";
     std::uint32_t deterministicSeed = 0u;

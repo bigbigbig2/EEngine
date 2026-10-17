@@ -12,6 +12,8 @@ import {
 import {
   createNativeMaterialBindings,
   nativeMaterialCoverageProgram,
+  nativeMaterialDiffuseProgram,
+  createNativeDiffuseBindings,
 } from "../../.test-dist/gpu/NativeMaterialBindings.js";
 import { encodeGpuTextureRef } from "../../.test-dist/gpu/GpuTextureRefAbi.js";
 import {
@@ -21,6 +23,33 @@ import {
 import { ShadeTexture } from "../../.test-dist/texture/ShadeTexture.js";
 
 globalThis.GPUShaderStage = { COMPUTE: 4, FRAGMENT: 2 };
+
+test("diffuse projection retains custom normal/coat/emissive dependencies and removes specular-only reads", () => {
+  const f = fixture();
+  const builder = new AppearanceGraphBuilder();
+  const uv = builder.input("uv0", 2, "surface", undefined, "uv0");
+  const sample = builder.texture(snapshotAppearanceTexture(f.texture, "linear-rgb"), uv);
+  builder.output("baseColor", builder.swizzle(sample, [0, 1, 2]));
+  builder.output("emissive", builder.input("cameraPosition", 3, "view"));
+  builder.output("normalTS", builder.input("customNormal", 3, "dynamic"));
+  builder.output("coatNormalTS", builder.input("customCoatNormal", 3, "dynamic"));
+  builder.output("coatWeight", builder.parameter("coat", 0.5));
+  builder.output("roughness", builder.input("unusedRoughness", 1, "dynamic"));
+  builder.output("alpha", builder.input("coverageOnly", 1, "dynamic"));
+  const original = compileAppearanceGraph(builder.build());
+  const graph = nativeMaterialDiffuseProgram(original);
+  assert.equal(nativeMaterialDiffuseProgram(original), graph);
+  assert.equal(graph.outputs.roughness, undefined);
+  assert.equal(graph.outputs.alpha, undefined);
+  assert.deepEqual(new Set(graph.inputs.map((input) => input.name)),
+    new Set(["uv0", "cameraPosition", "customNormal", "customCoatNormal"]));
+  assert.equal(graph.samples.length, 1);
+  const binding = createNativeDiffuseBindings({ ...f.source, graph: original,
+    program: lowerNativeMaterial(original) });
+  assert.deepEqual(Object.keys(binding.program.outputs), Object.keys(graph.outputs));
+  assert.equal(binding.entries[0].resource, f.source.bindingSet.textureBanks[5]);
+});
+
 function fixture() {
   const texture = new ShadeTexture();
   const builder = new AppearanceGraphBuilder();

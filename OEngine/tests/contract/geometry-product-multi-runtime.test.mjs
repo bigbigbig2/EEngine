@@ -1,3 +1,4 @@
+import { attachTriangleQuerySection } from "../helpers/geometry-query-fixture.mjs";
 import { publishGeometryPages, geometryPublicationCommand } from "../helpers/geometry-publication.mjs";
 import { writeTriangleProductPage, addTriangleProductPages, TRIANGLE_PRODUCT_PAYLOAD_BYTES } from "../helpers/geometry-product-fixture.mjs";
 import assert from "node:assert/strict";
@@ -104,7 +105,7 @@ function makeFixture(revision = 0) {
   formatView.setUint8(5, 12);
   formatView.setUint8(10, 1);
   const descriptor = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     productId: new Uint8Array(32).fill((2 + revision) & 0xff),
     revision,
     producerKind: "web-runtime",
@@ -113,7 +114,7 @@ function makeFixture(revision = 0) {
     sourceIdentityKind: "session",
     sourceIdentityHash: new Uint8Array(32).fill(3),
     recipeHash: new Uint8Array(32).fill(4),
-    runtimeProfile: "oengine-vg-v1-v3-decoded",
+    runtimeProfile: "oengine-vg-v2-v3-decoded-query2",
     decodedPageBytes: 262144,
     assetRecords,
     rootNodeIds: new Uint32Array([0]),
@@ -125,6 +126,7 @@ function makeFixture(revision = 0) {
     activationPageIds: new Uint32Array([0]),
   };
   addTriangleProductPages(descriptor, 2);
+  attachTriangleQuerySection(descriptor);
   const source = {
     descriptor,
     async readPage(pageId, signal) {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
+import { attachTriangleQuerySection } from "../helpers/geometry-query-fixture.mjs";
 import { openTextureProduct, saveTextureProduct } from "../../.test-dist/assets/TextureProduct.js";
 import { textureProduct } from "../fixtures/texture-product.mjs";
 import { MemoryRangeReadablePackV3, openOegPackV3 } from "../../.test-dist/assets/OegPackV3.js";
@@ -48,7 +49,9 @@ async function buildTwoPageOegPackV3() {
   const bootstrapBytes = 8; // 2 bootstrap page IDs
   const formatOffset = bootstrapOffset + bootstrapBytes;
   const formatBytes = 16; // 1 vertex format
-  const pageBlobOffset = formatOffset + formatBytes;
+  const queryOffset = formatOffset + formatBytes;
+  const queryBytes = 128 + 32 + 2 * 80 + 3 * 2 * 4;
+  const pageBlobOffset = queryOffset + queryBytes;
   const fileBytes = pageBlobOffset + page0.byteLength + page1.byteLength;
 
   const pack = new Uint8Array(fileBytes);
@@ -56,7 +59,7 @@ async function buildTwoPageOegPackV3() {
   // Magic "OEGPACK\0"
   pack.set([79, 69, 71, 80, 65, 67, 75, 0], 0);
   view.setUint32(8, 3, true); // major
-  view.setUint32(12, 0, true); // minor
+  view.setUint32(12, 1, true); // minor
   view.setUint32(16, 0x01020304, true); // endian
   view.setUint32(20, headerSize, true);
   view.setUint32(24, 18, true); // pageShift
@@ -148,6 +151,17 @@ async function buildTwoPageOegPackV3() {
   view.setUint8(formatOffset + 8, 0xff);
   view.setUint8(formatOffset + 9, 0xff);
   view.setUint8(formatOffset + 10, 1); // Float32x3
+
+  view.setBigUint64(208, BigInt(queryOffset), true);
+  view.setBigUint64(216, BigInt(queryBytes), true);
+  const descriptor = attachTriangleQuerySection({
+    recipeHash: pack.subarray(144, 176),
+    assetRecords: pack.subarray(assetOffset, assetOffset + assetBytes),
+    groupDirectory: pack.subarray(groupOffset, groupOffset + groupBytes),
+    hierarchyNodes: pack.subarray(hierarchyOffset, hierarchyOffset + hierarchyBytes),
+  }, pages);
+  assert.equal(descriptor.querySection.byteLength, queryBytes);
+  pack.set(descriptor.querySection, queryOffset);
 
   // Compute metadata packContentHash
   pack.fill(0, 176, 208);
@@ -289,7 +303,7 @@ test("CRC-only pages declare their verification policy without inventing a decod
   assert.notEqual(new Uint8Array(page.bytes)[0], 255, "published page must not alias public pack views");
 });
 
-test("Direction A: dense multi-meshlet page occupies strictly 1 physical slot with zero CPU 96B attribute expansion and direct GPU WGSL decode", async () => {
+test("dense multi-meshlet page uses compact shared payload without CPU attribute expansion", async () => {
   const { frameGeometrySourceWgsl } = await import("../../.test-dist/shaders/geometry_source_decode.js");
   const { frameGeometryVerticesWgsl } = await import("../../.test-dist/shaders/frame_geometry_vertices.js");
   const { surfaceGeometryCompletionWgsl } =
@@ -403,7 +417,7 @@ test("Direction A: dense multi-meshlet page occupies strictly 1 physical slot wi
   fv.setUint8(10, 1);
 
   const descriptor = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     productId: new Uint8Array(32).fill(9),
     revision: 0,
     producerKind: "offline-native",
@@ -412,7 +426,7 @@ test("Direction A: dense multi-meshlet page occupies strictly 1 physical slot wi
     sourceIdentityKind: "session",
     sourceIdentityHash: new Uint8Array(32).fill(3),
     recipeHash: new Uint8Array(32).fill(4),
-    runtimeProfile: "oengine-vg-v1-v3-decoded",
+    runtimeProfile: "oengine-vg-v2-v3-decoded-query2",
     decodedPageBytes: 262144,
     assetRecords,
     rootNodeIds: new Uint32Array([0]),
@@ -424,6 +438,7 @@ test("Direction A: dense multi-meshlet page occupies strictly 1 physical slot wi
     activationPageIds: new Uint32Array([0]),
   };
 
+  attachTriangleQuerySection(descriptor, pageBytes);
   const bankWrites = [];
   const device = {
     limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 },
@@ -458,8 +473,8 @@ test("Direction A: dense multi-meshlet page occupies strictly 1 physical slot wi
   assert.equal(residency.evidence().residentPages, 1);
   assert.equal(
     residency.evidence().residentBytes,
-    262144,
-    "dense 4096-vertex page occupies strictly 1 physical 256 KiB slot",
+    Math.ceil(payloadBytes / 16) * 16,
+    "compact byte-pool allocation retains the complete payload with 16-byte alignment",
   );
   assert.equal(residency.evidence().uploadedBytes, payloadBytes, "only raw page payload bytes are uploaded");
   assert.equal(bankWrites.length, 1, "exactly 1 writeBuffer call per page");

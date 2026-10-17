@@ -57,6 +57,43 @@ test("unique native programs publish atomically and retire every code/resource l
   assert.ok(f.buffers.every((buffer) => buffer.destroyed));
   f.registry.destroy();
 });
+
+test("query lease keeps immutable material constants alive after raster retirement", async () => {
+  const f = fixture();
+  const publication = new GpuNativeMaterialPublication(f.device, f.registry, [f.source()]);
+  await tick();
+  f.compiles[0].resolve({});
+  await publication.ready;
+  publication.commit();
+  const query = publication.retainQuery();
+  const before = publicationConstants(publication).slice();
+  await publication.retire(Promise.resolve());
+  assert.equal(query.valid, true);
+  assert.ok(f.buffers.every((buffer) => !buffer.destroyed));
+  assert.deepEqual(publicationConstants(query.publication), before);
+  assert.throws(() => publication.retainQuery(), /live publication/);
+  await query.releaseAfter(Promise.resolve());
+  assert.equal(query.valid, false);
+  assert.ok(f.buffers.every((buffer) => buffer.destroyed));
+  f.registry.destroy();
+});
+
+test("query rejected completion poisons but never frees still referenced material resources", async () => {
+  const f = fixture();
+  const publication = new GpuNativeMaterialPublication(f.device, f.registry, [f.source()]);
+  await tick();
+  f.compiles[0].resolve({});
+  await publication.ready;
+  publication.commit();
+  const query = publication.retainQuery();
+  await publication.retire(Promise.resolve());
+  await assert.rejects(query.releaseAfter(Promise.reject(new Error("query fence failure"))), /query fence failure/);
+  assert.equal(query.valid, false);
+  query.release();
+  assert.ok(f.buffers.every((buffer) => !buffer.destroyed));
+  f.registry.destroy();
+  assert.ok(f.buffers.every((buffer) => buffer.destroyed));
+});
 function graph(gain = 0.3) {
   const g = new AppearanceGraphBuilder();
   g.output("alpha", g.parameter("gain", gain, { low: 0, high: 1 }));

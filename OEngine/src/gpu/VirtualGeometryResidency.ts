@@ -40,6 +40,7 @@ import {
 } from "./GeometryProductGpuBudget.js";
 import { GeometryProductBytePool, type GeometryPageLease } from "./GeometryProductBytePool.js";
 import { geometryPagePayloadBytes } from "../assets/geometry-product/GeometryPagePayload.js";
+import { validateGeometryProductQuerySection } from "../assets/geometry-product/GeometryProductQuerySection.js";
 import {
   GeometryRefineInfluenceV1,
   GEOMETRY_REFINE_INFLUENCE_FLOATS
@@ -66,6 +67,44 @@ export interface GeometryPageLocationV1 {
   readonly flags: number;
 }
 
+/** Immutable physical addresses for derived geometry consumers. The caller
+ * releases only after its final GPU consumer fence succeeds. No directory or
+ * payload copy is made; Product replacement does not retarget this snapshot. */
+export interface GeometryQueryPageLease {
+  readonly valid: boolean;
+  readonly productTableSlot: number;
+  readonly productGeneration: number;
+  readonly bindingEpoch: number;
+  readonly banks: readonly GPUBuffer[];
+  readonly pages: readonly {
+    readonly pageId: number;
+    readonly location: GeometryPageLocationV1;
+  }[];
+  release(): void;
+  /** A rejected fence poisons validity but never grants physical reuse. */
+  releaseAfter(completion: PromiseLike<void>): Promise<void>;
+}
+
+/** Geometry-owned immutable query directory over retained shared payload.
+ * Metadata is copied once per snapshot; vertices/indices remain in the original
+ * bank generation. Release only after the final query consumer has completed. */
+export interface GeometryQueryGeometryLease extends GeometryQueryPageLease {
+  /** GpuScene addresses the shared multi-Product metadata asset domain. */
+  readonly assetReferenceBegin: number;
+  readonly metadata: GPUBuffer;
+  readonly metadataByteLength: number;
+  readonly querySectionWordOffset: number;
+  /** Global exact-cut prefix in triangle units; one terminal entry included. */
+  readonly queryTrianglePrefixWordOffset: number;
+  readonly queryPrimitiveCount: number;
+  readonly queryAssets: readonly {
+    readonly cutBegin: number;
+    readonly cutCount: number;
+    readonly primitiveBegin: number;
+    readonly primitiveCount: number;
+  }[];
+}
+
 /** One asset's conservative changed object-space region for the frame that
  * carries `revision`. Produced when a page publishes or retires. */
 export interface GeometryResidencyInfluenceV1 {
@@ -87,6 +126,9 @@ interface GeometryPublication {
 }
 
 export interface VirtualGeometryResidencyEvidenceV1 {
+  readonly querySnapshots: number;
+  readonly queryPages: number;
+  readonly queryRetainedBytes: number;
   readonly residencyProfile: GeometryProductResidencyProfilePlanV1["profile"];
   readonly profileBankBytes: number;
   readonly profileCapacityBytes: number;
@@ -245,6 +287,13 @@ export class VirtualGeometryResidency {
   readonly #retiringLocations = new Map<number, GeometryPageLocationV1>();
   readonly #requestedRetirements = new Set<number>();
   readonly #pageLeases = new Map<number, GeometryPageLease>();
+  readonly #queryPages = new Map<
+    number,
+    { references: number; readonly allocation: GeometryPageLease }
+  >();
+  readonly #queryLeaseReleases = new Set<() => void>();
+  #queryTeardown = false;
+  readonly #completedRetirements = new Set<number>();
   readonly #preparedPages = new WeakMap<GeometryPageProductV1, ProductResidentPage>();
   readonly #pagePayloadBytes = new Map<number, number>();
   readonly #pageLastUsed = new Map<number, number>();
@@ -425,6 +474,10 @@ export class VirtualGeometryResidency {
         signal,
         options.directory
       );
+      // Replaced Products can remain alive only through a query snapshot. They
+      // no longer occur in the runtime's current directory at device loss.
+      const weakOwner = new WeakRef(owner);
+      void device.lost?.then(() => weakOwner.deref()?.abandonForDeviceLoss());
       signal?.addEventListener("abort", cancel, { once: true });
       await owner.#fillActivationCut();
       return owner;
@@ -448,9 +501,22 @@ export class VirtualGeometryResidency {
     });
     this.#removePoolListener = this.#bytePool.onBindings((command, bankBytes) => {
       if (this.#metadata !== undefined && bankBytes !== this.#standaloneBankBytes) {
-        command.uploadRegions([{ destination: this.#metadata, destinationOffset: 48,
-          bytes: new Uint8Array(new Uint32Array([bankBytes]).buffer) }]);
-        command.onFinished.addOne(() => { this.#standaloneBankBytes = bankBytes; });
+        command.uploadRegions([
+          {
+            destination: this.#metadata,
+            destinationOffset: 48,
+            bytes: new Uint8Array(new Uint32Array([bankBytes]).buffer),
+          },
+        ]);
+        command.observeSubmission({
+          submitted: () => {
+            this.#standaloneBankBytes = bankBytes;
+          },
+          aborted: () => {},
+          failed: (error) => {
+            this.#retirementError = String(error);
+          },
+        });
       }
     });
     const activation = await this.#bytePool.reserveActivation(
@@ -689,13 +755,258 @@ export class VirtualGeometryResidency {
     this.#assertPageId(pageId);
     return this.#pageLocations.get(pageId);
   }
+  /** All-or-nothing acquisition from the committed view or the exact command's
+   * frame-readable candidate. Abort revokes candidate leases before slot reuse. */
+  retainQueryPages(
+    pageIds: readonly number[],
+    command?: ShadeGPUCommandContext,
+  ): GeometryQueryPageLease {
+    const candidate = this.#candidateState;
+    if (
+      this.#destroyed ||
+      (candidate !== undefined && candidate.command !== command) ||
+      command?.closed
+    ) {
+      throw new Error("Query pages require a committed publication or its exact open command");
+    }
+    if (pageIds.length > this.#residencyProfile.maxPageLeases) {
+      throw new RangeError("Query page snapshot exceeds the admitted page capacity");
+    }
+    const candidatePages = candidate === undefined ? undefined : new Set(candidate.pageIds);
+    const unique = new Set<number>();
+    const pages = pageIds.map((pageId) => {
+      this.#assertPageId(pageId);
+      if (unique.has(pageId)) {
+        throw new Error("Query page lease contains a duplicate page");
+      }
+      unique.add(pageId);
+      const location = candidatePages?.has(pageId)
+        ? this.#stagedPages.get(pageId)?.location
+        : this.#pageLocations.get(pageId);
+      if (location === undefined || this.#requestedRetirements.has(pageId)) {
+        throw new Error(`Query page ${pageId} is not available for a new snapshot`);
+      }
+      return Object.freeze({ pageId, location });
+    });
+    const bankLease = this.#bytePool!.retainBanks(command);
+    const pool = GeometryProductBytePool.retain(this.device, this.#residencyProfile);
+    for (const { pageId } of pages) {
+      const record = this.#queryPages.get(pageId);
+      if (record === undefined) {
+        this.#queryPages.set(pageId, { references: 1, allocation: this.#pageLeases.get(pageId)! });
+      } else {
+        record.references++;
+      }
+    }
+    let released = false;
+    let poisoned = false;
+    const release = (): void => {
+      if (released || (poisoned && !this.#queryTeardown)) {
+        return;
+      }
+      released = true;
+      this.#queryLeaseReleases.delete(release);
+      for (const { pageId } of pages) {
+        const record = this.#queryPages.get(pageId)!;
+        record.references--;
+        if (record.references === 0) {
+          this.#queryPages.delete(pageId);
+          if (this.#destroyed) {
+            pool.release(record.allocation);
+          } else if (this.#completedRetirements.has(pageId)) {
+            this.#completeRetirePage(pageId);
+          }
+        }
+      }
+      bankLease.release();
+      pool.releaseOwner();
+    };
+    this.#queryLeaseReleases.add(release);
+    command?.observeSubmission({
+      submitted: (fence) => {
+        void fence.catch((error: unknown) => {
+          poisoned = true;
+          this.#retirementError = String(error);
+        });
+      },
+      aborted: release,
+      failed: (error) => {
+        poisoned = true;
+        this.#retirementError = String(error);
+      },
+    });
+    return Object.freeze({
+      get valid() {
+        return !released && !poisoned;
+      },
+      productTableSlot: this.#productTableSlot,
+      productGeneration: this.#productGeneration,
+      bindingEpoch: bankLease.bindingEpoch,
+      banks: bankLease.banks,
+      pages: Object.freeze(pages),
+      release,
+      releaseAfter: async (completion: PromiseLike<void>): Promise<void> => {
+        try {
+          await completion;
+        } catch (error) {
+          poisoned = true;
+          this.#retirementError = String(error);
+          throw error;
+        }
+        release();
+      },
+    });
+  }
+
+  /** Snapshot the exact minimum cut, including offscreen pages. This does not
+   * initiate IO or privately submit; missing coverage prevents publication.
+   * The caller schedules pages through the existing geometry streaming owner. */
+  retainQueryGeometry(command?: ShadeGPUCommandContext): GeometryQueryGeometryLease {
+    const descriptor = this.#descriptor;
+    const section = validateGeometryProductQuerySection(descriptor);
+    const pageIds: number[] = [];
+    const unique = new Set<number>();
+    for (let asset = 0; asset < section.assetCount; asset++) {
+      const at = section.assets + asset * 32;
+      const begin = section.view.getUint32(at + 16, true);
+      const count = section.view.getUint32(at + 20, true);
+      for (let index = 0; index < count; index++) {
+        const pageId = section.view.getUint32(section.minimumPages + (begin + index) * 4, true);
+        if (!unique.has(pageId)) {
+          unique.add(pageId);
+          pageIds.push(pageId);
+        }
+      }
+    }
+    const layout = metadataLayout(descriptor, this.#productTableSlot);
+    const queryOffset = align16(layout.byteLength);
+    const prefixOffset = align16(queryOffset + descriptor.querySection.byteLength);
+    const cutCount = section.view.getUint32(64, true);
+    const prefix = new Uint32Array(cutCount + 1);
+    let primitiveCount = 0;
+    for (let cut = 0; cut < cutCount; cut++) {
+      prefix[cut] = primitiveCount;
+      const cluster = section.view.getUint32(section.minimumCut + cut * 4, true);
+      primitiveCount += section.view.getUint32(section.clusters + cluster * 80 + 12, true);
+      if (!Number.isSafeInteger(primitiveCount) || primitiveCount >= 0xffffffff) {
+        throw new RangeError("Complete query triangle identity exceeds u32 capacity");
+      }
+    }
+    prefix[cutCount] = primitiveCount;
+    const queryAssets = Object.freeze(Array.from({ length: section.assetCount }, (_, asset) => {
+      const at = section.assets + asset * 32;
+      const cutBegin = section.view.getUint32(at + 8, true);
+      const count = section.view.getUint32(at + 12, true);
+      return Object.freeze({ cutBegin, cutCount: count, primitiveBegin: prefix[cutBegin]!,
+        primitiveCount: prefix[cutBegin + count]! - prefix[cutBegin]! });
+    }));
+    const bytes = align16(prefixOffset + prefix.byteLength);
+    if (bytes > Math.min(this.device.limits.maxBufferSize, this.device.limits.maxStorageBufferBindingSize)) {
+      throw new RangeError("Complete query geometry directory exceeds the negotiated binding limit");
+    }
+    const pages = this.retainQueryPages(pageIds, command);
+    let metadata: GPUBuffer | undefined;
+    let releaseBudget: (() => void) | undefined;
+    try {
+      releaseBudget = reserveGeometryProductMetadataBytes(this.device, bytes);
+      const contents = new Uint8Array(bytes);
+      contents.set(buildMetadataHeap(descriptor, layout, this.#productGeneration,
+        this.#productTableSlot, descriptor.assetRecords.byteLength / 128, pages.banks[0]!.size));
+      const view = new DataView(contents.buffer);
+      view.setUint32(12, bytes / 4, true);
+      view.setUint32(layout.productRecord + 4, GEOMETRY_PRODUCT_TABLE_FLAG_ACTIVE_V1, true);
+      for (const page of pages.pages) {
+        contents.set(encodeGeometryProductGpuLocationV1(page.location),
+          layout.pageLocations + page.pageId * GEOMETRY_PAGE_LOCATION_STRIDE);
+      }
+      contents.set(descriptor.querySection, queryOffset);
+      contents.set(new Uint8Array(prefix.buffer), prefixOffset);
+      metadata = this.device.createBuffer({
+        label: "Geometry immutable query directory",
+        size: bytes,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+        mappedAtCreation: true,
+      });
+      new Uint8Array(metadata.getMappedRange()).set(contents);
+      metadata.unmap();
+    } catch (error) {
+      metadata?.destroy();
+      releaseBudget?.();
+      pages.release();
+      throw error;
+    }
+    const buffer = metadata;
+    const releaseReservation = releaseBudget;
+    let released = false;
+    let poisoned = false;
+    const release = (): void => {
+      if (released || (poisoned && !this.#queryTeardown)) {
+        return;
+      }
+      released = true;
+      this.#queryLeaseReleases.delete(release);
+      buffer.destroy();
+      releaseReservation();
+      pages.release();
+    };
+    this.#queryLeaseReleases.add(release);
+    command?.observeSubmission({
+      submitted: (fence) => {
+        void fence.catch(() => {
+          poisoned = true;
+        });
+      },
+      aborted: release,
+      failed: () => {
+        poisoned = true;
+      },
+    });
+    return Object.freeze({
+      get valid() { return !released && pages.valid; },
+      productTableSlot: pages.productTableSlot,
+      productGeneration: pages.productGeneration,
+      bindingEpoch: pages.bindingEpoch,
+      banks: pages.banks,
+      pages: pages.pages,
+      metadata: buffer,
+      assetReferenceBegin: this.#pageLocationSink?.assetReferenceBegin(
+        this.#productTableSlot, this.#productGeneration) ?? 0,
+      metadataByteLength: bytes,
+      querySectionWordOffset: queryOffset / 4,
+      queryTrianglePrefixWordOffset: prefixOffset / 4,
+      queryPrimitiveCount: primitiveCount,
+      queryAssets,
+      release,
+      releaseAfter: async (completion: PromiseLike<void>): Promise<void> => {
+        // Failed completion must retain both metadata and geometry. The page
+        // lease also records the failure for validity and retirement evidence.
+        try {
+          await completion;
+        } catch (error) {
+          poisoned = true;
+          await pages.releaseAfter(Promise.reject(error));
+          throw error;
+        }
+        release();
+      },
+    });
+  }
   /** Drops all GPU allocations after device loss while retaining the Product source. */
   abandonForDeviceLoss(): void {
-    if (this.#destroyed) return;
+    this.#queryTeardown = true;
+    if (this.#destroyed) {
+      for (const release of this.#queryLeaseReleases) {
+        release();
+      }
+      return;
+    }
     this.#candidateState?.command.abort(new Error("Geometry device epoch abandoned"));
     this.#activePublication = false;
     this.publicationChanged.emit("destroyed");
     this.publicationChanged.clear();
+    for (const release of this.#queryLeaseReleases) {
+      release();
+    }
     this.#destroyGpuResources();
     this.#destroyed = true;
   }
@@ -942,23 +1253,28 @@ export class VirtualGeometryResidency {
       influences: [...influences.values()]
     };
     this.#candidateState = candidate;
-    command.onAborted.addOne(() => {
-      if (this.#candidateState === candidate) this.#candidateState = undefined;
-    });
-    command.onFinished.addOne(() => {
-      this.#commitPublication(candidate);
-      if (retiring.length > 0) {
-        void command.gpuDone.then(
-          () => {
-            if (this.#destroyed) return;
-            for (const pageId of retiring) this.#completeRetirePage(pageId);
-          },
-          (error: unknown) => {
-            // A rejected fence never authorizes reuse, even before device.lost.
-            this.#retirementError = String(error);
-          }
-        );
-      }
+    command.observeSubmission({
+      aborted: () => {
+        if (this.#candidateState === candidate) this.#candidateState = undefined;
+      },
+      failed: (error) => {
+        this.#retirementError = String(error);
+      },
+      submitted: (fence) => {
+        this.#commitPublication(candidate);
+        if (retiring.length > 0) {
+          void fence.then(
+            () => {
+              if (this.#destroyed) return;
+              for (const pageId of retiring) this.#completeRetirePage(pageId);
+            },
+            (error: unknown) => {
+              // A rejected fence never authorizes reuse, even before device.lost.
+              this.#retirementError = String(error);
+            },
+          );
+        }
+      },
     });
     // Hooks already own rollback if encoding throws after some copies.
     command.uploadRegions(regions);
@@ -1063,6 +1379,11 @@ export class VirtualGeometryResidency {
   #completeRetirePage(pageId: number): void {
     this.#assertPageId(pageId);
     if (!this.#retiringLocations.has(pageId)) return;
+    this.#completedRetirements.add(pageId);
+    if (this.#queryPages.has(pageId)) {
+      return;
+    }
+    this.#completedRetirements.delete(pageId);
     this.#retiringLocations.delete(pageId);
     this.#bytePool!.release(this.#pageLeases.get(pageId)!);
     this.#pageLeases.delete(pageId);
@@ -1088,6 +1409,12 @@ export class VirtualGeometryResidency {
     const residentBytes = this.#pagePhysicalBytes(this.#pageLocations);
     const residentPayloadBytes = this.#payloadBytes(this.#pageLocations);
     return Object.freeze({
+      querySnapshots: this.#queryLeaseReleases.size,
+      queryPages: this.#queryPages.size,
+      queryRetainedBytes: [...this.#queryPages.values()].reduce(
+        (bytes, record) => bytes + record.allocation.allocatedBytes,
+        0,
+      ),
       residencyProfile: this.#residencyProfile.profile,
       profileBankBytes: this.#residencyProfile.bankBytes,
       profileCapacityBytes: this.#residencyProfile.capacityBytes,
@@ -1388,6 +1715,9 @@ export class VirtualGeometryResidency {
   destroy(): void {
     if (this.#destroyed) return;
     this.#candidateState?.command.abort(new Error("Geometry residency destroyed"));
+    // A growth-only command can own query leases even without a page-table
+    // candidate. Settle its abort before walking the allocation ownership map.
+    this.#bytePool?.abortPendingFrame(new Error("Geometry residency destroyed"));
     this.#destroyed = true;
     this.#activePublication = false;
     this.publicationChanged.emit("destroyed");
@@ -1396,9 +1726,15 @@ export class VirtualGeometryResidency {
     this.#source.release();
   }
   #destroyGpuResources(): void {
-    this.#bytePool?.abortPendingFrame(new Error("Geometry residency ownership ended during capacity encoding"));
+    this.#bytePool?.abortPendingFrame(
+      new Error("Geometry residency ownership ended during capacity encoding"),
+    );
     this.#removePoolListener?.();
-    for (const lease of this.#pageLeases.values()) { this.#bytePool!.release(lease); }
+    for (const [pageId, lease] of this.#pageLeases) {
+      if (!this.#queryPages.has(pageId)) {
+        this.#bytePool!.release(lease);
+      }
+    }
     this.#bytePool?.releaseOwner();
     this.#bytePool = undefined;
     this.#metadata?.destroy();
@@ -1411,6 +1747,7 @@ export class VirtualGeometryResidency {
     this.#refineInfluence.clear();
     this.#retiringLocations.clear();
     this.#requestedRetirements.clear();
+    this.#completedRetirements.clear();
     this.#groupLocations.clear();
     this.#pageLeases.clear();
     this.#pagePayloadBytes.clear();

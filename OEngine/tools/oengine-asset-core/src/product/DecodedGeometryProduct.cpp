@@ -4,6 +4,7 @@
 #include "oengine_asset/OegPackCodec.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <iterator>
 #include <limits>
@@ -58,6 +59,116 @@ struct PendingPage {
     bool bootstrap = false;
 };
 
+/** Query section V2 is a descriptor index over the same decoded page bytes.
+ * Coarse simplification has no coverage proof, so the minimum guaranteed cut
+ * contains every refinement leaf. No simplified hull is labelled exact. */
+std::vector<std::uint8_t> BuildQuerySection(
+    const DecodedGeometryProductPlanV1& product,
+    const std::vector<SerializedGroupV3>& groups,
+    const Hash256& recipeHash) {
+    constexpr std::uint32_t headerBytes = 128u;
+    constexpr std::uint32_t assetStride = 32u;
+    constexpr std::uint32_t clusterStride = 80u;
+    std::vector<std::uint32_t> groupBegins(groups.size() + 1u, 0u);
+    for (std::size_t group = 0u; group < groups.size(); ++group) {
+        GroupHeaderV3 header{};
+        DecodeRecordV3(groups[group].bytes.data(), &header);
+        if (header.meshletCount == 0u || header.meshletCount > 128u ||
+            std::uint64_t(header.meshletHeaderOffset) +
+                std::uint64_t(header.meshletCount) * sizeof(MeshletHeaderV3) > groups[group].bytes.size()) {
+            throw std::runtime_error("query source has an invalid meshlet range");
+        }
+        const auto next = std::uint64_t(groupBegins[group]) + header.meshletCount;
+        if (next >= kInvalidId) throw std::runtime_error("query cluster identity exhausted");
+        groupBegins[group + 1u] = std::uint32_t(next);
+    }
+    std::vector<std::uint32_t> children, roots, minimum, pages;
+    std::vector<std::array<std::uint32_t, 8>> assets;
+    std::vector<std::array<std::uint32_t, 20>> clusters;
+    clusters.reserve(groupBegins.back());
+    const auto floatBits = [](float value) {
+        if (!std::isfinite(value)) throw std::runtime_error("query source bounds/error are non-finite");
+        std::uint32_t bits;
+        std::memcpy(&bits, &value, sizeof(bits));
+        return bits;
+    };
+    for (std::uint32_t assetId = 0u; assetId < product.assets.size(); ++assetId) {
+        const auto& asset = product.assets[assetId];
+        const auto rootBegin = std::uint32_t(roots.size());
+        const auto cutBegin = std::uint32_t(minimum.size());
+        const auto pageBegin = std::uint32_t(pages.size());
+        std::vector<std::uint32_t> assetPages;
+        for (std::uint32_t groupId = asset.groupBegin;
+             groupId < asset.groupBegin + asset.groupCount; ++groupId) {
+            const auto& source = groups[groupId];
+            const auto& directory = product.groups[groupId];
+            GroupHeaderV3 header{};
+            DecodeRecordV3(source.bytes.data(), &header);
+            for (std::uint32_t meshletId = 0u; meshletId < header.meshletCount; ++meshletId) {
+                MeshletHeaderV3 meshlet{};
+                DecodeRecordV3(source.bytes.data() + header.meshletHeaderOffset +
+                    meshletId * sizeof(meshlet), &meshlet);
+                const auto clusterId = groupBegins[groupId] + meshletId;
+                if (clusterId != clusters.size()) throw std::runtime_error("query asset group ranges overlap");
+                const auto childBegin = std::uint32_t(children.size());
+                const bool leaf = meshlet.refineGroupId == kInvalidId;
+                if (!leaf) {
+                    if (meshlet.refineGroupId < asset.groupBegin ||
+                        meshlet.refineGroupId >= asset.groupBegin + asset.groupCount) {
+                        throw std::runtime_error("query refinement escapes its asset");
+                    }
+                    for (auto child = groupBegins[meshlet.refineGroupId];
+                         child < groupBegins[meshlet.refineGroupId + 1u]; ++child) {
+                        children.push_back(child);
+                    }
+                }
+                if (source.flags & kGroupBootstrap) roots.push_back(clusterId);
+                if (leaf) {
+                    minimum.push_back(clusterId);
+                    assetPages.push_back(directory.pageId);
+                }
+                // All unproven coarse surfaces are coverage-critical. Error
+                // class 0 is exact leaf; class 1 is approximate raster geometry.
+                const auto flags = (leaf ? 1u : 2u) | 4u;
+                clusters.push_back({
+                    directory.pageId, groupId, meshletId, meshlet.triangleCount,
+                    meshlet.materialId, header.vertexFormatId, flags, assetId,
+                    floatBits(meshlet.bboxMin[0]), floatBits(meshlet.bboxMin[1]), floatBits(meshlet.bboxMin[2]),
+                    floatBits(meshlet.bboxMax[0]), floatBits(meshlet.bboxMax[1]), floatBits(meshlet.bboxMax[2]),
+                    floatBits(leaf ? 0.0f : header.parentError), childBegin,
+                    std::uint32_t(children.size()) - childBegin, header.lodLevel, 0u, 0u});
+            }
+        }
+        std::sort(assetPages.begin(), assetPages.end());
+        assetPages.erase(std::unique(assetPages.begin(), assetPages.end()), assetPages.end());
+        pages.insert(pages.end(), assetPages.begin(), assetPages.end());
+        assets.push_back({rootBegin, std::uint32_t(roots.size()) - rootBegin,
+            cutBegin, std::uint32_t(minimum.size()) - cutBegin,
+            pageBegin, std::uint32_t(pages.size()) - pageBegin, 0u, 0u});
+    }
+    const std::uint64_t total = headerBytes + assets.size() * assetStride +
+        clusters.size() * clusterStride + 4u * (children.size() + roots.size() + minimum.size() + pages.size());
+    if (total >= kInvalidId) throw std::runtime_error("query section exceeds u32 byte addressing");
+    std::vector<std::uint8_t> bytes(std::size_t(total), 0u);
+    const auto put = [&](std::size_t at, std::uint32_t value) { EncodeRecordV3(bytes.data() + at, value); };
+    put(0u, 0x3251474fu); // OGQ2
+    put(4u, 2u); put(8u, headerBytes); put(12u, std::uint32_t(total));
+    std::copy(recipeHash.begin(), recipeHash.end(), bytes.begin() + 16u);
+    const std::size_t counts[] = {assets.size(), clusters.size(), children.size(), roots.size(), minimum.size(), pages.size()};
+    for (std::size_t i = 0u; i < 6u; ++i) put(48u + i * 4u, std::uint32_t(counts[i]));
+    std::uint32_t cursor = headerBytes;
+    put(72u, cursor);
+    for (const auto& asset : assets) for (auto word : asset) { put(cursor, word); cursor += 4u; }
+    put(76u, cursor);
+    for (const auto& cluster : clusters) for (auto word : cluster) { put(cursor, word); cursor += 4u; }
+    const std::vector<std::uint32_t>* tables[] = {&children, &roots, &minimum, &pages};
+    for (std::size_t i = 0u; i < 4u; ++i) {
+        put(80u + i * 4u, cursor);
+        for (auto word : *tables[i]) { put(cursor, word); cursor += 4u; }
+    }
+    return bytes;
+}
+
 std::uint64_t AlignUp64(std::uint64_t value, std::uint64_t alignment) {
     return (value + alignment - 1u) & ~(alignment - 1u);
 }
@@ -111,6 +222,10 @@ DecodedGeometryProductPlanV1 PackDecodedGeometryProductV1(
     if (cooked.empty()) throw std::runtime_error("decoded Geometry Product has no assets");
 
     DecodedGeometryProductPlanV1 product;
+    const auto recipeHash = cooked.front().recipeHash;
+    for (const auto& asset : cooked) {
+        if (asset.recipeHash != recipeHash) throw std::runtime_error("query Product mixes cook recipes");
+    }
     std::vector<SerializedGroupV3> serializedGroups;
     std::vector<std::vector<std::uint32_t>> assetBootstrapPages(cooked.size());
     for (std::size_t assetIndex = 0u; assetIndex < cooked.size(); ++assetIndex) {
@@ -267,6 +382,7 @@ DecodedGeometryProductPlanV1 PackDecodedGeometryProductV1(
             throw std::runtime_error("asset has no complete bootstrap page cut");
         }
     }
+    product.querySection = BuildQuerySection(product, serializedGroups, recipeHash);
     if (retainedGroups) *retainedGroups = std::move(serializedGroups);
     return product;
 }
@@ -354,6 +470,7 @@ DecodedGeometryProductV1 AssembleDecodedGeometryProductV1(
             MaterializeDecodedGeometryPageV1(plan, retained, pageId));
     }
     DecodedGeometryProductV1 product;
+    product.querySection = std::move(plan.querySection);
     product.assets = std::move(plan.assets);
     product.roots = std::move(plan.roots);
     product.hierarchy = std::move(plan.hierarchy);

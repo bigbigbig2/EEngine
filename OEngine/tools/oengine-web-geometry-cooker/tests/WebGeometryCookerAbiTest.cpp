@@ -54,7 +54,7 @@ std::vector<std::uint8_t> Recipe() {
     std::vector<std::uint8_t> bytes(96u, 0u);
     const std::uint8_t magic[8] = {'O','E','W','G','R','C','P',0};
     std::copy(magic, magic + 8u, bytes.begin());
-    U32(bytes, 8u, 4u); U32(bytes, 12u, 96u);
+    U32(bytes, 8u, 5u); U32(bytes, 12u, 96u);
     U32(bytes, 16u, 64u); U32(bytes, 20u, 32u); U32(bytes, 24u, 128u);
     U32(bytes, 28u, 32u); F32(bytes, 32u, 0.0f); F32(bytes, 36u, 2.0f);
     F32(bytes, 40u, 0.5f); F32(bytes, 44u, 0.51f); F32(bytes, 48u, 0.85f);
@@ -83,7 +83,7 @@ std::vector<std::uint8_t> CanonicalCube() {
     std::vector<std::uint8_t> bytes(totalBytes, 0u);
     const std::uint8_t magic[8] = {'O','E','W','G','C','A','N',0};
     std::copy(magic, magic + 8u, bytes.begin());
-    U32(bytes, 8u, 4u); U32(bytes, 12u, 128u); U32(bytes, 16u, totalBytes);
+    U32(bytes, 8u, 5u); U32(bytes, 12u, 128u); U32(bytes, 16u, totalBytes);
     U32(bytes, 20u, 1u); U32(bytes, 24u, positions.size()); U32(bytes, 28u, indices.size());
     U32(bytes, 32u, domainOffset); U32(bytes, 36u, vertexOffset); U32(bytes, 40u, indexOffset);
     U32(bytes, 44u, 72u); U32(bytes, 48u, 48u);
@@ -127,7 +127,7 @@ std::vector<std::uint8_t> CanonicalDomains(std::size_t domainCount, std::size_t 
     std::vector<std::uint8_t> bytes(totalBytes, 0u);
     const std::uint8_t magic[8] = {'O','E','W','G','C','A','N',0};
     std::copy(magic, magic + 8u, bytes.begin());
-    U32(bytes, 8u, 4u); U32(bytes, 12u, 128u); U32(bytes, 16u, totalBytes);
+    U32(bytes, 8u, 5u); U32(bytes, 12u, 128u); U32(bytes, 16u, totalBytes);
     U32(bytes, 20u, std::uint32_t(domainCount)); U32(bytes, 24u, std::uint32_t(vertexCount)); U32(bytes, 28u, std::uint32_t(indexCount));
     U32(bytes, 32u, domainOffset); U32(bytes, 36u, vertexOffset); U32(bytes, 40u, indexOffset);
     U32(bytes, 44u, 72u); U32(bytes, 48u, 48u);
@@ -584,15 +584,15 @@ int main() {
     AssertSurfaceMetadataAndPageCapacity();
     AssertMeshletSeamsAndTerminalLod();
     AssertPageIdentityRollup();
-    assert(oengine_web_geometry_cook_abi_version() == 4u);
+    assert(oengine_web_geometry_cook_abi_version() == 5u);
     const std::vector<std::uint8_t> canonical = CanonicalCube();
     const std::vector<std::uint8_t> recipe = Recipe();
     // Golden freeze of the fixture encoding itself: these digests pin the exact
     // recipe/canonical byte layout (including the ABI version word) so that any
     // accidental edit to the fixture is caught before it can mask a real
     // regression in the cooker.
-    assert(Hex(Sha256(canonical)) == "42ffddba014ade5290d35792dcac6076a9982962478adc2ef5c8e324395f9267");
-    assert(Hex(Sha256(recipe)) == "61f1571d3522c03be8950124a6c68b6c72d9ed5a39e6ba9dae695d293d042bc4");
+    assert(Hex(Sha256(canonical)) == "b96aec835032c109c3f8e31bc3502b7aa31a9538ad91ccddc0af78198961eec8");
+    assert(Hex(Sha256(recipe)) == "9ae515cf9bed32916876850524fd7b3846d2ab98f498b1790116c4b109d90acf");
     AssertTwoPhaseParity(canonical, recipe);
     AssertWindowedBuilderParity(recipe);
     const std::uintptr_t first = oengine_web_geometry_cook(

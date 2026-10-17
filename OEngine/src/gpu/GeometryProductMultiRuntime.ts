@@ -1147,9 +1147,15 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
             bytes: new Uint8Array(new Uint32Array([bankBytes]).buffer),
           },
         ]);
-        command.onFinished.addOne(() => {
-          this.#bankHeaderBytes = bankBytes;
-          this.settleCapacity();
+        command.observeSubmission({
+          submitted: () => {
+            this.#bankHeaderBytes = bankBytes;
+            this.settleCapacity();
+          },
+          aborted: () => {},
+          failed: (error) => {
+            this.#lastError = String(error);
+          },
         });
       }
       return;
@@ -1173,40 +1179,45 @@ export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocatio
     const previous = this.#metadata;
     const previousRelease = this.#releaseMetadataReservation;
     this.#metadataCandidate = candidate;
-    command.onAborted.addOne(() => {
-      if (this.#metadataCandidate === candidate) {
+    command.observeSubmission({
+      aborted: () => {
+        if (this.#metadataCandidate === candidate) {
+          this.#metadataCandidate = undefined;
+          candidate.release();
+          this.settleCapacity();
+        }
+      },
+      failed: (error) => {
+        this.#lastError = String(error);
+      },
+      submitted: (fence) => {
+        if (this.#metadataCandidate !== candidate) {
+          throw new Error("Geometry metadata lost its capacity candidate");
+        }
+        this.applyMetadataCapacity(candidate.layout, candidate.slots);
+        this.#metadata = candidate.buffer;
+        this.#releaseMetadataReservation = candidate.release;
         this.#metadataCandidate = undefined;
-        candidate.release();
+        this.#growthRequest = undefined;
+        this.#metadataEpoch = candidate.epoch;
+        this.#bankHeaderBytes = bankBytes;
+        const retire = () => {
+          previous.destroy();
+          previousRelease();
+        };
+        this.#retiredMetadata.add(retire);
         this.settleCapacity();
-      }
-    });
-    command.onFinished.addOne(() => {
-      if (this.#metadataCandidate !== candidate) {
-        throw new Error("Geometry metadata lost its capacity candidate");
-      }
-      this.applyMetadataCapacity(candidate.layout, candidate.slots);
-      this.#metadata = candidate.buffer;
-      this.#releaseMetadataReservation = candidate.release;
-      this.#metadataCandidate = undefined;
-      this.#growthRequest = undefined;
-      this.#metadataEpoch = candidate.epoch;
-      this.#bankHeaderBytes = bankBytes;
-      const retire = () => {
-        previous.destroy();
-        previousRelease();
-      };
-      this.#retiredMetadata.add(retire);
-      this.settleCapacity();
-      void command.gpuDone.then(
-        () => {
-          if (this.#retiredMetadata.delete(retire)) {
-            retire();
-          }
-        },
-        (error: unknown) => {
-          this.#lastError = String(error);
-        },
-      );
+        void fence.then(
+          () => {
+            if (this.#retiredMetadata.delete(retire)) {
+              retire();
+            }
+          },
+          (error: unknown) => {
+            this.#lastError = String(error);
+          },
+        );
+      },
     });
     const old = this.#metadataLayout;
     for (const [field, bytes] of [

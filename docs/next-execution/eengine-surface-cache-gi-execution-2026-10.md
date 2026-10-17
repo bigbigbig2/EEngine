@@ -19,7 +19,7 @@ verifies:
 
 唯一详细设计为[SCGI设计](../next-design/eengine-surface-cache-gi-2026-10.md)。需求输入为[母稿](../reviews/EEngine_Surface_Cache_GI_WebGPU_Mother_Design_2026-10-17.md)；设计§17逐项映射母稿，设计§1列明勘误。本文件是细单元状态与实施结果唯一记录，workstream和粗执行不复制细状态。
 
-**当前已实施SCGI-1资源/事务、SCGI-3稀疏cache及SCGI-4 anchor/seed基础闭包，生产GI仍未开启。** 当前授权为复核前置缺项并完成SCGI-4；SCGI-2共享查询几何/形变publication仍未闭合，SCGI-4不能据基础fixture关单，详见§7.6。按完整目标推进，不把阶段产物宣布为完整GI。每个单元结束记录实际验证；大模块结束停在下一模块边界，不自动继续Local Specular Cache/ReSTIR等。
+**SCGI-1与SCGI-3已闭合；SCGI-2、SCGI-4、SCGI-5均未闭合，生产GI未开启。** 用户2026-10-17授权先提交现有阶段实现，再补齐不可后移的SCGI-2前置、关闭SCGI-4，最后完成SCGI-5剩余机制与整体验收。不得用静态/局部fixture替代共享形变及完整coverage；本次阶段保存不代表任一未闭合单元完成，实际范围见§7.7。大模块结束停在下一模块边界，不自动继续Local Specular Cache/ReSTIR等。
 
 ## 1. 完整范围、依赖与生产切换
 
@@ -29,7 +29,7 @@ verifies:
 | SCGI-2 | GeometryProduct query section、coverage cut、residency、共享变形publication | 1 | 实施中，未关单 |
 | SCGI-3 | cascaded sparse cache、ring/scroll/evict/defrag/rank | 1 | 已完成，见§7.5 |
 | SCGI-4 | half-res anchors、共享identity、screen history seed | 2、3 | 基础闭包已实施并验证；SCGI-2前置与动态有效路径未齐，未关单，见§7.6 |
-| SCGI-5 | 完整RadeonRays算法适配、query、material/alpha/VT | 1、2 | 待实施 |
+| SCGI-5 | 完整RadeonRays算法适配、query、material/alpha/VT | 1、2 | 实施中，未关单；先返工SCGI-2及SCGI-4，见§7.7 |
 | SCGI-6 | 全光源估计、punctual重连接、multi-bounce | 3、4、5 | 待实施 |
 | SCGI-7 | 统计、动态失效、A0/A1/A2过滤、L1 screen field | 6 | 待实施 |
 | SCGI-8 | FrameProgram+Native全部route原子接线、旧owner退休 | 1–7 | 待实施 |
@@ -531,3 +531,24 @@ R32/C4/K65536/Q8192/B8192/U4096、7×5 screen真实hardware fixture分配117,033
 **失败与未运行项。** 保留anchor-initial及02～14等原始结果：WGSL生成括号、float sourcePixel NaN表示、exact-zero motion断言分别修正为有效WGSL、u32 source和有独立投影依据的1e-7 f32比较；Product fixture错误使用global group0、mappedRange重叠为fixture错误，修正确实输入/映射调用后重跑。审查同时修正真实Product身份global group地址依赖。transaction旧device-loss fixture未请求新mixed geometry所需storage limits，quality旧wrapper未prepare异步PSO，均保留失败并只修fixture准备。SCGI-2完整共享deformation有效路径及raster/VSM/query位置一致性、coverage/lease原子迁移未验证也未实现；真实skin/morph动态场景全组合尚未形成本单元完整证据，故未关单。完整GI画面/estimator/filter、默认生产接线及最终Renderer画质/性能不在本轮宣布完成。
 
 提交前文档检查：工作区`docs-verify`为0 findings/66 historical warnings，暂存区`--staged`为0 findings/81 historical warnings；保留历史引用警告。`git diff --cached --check`通过。
+
+### 7.7 SCGI-2/5阶段实现保存与返工顺序（2026-10-17，均未关单）
+
+**授权与边界。** 用户在核对未闭合现状后要求提交当前代码，再按SCGI-2→SCGI-4→SCGI-5顺序完成。此记录是可追溯的中间提交，不是完成声明。§7.6关于schema1、无query section/lease的描述保留为当时快照，现状由本节替代；共享skin/morph缺项仍成立。默认生产GI不在SCGI-8之前开启。
+
+**实际实现。** GeometryProduct新增OGQ2 v2 query section，完整leaf cut引用原始page/meshlet与顶点索引bank；原生、portable及pthread cooker输出该section，Product schema2、binary v2、OEGPACK 3.1、Web cooker ABI5同步。query pin精确page和物理byte-bank，metadata快照单独持有；失败fence隔离租约。GpuScene query snapshot共享一份176B实例与16B lineage副本，同mutation command可读取扩容后的候选表/新增槽位，mutation serial阻止abort后的ABA；Native prepared material也限定同frame command。刚体transform patch不再误写deformation revision。
+
+`ScgiBvhBuild`/`scgi_bvh_build`实现bounds/Morton、稳定4-bit radix八轮、hierarchical scan、Karras重复key拓扑、parent jumping/depth分类、异常深度balanced rescue、分层refit和七叶frontier subset-DP treelet SAH，重排后重建links/levels/refit。`ScgiQueryScene`从现有RenderWorld/Product/native material建立不可变候选；`ScgiQueryTraversal/Batch/HitWork`包含shard归并、native coverage bins、等t稳定cursor、K轮后同提交完整coverage tail、64B parent continuation和diffuse/emissive projection。query consumers显式登记，退休等待全部已编码consumer，包括尚未提交者；失败submission隔离整个共享闭包。不是独立renderer，没有新增submit或本帧readback工作控制。
+
+**尚未完成，不能后移到最终性能验收。**
+
+1. SCGI-2：共享skin/morph current/previous position、normal、tangent、bounds publication及raster/VSM/query/anchor一致消费；fine/coarse/guard coverage cut、query domain和streaming调度；完整动态page迁移验收。当前全leaf cut和全域unknown检测不冒充完整coverage机制。
+2. SCGI-4：在上述真实动态publication上验证有效anchor/seed，不以拒绝动态history当完成。
+3. SCGI-5：静态BLAS复用、GPU dirty/refit/restructure/rebuild策略；实例compaction/分段TLAS与共享变换；独立低优先VT feedback、公平admission、mapping generation；single/back-side和inside语义；GPU ray worklist/count、tail pending压缩及dispatch成本控制；完整descriptor路线与随机/极端brute-force oracle、build/refit/trace成本验收。原生query结构验证仍需对齐TS，不只有range检查。
+4. 当前tail数学上界仍按容量编码多次dispatch，node quantum避免单dispatch无限工作，但没有解决CPU编码长尾；有界不代表成本验收通过。pipeline cache、batch独立计账和新增源码可读性仍需整理。
+
+**阶段Cost Card（理论，非benchmark）。** node64B+links8B，header64B/shard；source snapshot为192B×high-water，当前query affine128B×high-water×shard，后者重复成本尚待消除。batch continuation64B/ray，work48B/result32B/payload32B另计；三个packed worklists各约4B/ray加32B/bin、分层scan及独立indirect。完整顶点/索引/纹理不复制，保留的原bank/page/texture工作集及retiring峰值仍计原owner；query metadata、AS、scratch另计。Scene maximumBytes包含本owner AS/scratch/实例/目录，不是整renderer预算。Morton/radix/level/treelet各有dispatch边界，parent traversal产生随机node/geometry访问；alpha按bin/shard重访与tail worst dispatch须单独测，不能只报新ray数。
+
+**已验证范围。** 阶段日志`.local/validation/scgi-5-contract-regression-02.txt`为157/157；之后修复刚体deformation provenance的合同25/25，最后同command快照相关合同`scgi-5-candidate-snapshot-contract-01.txt`为23/23，fresh build:test通过。GPU局部记录包括`scgi-5-final-consumer-production-gpu-01.json`：真实RenderWorld两Product、10shards/4bins、alpha/query输出、abort/retry及未提交final consumer退休；`scgi-5-continuation-abi-query-gpu-01.json`和transaction同名记录覆盖quantum续跑与ABI回归。portable/subgroup、重复keys、深度rescue及refit已有局部GPU验证。各结果只证明其运行revision的覆盖范围，不等同最新全部改动的集中验收。之前合同cwd错误、旧租约断言、fixture DataView范围错误、WGSL/TS编译错误保留原失败记录，修复后重跑对应项，不放宽算法断言。
+
+**未运行/未闭合。** 本次保存前不宣称最新全量build/完整GPU回归、skin/morph动态、完整VT/coverage、满绑定和最终成本通过；AAA GI画面尚不存在。阶段源码还不能作为SCGI-2/4/5稳定完成边界。后续必须先完成第1项，再第2项，最后第3/4项并集中验收；不能继续启动SCGI-6。

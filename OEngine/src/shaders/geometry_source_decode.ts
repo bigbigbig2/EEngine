@@ -11,7 +11,10 @@ import { GEOMETRY_VERTEX_DATA_TYPE_CODE as T } from "../assets/GeometryAssetPack
 /** Selected meshlet-local vertices once per frame; ordinary decode is the
  * published Geometry ABI; Product attributes are decoded directly on the GPU
  * from the raw 256 KiB page slot in the shared four-bank page owner. */
-export function frameGeometrySourceWgsl(product: boolean, perInvocation = false): string {
+export function frameGeometrySourceWgsl(product: boolean, perInvocation = false, directProduct = false): string {
+  if (directProduct && !product) {
+    throw new Error("Direct Product decode requires Product geometry");
+  }
   const sources = product
     ? /* wgsl */ `
 ${VIRTUAL_GEOMETRY_PRODUCT_WGSL}
@@ -60,14 +63,13 @@ fn frame_vertex_load_format(word: u32) {
   source_format1 = product_heap[word + 1u];
   source_format2 = product_heap[word + 2u];
 }
-fn frame_vertex_load_source(work: OEngineMeshletRasterWork) -> vec2u {
-  let asset = oengine_geometry_product_resolve_asset_v1(&product_heap, work.geometry_slot,
-    oengine_instance_geometry_generation(frame_instances[work.instance_slot].source));
-  let group = oengine_virtual_group_v1(&product_heap, asset, work.meshlet_slot >> 7u);
+fn frame_vertex_load_product(asset: OEngineGeometryProductResolvedAssetV1,
+    group_id: u32, local_meshlet: u32) -> vec2u {
+  let group = oengine_virtual_group_v1(&product_heap, asset, group_id);
   let location = oengine_geometry_product_lookup_page_heap_v1(&product_heap, asset, group.page_id);
   if !asset.valid || !group.valid || !location.valid || location.bank_index >= 4u { return vec2u(0u); }
   let header = frame_vertex_group_header(location, group);
-  let meshlet = frame_vertex_meshlet_header(location, group, header, work.meshlet_slot & 127u);
+  let meshlet = frame_vertex_meshlet_header(location, group, header, local_meshlet);
   if !header.valid || !meshlet.valid || header.vertex_format_id >= asset.vertex_format_count { return vec2u(0u); }
   source_bank = location.bank_index;
   source_triangle_byte = location.byte_offset + group.offset_in_page + meshlet.triangle_byte_offset;
@@ -75,6 +77,12 @@ fn frame_vertex_load_source(work: OEngineMeshletRasterWork) -> vec2u {
   frame_vertex_load_format(asset.vertex_format_word_offset + header.vertex_format_id * 4u);
   return vec2u(meshlet.vertex_count, meshlet.triangle_count);
 }
+${directProduct ? "" : /* wgsl */ `
+fn frame_vertex_load_source(work: OEngineMeshletRasterWork) -> vec2u {
+  let asset = oengine_geometry_product_resolve_asset_v1(&product_heap, work.geometry_slot,
+    oengine_instance_geometry_generation(frame_instances[work.instance_slot].source));
+  return frame_vertex_load_product(asset, work.meshlet_slot >> 7u, work.meshlet_slot & 127u);
+}`}
 fn frame_vertex_position(vertex: u32) -> vec3f {
   let stride = source_format0 & 0xffffu;
   let pos_offset = source_format1 & 0xffu;

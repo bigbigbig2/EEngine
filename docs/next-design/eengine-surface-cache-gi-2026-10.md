@@ -589,7 +589,7 @@ half field/history是**逻辑完整、物理可分片**的112H产品：按线性
 | RayWork | 48B | origin+tMin16、direction+tMax16、rayId/mask/queryKind/snapshotGeneration16 |
 | Result | 32B | t/bary.x/bary.y/status16、instanceViewId/primitiveId/geometryGeneration/frontFaceFlags16 |
 | Payload | 32B | patch slot/generation/cohort/sampleId16、PDF bits/pathClass/lightSample/flags16 |
-| Continuation | 64B/ray + optional spill | 0 shard/tlasNode/tlasReturn/instance；16 blasNode/blasReturn/phase/visitSerial；32 bestT/bestInstance/bestPrimitive/bestStatus；48 candidateRef/candidateT/binCursor/stackCursor；各组16B，完整spill另计。变换从instance读取，TLAS/BLAS不能覆盖彼此返回位置 |
+| Continuation | 64B/ray + optional spill | phase复用同一scratch：tail的byte0 state(initial0/suspended1/done2)、4 node、8 previousNode、12 inTlas、16 instanceSlot、20 tlasReturnNode、24 tlasVisits、28 blasVisits，32…63保留；best hit完整保存在Result32B。candidate的byte0 accepted、4 hasRejected、8 rejectedT、12 rejectedInstance、16 rejectedPrimitive，其余保留。tail开始clear scratch，不把candidate cursor解释为遍历上下文。shard/bin由当前物理dispatch固定，变换从instance读取；完整spill另计 |
 
 每shard node/ref/links分别满足单binding limit；页payload仍用当前Product四bank选择器。**shard不是任意WGSL动态buffer handle**：CPU按已发布有限shards逐个绑定，GPU broad-phase队列筛出可能命中的rays，同ray的best hit跨shard顺序归并。TLAS每shard覆盖其所有BLAS instances；超大单mesh在Product cluster边界切BLAS。instance可出现在多个shard的TLAS索引中，但变换真值仅一份；重复TLAS leaf/index bytes计入AS模型。保守root AABB不相交可跳该shard工作，不能拿screen可见性筛掉离屏实例。
 

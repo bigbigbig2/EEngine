@@ -149,6 +149,56 @@ async function material(w = 16, seed = 1, exact = false) {
   if (exact) m.transparency_mode = ShadeTransparencyMode.AlphaTested;
   return m;
 }
+test("query lease retains exact texture allocations through material release and final consumer fence", async () => {
+  const f = fixture();
+  const residency = new TextureResidency(f.graphics);
+  const source = await material(16, 7, true);
+  const upload = command(f.graphics.device);
+  residency.stage([source], upload);
+  assert.throws(() => residency.retainQuery([source]), /committed/);
+  upload.finish();
+  const query = residency.retainQuery([source]);
+  const release = command(f.graphics.device);
+  residency.release([source], release);
+  release.finish();
+  release.complete();
+  await tick();
+  assert.equal(query.valid, true);
+  assert.ok(residency.evidence().allocatedBytes > 0);
+  assert.ok(f.textures.every((texture) => !texture.destroyed));
+  const final = deferred();
+  const retirement = query.releaseAfter(final.promise);
+  await tick();
+  assert.ok(f.textures.every((texture) => !texture.destroyed));
+  final.resolve();
+  await retirement;
+  await tick();
+  assert.equal(query.valid, false);
+  assert.equal(residency.evidence().allocatedBytes, 0);
+  residency.destroy();
+});
+test("rejected query fence cannot recycle a texture through explicit release", async () => {
+  const f = fixture();
+  const residency = new TextureResidency(f.graphics);
+  const source = await material(16, 9, true);
+  const upload = command(f.graphics.device);
+  residency.stage([source], upload);
+  upload.finish();
+  const query = residency.retainQuery([source]);
+  const release = command(f.graphics.device);
+  residency.release([source], release);
+  release.finish();
+  release.complete();
+  await tick();
+  await assert.rejects(query.releaseAfter(Promise.reject(new Error("query fence lost"))), /query fence lost/);
+  query.release();
+  await tick();
+  assert.equal(query.valid, false);
+  assert.ok(residency.evidence().allocatedBytes > 0);
+  assert.ok(f.textures.every((texture) => !texture.destroyed));
+  residency.destroy();
+  assert.ok(f.textures.every((texture) => texture.destroyed));
+});
 test("tail/promotion commits atomically; exact coverage is full; stable bindings and fenced zero", async () => {
   const f = fixture(),
     r = new TextureResidency(f.graphics),

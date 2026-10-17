@@ -159,7 +159,8 @@ test("SCGI exact nonzero/max ABI and literal offsets", () => {
     SCGI_ABI.halfField.fields.map((f) => f.offset),
     [0, 32, 36, 40, 44, 48],
   );
-  assert.equal(SCGI_ABI.continuation.fields.find((f) => f.name === "candidateT").offset, 52);
+  assert.deepEqual(SCGI_ABI.continuation.fields.map((field) => field.offset),
+    [0, 4, 8, 12, 16, 20, 24, 28, 32]);
   assert.throws(() => packScgiRecord("cell", { patchIndex: 2 ** 32, patchSlotGeneration: 1 }));
   const coefficients = [1, -2, 3, 0.5, -0.25, 4, 5, 6, -7, 8, 9, 10];
   const packed = packScgiCoefficients(coefficients, 2);

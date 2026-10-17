@@ -1,7 +1,7 @@
 # OEngine Web Geometry Cooker
 
 Current artifacts (2026-10-10 / VSM V4-R1): native, portable-single and pthread
-producers use input ABI 4, `static-pbr-page-local-f32-lean-v7` and hierarchy
+producers use input ABI 5, `static-pbr-page-local-f32-lean-v7` and hierarchy
 recipe `nyx-hierarchy-v4.1-conservative-spheres`. Sphere merge recomputes the
 required radius about the stored f32 center and rounds outward; the independent
 translated-hierarchy oracle tests strict double containment. This changes
@@ -51,11 +51,11 @@ built with Emscripten SDK 6.0.9 (release `f04ea239d533260dd1db760dd2d668d5f9a88d
 using the command above and the pinned Nyx hashes enforced by CMake. The current
 artifact carries the ADR-0017 two-phase ABI, the ADR-0018 Phase B incremental
 canonical-window builder, and the Phase D optional spill-release hook
-(`abi_version == 4`):
+(`abi_version == 5`):
 
 ```text
-oengine-web-geometry-cooker.mjs   SHA-256 1479ec4f16200e4cdbe94e65295b6198f41b6c0d061d90fbe922df87ea1e4156
-oengine-web-geometry-cooker.wasm  SHA-256 a3d7d8082f420d627a173d20f3df4f4974ed64f9f322317e392bae9eb4a73a0f
+oengine-web-geometry-cooker.mjs   SHA-256 1b806a11d0f93d25db85f1d37704b667a354bcd40c7e581665d6d3bd5acc9606
+oengine-web-geometry-cooker.wasm  SHA-256 c873b687dd3a7ca0b4f821181ef844bb8833f7ac39977bb4a7338a6612580744
 ```
 
 The cooker emits one Product asset per canonical material domain, so a
@@ -65,7 +65,7 @@ and refresh both hashes whenever the C++ sources change.
 The Phase D source and checked-in browser pair expose the optional
 `oengine_web_geometry_cook_release_page` spill hook. It releases a successfully
 spilled page's decoded buffer and serialized Groups while preserving descriptor
-identity. An ABI-4 artifact without the optional symbol retains plan memory until
+identity. An ABI-5 artifact without the optional symbol retains plan memory until
 handle release; this optional lifetime hook is not an old-ABI compatibility
 decoder. Earlier input ABI versions are rejected and require recooking.
 
@@ -88,11 +88,11 @@ Dedicated Worker initialization remains a separate acceptance responsibility.
 This specialization ships its own pair of artifacts and must be rebuilt
 whenever the C++ sources change, exactly like the single-threaded pair above.
 The current artifact carries the same ADR-0017/ADR-0018 Phase B ABI
-(`abi_version == 4`):
+(`abi_version == 5`):
 
 ```text
-threads/oengine-web-geometry-cooker.mjs   SHA-256 02daaae63b8af3c19141e1152a1fb2e364c2fc26ee6b8f6c9f0028bb4a2408fb
-threads/oengine-web-geometry-cooker.wasm  SHA-256 c507bbccf7fab7a6b2419057d9882462fc6be5b9b7c7fc04f402fbbae9590ac6
+threads/oengine-web-geometry-cooker.mjs   SHA-256 8b3cfe1a5cfaa03470902e4c628ed34e60fd5c5a3978f6636838d7a21c965ed1
+threads/oengine-web-geometry-cooker.wasm  SHA-256 594e5373e1e0745e49549a858dcf43953a101f2ef672bc015f0d0c08e84317f9
 ```
 
 2026-09-29: both artifacts rebuilt for nyx-hierarchy-v3.1 and

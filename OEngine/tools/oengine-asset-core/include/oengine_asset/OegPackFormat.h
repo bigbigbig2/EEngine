@@ -11,7 +11,7 @@ namespace oengine::asset {
 inline constexpr std::array<std::uint8_t, 8> kOegPackMagicV3 = {
     'O', 'E', 'G', 'P', 'A', 'C', 'K', 0};
 inline constexpr std::uint32_t kOegPackFormatMajorV3 = 3u;
-inline constexpr std::uint32_t kOegPackFormatMinorV3 = 0u;
+inline constexpr std::uint32_t kOegPackFormatMinorV3 = 1u;
 inline constexpr std::uint32_t kOegPackEndianMarker = 0x01020304u;
 inline constexpr std::uint32_t kOegPackHeaderBytesV3 = 256u;
 
@@ -51,7 +51,9 @@ struct OegPackHeaderV3 {
     std::uint64_t fileBytes;
     std::uint8_t recipeHash[32];
     std::uint8_t packContentHash[32];
-    std::uint8_t reserved[48];
+    std::uint64_t querySectionOffset;
+    std::uint64_t querySectionBytes;
+    std::uint8_t reserved[32];
 };
 
 struct GeometryAssetRecordV3 {

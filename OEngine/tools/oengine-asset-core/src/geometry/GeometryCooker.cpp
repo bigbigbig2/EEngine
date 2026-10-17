@@ -846,6 +846,7 @@ CookedAssetV3 CookGeometryAssetV3(
     Sha256Builder identity;
     identity.Add("OEG3", 4u); identity.Add(source.sourceHash.data(), source.sourceHash.size());
     const Hash256 recipeHash = Sha256(CanonicalRecipeJson(recipe));
+    output.recipeHash = recipeHash;
     identity.Add(recipeHash.data(), recipeHash.size()); output.assetId = identity.Finish();
     std::copy(source.boundsSphere, source.boundsSphere + 4, output.boundsSphere);
     std::copy(source.boundsMin, source.boundsMin + 3, output.boundsMin);

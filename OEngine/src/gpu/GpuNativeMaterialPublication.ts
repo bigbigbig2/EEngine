@@ -61,6 +61,15 @@ export interface NativeRasterClass {
   readonly frameInputs: Float32Array<ArrayBuffer>;
 }
 
+/** Pins immutable constants/programs while an already encoded query finishes.
+ * Texture allocations are retained independently by their residency owner. */
+export interface NativeMaterialQueryLease {
+  readonly valid: boolean;
+  readonly publication: GpuNativeMaterialPublication;
+  release(): void;
+  releaseAfter(completion: PromiseLike<void>): Promise<void>;
+}
+
 export const NATIVE_RASTER_DIRECTORY_WGSL = /* wgsl */ `
 struct NativeRasterDirectoryEntry {
   constant_base: u32,
@@ -100,6 +109,9 @@ export class GpuNativeMaterialPublication {
   private readonly descriptors: AppearanceProgramDescriptor[] = [];
   private readonly primaryLeaseIndices: number[] = [];
   private stopListening: (() => void) | null = null;
+  private queryReferences = 0;
+  private retirementComplete = false;
+  private queryPoisoned = false;
 
   constructor(
     device: GPUDevice,
@@ -458,7 +470,50 @@ export class GpuNativeMaterialPublication {
     }
     this.state = "retiring";
     this.accountingHandles.forEach((handle) => this.accounting?.setRetired(handle, true));
-    return completion.finally(() => this.destroy());
+    return completion.then(() => {
+      this.retirementComplete = true;
+      if (this.queryReferences === 0 && !this.queryPoisoned) {
+        this.destroy();
+      }
+    }, (error: unknown) => {
+      this.queryPoisoned = true;
+      throw error;
+    });
+  }
+
+  retainQuery(): NativeMaterialQueryLease {
+    if ((this.state !== "ready" && this.state !== "committed") || this.queryPoisoned) {
+      throw new Error("Query material lease requires a complete live publication");
+    }
+    this.queryReferences++;
+    let released = false;
+    const owner = this;
+    const release = () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      this.queryReferences--;
+      if (this.queryReferences === 0 && this.retirementComplete && !this.queryPoisoned) {
+        this.destroy();
+      }
+    };
+    return Object.freeze({
+      get valid() {
+        return !released && owner.state !== "destroyed" && !owner.queryPoisoned;
+      },
+      publication: this,
+      release,
+      releaseAfter: async (completion: PromiseLike<void>) => {
+        try {
+          await completion;
+        } catch (error) {
+          this.queryPoisoned = true;
+          throw error;
+        }
+        release();
+      },
+    });
   }
 
   /** Device/owner teardown. Ordinary committed replacement uses retire(fence). */

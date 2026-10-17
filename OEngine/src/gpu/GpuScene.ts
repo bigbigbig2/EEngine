@@ -140,6 +140,11 @@ export interface GpuSceneBindings {
   readonly activeCount: number;
 }
 
+export interface GpuSceneQueryBindings extends GpuSceneBindings {
+  /** Changes at mutation admission, including release+replace in one command. */
+  readonly mutationSerial: number;
+}
+
 export interface InstancePatchResult {
   readonly staticCount: number;
   readonly transformCount: number;
@@ -274,6 +279,8 @@ export class GpuScene {
   private pendingMutation: GpuSceneEvidence["pendingMutation"] = null;
   private pendingMutationCommand: ShadeGPUCommandContext | GpuSceneCommand | null = null;
   private pendingReleaseEntry: InstanceSetEntry | null = null;
+  private mutationSerial = 0;
+  private pendingReplacement: BufferReplacement | null = null;
   private publishedCursorCount = 0;
   private logicalBytes = 0;
   private reclaimableBytes = 0;
@@ -759,11 +766,9 @@ export class GpuScene {
             : previousFlags | GPU_INSTANCE_FLAGS.MotionInvalid) >>> 0,
           true,
         );
-        recordView.setUint32(
-          recordOffset + GPU_INSTANCE_RECORD_OFFSETS.dynamic_revision,
-          batch.frameId,
-          true,
-        );
+        // Rigid motion changes only the affine pair. dynamic_revision identifies
+        // shared vertex deformation; replacing it with a frame number would
+        // invalidate rigid query coverage and erase an existing skin revision.
         entry.lastTransformFrame[localIndex] = batch.frameId;
       }
       for (let cursor = 0; cursor < materialOrders.length; cursor++) {
@@ -997,6 +1002,29 @@ export class GpuScene {
       recordStride: GPU_INSTANCE_RECORD_STRIDE,
       highWaterCount: this.publishedCursorCount,
       activeCount: this.activeInstanceCount,
+    });
+  }
+
+  /** Query captures the same frame-readable table used by this mutation's
+   * consumers, including growth and new high-water slots. Another command must
+   * wait for publication; it must never combine old counts with candidate bytes.
+   * This is a GPU table copy contract, not a CPU walk of instance records. */
+  queryBindings(command?: ShadeGPUCommandContext | GpuSceneCommand): GpuSceneQueryBindings {
+    this.assertAlive();
+    if (command !== undefined && (command.closed || command.device !== this.device)) {
+      throw new Error("Query source candidate requires its live mutation command");
+    }
+    const pending = this.pendingMutation !== null;
+    if (pending && (command === undefined || command !== this.pendingMutationCommand)) {
+      throw new Error("Query source snapshot requires its mutation command or a committed GpuScene boundary");
+    }
+    const published = this.bindings();
+    return Object.freeze({
+      ...published,
+      instances: pending ? this.pendingReplacement?.next ?? this.buffer : this.buffer,
+      identities: pending ? this.pendingReplacement?.nextIdentity ?? this.identityBuffer : this.identityBuffer,
+      highWaterCount: pending ? this.cursorCount : this.publishedCursorCount,
+      mutationSerial: this.mutationSerial,
     });
   }
 
@@ -1307,10 +1335,13 @@ export class GpuScene {
       this.peakAllocatedBytes,
       previous.size + next.size + previousIdentity.size + nextIdentity.size + this.retiringBytes,
     );
-    return { previous, next, previousIdentity, nextIdentity };
+    const replacement = { previous, next, previousIdentity, nextIdentity };
+    this.pendingReplacement = replacement;
+    return replacement;
   }
 
   private commitReplacement(replacement: BufferReplacement): void {
+    this.pendingReplacement = null;
     this.buffer = replacement.next;
     this.identityBuffer = replacement.nextIdentity;
     this.committedGrowCount++;
@@ -1326,6 +1357,7 @@ export class GpuScene {
   }
 
   private rollbackReplacement(replacement: BufferReplacement): void {
+    this.pendingReplacement = null;
     this.buffer = replacement.previous;
     this.identityBuffer = replacement.previousIdentity;
     this.destroyBuffer(replacement.next);
@@ -1365,12 +1397,14 @@ export class GpuScene {
       this.pendingMutationCommand === command
     ) {
       this.pendingMutation = "replace";
+      this.mutationSerial++;
       return;
     }
     if (this.pendingMutation !== null) {
       throw new Error(`GpuScene already has a pending ${this.pendingMutation} mutation`);
     }
     this.pendingMutation = kind;
+    this.mutationSerial++;
     this.pendingMutationCommand = command;
     if (kind === "release") this.pendingReleaseEntry = null;
   }

@@ -20,7 +20,16 @@ export interface GeometryPageLease {
 interface BankGeneration {
   readonly banks: readonly GPUBuffer[];
   readonly bankBytes: number;
+  readonly retain: () => () => void;
   readonly release: () => void;
+}
+
+/** Immutable physical bank generation. A derived geometry index may outlive
+ * the frame which replaced the pool's current bindings. */
+export interface GeometryBankLease {
+  readonly banks: readonly GPUBuffer[];
+  readonly bindingEpoch: number;
+  release(): void;
 }
 
 type BindingListener = (command: ShadeGPUCommandContext, bankBytes: number) => void;
@@ -43,8 +52,13 @@ export class GeometryProductBytePool {
   #destroyed = false;
   #bindingsExposed = false;
   #waiters: Array<{ resolve: () => void; reject: (error: unknown) => void }> = [];
-  #lastFailure: "none" | "frozen" | "lease-capacity" | "nodes" | "bytes-or-fragmentation" | "growth-budget" =
-    "none";
+  #lastFailure:
+    | "none"
+    | "frozen"
+    | "lease-capacity"
+    | "nodes"
+    | "bytes-or-fragmentation"
+    | "growth-budget" = "none";
   #retirementError: string | null = null;
 
   private constructor(
@@ -64,7 +78,10 @@ export class GeometryProductBytePool {
     this.#active = this.#createBanks(profile.initialBankBytes);
   }
 
-  static retain(device: GPUDevice, profile: GeometryProductResidencyProfilePlanV1): GeometryProductBytePool {
+  static retain(
+    device: GPUDevice,
+    profile: GeometryProductResidencyProfilePlanV1,
+  ): GeometryProductBytePool {
     let pool = pools.get(device);
     if (pool === undefined) {
       pool = new GeometryProductBytePool(device, profile);
@@ -91,6 +108,22 @@ export class GeometryProductBytePool {
   }
   get bindingEpoch(): number {
     return this.#candidate?.epoch ?? this.#epoch;
+  }
+
+  retainBanks(command?: ShadeGPUCommandContext): GeometryBankLease {
+    if (
+      this.#destroyed ||
+      command?.closed ||
+      (this.#candidate !== undefined && this.#candidate.command !== command)
+    ) {
+      throw new Error("Geometry bank lease requires a committed generation or its exact command");
+    }
+    const generation = this.#candidate ?? this.#active;
+    return Object.freeze({
+      banks: generation.banks,
+      bindingEpoch: this.bindingEpoch,
+      release: generation.retain(),
+    });
   }
   get frozen(): boolean {
     return this.#candidate !== undefined;
@@ -172,7 +205,10 @@ export class GeometryProductBytePool {
         bytes += count;
         largest = Math.max(largest, count);
       }
-      const target = Math.min(this.profile.bankBytes, Math.max(largest, Math.ceil((bytes * 1.25) / 64) * 16));
+      const target = Math.min(
+        this.profile.bankBytes,
+        Math.max(largest, Math.ceil((bytes * 1.25) / 64) * 16),
+      );
       if (target > this.#active.bankBytes) {
         const next = this.#createBanks(target);
         for (const allocator of this.#allocators) {
@@ -277,45 +313,57 @@ export class GeometryProductBytePool {
         const candidate = { ...generation, command, epoch: ++this.#serial };
         const previous = this.#active;
         this.#candidate = candidate;
-        command.onAborted.addOne(() => {
-          if (this.#candidate !== candidate) {
-            return;
-          }
-          this.#candidate = undefined;
-          candidate.release();
-          this.#settleWaiters();
-        });
-        command.onFinished.addOne(() => {
-          if (this.#candidate !== candidate) {
-            throw new Error("Geometry growth command lost its candidate");
-          }
-          for (const allocator of this.#allocators) {
-            allocator.grow(bytes / UNIT_BYTES);
-          }
-          this.#active = {
-            banks: candidate.banks,
-            bankBytes: candidate.bankBytes,
-            release: candidate.release,
-          };
-          this.#candidate = undefined;
-          this.#requestedBytes = 0;
-          this.#budgetBlockedBytes = 0;
-          this.#epoch = candidate.epoch;
-          this.#retired.add(previous);
-          this.#settleWaiters();
-          void command.gpuDone.then(
-            () => {
-              if (this.#retired.delete(previous)) {
-                previous.release();
-              }
-            },
-            (error: unknown) => {
-              this.#retirementError = String(error);
-            },
-          );
+        command.observeSubmission({
+          aborted: () => {
+            if (this.#candidate !== candidate) {
+              return;
+            }
+            this.#candidate = undefined;
+            candidate.release();
+            this.#settleWaiters();
+          },
+          failed: (error) => {
+            this.#retirementError = String(error);
+          },
+          submitted: (fence) => {
+            if (this.#candidate !== candidate) {
+              throw new Error("Geometry growth command lost its candidate");
+            }
+            for (const allocator of this.#allocators) {
+              allocator.grow(bytes / UNIT_BYTES);
+            }
+            this.#active = {
+              banks: candidate.banks,
+              bankBytes: candidate.bankBytes,
+              retain: candidate.retain,
+              release: candidate.release,
+            };
+            this.#candidate = undefined;
+            this.#requestedBytes = 0;
+            this.#budgetBlockedBytes = 0;
+            this.#epoch = candidate.epoch;
+            this.#retired.add(previous);
+            this.#settleWaiters();
+            void fence.then(
+              () => {
+                if (this.#retired.delete(previous)) {
+                  previous.release();
+                }
+              },
+              (error: unknown) => {
+                this.#retirementError = String(error);
+              },
+            );
+          },
         });
         for (let bank = 0; bank < BANK_COUNT; bank++) {
-          command.copyBufferToBuffer(previous.banks[bank]!, 0, candidate.banks[bank]!, 0, previous.bankBytes);
+          command.copyBufferToBuffer(
+            previous.banks[bank]!,
+            0,
+            candidate.banks[bank]!,
+            0,
+            previous.bankBytes,
+          );
         }
       }
     }
@@ -402,19 +450,36 @@ export class GeometryProductBytePool {
       releaseBudget();
       throw error;
     }
-    let released = false;
+    let references = 1;
+    const dropReference = (): void => {
+      references--;
+      if (references === 0) {
+        for (const bank of banks) {
+          bank.destroy();
+        }
+        releaseBudget();
+      }
+    };
+    const releaseOnce = (): (() => void) => {
+      let released = false;
+      return () => {
+        if (!released) {
+          released = true;
+          dropReference();
+        }
+      };
+    };
     return {
       banks: Object.freeze(banks),
       bankBytes,
-      release: () => {
-        if (!released) {
-          released = true;
-          for (const bank of banks) {
-            bank.destroy();
-          }
-          releaseBudget();
+      retain: () => {
+        if (references === 0) {
+          throw new Error("Cannot retain a retired geometry bank generation");
         }
+        references++;
+        return releaseOnce();
       },
+      release: releaseOnce(),
     };
   }
 }

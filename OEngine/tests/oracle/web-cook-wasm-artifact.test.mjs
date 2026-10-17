@@ -28,6 +28,44 @@ async function loadArtifact() {
   });
 }
 
+test("actual cooker query metadata covers every shared meshlet and exact refinement leaf", async () => {
+  const { validateGeometryProductQuerySection } = await import(
+    "../../.test-dist/assets/geometry-product/GeometryProductQuerySection.js"
+  );
+  const { prepareProductResidentAttributes } = await import(
+    "../../.test-dist/assets/geometry-product/GeometryProductResidentAttributes.js"
+  );
+  const { cookWasmGeometryProductRevisionV1 } = await import(
+    "../../.test-dist/assets/geometry-product/WasmGeometryProductV1.js"
+  );
+  const { geometryProductWorkload } = await import(
+    "../../.test-dist/assets/geometry-product/GeometryProductWorkload.js"
+  );
+  const module = await loadArtifact();
+  const revision = await cookWasmGeometryProductRevisionV1(
+    module, hardSeamBoxesCanonical(), encodeWebGeometryCookRecipeV1(),
+    {
+      producerId: "query-section-oracle", producerVersion: "2", revision: 0,
+      sourceIdentityKind: "content-sha256", sourceIdentityHash: new Uint8Array(32),
+      maxDecodedProductBytes: 16 * 262144,
+    },
+  );
+  try {
+    const descriptor = revision.product;
+    const section = validateGeometryProductQuerySection(descriptor);
+    const workload = geometryProductWorkload(descriptor);
+    assert.equal(section.clusterCount,
+      workload.groupMeshletCounts.reduce((sum, count) => sum + count, 0));
+    for (let pageId = 0; pageId < revision.pageCount; pageId++) {
+      const page = await revision.readPage(pageId);
+      prepareProductResidentAttributes(descriptor, pageId, page.bytes);
+    }
+    assert.ok(section.view.getUint32(section.assets + 12, true) > 0);
+  } finally {
+    revision.release();
+  }
+});
+
 test("actual WASM lean Product keeps UV seams and two-sided geometry without continuity payload", async () => {
   const { decodeGroupHeaderV3, decodeMeshletHeaderV3 } = await import(
     "../../.test-dist/assets/GeometryAbiV3.js"
@@ -362,7 +400,7 @@ test("checked-in Web geometry artifact consumes independent canonical windows", 
 test("checked-in Web geometry artifact executes the Product ABI", async () => {
   const module = await loadArtifact();
   assert.equal(module._oengine_web_geometry_cook_abi_version(), WEB_GEOMETRY_COOKER_ABI_VERSION);
-  assert.equal(WEB_GEOMETRY_COOKER_ABI_VERSION, 4);
+  assert.equal(WEB_GEOMETRY_COOKER_ABI_VERSION, 5);
   const result = cookWebGeometryWasmV1(
     module,
     triangleCanonical(),
@@ -400,6 +438,7 @@ test("checked-in Web geometry artifact publishes a descriptor before any payload
       "activationPageIds",
       "vertexFormats",
       "recipeHash",
+      "querySection",
     ]) {
       assert.deepEqual(
         planDescriptor[key],

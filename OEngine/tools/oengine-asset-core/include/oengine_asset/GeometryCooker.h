@@ -103,6 +103,7 @@ struct SerializedGroupV3 {
 
 struct CookedAssetV3 {
     Hash256 assetId{};
+    Hash256 recipeHash{};
     float boundsSphere[4]{};
     float boundsMin[3]{};
     float boundsMax[3]{};

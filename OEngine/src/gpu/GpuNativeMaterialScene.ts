@@ -28,11 +28,12 @@ import {
 import {
   createNativeMaterialBindings,
   createNativeCoverageBindings,
+  createNativeDiffuseBindings,
   nativeMaterialCoverageProgram,
   type NativeMaterialBindings
 } from "./NativeMaterialBindings.js";
 import { NativeMaterialProducts } from "./NativeMaterialProducts.js";
-import type { TextureBindingSet } from "./TextureResidency.js";
+import type { TextureBindingSet, TextureQueryLease } from "./TextureResidency.js";
 import type { TextureSurfacePublication } from "./TextureSurfacePublication.js";
 import {
   nativeMaterialRequiredBanks,
@@ -70,12 +71,37 @@ interface Snapshot {
   readonly viewDependentCoverage: boolean;
   readonly hasMask: boolean;
   readonly hasLit: boolean;
+  readonly queryProjection: boolean;
+  readonly queryMaterials: readonly NativeSceneQueryMaterial[];
   ready: boolean;
+}
+
+export interface NativeSceneQueryMaterial {
+  readonly materialSlot: number;
+  readonly binding: NativeMaterialBindings;
+  /** Parameters, two raster words and complete instance input slots. */
+  readonly constants: Float32Array<ArrayBuffer>;
+  readonly unlit: boolean;
+  readonly viewDependent: boolean;
 }
 
 interface MaterialBindingSnapshot {
   readonly identity: readonly unknown[];
   readonly bindings: NativeMaterialBindings;
+}
+
+/** One immutable native scene revision and its exact resident resources. Query
+ * consumers release after their final successful GPU fence. A rejected fence
+ * quarantines the snapshot until device/owner teardown. */
+export interface NativeSceneQueryLease {
+  readonly valid: boolean;
+  readonly revision: number;
+  readonly publication: GpuNativeMaterialPublication;
+  readonly sources: readonly NativeMaterialPublicationSource[];
+  readonly bindings: readonly NativeMaterialBindings[];
+  readonly materials: readonly NativeSceneQueryMaterial[];
+  release(): void;
+  releaseAfter(completion: PromiseLike<void>): Promise<void>;
 }
 
 /** Scene publication of native programs, instance data and exact resource sets.
@@ -90,6 +116,7 @@ export class GpuNativeMaterialScene {
   private active: Snapshot | null = null;
   private candidate: Snapshot | null = null;
   private prepared: Snapshot | null = null;
+  private preparedCommand: ShadeGPUCommandContext | null = null;
   private error: unknown;
   private stopped = false;
   private resident = false;
@@ -103,6 +130,12 @@ export class GpuNativeMaterialScene {
   private dirty = true;
   private reflections: "off" | "sssr-base-coat" = "off";
   private readonly detachMutations: (() => void)[] = [];
+  private queryReferences = 0;
+  private readonly querySnapshots = new Map<Snapshot, number>();
+  private queryPoisoned = false;
+  private retirementComplete = false;
+  private destroyed = false;
+  private queryProjection = false;
 
   constructor(
     private readonly graphics: GraphicsContext,
@@ -192,6 +225,79 @@ export class GpuNativeMaterialScene {
     return snapshot.bindings;
   }
 
+  retainQuery(command?: ShadeGPUCommandContext): NativeSceneQueryLease {
+    if (command !== undefined && (command.closed || command.device !== this.graphics.device)) {
+      throw new Error("Query material snapshot requires its live device and command");
+    }
+    if (this.prepared !== null && command !== this.preparedCommand) {
+      throw new Error("Query material candidate requires its native frame command");
+    }
+    const snapshot = this.prepared ?? this.active;
+    if (snapshot === null || !snapshot.ready || this.stopped || this.queryPoisoned) {
+      throw new Error("Query material snapshot requires a prepared or committed live scene");
+    }
+    const publication = snapshot.publication.retainQuery();
+    let textures: TextureQueryLease;
+    try {
+      textures = this.graphics.texture_residency.retainQuery(
+        this.materialSources.map((source) => source.material)
+      );
+    } catch (error) {
+      publication.release();
+      throw error;
+    }
+    this.queryReferences++;
+    this.querySnapshots.set(snapshot, (this.querySnapshots.get(snapshot) ?? 0) + 1);
+    let released = false;
+    let poisoned = false;
+    const owner = this;
+    const release = () => {
+      if (released || poisoned) {
+        return;
+      }
+      released = true;
+      textures.release();
+      publication.release();
+      this.queryReferences--;
+      const references = this.querySnapshots.get(snapshot)! - 1;
+      if (references === 0) {
+        this.querySnapshots.delete(snapshot);
+      } else {
+        this.querySnapshots.set(snapshot, references);
+      }
+      if (this.retirementComplete && this.queryReferences === 0 && !this.queryPoisoned) {
+        this.destroy();
+      }
+    };
+    return Object.freeze({
+      get valid() {
+        return !released && !poisoned && !owner.destroyed && publication.valid && textures.valid;
+      },
+      revision: snapshot.revision,
+      publication: snapshot.publication,
+      sources: snapshot.sources,
+      bindings: snapshot.bindings,
+      materials: snapshot.queryMaterials,
+      release,
+      releaseAfter: async (completion: PromiseLike<void>) => {
+        try {
+          await completion;
+        } catch (error) {
+          poisoned = true;
+          this.queryPoisoned = true;
+          // Propagate failure to both physical owners; neither may recycle on
+          // a later explicit release or an unrelated successful raster fence.
+          await Promise.allSettled([
+            publication.releaseAfter(Promise.reject(error)),
+            textures.releaseAfter(Promise.reject(error))
+          ]);
+          throw error;
+        }
+        release();
+      }
+    });
+  }
+
   get viewDependentCoverage(): boolean {
     return (this.prepared ?? this.candidate ?? this.active)?.viewDependentCoverage ?? false;
   }
@@ -215,6 +321,18 @@ export class GpuNativeMaterialScene {
     }
     if (this.reflections !== profile) {
       this.reflections = profile;
+      this.dirty = true;
+    }
+  }
+
+  /** Prepare query projections through the existing async native publication
+   * boundary. Disabled scenes allocate no query material buffers or programs. */
+  setQueryProjectionEnabled(enabled: boolean): void {
+    if (this.prepared !== null || this.stopped) {
+      throw new Error("Query material demand changes require a live frame boundary");
+    }
+    if (this.queryProjection !== enabled) {
+      this.queryProjection = enabled;
       this.dirty = true;
     }
   }
@@ -258,6 +376,7 @@ export class GpuNativeMaterialScene {
       throw new Error("Native scene frame requires a completely ready publication");
     }
     this.prepared = selected;
+    this.preparedCommand = command;
     const changed = selected !== this.active;
     command.onFinished.addOne(() => {
       if (selected !== this.active) {
@@ -276,10 +395,12 @@ export class GpuNativeMaterialScene {
         }
       }
       this.prepared = null;
+      this.preparedCommand = null;
       this.lastCompletion = command.gpuDone;
     });
     command.onAborted.addOne(() => {
       this.prepared = null;
+      this.preparedCommand = null;
     });
     // Shading mip changes are not coverage changes. Compare the independently
     // lowered alpha dependency, including its resources, values and inputs.
@@ -296,6 +417,7 @@ export class GpuNativeMaterialScene {
     const unlit: boolean[] = [];
     const sources: Omit<NativeMaterialPublicationSource, "bindingSet" | "descriptor">[] = [];
     const values: Float32Array<ArrayBuffer>[] = [];
+    const queryMaterials: NativeSceneQueryMaterial[] = [];
     const bindingSets = this.bindingSets();
     const resolved = this.materialSources.map((source) => {
       const set = bindingSets.find((set) => set.id === source.textureBindingSetId);
@@ -399,7 +521,24 @@ export class GpuNativeMaterialScene {
         ? nativeMaterialParameters(bound.coverage.program, coverageParameters)
         : new Float32Array(0);
       const mainLength = constants.length + 2 + inputs.length;
-      const data = new Float32Array(mainLength + coverageConstants.length + (coverageInputs?.length ?? 0));
+      const diffuseParameters = bound.diffuse
+        ? nativeMaterialParameters(bound.diffuse.program, parametersFor(bound.diffuse.program))
+        : new Float32Array(0);
+      const diffuseInputs = bound.diffuse ? inputsFor(bound.diffuse.program) : new Float32Array(0);
+      const diffuseData = bound.diffuse
+        ? new Float32Array(diffuseParameters.length + 2 + diffuseInputs.length)
+        : new Float32Array(0);
+      if (bound.diffuse !== undefined) {
+        diffuseData.set(diffuseParameters);
+        diffuseData.set(diffuseInputs, diffuseParameters.length + 2);
+        queryMaterials.push(Object.freeze({ materialSlot: source.materialSlot,
+          binding: bound.diffuse, constants: diffuseData, unlit: source.material.is_unlit,
+          viewDependent: bound.diffuse.program.inputs.some((input) => input.domain === "view" ||
+            input.name === "cameraPosition" || input.name === "viewDirection" ||
+            input.name === "viewPosition" || input.name === "viewNormal") }));
+      }
+      const queryOffset = mainLength + coverageConstants.length + (coverageInputs?.length ?? 0);
+      const data = new Float32Array(queryOffset + diffuseData.length);
       data.set(constants);
       data[constants.length] = Math.max(0, Math.min(1, source.material.alpha_cutoff));
       data[constants.length + 1] =
@@ -408,6 +547,7 @@ export class GpuNativeMaterialScene {
       data.set(inputs, constants.length + 2);
       data.set(coverageConstants, mainLength);
       if (coverageInputs) data.set(coverageInputs, mainLength + coverageConstants.length);
+      data.set(diffuseData, queryOffset);
       if (!data.every(Number.isFinite)) {
         throw new RangeError("Native instance publication requires finite material data");
       }
@@ -454,6 +594,7 @@ export class GpuNativeMaterialScene {
     }
     if (
       previous !== undefined &&
+      previous.queryProjection === this.queryProjection &&
       previous.reflections === this.reflections &&
       previous.bindings.length === bindings.length &&
       // obtainMaterialBindings preserves identity only after exact resource and
@@ -529,6 +670,8 @@ export class GpuNativeMaterialScene {
     });
     return {
       revision: this.nextRevision++,
+      queryProjection: this.queryProjection,
+      queryMaterials: Object.freeze(queryMaterials),
       reflections: this.reflections,
       publication,
       sources: complete,
@@ -544,7 +687,10 @@ export class GpuNativeMaterialScene {
         (source) =>
           source.material.transparency_mode === ShadeTransparencyMode.AlphaTested &&
           source.graph.instructions.some(
-            (instruction) => (instruction.dependency & APPEARANCE_DEPENDENCY.View) !== 0
+            (instruction) => (instruction.dependency & APPEARANCE_DEPENDENCY.View) !== 0 ||
+              (instruction.kind === "input" && (instruction.input === "cameraPosition" ||
+                instruction.input === "viewDirection" || instruction.input === "viewPosition" ||
+                instruction.input === "viewNormal"))
           )
       ),
       ready: false
@@ -570,6 +716,7 @@ export class GpuNativeMaterialScene {
       set.id,
       set.generation,
       this.products,
+      this.queryProjection,
       ...set.textureBanks,
       ...(physicalProfile?.banks.flatMap((bank) => [bank.segment, bank.view]) ?? []),
       "coverage-profile",
@@ -620,8 +767,12 @@ export class GpuNativeMaterialScene {
     const coverage = mask
       ? createNativeCoverageBindings({ ...bindingSource, physicalProfile: coverageProfile })
       : undefined;
+    const diffuse = this.queryProjection ? createNativeDiffuseBindings(bindingSource) : undefined;
     const bindings = Object.freeze({
       ...bound,
+      ...(diffuse ? { diffuse: Object.freeze({ ...diffuse, program: Object.freeze({
+        ...diffuse.program, instanceInputs: true, key: `${diffuse.program.key}/instance-inputs`,
+      }) }) } : {}),
       ...(coverage
         ? {
             coverage: Object.freeze({
@@ -698,8 +849,15 @@ export class GpuNativeMaterialScene {
     command.onFinished.addOne(() => {
       this.stopped = true;
       void command.gpuDone.then(
-        () => this.destroy(),
-        () => this.destroy()
+        () => {
+          this.retirementComplete = true;
+          if (this.queryReferences === 0 && !this.queryPoisoned) {
+            this.destroy();
+          }
+        },
+        () => {
+          this.queryPoisoned = true;
+        }
       );
     });
   }
@@ -713,10 +871,17 @@ export class GpuNativeMaterialScene {
     const residentBytes =
       (this.active?.publication.allocatedBytes ?? 0) + (this.products?.physicalBytes ?? 0);
     const stagingBytes = this.candidate?.publication.allocatedBytes ?? 0;
-    const retiringBytes = [...this.retiring].reduce(
+    let retiringBytes = [...this.retiring].reduce(
       (bytes, snapshot) => bytes + snapshot.publication.allocatedBytes,
       0
     );
+    // A raster retirement fence may complete before the last query consumer.
+    // Such snapshots have left `retiring` but still own physical GPU buffers.
+    for (const snapshot of this.querySnapshots.keys()) {
+      if (snapshot !== this.active && snapshot !== this.candidate && !this.retiring.has(snapshot)) {
+        retiringBytes += snapshot.publication.allocatedBytes;
+      }
+    }
     return {
       allocatedBytes: residentBytes + stagingBytes + retiringBytes,
       residentBytes,
@@ -730,12 +895,18 @@ export class GpuNativeMaterialScene {
   }
 
   destroy(): void {
+    if (this.destroyed) {
+      return;
+    }
+    this.destroyed = true;
     this.detachMutations.forEach((detach) => detach());
     this.detachMutations.length = 0;
     this.stopped = true;
     this.active?.publication.destroy();
     this.candidate?.publication.destroy();
     this.retiring.forEach((snapshot) => snapshot.publication.destroy());
+    this.querySnapshots.forEach((_references, snapshot) => snapshot.publication.destroy());
+    this.querySnapshots.clear();
     this.products?.destroy();
     this.active = null;
     this.candidate = null;

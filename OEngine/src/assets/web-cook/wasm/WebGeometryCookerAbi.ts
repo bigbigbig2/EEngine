@@ -2,7 +2,7 @@ import { createGeometryCookRecipeV3, type GeometryCookRecipeV3 } from "../../Geo
 
 import type { GeometryAppearanceProfile } from "../../GeometryAppearanceProfile.js";
 
-export const WEB_GEOMETRY_COOKER_ABI_VERSION = 4;
+export const WEB_GEOMETRY_COOKER_ABI_VERSION = 5;
 export const WEB_GEOMETRY_CANONICAL_HEADER_BYTES = 128;
 export const WEB_GEOMETRY_CANONICAL_DOMAIN_BYTES = 48;
 export const WEB_GEOMETRY_CANONICAL_VERTEX_FLOATS = 18;
@@ -37,6 +37,7 @@ const enum Section {
   RecipeHash = 8,
   PageBytes = 9,
   ContentManifestHash = 10,
+  Query = 11,
 }
 
 /** Result codes for the two-phase payload stage (ADR-0017). */
@@ -68,6 +69,7 @@ export interface WebGeometryCookDescriptorSectionsV1 {
   readonly vertexFormats: Uint8Array;
   readonly recipeHash: Uint8Array;
   readonly contentManifestHash: Uint8Array;
+  readonly querySection: Uint8Array;
 }
 
 export interface EmscriptenWebGeometryCookerModuleV1 {
@@ -338,6 +340,7 @@ export class WebGeometryCookWasmHandleV1 {
       vertexFormats: this.copySection(Section.VertexFormats),
       recipeHash: requireHash(this.copySection(Section.RecipeHash), "recipeHash"),
       contentManifestHash: requireHash(this.copySection(Section.ContentManifestHash), "contentManifestHash"),
+      querySection: this.copySection(Section.Query),
     });
   }
 

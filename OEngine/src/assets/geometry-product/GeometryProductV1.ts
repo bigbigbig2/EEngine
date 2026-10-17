@@ -15,9 +15,10 @@ import {
   type GeometryGroupDirectoryV3,
   type VertexFormatRecordV3,
 } from "../GeometryAbiV3.js";
+import { validateGeometryProductQuerySection } from "./GeometryProductQuerySection.js";
 
-export const GEOMETRY_PRODUCT_SCHEMA_VERSION = 1;
-export const GEOMETRY_PRODUCT_RUNTIME_PROFILE = "oengine-vg-v1-v3-decoded" as const;
+export const GEOMETRY_PRODUCT_SCHEMA_VERSION = 2;
+export const GEOMETRY_PRODUCT_RUNTIME_PROFILE = "oengine-vg-v2-v3-decoded-query2" as const;
 export const GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE = 32;
 
 export type GeometryProductProducerKind = "web-runtime" | "offline-native";
@@ -29,7 +30,7 @@ export interface GeometryProductRevisionKeyV1 {
 }
 
 export interface GeometryProductDescriptorV1 {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly productId: Uint8Array;
   readonly revision: number;
   readonly replaces?: GeometryProductRevisionKeyV1;
@@ -49,6 +50,7 @@ export interface GeometryProductDescriptorV1 {
   readonly bootstrapPageIds: Uint32Array;
   readonly vertexFormats: Uint8Array;
   readonly activationPageIds: Uint32Array;
+  readonly querySection: Uint8Array;
 }
 
 export interface GeometryProductPageRecordV1 {
@@ -163,7 +165,7 @@ export function validateGeometryProductDescriptorV1(
       ...(index === undefined ? {} : { index }),
     });
   };
-  if (descriptor.schemaVersion !== 1) issue("version", "Geometry Product schemaVersion must be 1");
+  if (descriptor.schemaVersion !== 2) issue("version", "Geometry Product schemaVersion must be 2; recook source");
   if (descriptor.runtimeProfile !== GEOMETRY_PRODUCT_RUNTIME_PROFILE)
     issue("profile", "unsupported Geometry Product runtime profile");
   if (
@@ -409,6 +411,13 @@ export function validateGeometryProductDescriptorV1(
     )
       issue("tree-child", `hierarchy node ${node} has an invalid child range`, "hierarchyNodes", node);
   }
+  if (issues.length === 0) {
+    try {
+      validateGeometryProductQuerySection(descriptor);
+    } catch (error) {
+      issue("query-section", error instanceof Error ? error.message : String(error), "querySection");
+    }
+  }
   return Object.freeze({ valid: issues.length === 0, issues: Object.freeze(issues) });
 }
 
@@ -471,6 +480,7 @@ export function cloneGeometryProductDescriptorV1(
     bootstrapPageIds: descriptor.bootstrapPageIds.slice(),
     vertexFormats: descriptor.vertexFormats.slice(),
     activationPageIds: descriptor.activationPageIds.slice(),
+    querySection: descriptor.querySection.slice(),
     ...(descriptor.replaces
       ? {
           replaces: {

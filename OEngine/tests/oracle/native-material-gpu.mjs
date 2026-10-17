@@ -231,7 +231,7 @@ function referenceWgsl(graph, ir, native) {
       else if (node.kind === "parameter") {
         const components = node.value.map((v, channel) => {
           const slot = native.parameterSlots[node.name]?.find((slot) => slot.channel === channel);
-          return slot ? `constants[material_base + ${slot.slot}u]` : literal(v);
+          return slot ? `native_material_constant(material_base, ${slot.slot}u)` : literal(v);
         });
         value = node.width === 1 ? components[0] : `${type(node.width)}(${components.join(", ")})`;
       } else if (node.kind === "input")

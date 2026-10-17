@@ -434,11 +434,19 @@ test("Instance V2 narrows stable, small, large, static, material, and visibility
     geometryHandles: [{}],
     geometryIndices: new Uint32Array(4),
     materialHandles: new Uint32Array([2, 2, 2, 2]),
+    deformationRevisions: new Uint32Array([0, 37, 0, 0]),
     currentTransforms: identityMatrices(4),
     boundsSpheres: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1])
   };
   const create = new SceneCommand(device, writes);
   const handle = scene.instantiate(source, create);
+  const candidate = scene.queryBindings(create);
+  assert.equal(candidate.highWaterCount, 5, "candidate includes newly encoded offscreen slots");
+  assert.equal(scene.bindings().highWaterCount, 0, "committed count has not advanced");
+  assert.throws(() => scene.queryBindings(), /mutation command/);
+  assert.throws(() => scene.queryBindings(new SceneCommand(device, writes)), /mutation command/);
+  assert.equal(candidate.instances, writes.find((write) => write.size === 4 * 176).buffer,
+    "query reads the actual candidate allocation");
   const initialUpload = writes.find(value => value.size === source.count * GPU_INSTANCE_RECORD_STRIDE);
   const initialView = new DataView(initialUpload.data, initialUpload.dataOffset, initialUpload.size);
   const lineageUpload = writes.find(value => value.size === source.count * 16);
@@ -473,7 +481,14 @@ test("Instance V2 narrows stable, small, large, static, material, and visibility
     smallCommand
   );
   assert.equal(small.uploadedBytes, GPU_INSTANCE_DYNAMIC_RECORD_STRIDE);
+  const smallUpload = writes.at(-1);
+  const smallView = new DataView(smallUpload.data, smallUpload.dataOffset, smallUpload.size);
+  assert.equal(smallView.getUint32(
+    GPU_INSTANCE_RECORD_OFFSETS.dynamic_revision - GPU_INSTANCE_STATIC_RECORD_STRIDE, true), 37,
+  "rigid motion must preserve shared deformation provenance");
   smallCommand.finish();
+  assert.equal(scene.queryBindings().highWaterCount, candidate.highWaterCount);
+  assert.notEqual(scene.queryBindings().mutationSerial, candidate.mutationSerial);
 
   const largeCommand = new SceneCommand(device, writes);
   const large = scene.patch(
@@ -493,6 +508,14 @@ test("Instance V2 narrows stable, small, large, static, material, and visibility
     largeCommand
   );
   assert.equal(large.uploadedBytes, 4 * GPU_INSTANCE_DYNAMIC_RECORD_STRIDE);
+  const largeUploads = writes.slice(-source.count);
+  for (let index = 0; index < source.count; index++) {
+    const upload = largeUploads[index];
+    const largeView = new DataView(upload.data, upload.dataOffset, upload.size);
+    assert.equal(largeView.getUint32(
+      GPU_INSTANCE_RECORD_OFFSETS.dynamic_revision - GPU_INSTANCE_STATIC_RECORD_STRIDE, true),
+    source.deformationRevisions[index], "rigid frames do not fabricate deformation revisions");
+  }
   largeCommand.finish();
 
   const classified = GPU_INSTANCE_FLAGS.AlphaTested | GPU_INSTANCE_FLAGS.DoubleSided;

@@ -135,13 +135,15 @@ export const SCGI_ABI = Object.freeze({
     ["pdfPathLightFlags", "u32", 4],
   ]),
   continuation: layout("ScgiContinuation", [
-    ["shardTlasReturnInstance", "u32", 4],
-    ["blasReturnPhaseVisit", "u32", 4],
-    ["bestT", "f32", 1],
-    ["bestInstancePrimitiveStatus", "u32", 3],
-    ["candidateRef", "u32", 1],
-    ["candidateT", "f32", 1],
-    ["binStackCursor", "u32", 2],
+    ["state", "u32", 1],
+    ["node", "u32", 1],
+    ["previousNode", "u32", 1],
+    ["inTlas", "u32", 1],
+    ["instanceSlot", "u32", 1],
+    ["tlasReturnNode", "u32", 1],
+    ["tlasVisits", "u32", 1],
+    ["blasVisits", "u32", 1],
+    ["reserved", "u32", 8],
   ]),
   worldHeader: layout("ScgiWorldHeader", [
     ["generationDeviceSceneView", "u32", 4],
@@ -155,6 +157,34 @@ export const SCGI_ABI = Object.freeze({
     ["addressGenerationSampleSerial", "u32", 4],
     ["reserved", "u32", 4],
   ]),
+});
+
+/** One 64B scratch record has phase-specific ownership. Fast candidate rounds
+ * use a rejected-hit cursor; the complete tail clears it and uses the traversal
+ * layout above. Closest t/bary/identity/front remain in the 32B result record.
+ * Never interpret one phase's words using the other phase's layout. */
+export const SCGI_QUERY_CONTINUATION = Object.freeze({
+  words: SCGI_ABI.continuation.stride / 4,
+  candidate: Object.freeze({
+    accepted: 0,
+    hasRejected: 1,
+    rejectedT: 2,
+    rejectedInstance: 3,
+    rejectedPrimitive: 4,
+  }),
+  tail: Object.freeze({
+    state: 0,
+    node: 1,
+    previousNode: 2,
+    inTlas: 3,
+    instanceSlot: 4,
+    tlasReturnNode: 5,
+    tlasVisits: 6,
+    blasVisits: 7,
+    initial: 0,
+    suspended: 1,
+    done: 2,
+  }),
 });
 
 export type ScgiRecordKind = keyof typeof SCGI_ABI;

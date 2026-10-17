@@ -1,3 +1,4 @@
+import { attachTriangleQuerySection } from "../helpers/geometry-query-fixture.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
@@ -49,8 +50,8 @@ function fixture() {
   fv.setUint16(2, 3, true);
   fv.setUint8(5, 12);
   fv.setUint8(10, 1);
-  return {
-    schemaVersion: 1,
+  return attachTriangleQuerySection({
+    schemaVersion: 2,
     productId: new Uint8Array(32).fill(2),
     revision: 4,
     replaces: { productId: new Uint8Array(32).fill(7), revision: 3 },
@@ -60,7 +61,7 @@ function fixture() {
     sourceIdentityKind: "session",
     sourceIdentityHash: new Uint8Array(32).fill(3),
     recipeHash: new Uint8Array(32).fill(4),
-    runtimeProfile: "oengine-vg-v1-v3-decoded",
+    runtimeProfile: "oengine-vg-v2-v3-decoded-query2",
     decodedPageBytes: 262144,
     assetRecords: asset,
     rootNodeIds: new Uint32Array([0]),
@@ -70,7 +71,7 @@ function fixture() {
     bootstrapPageIds: new Uint32Array([0]),
     vertexFormats: formats,
     activationPageIds: new Uint32Array([0]),
-  };
+  });
 }
 
 test("Geometry Product descriptor binary V1 has canonical deterministic bytes and round-trips", () => {
@@ -90,7 +91,7 @@ test("Geometry Product descriptor binary V1 has canonical deterministic bytes an
   );
   assert.equal(
     createHash("sha256").update(new Uint8Array(encoded)).digest("hex"),
-    "d4e43da182922400f38ea6665c9bbe0f1b25fe936dd00d92c1381e6488ee450e",
+    "0c48a2d26df63acfda84719a78e4a4b1f29970ef03588f3d955f95d05b827da9",
   );
 });
 

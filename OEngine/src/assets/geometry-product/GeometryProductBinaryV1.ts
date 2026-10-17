@@ -15,10 +15,10 @@ import {
 } from "./GeometryProductV1.js";
 
 export const GEOMETRY_PRODUCT_BINARY_MAGIC_V1 = 0x5047454f;
-export const GEOMETRY_PRODUCT_BINARY_VERSION_V1 = 1;
-export const GEOMETRY_PRODUCT_BINARY_HEADER_BYTES_V1 = 256;
+export const GEOMETRY_PRODUCT_BINARY_VERSION_V1 = 2;
+export const GEOMETRY_PRODUCT_BINARY_HEADER_BYTES_V1 = 272;
 
-const PROFILE_V1 = 1;
+const PROFILE_V1 = 2;
 const FLAG_REPLACES = 1;
 const SECTION_ALIGNMENT = 16;
 
@@ -59,6 +59,7 @@ export function encodeGeometryProductDescriptorBinaryV1(
     section(u32Bytes(descriptor.activationPageIds), 4),
     section(producerId, 1),
     section(producerVersion, 1),
+    section(descriptor.querySection, 1),
   ];
   let cursor = GEOMETRY_PRODUCT_BINARY_HEADER_BYTES_V1;
   for (const item of sections) {
@@ -83,7 +84,9 @@ export function encodeGeometryProductDescriptorBinaryV1(
   sections.slice(0, 8).forEach((item, index) => writeU32(view, 40 + index * 4, item.count));
   writeU32(view, 72, producerId.byteLength);
   writeU32(view, 76, producerVersion.byteLength);
-  sections.forEach((item, index) => writeU32(view, 80 + index * 4, item.offset));
+  sections.slice(0, 10).forEach((item, index) => writeU32(view, 80 + index * 4, item.offset));
+  writeU32(view, 256, descriptor.querySection.byteLength);
+  writeU32(view, 260, sections[10]!.offset);
   writeU32(view, 120, descriptor.replaces?.revision ?? 0);
   writeU32(view, 124, 0);
   output.set(descriptor.productId, 128);
@@ -133,10 +136,14 @@ export function decodeGeometryProductDescriptorBinaryV1(buffer: ArrayBuffer): Ge
     4,
     1,
     1,
+    1,
   ];
   const counts = Array.from({ length: 8 }, (_, index) => view.getUint32(40 + index * 4, true));
   counts.push(view.getUint32(72, true), view.getUint32(76, true));
+  counts.push(view.getUint32(256, true));
   const offsets = Array.from({ length: 10 }, (_, index) => view.getUint32(80 + index * 4, true));
+  offsets.push(view.getUint32(260, true));
+  assertZero(bytes, 264, 272);
   let cursor = GEOMETRY_PRODUCT_BINARY_HEADER_BYTES_V1;
   const ranges = offsets.map((offset, index) => {
     cursor = align(cursor);
@@ -166,7 +173,7 @@ export function decodeGeometryProductDescriptorBinaryV1(buffer: ArrayBuffer): Ge
   if (!hasReplacement && (view.getUint32(120, true) !== 0 || replacesBytes.some((value) => value !== 0)))
     throw new RangeError("Geometry Product empty replacement fields must be zero");
   const descriptor: GeometryProductDescriptorV1 = Object.freeze({
-    schemaVersion: 1,
+    schemaVersion: 2,
     productId: bytes.slice(128, 160),
     revision: view.getUint32(32, true),
     ...(hasReplacement
@@ -188,6 +195,7 @@ export function decodeGeometryProductDescriptorBinaryV1(buffer: ArrayBuffer): Ge
     bootstrapPageIds: u32Array(sliceRange(bytes, ranges[5]!)),
     vertexFormats: sliceRange(bytes, ranges[6]!),
     activationPageIds: u32Array(sliceRange(bytes, ranges[7]!)),
+    querySection: sliceRange(bytes, ranges[10]!),
   });
   assertGeometryProductDescriptorV1(descriptor);
   return descriptor;

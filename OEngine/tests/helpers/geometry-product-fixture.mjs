@@ -1,3 +1,4 @@
+import { attachTriangleQuerySection } from "./geometry-query-fixture.mjs";
 // A real V3 triangle page, shared by CPU and browser oracles. Transport hashes
 // are assigned by callers that exercise source integrity, not guessed here.
 export const TRIANGLE_PRODUCT_PAYLOAD_BYTES = 176;
@@ -59,7 +60,7 @@ export function triangleProductFixture() {
   format.setUint8(5, 12);
   format.setUint8(10, 1);
   const descriptor = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     productId: new Uint8Array(32).fill(2),
     revision: 0,
     producerKind: "web-runtime",
@@ -68,7 +69,7 @@ export function triangleProductFixture() {
     sourceIdentityKind: "session",
     sourceIdentityHash: new Uint8Array(32).fill(3),
     recipeHash: new Uint8Array(32).fill(4),
-    runtimeProfile: "oengine-vg-v1-v3-decoded",
+    runtimeProfile: "oengine-vg-v2-v3-decoded-query2",
     decodedPageBytes: 262144,
     assetRecords,
     rootNodeIds: new Uint32Array([0]),
@@ -79,6 +80,7 @@ export function triangleProductFixture() {
     vertexFormats,
     activationPageIds: new Uint32Array([0]),
   };
+  attachTriangleQuerySection(descriptor, page);
   return { descriptor, page };
 }
 
@@ -141,6 +143,7 @@ export function addTriangleProductPages(descriptor, pageCount) {
   for (const offset of [76, 84, 92, 104, 108, 112]) {
     asset.setUint32(offset, pageCount, true);
   }
+  attachTriangleQuerySection(descriptor);
   return descriptor;
 }
 
@@ -176,6 +179,7 @@ export function deepProductFixture(depth) {
     page.set(triangle, group * TRIANGLE_PRODUCT_PAYLOAD_BYTES);
   }
   new DataView(descriptor.pageRecords.buffer).setUint32(20, depth + 1, true);
+  attachTriangleQuerySection(descriptor, page);
   return { descriptor, page };
 }
 
@@ -190,6 +194,7 @@ export async function streamingProductFixture(pageCount = 4, revision = 0) {
   for (let pageId = 0; pageId < pageCount; pageId++) {
     const page = writeTriangleProductPage(new Uint8Array(262144));
     const view = new DataView(page.buffer);
+    view.setUint8(46, pageCount - pageId - 1);
     view.setUint32(76, pageId + 1 < pageCount ? pageId + 1 : 0xffffffff, true);
     const error = pageId === 0 ? 3.4028234663852886e38 : 1 / pageId;
     view.setFloat32(40, error, true);
@@ -198,6 +203,7 @@ export async function streamingProductFixture(pageCount = 4, revision = 0) {
     descriptor.pageRecords.set(digest.subarray(0, 16), pageId * 32);
     pages.push({ page, hash: digest.subarray(0, 16) });
   }
+  attachTriangleQuerySection(descriptor, pages);
   let releases = 0;
   let reads = 0;
   const source = {

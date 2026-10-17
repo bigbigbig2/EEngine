@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { attachTriangleQuerySection } from "../helpers/geometry-query-fixture.mjs";
 import test from "node:test";
 import { triangleProductFixture, deepProductFixture } from "../helpers/geometry-product-fixture.mjs";
 import {
@@ -124,6 +125,7 @@ test("resident page validates the hierarchy count before trusting its exact work
   assert.throws(() => prepareProductResidentAttributes(uvDescriptor, 0, uvPage.buffer), /nonfinite UV/);
   const bad = { ...descriptor, hierarchyNodes: descriptor.hierarchyNodes.slice() };
   new DataView(bad.hierarchyNodes.buffer).setUint32(44, (1 << 25) | 1, true);
+  attachTriangleQuerySection(bad);
   assert.throws(() => prepareProductResidentAttributes(bad, 0, page.buffer), /hierarchy work bound/);
   const cycle = { ...descriptor, hierarchyNodes: descriptor.hierarchyNodes.slice() };
   new DataView(cycle.hierarchyNodes.buffer).setUint32(44, 1 << 28, true);

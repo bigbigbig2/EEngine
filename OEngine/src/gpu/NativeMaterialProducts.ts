@@ -185,11 +185,10 @@ export class NativeMaterialProducts {
     if (this.accountingHandle) {
       this.accounting?.setRetired(this.accountingHandle, true);
     }
-    try {
-      await completion;
-    } finally {
-      this.destroy();
-    }
+    // A rejected fence leaves this allocation quarantined. Device/owner
+    // teardown is the only reclamation boundary without successful completion.
+    await completion;
+    this.destroy();
   }
 
   destroy(): void {

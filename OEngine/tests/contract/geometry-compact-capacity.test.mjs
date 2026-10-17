@@ -28,6 +28,10 @@ function device() {
         ...descriptor,
         bytes: new Uint8Array(descriptor.size),
         destroyed: false,
+        getMappedRange() {
+          return this.bytes.buffer;
+        },
+        unmap() {},
         destroy() {
           this.destroyed = true;
         },
@@ -38,6 +42,299 @@ function device() {
   };
 }
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+test("query geometry snapshots require complete offscreen coverage and own immutable directories", async () => {
+  const gpu = device();
+  const fixture = await streamingProductFixture(3);
+  const runtime = new GeometryProductMultiRuntimeV1(gpu, { descriptors: [fixture.descriptor] });
+  const { residency } = await runtime.load(fixture.source);
+  assert.throws(() => residency.retainQueryGeometry(), /not available/);
+  assert.equal(residency.evidence().querySnapshots, 0);
+  residency.stagePage(await fixture.source.readPage(2));
+  const aborted = geometryPublicationCommand();
+  residency.preparePublication(aborted, [2]);
+  const discarded = residency.retainQueryGeometry(aborted);
+  assert.deepEqual(discarded.pages.map((page) => page.pageId), [2]);
+  const directoryBefore = discarded.metadata.bytes.slice();
+  aborted.abort(new Error("discard immutable candidate"));
+  assert.equal(discarded.valid, false);
+  assert.equal(discarded.metadata.destroyed, true);
+  const command = geometryPublicationCommand();
+  residency.preparePublication(command, [2]);
+  const snapshot = residency.retainQueryGeometry(command);
+  command.submit();
+  assert.equal(snapshot.valid, true);
+  assert.deepEqual(snapshot.metadata.bytes, directoryBefore);
+  const header = new DataView(snapshot.metadata.bytes.buffer);
+  const recordAt = header.getUint32(16, true) * 4 + snapshot.productTableSlot * 64;
+  assert.equal(header.getUint32(recordAt + 4, true), 1);
+  const pageAt = header.getUint32(40, true) * 4;
+  assert.equal(header.getUint32(pageAt, true), 0xffffffff, "bootstrap is not the query cut");
+  assert.notEqual(header.getUint32(pageAt + 32, true), 0xffffffff);
+  assert.equal(header.getUint32(snapshot.querySectionWordOffset * 4, true), 0x3251474f);
+  residency.beginRetirePage(2);
+  const retire = geometryPublicationCommand();
+  residency.preparePublication(retire, []);
+  retire.submit();
+  await tick();
+  assert.deepEqual(snapshot.metadata.bytes, directoryBefore);
+  await assert.rejects(snapshot.releaseAfter(Promise.reject(new Error("query fence failed"))), /query fence failed/);
+  assert.equal(snapshot.valid, false);
+  assert.equal(snapshot.metadata.destroyed, false, "failed fence cannot reclaim resources");
+  assert.equal(residency.evidence().retiringPages, 1);
+  await snapshot.releaseAfter(Promise.resolve());
+  assert.equal(snapshot.metadata.destroyed, false, "an unrelated successful fence cannot clear poison");
+  assert.equal(residency.evidence().retiringPages, 1);
+  residency.abandonForDeviceLoss();
+  assert.equal(snapshot.metadata.destroyed, true);
+  assert.equal(residency.evidence().retiringPages, 0);
+  runtime.destroy();
+  assert.equal(geometryProductGpuBudgetEvidence(gpu).totalBytes, 0);
+});
+
+test("query snapshots retain exact addresses through revoke, bank growth and Product destruction", async () => {
+  const gpu = device();
+  const fixture = await streamingProductFixture(3);
+  const options = {
+    configuredCapacityBytes: 4 * 1024 * 1024,
+    initialBankBytes: 1024,
+    maxPageLeases: 32,
+  };
+  const runtime = new GeometryProductMultiRuntimeV1(gpu, {
+    descriptors: [fixture.descriptor],
+    residency: options,
+  });
+  const { residency } = await runtime.load(fixture.source);
+  residency.stagePage(await fixture.source.readPage(1));
+  const publish = geometryPublicationCommand();
+  residency.preparePublication(publish, [1]);
+  assert.throws(() => residency.retainQueryPages([0]), /committed/);
+  publish.submit();
+  assert.throws(() => residency.retainQueryPages([0, 0]), /duplicate/);
+  assert.throws(() => residency.retainQueryPages([0, 2]), /not available/);
+  assert.throws(() => residency.retainQueryPages([0], publish), /exact open command/);
+  assert.equal(residency.evidence().querySnapshots, 0, "failed acquisition is atomic");
+  const snapshot = residency.retainQueryPages([0, 1]);
+  const sibling = residency.retainQueryPages([1]);
+  const oldBanks = snapshot.banks;
+  const location = snapshot.pages[1].location;
+  const oldBytes = oldBanks[location.bankIndex].bytes.slice(
+    location.byteOffset,
+    location.byteOffset + location.payloadBytes,
+  );
+  residency.beginRetirePage(1);
+  assert.throws(() => residency.retainQueryPages([1]), /not available/);
+  const revoke = geometryPublicationCommand();
+  residency.preparePublication(revoke, []);
+  revoke.submit();
+  await tick();
+  assert.equal(residency.pageLocation(1), undefined);
+  assert.equal(residency.evidence().retiringPages, 1, "frame fence alone cannot release a query page");
+  assert.equal(residency.tryStagePage(await fixture.source.readPage(1)), false);
+  const pool = GeometryProductBytePool.retain(
+    gpu,
+    selectGeometryProductResidencyProfileV1(gpu.limits, options),
+  );
+  pool.requestGrowth(2048);
+  const growth = geometryPublicationCommand();
+  growth.onFinished.addOne(() => {
+    throw new Error("growth observer failed");
+  });
+  GeometryProductBytePool.prepareDeviceFrame(gpu, growth);
+  assert.throws(() => residency.retainQueryPages([0]), /committed/);
+  assert.throws(() => pool.retainBanks(), /committed/);
+  assert.throws(() => growth.submit(), /growth observer failed/);
+  await tick();
+  assert.equal(new Uint32Array(runtime.bindings().metadata.bytes.buffer)[12], 2048);
+  assert.notEqual(pool.banks, oldBanks);
+  assert.ok(
+    oldBanks.every((bank) => !bank.destroyed),
+    "BLAS snapshot retains its exact generation",
+  );
+  assert.deepEqual(
+    oldBanks[location.bankIndex].bytes.subarray(
+      location.byteOffset,
+      location.byteOffset + location.payloadBytes,
+    ),
+    oldBytes,
+  );
+  snapshot.release();
+  snapshot.release();
+  assert.equal(residency.evidence().retiringPages, 1, "second AS still owns the page");
+  sibling.release();
+  assert.equal(residency.evidence().retiringPages, 0);
+  assert.ok(oldBanks.every((bank) => bank.destroyed));
+  assert.equal(residency.tryStagePage(await fixture.source.readPage(1)), true);
+  const last = residency.retainQueryPages([0]);
+  runtime.destroy();
+  pool.releaseOwner();
+  assert.ok(last.banks.every((bank) => !bank.destroyed));
+  assert.ok(geometryProductGpuBudgetEvidence(gpu).totalBytes > 0);
+  last.release();
+  assert.ok(last.banks.every((bank) => bank.destroyed));
+  assert.equal(geometryProductGpuBudgetEvidence(gpu).totalBytes, 0);
+});
+
+test("query pages survive failed retirement fences and device loss invalidates leases once", async () => {
+  const gpu = device();
+  const fixture = await streamingProductFixture(2);
+  const runtime = new GeometryProductMultiRuntimeV1(gpu, { descriptors: [fixture.descriptor] });
+  const { residency } = await runtime.load(fixture.source);
+  residency.stagePage(await fixture.source.readPage(1));
+  const publish = geometryPublicationCommand();
+  residency.preparePublication(publish, [1]);
+  publish.submit();
+  const snapshot = residency.retainQueryPages([1]);
+  residency.beginRetirePage(1);
+  let reject;
+  const fence = new Promise((_resolve, fail) => {
+    reject = fail;
+  });
+  const revoke = geometryPublicationCommand(fence);
+  residency.preparePublication(revoke, []);
+  revoke.onFinished.addOne(() => {
+    throw new Error("external observer failed");
+  });
+  assert.throws(() => revoke.submit(), /external observer failed/);
+  assert.equal(
+    residency.pageLocation(1),
+    undefined,
+    "resource transaction settles before external callbacks",
+  );
+  reject(new Error("query retirement failed"));
+  await tick();
+  snapshot.release();
+  assert.equal(residency.evidence().retiringPages, 1);
+  assert.match(residency.evidence().retirementError, /query retirement failed/);
+  const lost = residency.retainQueryPages([0]);
+  residency.abandonForDeviceLoss();
+  lost.release();
+  snapshot.release();
+  assert.equal(residency.evidence().querySnapshots, 0);
+  runtime.destroy();
+  assert.equal(geometryProductGpuBudgetEvidence(gpu).totalBytes, 0);
+});
+
+test("failed query fences stay quarantined; destruction aborts growth-only snapshots", async () => {
+  const gpu = device();
+  const fixture = await streamingProductFixture(2);
+  const options = { configuredCapacityBytes: 2 * 1024 * 1024, initialBankBytes: 1024, maxPageLeases: 8 };
+  const runtime = new GeometryProductMultiRuntimeV1(gpu, {
+    descriptors: [fixture.descriptor],
+    residency: options,
+  });
+  const { residency } = await runtime.load(fixture.source);
+  const snapshot = residency.retainQueryPages([0]);
+  await assert.rejects(
+    snapshot.releaseAfter(Promise.reject(new Error("last consumer failed"))),
+    /last consumer failed/,
+  );
+  assert.equal(snapshot.valid, false);
+  assert.equal(residency.evidence().queryPages, 1);
+  await snapshot.releaseAfter(Promise.resolve());
+  assert.equal(residency.evidence().queryPages, 1, "successful later fence cannot prove the failed query completed");
+  const pool = GeometryProductBytePool.retain(
+    gpu,
+    selectGeometryProductResidencyProfileV1(gpu.limits, options),
+  );
+  pool.requestGrowth(2048);
+  const growth = geometryPublicationCommand();
+  GeometryProductBytePool.prepareDeviceFrame(gpu, growth);
+  const candidate = residency.retainQueryPages([0], growth);
+  residency.destroy();
+  assert.equal(candidate.valid, false);
+  assert.throws(() => growth.submit(), /already closed/);
+  candidate.release();
+  runtime.destroy();
+  pool.releaseOwner();
+  assert.ok(geometryProductGpuBudgetEvidence(gpu).totalBytes > 0);
+  residency.abandonForDeviceLoss();
+  assert.equal(geometryProductGpuBudgetEvidence(gpu).totalBytes, 0);
+});
+
+test("late device loss releases snapshots of a Product already removed from the directory", async () => {
+  const gpu = device();
+  let lose;
+  gpu.lost = new Promise((resolve) => { lose = resolve; });
+  const fixture = await streamingProductFixture(2);
+  const runtime = new GeometryProductMultiRuntimeV1(gpu, { descriptors: [fixture.descriptor] });
+  const { residency } = await runtime.load(fixture.source);
+  const snapshot = residency.retainQueryPages([0]);
+  runtime.destroy();
+  assert.ok(geometryProductGpuBudgetEvidence(gpu).totalBytes > 0);
+  lose({ reason: "destroyed" });
+  await tick();
+  assert.equal(snapshot.valid, false);
+  snapshot.release();
+  assert.equal(geometryProductGpuBudgetEvidence(gpu).totalBytes, 0);
+});
+
+test("query snapshots consume only their exact frame candidate and abort releases staged addresses", async () => {
+  const gpu = device();
+  const fixture = await streamingProductFixture(2);
+  const options = { configuredCapacityBytes: 2 * 1024 * 1024, initialBankBytes: 1024, maxPageLeases: 8 };
+  const runtime = new GeometryProductMultiRuntimeV1(gpu, {
+    descriptors: [fixture.descriptor],
+    residency: options,
+  });
+  const { residency } = await runtime.load(fixture.source);
+  const pool = GeometryProductBytePool.retain(
+    gpu,
+    selectGeometryProductResidencyProfileV1(gpu.limits, options),
+  );
+  const page = await fixture.source.readPage(1);
+  residency.stagePage(page);
+  const abort = geometryPublicationCommand();
+  residency.preparePublication(abort, [1]);
+  assert.throws(
+    () => residency.retainQueryPages([1], geometryPublicationCommand()),
+    /exact open command/,
+  );
+  const snapshot = residency.retainQueryPages([1], abort);
+  assert.equal(snapshot.valid, true);
+  residency.releaseStagedPages([1]); // Aborts the encoding command before reuse.
+  assert.equal(snapshot.valid, false);
+  snapshot.release();
+  assert.equal(residency.evidence().queryPages, 0);
+  assert.equal(residency.evidence().stagedPages, 0);
+  assert.equal(residency.tryStagePage(page), true);
+  pool.requestGrowth(2048);
+  const retry = geometryPublicationCommand();
+  GeometryProductBytePool.prepareDeviceFrame(gpu, retry);
+  residency.preparePublication(retry, [1]);
+  const next = residency.retainQueryPages([1], retry);
+  assert.equal(next.banks, pool.banks);
+  retry.submit();
+  assert.equal(next.valid, true);
+  assert.equal(next.pages[0].location, residency.pageLocation(1));
+  next.release();
+  let reject;
+  const failed = geometryPublicationCommand(
+    new Promise((_resolve, fail) => {
+      reject = fail;
+    }),
+  );
+  const failedSnapshot = residency.retainQueryPages([0], failed);
+  failed.submit();
+  reject(new Error("snapshot submit failed"));
+  await tick();
+  assert.equal(failedSnapshot.valid, false);
+  assert.equal(residency.evidence().queryPages, 1, "poison does not authorize address reuse");
+  failedSnapshot.release();
+  const callbackFailure = geometryPublicationCommand();
+  const poisoned = residency.retainQueryPages([0], callbackFailure);
+  callbackFailure.onFinished.addOne(() => {
+    throw new Error("snapshot observer failed");
+  });
+  assert.throws(() => callbackFailure.submit(), /snapshot observer failed/);
+  assert.equal(poisoned.valid, false);
+  poisoned.release();
+  runtime.destroy();
+  pool.releaseOwner();
+  assert.ok(geometryProductGpuBudgetEvidence(gpu).totalBytes > 0, "failed consumers survive ordinary teardown");
+  residency.abandonForDeviceLoss();
+  assert.equal(geometryProductGpuBudgetEvidence(gpu).totalBytes, 0);
+});
 
 test("two runtimes share compact banks and independent metadata without serializing page IO", async () => {
   const gpu = device();

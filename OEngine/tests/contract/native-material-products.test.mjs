@@ -83,7 +83,7 @@ test("native Product capacity and malformed mip preflight precede GPU allocation
   assert.equal(f.textures.length, 0);
 });
 
-test("native Product retirement blocks consumers and waits even when completion rejects", async () => {
+test("native Product retirement quarantines its allocation when completion rejects", async () => {
   const f = fixture();
   const owner = new NativeMaterialProducts(f.device, [f.graph], f.command);
   f.command.onBeforeFinish.listeners.forEach((fn) => fn());
@@ -97,6 +97,8 @@ test("native Product retirement blocks consumers and waits even when completion 
   assert.equal(f.textures[0].destroyed, false);
   reject(new Error("lost completion"));
   await assert.rejects(retired, /lost completion/);
+  assert.equal(f.textures[0].destroyed, false);
+  assert.equal(owner.allocatedBytes, owner.physicalBytes);
+  owner.destroy();
   assert.equal(f.textures[0].destroyed, true);
-  assert.equal(owner.allocatedBytes, 0);
 });

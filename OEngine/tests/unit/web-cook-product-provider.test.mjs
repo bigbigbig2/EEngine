@@ -1,3 +1,4 @@
+import { attachTriangleQuerySection } from "../helpers/geometry-query-fixture.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
@@ -25,6 +26,7 @@ function fixture() {
   decoded.setUint16(66, 1, true);
   decoded.setUint32(68, 128, true);
   decoded.setUint32(72, 112, true);
+  decoded.setUint32(76, 0xffffffff, true);
   page.set([0, 1, 2], 112);
   for (const [vertex, position] of [
     [0, [0, 0, 0]],
@@ -74,7 +76,7 @@ function fixture() {
   fv.setUint8(5, 12);
   fv.setUint8(10, 1); // Current Product ABI: Float32x3 position encoding.
   const descriptor = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     productId,
     revision: 2,
     producerKind: "web-runtime",
@@ -83,7 +85,7 @@ function fixture() {
     sourceIdentityKind: "session",
     sourceIdentityHash: new Uint8Array(32).fill(3),
     recipeHash: new Uint8Array(32).fill(4),
-    runtimeProfile: "oengine-vg-v1-v3-decoded",
+    runtimeProfile: "oengine-vg-v2-v3-decoded-query2",
     decodedPageBytes: 262144,
     assetRecords: asset,
     rootNodeIds: new Uint32Array([0]),
@@ -94,6 +96,7 @@ function fixture() {
     vertexFormats: formats,
     activationPageIds: new Uint32Array([0])
   };
+  attachTriangleQuerySection(descriptor, page);
   return { page, hash, productId, descriptor };
 }
 

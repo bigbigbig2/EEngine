@@ -2,6 +2,7 @@ import { publishGeometryPages, geometryPublicationCommand } from "../helpers/geo
 import assert from "node:assert/strict";
 import test from "node:test";
 import { streamingProductFixture } from "../helpers/geometry-product-fixture.mjs";
+import { attachTriangleQuerySection } from "../helpers/geometry-query-fixture.mjs";
 import { GeometryProductMultiRuntimeV1 } from "../../.test-dist/gpu/GeometryProductMultiRuntime.js";
 import {
   geometryProductGpuBudgetEvidence,
@@ -69,8 +70,13 @@ test("page content stamps cover all referencing assets without dirtying unrelate
     records.set(fixture.descriptor.assetRecords, 128);
     if (!shared) {
       const view = new DataView(records.buffer);
-      // The second asset owns only the bootstrap group on page 0.
-      for (const offset of [76, 84, 92, 104, 108, 112]) view.setUint32(128 + offset, 1, true);
+      // The unrelated asset references only the terminal group. A bootstrap
+      // meshlet that refines outside its asset is not a legal query forest.
+      for (const offset of [72, 80, 88]) view.setUint32(128 + offset, 2, true);
+      fixture.descriptor.bootstrapPageIds = new Uint32Array([0, 2]);
+      fixture.descriptor.activationPageIds = new Uint32Array([0, 2]);
+      view.setUint32(128 + 96, 1, true);
+      for (const offset of [76, 84, 92, 100, 104, 108, 112]) view.setUint32(128 + offset, 1, true);
     }
     fixture.descriptor.assetRecords = records;
     const runtime = new GeometryProductMultiRuntimeV1(device(), {
@@ -611,10 +617,14 @@ async function spatialInfluenceFixture(parents = [0xffffffff, 0xffffffff, 0xffff
       view.setFloat32(28 + axis * 4, high, true);
     }
     view.setUint32(76, parents[pageId], true);
+    let depth = 0;
+    for (let next = parents[pageId]; next !== 0xffffffff; next = parents[next]) depth++;
+    view.setUint8(46, depth);
     const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", page.bytes)).slice(0, 16);
     fixture.descriptor.pageRecords.set(hash, pageId * 32);
     pages.push({ ...page, decodedHash128: hash, decodedPageHash128: hash });
   }
+  attachTriangleQuerySection(fixture.descriptor, pages.map((page) => new Uint8Array(page.bytes)));
   return { ...fixture, source: { ...fixture.source, async readPage(id) { return pages[id]; } } };
 }
 

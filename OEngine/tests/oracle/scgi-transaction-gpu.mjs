@@ -71,7 +71,7 @@ export async function runScgiTransactionGpuOracle(device) {
       ray: [48, [0, 16, 32]],
       result: [32, [0, 12, 16]],
       payload: [32, [0, 16]],
-      continuation: [64, [0, 16, 32, 36, 48, 52, 56]],
+      continuation: [64, [0, 4, 8, 12, 16, 20, 24, 28, 32]],
       worldHeader: [256, [0, 16, 32, 48, 64, 80, 96, 160, 224, 240]]
     };
     for (const [kind, [stride, offsets]] of Object.entries(layouts)) {

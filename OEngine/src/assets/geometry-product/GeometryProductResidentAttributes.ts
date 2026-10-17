@@ -9,6 +9,7 @@ import { geometryProductWorkload } from "./GeometryProductWorkload.js";
 import type { GeometryPageProductV1 } from "./GeometryProductV1.js";
 import { assertAssetWorkerResult } from "../codec/AssetWorkerPool.js";
 import { geometryPagePayloadBytes } from "./GeometryPagePayload.js";
+import { geometryProductQueryMeshletIndex } from "./GeometryProductQuerySection.js";
 
 const preparedPages = new WeakMap<GeometryPageProductV1, ProductResidentPage>();
 const pageCredits = new WeakMap<GeometryPageProductV1, () => void>();
@@ -87,6 +88,12 @@ export function prepareProductResidentAttributes(
   let triangleCount = 0;
   const pageRecord = decodeGeometryProductPageRecordV1(descriptor, pageId);
   const workload = geometryProductWorkload(descriptor);
+  let queryIndices: ReadonlyMap<number, number> | undefined;
+  const query = new DataView(
+    descriptor.querySection.buffer,
+    descriptor.querySection.byteOffset,
+    descriptor.querySection.byteLength,
+  );
   const groupBounds = new Float32Array(pageRecord.groupCount * 6);
   const refineEdges: number[] = [];
   for (let group = pageRecord.firstGroup; group < pageRecord.firstGroup + pageRecord.groupCount; group++) {
@@ -160,6 +167,39 @@ export function prepareProductResidentAttributes(
         meshlet.triangleByteOffset + meshlet.triangleCount * 3 > header.vertexDataOffset
       ) {
         throw new RangeError("Product resident meshlet layout is invalid");
+      }
+      queryIndices ??= geometryProductQueryMeshletIndex(descriptor);
+      const queryAt = queryIndices.get(group * 128 + local);
+      if (
+        queryAt === undefined || query.getUint32(queryAt, true) !== pageId ||
+        query.getUint32(queryAt + 12, true) !== meshlet.triangleCount ||
+        query.getUint32(queryAt + 16, true) !== meshlet.materialId ||
+        query.getUint32(queryAt + 20, true) !== header.vertexFormatId ||
+        query.getUint32(queryAt + 68, true) !== header.lodLevel
+      ) {
+        throw new RangeError("Product query cluster disagrees with shared meshlet payload");
+      }
+      for (let axis = 0; axis < 3; axis++) {
+        if (
+          query.getFloat32(queryAt + 32 + axis * 4, true) > meshlet.bboxMin[axis]! ||
+          query.getFloat32(queryAt + 44 + axis * 4, true) < meshlet.bboxMax[axis]!
+        ) {
+          throw new RangeError("Product query bounds do not enclose shared meshlet payload");
+        }
+      }
+      const childBegin = query.getUint32(queryAt + 60, true);
+      const childCount = query.getUint32(queryAt + 64, true);
+      if (meshlet.refineGroupId === 0xffffffff) {
+        if (childCount !== 0) throw new RangeError("Product query invents refinement children");
+      } else {
+        const childrenOffset = query.getUint32(80, true);
+        const clustersOffset = query.getUint32(76, true);
+        if (childCount === 0 || query.getUint32(
+          clustersOffset + query.getUint32(childrenOffset + childBegin * 4, true) * 80 + 4,
+          true,
+        ) !== meshlet.refineGroupId) {
+          throw new RangeError("Product query refinement disagrees with shared meshlet payload");
+        }
       }
       triangleCount += meshlet.triangleCount;
       // The refine id names the finer group this coarse meshlet simplifies, so

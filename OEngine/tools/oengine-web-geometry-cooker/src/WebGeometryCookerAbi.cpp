@@ -21,7 +21,7 @@ namespace {
 
 using namespace oengine::asset;
 
-constexpr std::uint32_t kAbiVersion = 4u;
+constexpr std::uint32_t kAbiVersion = 5u;
 /** Upper bound on per-cook worker threads; the pthread pool is sized the same. */
 [[maybe_unused]] constexpr std::uint32_t kMaxCookThreads = 8u;
 constexpr std::uint32_t kCanonicalHeaderBytes = 128u;
@@ -414,6 +414,7 @@ void SealContentManifest(CookResult& result) {
     AddManifestPart(contentManifest, 5u, result.pageRecords);
     AddManifestPart(contentManifest, 6u, result.bootstrapPageIds);
     AddManifestPart(contentManifest, 7u, result.vertexFormats);
+    AddManifestPart(contentManifest, 11u, result.plan.querySection);
     AddU32(contentManifest, 8u);
     AddU64(contentManifest, result.plan.pages.size());
     for (std::size_t pageIndex = 0u; pageIndex < pageDigests.size(); ++pageIndex) {
@@ -444,6 +445,7 @@ const std::vector<std::uint8_t>* Section(
         case OENGINE_WEB_COOK_SECTION_PAGE_RECORDS: return &result.pageRecords;
         case OENGINE_WEB_COOK_SECTION_BOOTSTRAP_PAGE_IDS: return &result.bootstrapPageIds;
         case OENGINE_WEB_COOK_SECTION_VERTEX_FORMATS: return &result.vertexFormats;
+        case OENGINE_WEB_COOK_SECTION_QUERY: return &result.plan.querySection;
         default: return nullptr;
     }
 }

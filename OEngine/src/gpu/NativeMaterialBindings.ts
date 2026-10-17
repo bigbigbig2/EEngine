@@ -55,6 +55,8 @@ export interface NativeMaterialBindings {
   /** Scene requests this only for MASK. It is an independently lowered alpha
    * dependency graph, with its own resource layout and parameter offsets. */
   readonly coverage?: NativeMaterialBindings;
+  /** Demand-created native diffuse transport projection; same source graph and owners. */
+  readonly diffuse?: NativeMaterialBindings;
 }
 
 /** Finite change detector for Temporal invalidation, never exact resource identity. */
@@ -510,5 +512,29 @@ export function createNativeCoverageBindings(source: NativeMaterialBindingSource
       throw new RangeError("MASK coverage cannot substitute BC alpha for its exact R8 plane");
     }
   }
+  return createNativeMaterialBindings({ ...source, graph, program: lowerNativeMaterial(graph) });
+}
+
+const DIFFUSE_GRAPHS = new WeakMap<CompiledAppearanceGraph, CompiledAppearanceGraph>();
+
+/** Exact dependency projection for query-hit diffuse transport. Specular-only
+ * outputs are dead, but normal/coat dependencies remain native graph code. */
+export function nativeMaterialDiffuseProgram(graph: CompiledAppearanceGraph): CompiledAppearanceGraph {
+  const cached = DIFFUSE_GRAPHS.get(graph);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const consumed = new Set([
+    "baseColor", "metallic", "emissive", "occlusion", "coatWeight",
+    "normalTS", "normalTSValidity", "coatNormalTS", "coatNormalTSValidity",
+  ]);
+  const selected = selectAppearanceProductProgram(graph,
+    Object.fromEntries(Object.entries(graph.outputs).filter(([name]) => consumed.has(name))));
+  DIFFUSE_GRAPHS.set(graph, selected);
+  return selected;
+}
+
+export function createNativeDiffuseBindings(source: NativeMaterialBindingSource): NativeMaterialBindings {
+  const graph = nativeMaterialDiffuseProgram(source.graph);
   return createNativeMaterialBindings({ ...source, graph, program: lowerNativeMaterial(graph) });
 }

@@ -47,6 +47,8 @@ struct DecodedGeometryPagePlanV1 {
  * `MaterializeDecodedGeometryPageV1` to obtain an individual page.
  */
 struct DecodedGeometryProductPlanV1 {
+    /** Versioned query metadata; references shared page payload, never a second mesh. */
+    std::vector<std::uint8_t> querySection;
     std::vector<GeometryAssetRecordV3> assets;
     std::vector<std::uint32_t> roots;
     std::vector<GeometryHierarchyNodeV3> hierarchy;
@@ -75,6 +77,7 @@ std::array<std::uint8_t, 16> ComputeGeometryPageIdentityV1(
 
 /** Producer-neutral V3-decoded Geometry Product before file-container encoding. */
 struct DecodedGeometryProductV1 {
+    std::vector<std::uint8_t> querySection;
     std::vector<GeometryAssetRecordV3> assets;
     std::vector<std::uint32_t> roots;
     std::vector<GeometryHierarchyNodeV3> hierarchy;

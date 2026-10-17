@@ -68,12 +68,12 @@ export function descriptorFromOegPack(pack: OegPackV3): GeometryProductDescripto
     })),
   );
   const descriptor: GeometryProductDescriptorV1 = Object.freeze({
-    schemaVersion: 1,
+    schemaVersion: 2,
     productId,
     revision: 0,
     producerKind: "offline-native",
     producerId: "oengine-oegpack-v3",
-    producerVersion: "3.0-adapter-v1",
+    producerVersion: "3.1-query2-adapter-v2",
     sourceIdentityKind: "content-sha256",
     sourceIdentityHash: productId.slice(),
     recipeHash: fromHex(pack.header.recipeHash),
@@ -87,6 +87,7 @@ export function descriptorFromOegPack(pack: OegPackV3): GeometryProductDescripto
     bootstrapPageIds: pack.bootstrapPageIds.slice(),
     vertexFormats: encodeVertexFormatsV3(pack.vertexFormats),
     activationPageIds: Uint32Array.from([...new Set(pack.bootstrapPageIds)].sort((a, b) => a - b)),
+    querySection: pack.querySection.slice(),
   });
   return descriptor;
 }

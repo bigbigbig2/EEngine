@@ -136,7 +136,7 @@ export class HttpRangeReadablePackV3 implements RangeReadablePackV3 {
 
 export interface OegPackHeaderV3 {
   readonly formatMajor: 3;
-  readonly formatMinor: 0;
+  readonly formatMinor: 1;
   readonly pageShift: 18;
   readonly pageBytes: 262144;
   readonly flags: number;
@@ -159,6 +159,8 @@ export interface OegPackHeaderV3 {
   readonly fileBytes: bigint;
   readonly recipeHash: string;
   readonly packContentHash: string;
+  readonly querySectionOffset: bigint;
+  readonly querySectionBytes: bigint;
 }
 
 export interface OegPackOpenOptionsV3 {
@@ -181,6 +183,7 @@ export interface OegPackV3 {
   readonly pages: readonly GeometryPageDirectoryV3[];
   readonly vertexFormats: readonly VertexFormatRecordV3[];
   readonly bootstrapPageIds: Uint32Array;
+  readonly querySection: Uint8Array;
   readPage(pageId: number, signal?: AbortSignal): Promise<OegPackDecodedPageV3>;
   readPages?(pageIds: ArrayLike<number>, signal?: AbortSignal): Promise<readonly OegPackDecodedPageV3[]>;
 }
@@ -249,6 +252,10 @@ export async function openOegPackV3(
     ),
   );
   const bootstrapPageIds = readU32Table(view, header.bootstrapPageOffset, header.bootstrapPageCount);
+  const querySection = metadata.slice(
+    offset(header.querySectionOffset),
+    offset(header.querySectionOffset + header.querySectionBytes),
+  );
   validateMetadata(
     header,
     assets,
@@ -278,6 +285,7 @@ export async function openOegPackV3(
     pages,
     vertexFormats,
     bootstrapPageIds,
+    querySection,
     async readPage(pageId: number, signal?: AbortSignal): Promise<OegPackDecodedPageV3> {
       assertIndex(pageId, pages.length, "pageId");
       const page = pages[pageId]!;
@@ -398,16 +406,18 @@ function parseHeader(bytes: Uint8Array): OegPackHeaderV3 {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const u32 = (at: number) => view.getUint32(at, true);
   const u64 = (at: number) => view.getBigUint64(at, true);
-  if (u32(8) !== 3 || u32(12) !== 0) throw new OegPackV3Error("only OEGPACK V3.0 is supported");
+  if (u32(8) !== 3 || u32(12) !== 1) {
+    throw new OegPackV3Error("query geometry requires OEGPACK V3.1; recook source");
+  }
   if (u32(16) !== 0x01020304 || u32(20) !== 256)
     throw new OegPackV3Error("invalid endian/header size marker");
   if (u32(24) !== OEGPACK_V3_PAGE_SHIFT || u32(28) !== OEGPACK_V3_PAGE_BYTES)
     throw new OegPackV3Error("V3 page size must be 256 KiB");
-  if (u32(32) !== 0 || u32(36) !== 1 || u32(68) !== 0 || bytes.subarray(208).some((value) => value !== 0))
+  if (u32(32) !== 0 || u32(36) !== 1 || u32(68) !== 0 || bytes.subarray(224).some((value) => value !== 0))
     throw new OegPackV3Error("V3 header flags/default codec/reserved bytes are invalid");
   return Object.freeze({
     formatMajor: 3,
-    formatMinor: 0,
+    formatMinor: 1,
     pageShift: 18,
     pageBytes: 262144,
     flags: u32(32),
@@ -430,6 +440,8 @@ function parseHeader(bytes: Uint8Array): OegPackHeaderV3 {
     fileBytes: u64(136),
     recipeHash: hex(bytes.subarray(144, 176)),
     packContentHash: hex(bytes.subarray(176, 208)),
+    querySectionOffset: u64(208),
+    querySectionBytes: u64(216),
   });
 }
 
@@ -521,6 +533,7 @@ function validateTableRanges(header: OegPackHeaderV3, metadataBytes: number): vo
       BigInt(header.vertexFormatCount * OEGPACK_V3_VERTEX_FORMAT_STRIDE),
       "vertex format",
     ],
+    [header.querySectionOffset, header.querySectionBytes, "query section"],
   ];
   let previous = 256n;
   for (const [start, length, name] of tables) {
@@ -529,6 +542,7 @@ function validateTableRanges(header: OegPackHeaderV3, metadataBytes: number): vo
     previous = start + length;
   }
   if (header.fileBytes < header.pageBlobOffset) throw new OegPackV3Error("fileBytes precedes page blob");
+  if (header.querySectionBytes < 128n) throw new OegPackV3Error("query section is truncated");
 }
 
 function validateMetadata(
