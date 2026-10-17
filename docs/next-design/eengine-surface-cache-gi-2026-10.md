@@ -40,7 +40,7 @@ verifies:
 
 初始设计源码基线：`3000de2ab7caee2f5a20d86ded367ff3ba2e32c5`（2026-10-17）；本轮执行架构重构基线：`2f276576`（2026-10-18）。以下分开写“源码事实”“目标决定”和“待实测参数”。源码核对覆盖本模块 producer→直接 consumer 及生命周期，不声称逐行审计整个引擎。外部固定 revision、许可证、入口与移植范围见 [source map](../porting/next-renderer.md#surface-cache-gi-2026-10-17)。
 
-**本轮重构决定。** 保留完整 SCGI 算法，替换失控的物理工作组织：共享求交 arena 与场景 TLAS、estimator 样本批处理、先需求后 Native 源复用。执行计划只增加 SCGI-R1/R2/R3 三个完整单元，随后回到 SCGI-10。当前示例与本轮最高验收尺寸为 **1920×1080、internalScale=1**；不能降低分辨率、方向数、几何覆盖或材质范围来证明本次重构有效。旧实现的局部功能闭合不代表成本可接受。本设计描述目标合同；已切换的实现和局部验证读执行§8.4/8.5，R3仍待实施，不由本文推断整链资格。
+**本轮重构决定。** 保留完整 SCGI 算法，替换失控的物理工作组织：共享求交 arena 与场景 TLAS、estimator 样本批处理、先需求后 Native 源复用。执行计划只增加 SCGI-R1/R2/R3 三个完整单元，随后回到 SCGI-10。当前示例与本轮最高验收尺寸为 **1920×1080、internalScale=1**；不能降低分辨率、方向数、几何覆盖或材质范围来证明本次重构有效。旧实现的局部功能闭合不代表成本可接受。本设计描述目标合同；已切换的实现和局部验证读执行§8.4/8.5/8.6，不由本文推断整链资格。
 
 ## 1. 选择、范围与必须纠正的母稿问题
 
@@ -486,6 +486,10 @@ Native 在精确 sourcePixel invocation 为被请求 anchor 共享本次真实 e
 
 残差只进入最终 screen 消费，不回灌 world bank 或 seed。运动/光照变化拒绝 previous residual，world GI 独立；gather on/off 验证能量，不能持续增亮。Native finalPixel 当前已有 **4 storage textures**，不得增加第五张或拒绝原本合法材质。首选把 request/source-preparation 的明确不相交 ranges 放进现有 lighting directory/window buffer，复用既有 binding，按 phase 声明 read_write；输入/输出字节、buffer usage、binding range、唯一 writer 和 pass 边界全部可核对，不能把当前只读 declaration 偷当可写。若具体设备/route 的 usage 规则要求分 range 或独立 source phase，该 phase 只能消费本次 Native 已求值的最小产品，按请求紧凑执行，不重算整屏 graph。R3 必须完成 full/stripe/remap 的具体 descriptor inventory 与合法路径，不能以“以后可能可行”关单。每窗口 source preparation 在目录复用前排空/复制到 GI owner 资源，不能保留会被下一窗口覆盖的引用；源与 HDR 不共享可写 view。
 
+**R3具体落点。** `ScgiGatherWork` owns GPU request header、bitset、8B/H request lookup、unique ID、48B/source preparation、16B/direction mapping与shadow槽映射。lookup同时保存`ticket+1`和`sourcePixel+1`；world field无效时仍可提供emission/direct，故不得从world field反推exact pixel。Native group1/binding2的既有lighting storage明确改read_write，binding9 ranges从112B扩128B；末vec4给request/preparation offsets、window half-count和enabled。full/stripe/remap均为world112B+previous residual32B+request8B+preparation48B，即200B/window half-pixel，额外halo照实计。Native每个exact invocation是该preparation唯一writer；每窗口Native结束后，drain在同command把48B复制到GI owner紧凑队列，再允许覆写窗口。Unlit沿同一协议共享emission；无GI/light owner的Unlit-only使用零启用ranges。
+
+FrameProgram显式声明`gi-source-requests`（GI→Surface）和`gi-source-preparation`（Surface→Gather），不把HDR作为source输入。pre已完成身份/双plane校验，16B mapping只保存受本帧query/world publication lease保护的half-index和distance；不另存逐方向generation，跨帧禁止消费它。post只将紧凑preparation与immutable anchor拼到既有有界96B hit scratch，不执行第二遍material graph。source/shadow实际count经GPU生成indirect；storage与indirect参数分两个buffer，phase间有序copy，避免同pass writable storage/indirect usage冲突。VSM资格仅在实际fine/coarse页查询有效且receiver depth落在[0,1]时为真，neutral返回不合格；unknown query拒绝源，不能成为有效黑色。具体绑定清单、资源成本和实际GPU验证见执行§8.6。
+
 旧稿“直接逆cosine卷积后评价标准SH就保证恒定场零残差”不成立：投影支持域是半球，basis不再正交。选定半球最小二乘预测：取四维`Y(ω)`、patch support normal ng，`G(ng)=∫hemisphere Y Yᵀ dω`。在ng=z局部系，G对角均1/2，只有`G03=G30=√3/4`非零（顺序0/x/y/z）；旋转到世界即可。用`l=c/A`恢复radiance moments，解`a=G⁻¹l`，`Lhat(ω)=a·Y(ω)`。矩阵固定、正定、解析inverse，shader不作通用求逆。它是低阶模型，不把E直接当Lo，也不是在同hit重算完全相同Lo制造恒零残差。
 
 `δl=(1/N)Σ m(ω) w(distance) [Lscreen(ω)-Lhat(ω)]Y(ω)/p(ω)`，m是配对coverage且两项共享，w为有界近场window；N固定，mask=0是零修正。存`δc=Aδl`，按§11标准SH线性评价求signed δE；signed residual不能独自clamp成正数。最终`E=max(0,Eworld_raw+cδE)`，先合系数/线性结果再非负处理，负值量须计数/解释，不能掩盖模型不相容。同一ng、恒定半球辐亮度时Gram拟合精确常量，故配对样本δ=0；normal/support不同的邻居混合只是近似，必须测误差，不能套用该零残差证明。
@@ -560,7 +564,7 @@ near-field 采用紧凑 SH history，不保存双份方向历史。旧 engine al
 
 probe列表/scan/validation与query scratch另计；目录分块时以window真实量替换三份full残差段。方向scratch可分probe batch复用，但须保留必要邻域/投影寿命。表是给定布局的理论量，不是质量推荐或GPU实测。
 
-R3 反转依赖的附加模型：source bitset 为 `4·ceil(H/32)`，1080p 64800B（0.0618MiB）；唯一 source ID 队列至多 `4·min(H,Qvalid)`，当前上限921600B（0.8789MiB）；跨 pre/post 保留的最小方向映射按16Q估算3686400B（3.5156MiB），合计约4.456MiB，counter/alignment、必要 material preparation 另计。方向 mapping 的具体字段须保完整身份验证结果与 generation，16B 不是允许截断身份的硬上限；可在 pre 阶段完成资格校验后保存受 publication lease 保护的索引。不要为改变顺序永久保存全帧96B/hit。若分窗口流转需保留所有请求直到 Native，则显式计映射与 drain，不得把 batch scratch 当跨阶段仍有效的数据。
+R3实际附加模型：令C=min(H,Q)，work为`64+4·ceil(H/32)+8H+52C+16Q+4B`字节。1080p H518400/Q230400/B65536：bitset64800B，request lookup4147200B，unique IDs921600B，preparation11059200B，mapping3686400B，shadow map262144B，合计20141408B（19.2083MiB）；另48B独立indirect参数，不能只报原bitset+ID+mapping的4.456MiB下界。field directory增加request8H+preparation48H，即相对旧world112H+residual32H每full slot再加29030400B（27.6855MiB），最多三slot约83.06MiB，实际受window/halo和live slots影响。保留16H dense source texture供fill/debug随机读取，未提前扣除；原全H分类/第二遍材质执行资源已删除。方向mapping保存pre验证结果及同帧publication lease保护索引，不保存全Q×96B hit。work/probe/scratch在创建前受binding与buffer limits完整校验；超出明确失败，不截断Q或request。
 
 ### 15.3 工作、带宽与dispatch
 

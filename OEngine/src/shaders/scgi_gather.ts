@@ -1,5 +1,9 @@
-import { LIGHT_DATABASE_READ_WGSL, POINT_LIGHT_DESCRIPTOR as POINT,
-  SPOT_LIGHT_DESCRIPTOR as SPOT, DIRECTIONAL_LIGHT_DESCRIPTOR as DIRECTIONAL } from "../gpu/LightDatabase.js";
+import {
+  LIGHT_DATABASE_READ_WGSL,
+  POINT_LIGHT_DESCRIPTOR as POINT,
+  SPOT_LIGHT_DESCRIPTOR as SPOT,
+  DIRECTIONAL_LIGHT_DESCRIPTOR as DIRECTIONAL,
+} from "../gpu/LightDatabase.js";
 import { SCGI_ABI_WGSL, SCGI_IRRADIANCE_WGSL } from "../render/gi/ScgiAbi.js";
 import { SCGI_GATHER_MATH_WGSL, type planScgiGather } from "../render/gi/ScgiGatherLayout.js";
 import { atmosphereRuntimeWgsl } from "./atmosphere/runtime.js";
@@ -56,6 +60,14 @@ struct GatherSettings {
 @group(0) @binding(18) var<storage, read> previous_residual: array<u32>;
 @group(0) @binding(19) var<storage, read> previous_field: array<u32>;
 @group(0) @binding(20) var<storage, read_write> next_residual: array<u32>;
+@group(0) @binding(21) var<storage, read_write> work: array<atomic<u32>>;
+const REQUEST_BITS: u32 = ${plan.work.bits}u;
+const REQUESTS: u32 = ${plan.work.requests}u;
+const IDS: u32 = ${plan.work.ids}u;
+const PREPARATION: u32 = ${plan.work.preparation}u;
+const MAPPING: u32 = ${plan.work.mapping}u;
+const SHADOW: u32 = ${plan.work.shadow}u;
+const SOURCE_CAPACITY: u32 = ${plan.work.capacity}u;
 const RESULT: u32 = ${plan.batch * 12}u;
 const LIGHTS: u32 = ${lightsWord}u;
 const DIRECTIONS: u32 = ${plan.directions}u;
@@ -299,7 +311,7 @@ fn source_light(lane: u32) -> u32 {
   let count = min(estimate[0u], settings.profile.x);
   let sum = bitcast<f32>(estimate[1u]);
   if (count == 0u || estimate[2u] != 0u || !(sum > 0.0)) { return 0xffffffffu; }
-  let selection_target = gather_random(settings.segment.z + lane + gather_hash(settings.control.x)) * sum;
+  let selection_target = gather_random(bitcast<u32>(hits[lane * 6u + 4u].x) + gather_hash(settings.control.x)) * sum;
   var low = 0u;
   var high = count - 1u;
   loop {
@@ -311,7 +323,6 @@ fn source_light(lane: u32) -> u32 {
   return LIGHTS + low * 4u;
 }
 fn source_incident(lane: u32) -> mat2x3f {
-  let hit = hits[lane * 6u];
   let position = hits[lane * 6u + 3u].xyz;
   let phase = settings.control.z;
   if (phase == 0u) {
@@ -352,64 +363,89 @@ fn source_incident(lane: u32) -> mat2x3f {
   return mat2x3f(-light.direction, light.color);
 }
 @compute @workgroup_size(64)
+fn clear_source(@builtin(global_invocation_id) id: vec3u) {
+  if (id.x >= settings.extent.z * settings.extent.w) { return; }
+  textureStore(source_output, vec2i(i32(id.x % settings.extent.z), i32(id.x / settings.extent.z)), vec4f(0.0));
+}
+@compute @workgroup_size(1)
+fn source_count() {
+  let total = atomicLoad(&work[0u]);
+  let count = min(${plan.batch}u, total - min(total, settings.segment.z));
+  atomicStore(&work[4u], (count + 63u) / 64u);
+  atomicStore(&work[5u], 1u);
+  atomicStore(&work[6u], 1u);
+}
+@compute @workgroup_size(64)
 fn source_begin(@builtin(global_invocation_id) id: vec3u) {
-  if (id.x >= settings.segment.w) { return; }
-  let index = settings.segment.z + id.x - settings.segment.x;
-  let hit = hits[id.x * 6u];
-  let n = hits[id.x * 6u + 2u];
-  let c = world_coefficients(index);
-  let world_only = max(vec3f(0.0), evaluate(c, n.xyz));
-  let valid = n.w == 1.0 && anchors[index].positionValid.w == 1.0 && finite3(world_only);
-  let radiance = hits[id.x * 6u + 1u].xyz + hit.xyz * hit.w * hits[id.x * 6u + 1u].w * world_only;
-  source_state[id.x] = vec4f(select(vec3f(0.0), radiance, valid), f32(valid));
+  let ticket = settings.segment.z + id.x;
+  if (id.x >= ${plan.batch}u || ticket >= min(atomicLoad(&work[0u]), SOURCE_CAPACITY)) { return; }
+  let prep = PREPARATION + ticket * 12u;
+  let value = bitcast<vec4f>(vec4u(atomicLoad(&work[prep + 4u]), atomicLoad(&work[prep + 5u]),
+    atomicLoad(&work[prep + 6u]), atomicLoad(&work[prep + 7u])));
+  source_state[id.x] = select(vec4f(0.0), value, value.w == 1.0 && finite3(value.xyz));
 }
 @compute @workgroup_size(64)
 fn source_rays(@builtin(global_invocation_id) id: vec3u) {
-  if (id.x >= settings.segment.w) { return; }
+  let ticket = settings.segment.z + id.x;
+  if (id.x >= ${plan.batch}u || ticket >= min(atomicLoad(&work[0u]), SOURCE_CAPACITY) || source_state[id.x].w != 1.0) { return; }
   let incident = source_incident(id.x);
+  let cosine = max(0.0, dot(incident[0], hits[id.x * 6u + 2u].xyz));
+  let response = hits[id.x * 6u].xyz * incident[1] * cosine;
+  if (all(response == vec3f(0.0))) { return; }
+  let receives = (bitcast<u32>(hits[id.x * 6u + 3u].w) & 4u) != 0u;
+  let visibility = hits[id.x * 6u + 2u].w;
+  if (!receives || (settings.control.z == 1u && visibility >= 0.0)) {
+    atomicAdd(&work[13u], u32(receives));
+    source_state[id.x] += vec4f(response * select(1.0, visibility, receives), 0.0);
+    return;
+  }
   let geometry = hits[id.x * 6u + 5u];
-  let position_flags = hits[id.x * 6u + 3u];
-  let origin = position_flags.xyz + geometry.xyz * geometry.w;
-  // Infinity must be a runtime bitcast, WGSL constant evaluation rejects it.
+  let origin = hits[id.x * 6u + 3u].xyz + geometry.xyz * geometry.w;
   var distance = bitcast<f32>(0x7f800000u | (settings.control.x & 0u));
   var direction = incident[0];
   if (settings.control.z == 0u) {
     let at = source_light(id.x);
-    if (at != 0xffffffffu) {
-        var endpoint: vec3f;
-        if (estimate[at] == 0u) { endpoint = ${POINT.marshalling_method_read}(&database, estimate[at + 1u]).position; }
-        else { endpoint = ${SPOT.marshalling_method_read}(&database, estimate[at + 1u]).position; }
-        let delta = endpoint - origin;
-        let length_to_light = length(delta);
-        distance = max(0.0, length_to_light - geometry.w);
-        if (length_to_light > 1e-6) { direction = delta / length_to_light; }
-    }
+    var endpoint: vec3f;
+    if (estimate[at] == 0u) { endpoint = ${POINT.marshalling_method_read}(&database, estimate[at + 1u]).position; }
+    else { endpoint = ${SPOT.marshalling_method_read}(&database, estimate[at + 1u]).position; }
+    let delta = endpoint - origin;
+    let length_to_light = length(delta);
+    distance = max(0.0, length_to_light - geometry.w);
+    if (length_to_light > 1e-6) { direction = delta / length_to_light; }
   }
-  let path_active = source_state[id.x].w == 1.0 && dot(incident[0], hits[id.x * 6u + 2u].xyz) > 0.0 && any(incident[1] > vec3f(0.0));
-  let receives = (bitcast<u32>(position_flags.w) & 4u) != 0u;
-  write_ray(id.x, origin, direction, select(0.0, distance, path_active && receives));
+  let lane = atomicAdd(&work[1u], 1u);
+  atomicAdd(&work[12u], 1u);
+  if (lane >= ${plan.batch}u) { atomicStore(&work[2u], 1u); return; }
+  atomicStore(&work[SHADOW + lane], id.x);
+  write_ray(lane, origin, direction, distance);
+}
+@compute @workgroup_size(1)
+fn shadow_count() {
+  let count = atomicLoad(&work[1u]);
+  atomicStore(&work[8u], (count + 63u) / 64u);
+  atomicStore(&work[9u], 1u);
+  atomicStore(&work[10u], 1u);
 }
 @compute @workgroup_size(64)
 fn source_shadow(@builtin(global_invocation_id) id: vec3u) {
-  if (id.x >= settings.segment.w || source_state[id.x].w == 0.0) { return; }
-  let incident = source_incident(id.x);
-  let cosine = max(0.0, dot(incident[0], hits[id.x * 6u + 2u].xyz));
-  if (cosine == 0.0 || all(incident[1] == vec3f(0.0))) { return; }
-  let receives = (bitcast<u32>(hits[id.x * 6u + 3u].w) & 4u) != 0u;
-  let status = select(1u, batch[RESULT + id.x * 8u + 3u], receives);
-  if (status > 1u) { source_state[id.x].w = 0.0; return; }
+  if (id.x >= atomicLoad(&work[1u])) { return; }
+  let lane = atomicLoad(&work[SHADOW + id.x]);
+  let status = batch[RESULT + id.x * 8u + 3u];
+  if (status > 1u) { source_state[lane].w = 0.0; return; }
   if (status == 1u) {
-    source_state[id.x] += vec4f(hits[id.x * 6u].xyz * hits[id.x * 6u + 1u].w * incident[1] * cosine, 0.0);
+    let incident = source_incident(lane);
+    let cosine = max(0.0, dot(incident[0], hits[lane * 6u + 2u].xyz));
+    source_state[lane] += vec4f(hits[lane * 6u].xyz * incident[1] * cosine, 0.0);
   }
 }
 @compute @workgroup_size(64)
 fn source_finish(@builtin(global_invocation_id) id: vec3u) {
-  if (id.x >= settings.segment.w) { return; }
-  let index = settings.segment.z + id.x;
+  let ticket = settings.segment.z + id.x;
+  if (id.x >= ${plan.batch}u || ticket >= min(atomicLoad(&work[0u]), SOURCE_CAPACITY)) { return; }
+  let index = atomicLoad(&work[IDS + ticket]);
   let value = source_state[id.x];
-  let valid = value.w == 1.0 && finite3(value.xyz);
-  textureStore(source_output, vec2i(i32(index % settings.extent.z), i32(index / settings.extent.z)),
-    select(vec4f(0.0), value, valid));
+  let valid = value.w == 1.0 && finite3(value.xyz) && atomicLoad(&work[2u]) == 0u;
+  textureStore(source_output, vec2i(i32(index % settings.extent.z), i32(index / settings.extent.z)), select(vec4f(0.0), value, valid));
 }
 @compute @workgroup_size(64)
 fn probe_rays(@builtin(global_invocation_id) id: vec3u) {
@@ -423,7 +459,7 @@ fn probe_rays(@builtin(global_invocation_id) id: vec3u) {
     select(0.0, settings.parameters.x, probes[at + 39u] != 0u));
 }
 @compute @workgroup_size(64)
-fn fill(@builtin(global_invocation_id) id: vec3u) {
+fn request(@builtin(global_invocation_id) id: vec3u) {
   if (id.x >= settings.segment.w) { return; }
   let result = RESULT + id.x * 8u;
   if (batch[result + 3u] != 0u) { return; }
@@ -453,14 +489,38 @@ fn fill(@builtin(global_invocation_id) id: vec3u) {
   if (anchor.positionValid.w == 0.0 || anchor.identity[6] != geometry.x ||
       anchor.identity[8] != geometry.y || anchor.identity[12] != geometry.z ||
       dot(anchor.normal, flat.xyz) < settings.parameters.y ||
-      abs(dot(anchor.positionValid.xyz - position, flat.xyz)) > error) { return; }
-  let radiance = textureLoad(source, vec2i(pixel), 0);
+      abs(dot(anchor.positionValid.xyz - position, flat.xyz)) > error ||
+      abs(dot(anchor.positionValid.xyz - position, anchor.normal)) > error) { return; }
+  let mapping = MAPPING + (probe * DIRECTIONS + id.x % DIRECTIONS) * 4u;
+  atomicAdd(&work[11u], 1u);
+  atomicStore(&work[mapping], index + 1u);
+  atomicStore(&work[mapping + 1u], batch[result]);
+  let mask = 1u << (index & 31u);
+  let prior = atomicOr(&work[REQUEST_BITS + index / 32u], mask);
+  if ((prior & mask) == 0u) {
+    let ticket = atomicAdd(&work[0u], 1u);
+    if (ticket >= SOURCE_CAPACITY) { atomicStore(&work[2u], 1u); return; }
+    atomicStore(&work[IDS + ticket], index);
+    atomicStore(&work[REQUESTS + index * 2u], ticket + 1u);
+    atomicStore(&work[REQUESTS + index * 2u + 1u], anchor.sourcePixel + 1u);
+  }
+}
+@compute @workgroup_size(64)
+fn fill(@builtin(global_invocation_id) id: vec3u) {
+  if (id.x >= settings.segment.w || atomicLoad(&work[2u]) != 0u) { return; }
+  let probe = settings.segment.z + id.x / DIRECTIONS;
+  let p = probe * 40u;
+  let mapping = MAPPING + (probe * DIRECTIONS + id.x % DIRECTIONS) * 4u;
+  let source_id = atomicLoad(&work[mapping]);
+  if (source_id == 0u) { return; }
+  let index = source_id - 1u;
+  let radiance = textureLoad(source, vec2i(i32(index % settings.extent.z), i32(index / settings.extent.z)), 0);
   if (radiance.w != 1.0) { return; }
   var c: array<vec3f, 4>;
   for (var term = 0u; term < 4u; term++) { c[term] = pv(p + term * 3u); }
   let direction = sample_direction(probe, id.x % DIRECTIONS);
   let prediction = gather_prediction(c, pv(p + 16u), direction);
-  let distance = bitcast<f32>(batch[result]);
+  let distance = bitcast<f32>(atomicLoad(&work[mapping + 1u]));
   let fade = 1.0 - smoothstep(settings.parameters.x * 0.75, settings.parameters.x, distance);
   let delta = (radiance.xyz - prediction) * fade;
   if (!finite3(delta)) { return; }

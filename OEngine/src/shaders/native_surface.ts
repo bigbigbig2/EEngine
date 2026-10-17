@@ -18,6 +18,7 @@ import { nativeLocalLighting } from "./native_local_lighting.js";
 import {
   FINAL_PIXEL_DIRECTORY_WGSL,
   FINAL_PIXEL_LIGHTING_DIRECTORY_WGSL,
+  FINAL_PIXEL_LIGHTING_DECLARATIONS_WGSL,
   NATIVE_TEMPORAL_SEED_VIEW_BYTES,
 } from "../gpu/FinalPixelAbi.js";
 import { nativeTemporalSeedWgsl, nativeResponseWgsl } from "./native_temporal_seed.js";
@@ -188,7 +189,7 @@ export function nativeSurfaceBindingGroups(
     : [
         read(0),
         uniform(1),
-        read(2),
+        profile.finalPixel ? { binding: 2, visibility: COMPUTE, buffer: { type: "storage" } } : read(2),
         read(3),
         uniform(4),
         texture(5, "unfilterable-float"),
@@ -198,6 +199,9 @@ export function nativeSurfaceBindingGroups(
         texture(10, "depth"),
         texture(11, "float"),
       ];
+  if (profile.unlit && profile.finalPixel) {
+    lighting.push({ binding: 2, visibility: COMPUTE, buffer: { type: "storage" } }, uniform(9));
+  }
   if (!profile.unlit) {
     // Both IBL owners publish linear rgba16float. Only DFG uses hardware
     // filtering; oct radiance keeps exact f32 interpolation and seam support.
@@ -333,7 +337,12 @@ export function nativeSurfaceWgsl(
     : "";
   const localLighting = nativeLocalLighting(fusedSun);
   const lighting = profile.unlit
-    ? ""
+    ? profile.finalPixel
+      ? FINAL_PIXEL_LIGHTING_DECLARATIONS_WGSL.replace(
+          "var<storage, read> lighting_directory",
+          "var<storage, read_write> lighting_directory",
+        )
+      : ""
     : /* wgsl */ `
 ${localLighting.source}
 ${vsmSamplingWgsl(true)}
@@ -350,7 +359,7 @@ struct NativeShadingView {
 ${localLighting.declarations}
 ${
   fusedSun
-    ? `${FINAL_PIXEL_LIGHTING_DIRECTORY_WGSL}
+    ? `${profile.finalPixel ? FINAL_PIXEL_LIGHTING_DIRECTORY_WGSL.replace("var<storage, read> lighting_directory", "var<storage, read_write> lighting_directory") : FINAL_PIXEL_LIGHTING_DIRECTORY_WGSL}
 ${vsmFilterNoiseWgsl("lighting_ranges.segments.y")}
 @group(1) @binding(8) var<uniform> vsm_constants: VsmSamplingConstants;
 @group(1) @binding(10) var vsm_atlas_depth: texture_depth_2d;
@@ -471,6 +480,12 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
     ? /* wgsl */ `
   let color = ${vector("baseColor", "vec3f(0.0)")};
   ${
+    profile.finalPixel
+      ? `scgi_native_source(pixel, vec3f(0.0), 1.0, max(color, vec3f(0.0)), 1.0,
+    native_face_normal(resolved.world_plane.xyz, resolved_position), resolved.flags);`
+      : ""
+  }
+  ${
     reflections
       ? `let reflection_face = native_face_normal(resolved.world_plane.xyz, resolved_position);
   sssr_write_receiver(pixel.y * settings.dimensions.x + pixel.x, vec4f(reflection_face, 1.0), vec4f(reflection_face, 1.0), vec4f(0.0), vec4f(0.0, 0.0, 0.0, 1.0));`
@@ -498,6 +513,13 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
   let direction = native_safe_normal(settings.camera_position_exposure.xyz - position, mapped_normal);
   let geometry = SurfaceGeometry(mapped_normal, native_safe_normal(corners.world_plane.xyz, normal), position, direction);
   let view_depth = max(-(settings.view_matrix * vec4f(position, 1.0)).z, 1e-4);
+${
+  profile.finalPixel
+    ? `let source_underlayer = 1.0 - (0.04 + 0.96 * pow(1.0 - clamp(dot(material.coatNormal, direction), 0.0, 1.0), 5.0)) * material.coatFactor;
+  scgi_native_source(pixel, material.diffuse * 0.3183098861837907, material.occlusion,
+    material.emissive, source_underlayer, mapped_normal, resolved.flags);`
+    : ""
+}
 ${materialLighting}
   ${
     reflections
@@ -685,7 +707,7 @@ ${material}
 ${surfaceGeometryCompletionWgsl(profile.productGeometry, true, false, fusedSun)}
 ${NATIVE_RESOLVED_POSITION_WGSL}
 ${lighting}
-${profile.finalPixel && !profile.unlit ? SCGI_NATIVE_WGSL : ""}
+${profile.finalPixel ? SCGI_NATIVE_WGSL : ""}
 ${LINEAR_REC709_TO_REC2020_WGSL}
 ${profile.finalPixel ? FINAL_PIXEL_DIRECTORY_WGSL : NATIVE_MATERIAL_DIRECTORY_WGSL}
 struct NativeSurfaceSettings {
@@ -867,6 +889,7 @@ ${
   let color = (local_color + sun_color) + environment_color;`
     : ""
 }
+  ${profile.finalPixel && profile.physicalSun && !profile.unlit ? "scgi_native_source_sun(pixel, sun_visibility, vsm_visibility_qualified);" : ""}
   // P is the positive GPU exposure published by radiometry. An artistic lower
   // floor here would disagree with Sky/Aerial and HDR metering above L=1800.
   let contribution = oengine_linear_rec709_to_rec2020(color) * settings.camera_position_exposure.w;

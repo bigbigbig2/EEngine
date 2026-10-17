@@ -4,7 +4,7 @@ export const FINAL_PIXEL_DIRECTORY_WORDS = 8;
 export const FINAL_PIXEL_SOLAR_WIDTH = 256;
 export const FINAL_PIXEL_SOLAR_HEIGHT = 64;
 export const FINAL_PIXEL_SOLAR_BYTES = FINAL_PIXEL_SOLAR_WIDTH * FINAL_PIXEL_SOLAR_HEIGHT * 8;
-export const FINAL_PIXEL_LIGHTING_RANGES_BYTES = 112;
+export const FINAL_PIXEL_LIGHTING_RANGES_BYTES = 128;
 export const FINAL_PIXEL_DIRECTORY_WGSL = /* wgsl */ `
 struct NativeMaterialDirectoryEntry {
   constant_base: u32,
@@ -137,7 +137,9 @@ export function planFinalPixelLightingDirectory(
     throw new RangeError("GI directory source pixel identity exceeds u32");
   }
   const available = maximum - giOffset;
-  const fieldStride = residual ? 144 : 112;
+  // Gather adds an 8B request and a disjoint 48B Native preparation per
+  // window half pixel. Include both before deciding full/stripe/remap.
+  const fieldStride = residual ? 200 : 112;
   const rowCapacity = giWidth === 0 ? 0 : Math.floor(available / (giWidth * fieldStride));
   // Two half rows on each side cover the complete bilinear/edge-aware footprint.
   // Windows shade multiples of eight full rows, matching Native work tiles.
@@ -226,11 +228,15 @@ export function planFinalPixelLightingDirectory(
       0,
       0,
       0,
+      0,
+      0,
+      0,
+      0,
     ]),
   });
 }
 
-export const FINAL_PIXEL_LIGHTING_DIRECTORY_WGSL = /* wgsl */ `
+export const FINAL_PIXEL_LIGHTING_DECLARATIONS_WGSL = /* wgsl */ `
 @group(1) @binding(2) var<storage, read> lighting_directory: array<u32>;
 struct FinalPixelLightingRanges {
   local_vsm: vec4u,
@@ -240,8 +246,12 @@ struct FinalPixelLightingRanges {
   extent_debug: vec4u,
   remap: vec4u,
   residual: vec4u, // signed coefficient word offset/length, enabled, reserved
+  source: vec4u, // request offset, preparation offset, half pixel count, enabled
 }
 @group(1) @binding(9) var<uniform> lighting_ranges: FinalPixelLightingRanges;
+`;
+export const FINAL_PIXEL_LIGHTING_DIRECTORY_WGSL = /* wgsl */ `
+${FINAL_PIXEL_LIGHTING_DECLARATIONS_WGSL}
 fn final_pixel_local_lookup(index: u32) -> LocalLightLookup {
   let at = lighting_ranges.local_vsm.x + index * 2u;
   if (index >= lighting_ranges.local_vsm.y || at + 1u >= arrayLength(&lighting_directory)) {

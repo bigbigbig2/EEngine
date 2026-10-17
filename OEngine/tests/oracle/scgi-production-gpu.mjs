@@ -11,7 +11,7 @@ import { createDefaultWebGeometryCookerModule } from "../../.test-dist/assets/we
 import { ShadeDrawSide } from "../../.test-dist/material/enums.js";
 import {
   AppearanceGraphBuilder,
-  snapshotAppearanceTexture
+  snapshotAppearanceTexture,
 } from "../../.test-dist/material/AppearanceGraph.js";
 import { decodeFloat16, encodeFloat16 } from "../../.test-dist/core/Float16.js";
 import { FinalPixelLightingPublication } from "../../.test-dist/render/lighting/FinalPixelLightingPublication.js";
@@ -26,13 +26,13 @@ import { nativeSurfaceBindingGroups } from "../../.test-dist/shaders/native_surf
 export async function runScgiProductionGpuOracle(options = {}) {
   const adapter = await navigator.gpu.requestAdapter({
     powerPreference: "high-performance",
-    featureLevel: "core"
+    featureLevel: "core",
   });
   const requiredFeatures = [
     "core-features-and-limits",
     "indirect-first-instance",
     "texture-formats-tier1",
-    "texture-compression-bc"
+    "texture-compression-bc",
   ];
   for (const feature of ["primitive-index", "subgroups", "timestamp-query"]) {
     if (adapter.features.has(feature)) requiredFeatures.push(feature);
@@ -44,8 +44,8 @@ export async function runScgiProductionGpuOracle(options = {}) {
       maxStorageBufferBindingSize: 128 * 1024 ** 2,
       maxBufferSize: 256 * 1024 ** 2,
       maxSampledTexturesPerShaderStage: 16,
-      maxStorageTexturesPerShaderStage: adapter.limits.maxStorageTexturesPerShaderStage
-    }
+      maxStorageTexturesPerShaderStage: adapter.limits.maxStorageTexturesPerShaderStage,
+    },
   });
   const context = new OffscreenCanvas(65, 49).getContext("webgpu");
   let renderer = new Renderer({
@@ -55,6 +55,11 @@ export async function runScgiProductionGpuOracle(options = {}) {
     surfaceCacheGi: {
       enabled: true,
       gather: options.gather === true,
+      // The enclosure is 12 units wide. This matrix needs actual screen hits
+      // on both the enclosure and the small VT/custom receivers.
+      gatherDistance: 20,
+      gatherTile: 4,
+      gatherDirections: 64,
       gatherBatchRays: 1024,
       resolution: 4,
       cascades: 2,
@@ -68,8 +73,8 @@ export async function runScgiProductionGpuOracle(options = {}) {
       lightSamples: 4,
       batchRays: 64,
       primitiveCapacity: 32,
-      queryMaximumBytes: 32 * 1024 ** 2
-    }
+      queryMaximumBytes: 32 * 1024 ** 2,
+    },
   });
   await renderer.initialize({ adapter, device: limitedDevice, context });
   renderer.resize(65, 49);
@@ -97,17 +102,17 @@ export async function runScgiProductionGpuOracle(options = {}) {
         return {
           logicalWidth: extent,
           logicalHeight: extent,
-          payload: Uint8Array.from({ length: extent * extent * 4 }, (_, lane) => (lane % 4 === 3 ? 255 : 96))
+          payload: Uint8Array.from({ length: extent * extent * 4 }, (_, lane) => (lane % 4 === 3 ? 255 : 96)),
         };
-      })
+      }),
     );
     baseColor = graphBuilder.operation(
       "add",
       baseColor,
       graphBuilder.swizzle(
         graphBuilder.texture(snapshotAppearanceTexture(texture, "srgb-rgb"), uv),
-        [0, 1, 2]
-      )
+        [0, 1, 2],
+      ),
     );
   }
   for (const filter of [0, 1]) {
@@ -118,11 +123,23 @@ export async function runScgiProductionGpuOracle(options = {}) {
       baseColor,
       graphBuilder.swizzle(
         graphBuilder.texture(snapshotAppearanceTexture(texture, "linear-rgb"), uv),
-        [0, 0, 0]
-      )
+        [0, 0, 0],
+      ),
     );
   }
-  graphBuilder.output("baseColor", graphBuilder.operation("divide", baseColor, graphBuilder.constant(10)));
+  const viewDirection = graphBuilder.input("viewDirection", 3, "view");
+  graphBuilder.output(
+    "baseColor",
+    graphBuilder.operation(
+      "add",
+      graphBuilder.operation("divide", baseColor, graphBuilder.constant(10)),
+      graphBuilder.operation(
+        "multiply",
+        graphBuilder.operation("abs", viewDirection),
+        graphBuilder.constant(0.1),
+      ),
+    ),
+  );
   graphBuilder.output("alpha", graphBuilder.constant(1));
   for (const [name, value] of Object.entries({
     metallic: 0,
@@ -135,7 +152,7 @@ export async function runScgiProductionGpuOracle(options = {}) {
     specularColor: [1, 1, 1],
     coatWeight: 0,
     coatRoughness: 0.2,
-    coatNormalTS: [0, 0, 1]
+    coatNormalTS: [0, 0, 1],
   })) {
     graphBuilder.output(name, graphBuilder.constant(value));
   }
@@ -146,6 +163,12 @@ export async function runScgiProductionGpuOracle(options = {}) {
     meshes.push(mesh);
     scene.add(mesh);
   });
+  if (options.gather === true) {
+    const partition = Mesh.from(new BoxGeometry(0.035, 1.2, 0.6), materials[1]);
+    partition.transform_local.position.set(0.5, 0.15, 0.7);
+    partition.updateMatrices();
+    scene.add(partition);
+  }
   // An enclosing emissive surface makes indirect transport nonzero even with
   // no authored environment; the assertion below reads the actual field.
   const enclosure = new StandardShadeMaterial();
@@ -182,8 +205,73 @@ export async function runScgiProductionGpuOracle(options = {}) {
     }
     return prepareNative(input, ...rest);
   };
+  // A direct source-consumer fixture requests every valid anchor. Natural
+  // query demand is verified separately in scgi-gather; this input ensures
+  // VT/custom/coat/Unlit all exercise the same real Native material invocation.
+  const allSources =
+    options.gather !== true
+      ? null
+      : await device.createComputePipelineAsync({
+          layout: "auto",
+          compute: {
+            entryPoint: "main",
+            module: device.createShaderModule({
+              code: `
+struct Anchor {
+  position: vec4f, normal: vec3f, source: u32,
+  previous: vec4f, motion: vec4f, identity: array<u32, 16>,
+}
+struct Offsets { requests: u32, ids: u32, count: u32, capacity: u32, }
+@group(0) @binding(0) var<uniform> offsets: Offsets;
+@group(0) @binding(1) var<storage, read> anchors: array<Anchor>;
+@group(0) @binding(2) var<storage, read_write> work: array<atomic<u32>>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  if (id.x >= offsets.count) { return; }
+  atomicStore(&work[offsets.requests + id.x * 2u], 0u);
+  if (anchors[id.x].position.w != 1.0) { return; }
+  let ticket = atomicAdd(&work[0u], 1u);
+  if (ticket >= offsets.capacity) { atomicStore(&work[2u], 1u); return; }
+  atomicStore(&work[offsets.ids + ticket], id.x);
+  atomicStore(&work[offsets.requests + id.x * 2u], ticket + 1u);
+  atomicStore(&work[offsets.requests + id.x * 2u + 1u], anchors[id.x].source + 1u);
+}
+`,
+            }),
+          },
+        });
+  let fixtureRequests = false;
   const encodeNative = renderer._surface.encode.bind(renderer._surface);
   renderer._surface.encode = (encoder) => {
+    if (capture && allSources !== null && !fixtureRequests) {
+      fixtureRequests = true;
+      const gather = giFrame.gather;
+      const plan = gather.owner.plan.work;
+      const parameters = giFrame.command.allocateTransientBufferAndLoad(
+        new Uint32Array([
+          plan.requests,
+          plan.ids,
+          gather.owner.plan.halfWidth * gather.owner.plan.halfHeight,
+          plan.capacity,
+        ]).buffer,
+      );
+      encoder.clearBuffer(gather.owner.work, 0, 16);
+      const pass = encoder.beginComputePass({ label: "Oracle/request all exact material sources" });
+      pass.setPipeline(allSources);
+      pass.setBindGroup(
+        0,
+        device.createBindGroup({
+          layout: allSources.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: parameters } },
+            { binding: 1, resource: { buffer: giFrame.publication.anchors[0].buffer } },
+            { binding: 2, resource: { buffer: gather.owner.work } },
+          ],
+        }),
+      );
+      pass.dispatchWorkgroups(Math.ceil((gather.owner.plan.halfWidth * gather.owner.plan.halfHeight) / 64));
+      pass.end();
+    }
     encodeNative(encoder);
     if (injectedAbort) {
       injectedAbort = false;
@@ -197,16 +285,16 @@ export async function runScgiProductionGpuOracle(options = {}) {
       const pitch = Math.ceil((width * 8) / 256) * 256;
       const hdr = device.createBuffer({
         size: pitch * height,
-        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
       });
       encoder.copyTextureToBuffer({ texture: nativeFrame.output }, { buffer: hdr, bytesPerRow: pitch }, [
         width,
-        height
+        height,
       ]);
       const field = giFrame.publication.candidateWorldField.segments.map((segment) => {
         const buffer = device.createBuffer({
           size: segment.buffer.size,
-          usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+          usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
         });
         encoder.copyBufferToBuffer(segment.buffer, 0, buffer, 0, buffer.size);
         return { buffer, range: segment.plan.ranges.worldField };
@@ -215,16 +303,28 @@ export async function runScgiProductionGpuOracle(options = {}) {
         giFrame.publication.candidateWorld.buffer,
         giFrame.publication.privateScratch.buffer,
         ...giFrame.publication.anchors.map((anchor) => anchor.buffer),
-        renderer._scgi.scenes.frameReadable(giFrame.command).coverageStatus
+        renderer._scgi.scenes.frameReadable(giFrame.command).coverageStatus,
       ].map((source) => {
         const buffer = device.createBuffer({
           size: source.size,
-          usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+          usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
         });
         encoder.copyBufferToBuffer(source, 0, buffer, 0, source.size);
         return buffer;
       });
       records = {
+        source:
+          options.gather !== true
+            ? null
+            : (() => {
+                const source = giFrame.gather.owner.work;
+                const buffer = device.createBuffer({
+                  size: source.size,
+                  usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+                });
+                encoder.copyBufferToBuffer(source, 0, buffer, 0, source.size);
+                return { buffer, plan: giFrame.gather.owner.plan.work };
+              })(),
         hdr,
         field,
         pitch,
@@ -232,7 +332,7 @@ export async function runScgiProductionGpuOracle(options = {}) {
         height,
         plan: giFrame.lighting.plan,
         diagnostics,
-        allocation: renderer._scgi.estimator.plan
+        allocation: renderer._scgi.estimator.plan,
       };
     }
   };
@@ -241,7 +341,7 @@ export async function runScgiProductionGpuOracle(options = {}) {
       module: await createDefaultWebGeometryCookerModule(),
       producerId: "scgi-production-oracle",
       producerVersion: "8",
-      maxDecodedProductBytes: 32 * 1024 ** 2
+      maxDecodedProductBytes: 32 * 1024 ** 2,
     });
     await renderer.uploadCookedSceneProduct(scene, product);
     const tick = async () => {
@@ -298,15 +398,61 @@ export async function runScgiProductionGpuOracle(options = {}) {
       const layout = value.allocation;
       assert.ok(
         valid > 0 && positive > 0,
-        `Production transport/filter must publish positive guided irradiance: valid=${valid}, positive=${positive}, header=${Array.from(diagnostics[0].slice(0, 64))}, control=${Array.from(diagnostics[1].slice(layout.scratch.ranges.cacheControl.offset / 4, layout.scratch.ranges.cacheControl.offset / 4 + 32))}, anchors=${Array.from(diagnostics[2].slice(0, 32))},coverage=${Array.from(diagnostics.at(-1).slice(0, 12))}`
+        `Production transport/filter must publish positive guided irradiance: valid=${valid}, positive=${positive}, header=${Array.from(diagnostics[0].slice(0, 64))}, control=${Array.from(diagnostics[1].slice(layout.scratch.ranges.cacheControl.offset / 4, layout.scratch.ranges.cacheControl.offset / 4 + 32))}, anchors=${Array.from(diagnostics[2].slice(0, 32))},coverage=${Array.from(diagnostics.at(-1).slice(0, 12))}`,
       );
+      let source = null;
+      if (value.source !== null) {
+        await value.source.buffer.mapAsync(GPUMapMode.READ);
+        const words = new Uint32Array(value.source.buffer.getMappedRange());
+        const plan = value.source.plan;
+        const count = words[0];
+        assert.equal(words[2], 0);
+        assert.ok(count > 0, "material matrix must have real requested source work");
+        source = {
+          count,
+          prepared: 0,
+          qualified: 0,
+          missing: 0,
+          preparation: Array.from(words.subarray(plan.preparation, plan.preparation + count * 12)),
+          visibility: { checked: 0, maximumError: 0, meanAbsoluteError: 0 },
+        };
+        // Every receiver is inside the closed 12-unit enclosure. An infinite
+        // solar ray must meet its six exact box planes, including receivers
+        // around the added thin partition. PCF is compared as an approximation.
+        const anchors = new Float32Array(diagnostics[2].buffer);
+        for (let ticket = 0; ticket < count; ticket++) {
+          const at = plan.preparation + ticket * 12;
+          assert.equal(
+            words[at + 7],
+            0x3f800000,
+            "each exact requested pixel must run its real Native graph",
+          );
+          source.prepared++;
+          const visibility = new Float32Array(words.buffer)[at + 11];
+          if (visibility >= 0) {
+            source.qualified++;
+            const index = words[plan.ids + ticket];
+            const position = anchors.subarray(index * 32, index * 32 + 3);
+            if (position.every((value) => Math.abs(value) < 5.99)) {
+              source.visibility.checked++;
+              source.visibility.maximumError = Math.max(source.visibility.maximumError, visibility);
+              source.visibility.meanAbsoluteError += visibility;
+            }
+          } else source.missing++;
+        }
+        source.visibility.meanAbsoluteError /= Math.max(1, source.visibility.checked);
+        assert.ok(source.visibility.checked > 0 || source.qualified === 0);
+        value.source.buffer.unmap();
+        value.source.buffer.destroy();
+      }
       return {
+        source,
         rgb,
         valid,
         positive,
         remapped: value.plan.remapped,
         windows:
-          Math.ceil(value.width / value.plan.windowWidth) * Math.ceil(value.height / value.plan.windowRows)
+          Math.ceil(value.width / value.plan.windowWidth) * Math.ceil(value.height / value.plan.windowRows),
       };
     };
     const full = await read();
@@ -320,12 +466,12 @@ export async function runScgiProductionGpuOracle(options = {}) {
     const originalDirectory = sourceGi.lighting;
     const descriptorRead = device.createBuffer({
       size: originalDirectory.plan.descriptorBytes,
-      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
     const sourceConstants = sourceFrame.lightingEntries.find((entry) => entry.binding === 8).resource;
     const constantRead = device.createBuffer({
       size: 256,
-      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
     const inspect = device.createCommandEncoder();
     inspect.copyBufferToBuffer(originalDirectory.buffer, 0, descriptorRead, 0, descriptorRead.size);
@@ -347,17 +493,20 @@ export async function runScgiProductionGpuOracle(options = {}) {
     assert.ok(coarsePages > 0, "Actual VSM publication must contain ready coarse pages");
     const modifiedConstants = device.createBuffer({
       size: 256,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     const exposureBuffer = device.createBuffer({
       size: 4,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });
+    const missingDescriptors = coarseDescriptors.slice();
+    for (let at = 0; at < missingDescriptors.length; at += 4) missingDescriptors[at + 2] = 2;
     const cases = [
       { name: "actual", mode: null },
       { name: "exposure-2", mode: null, exposure: 2 },
       { name: "exposure-quarter", mode: null, exposure: 0.25 },
-      ...[0, 1, 2].map((mode) => ({ name: `coarse-${mode}`, mode }))
+      ...[0, 1, 2].map((mode) => ({ name: `coarse-${mode}`, mode })),
+      ...(options.gather === true ? [{ name: "missing-pages", mode: 0, missing: true }] : []),
     ];
     for (const sampleCase of cases) {
       let expected =
@@ -379,23 +528,23 @@ export async function runScgiProductionGpuOracle(options = {}) {
                 maxStorageBufferBindingSize:
                   route === "full"
                     ? 128 * 1024 ** 2
-                    : sourceGi.lighting.plan.giOffset + (remap ? 256 : 40 * 1024)
+                    : sourceGi.lighting.plan.giOffset + (remap ? 256 : 80 * 1024),
               };
             const value = Reflect.get(target, key, target);
             return typeof value === "function" ? value.bind(target) : value;
-          }
+          },
         });
         const directory = new FinalPixelLightingPublication(projected, renderer.graphics);
         const command = ShadeGPUCommandContext.create(
           renderer.graphics,
-          "GraphicsContext/one-shot-maintenance"
+          "GraphicsContext/one-shot-maintenance",
         );
         const commandView = new Proxy(command, {
           get(target, key) {
             if (key === "device") return projected;
             const value = Reflect.get(target, key, target);
             return typeof value === "function" ? value.bind(target) : value;
-          }
+          },
         });
         const original = sourceGi.lighting;
         const lighting = directory.prepare(
@@ -404,7 +553,7 @@ export async function runScgiProductionGpuOracle(options = {}) {
           commandView,
           original.plan.filterNoiseBytes === 0 ? undefined : renderer._vsmFilterData,
           [65, 49],
-          options.gather === true
+          options.gather === true,
         );
         command.copyBufferToBuffer(original.buffer, 0, lighting.buffer, 0, original.plan.descriptorBytes);
         command.copyBufferToBuffer(
@@ -412,14 +561,14 @@ export async function runScgiProductionGpuOracle(options = {}) {
           original.plan.solarOffset,
           lighting.buffer,
           lighting.plan.solarOffset,
-          original.plan.solarBytes
+          original.plan.solarBytes,
         );
         command.copyBufferToBuffer(
           original.buffer,
           original.plan.lookupOffset,
           lighting.buffer,
           lighting.plan.lookupOffset,
-          original.plan.lookupBytes
+          original.plan.lookupBytes,
         );
         if (original.plan.filterNoiseBytes !== 0) {
           command.copyBufferToBuffer(
@@ -427,11 +576,17 @@ export async function runScgiProductionGpuOracle(options = {}) {
             original.plan.filterNoiseOffset,
             lighting.buffer,
             lighting.plan.filterNoiseOffset,
-            original.plan.filterNoiseBytes
+            original.plan.filterNoiseBytes,
           );
         }
         if (sampleCase.mode !== null) {
-          command.writeBuffer(lighting.buffer, 0, coarseDescriptors.buffer, 0, coarseDescriptors.byteLength);
+          command.writeBuffer(
+            lighting.buffer,
+            0,
+            sampleCase.missing ? missingDescriptors.buffer : coarseDescriptors.buffer,
+            0,
+            coarseDescriptors.byteLength,
+          );
           samplingWords[46] = sampleCase.mode;
           command.writeBuffer(modifiedConstants, 0, samplingWords.buffer, 0, 256);
         }
@@ -442,7 +597,7 @@ export async function runScgiProductionGpuOracle(options = {}) {
               ? { binding: 2, resource: { buffer: lighting.nativeBuffer } }
               : entry.binding === 9
                 ? { binding: 9, resource: { buffer: lighting.ranges } }
-                : entry
+                : entry,
         );
         if (sampleCase.exposure !== undefined) {
           const exposure = new Float32Array([sampleCase.exposure]);
@@ -453,31 +608,78 @@ export async function runScgiProductionGpuOracle(options = {}) {
           ...sourceFrame,
           preExposure: sampleCase.exposure === undefined ? sourceFrame.preExposure : exposureBuffer,
           lightingEntries: entries,
-          scgi: { ...sourceGi, lighting, command }
+          scgi: { ...sourceGi, lighting, command },
         });
         renderer._surface.encode(command.gpu_encoder);
+        let shadowRead = null;
+        if (options.gather === true) {
+          const gather = sourceGi.gather;
+          command.clearBuffer(gather.owner.work, 48, 8);
+          gather.owner.encode({ ...gather, transaction: { ...gather.transaction, command } });
+          shadowRead = device.createBuffer({
+            size: 64,
+            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+          });
+          command.copyBufferToBuffer(gather.owner.work, 0, shadowRead, 0, 64);
+        }
         command.finish();
         renderer._surface.commit(command.gpuDone);
         await command.gpuDone;
         const result = await read();
+        if (shadowRead !== null) {
+          await shadowRead.mapAsync(GPUMapMode.READ);
+          const counters = new Uint32Array(shadowRead.getMappedRange());
+          result.source.shadowRays = counters[12];
+          result.source.reusedVisibility = counters[13];
+          if (sampleCase.missing) {
+            assert.equal(result.source.qualified, 0, "missing neutral-one VSM must not qualify");
+            assert.equal(counters[13], 0, "missing VSM must not reuse visibility");
+            assert.ok(counters[12] > 0, "nonzero missing visibility must reach real software query");
+          }
+          shadowRead.unmap();
+          shadowRead.destroy();
+        }
         capture = false;
+        if (options.gather === true) {
+          assert.equal(result.source.count, full.source.count);
+          for (let word = 0; word < full.source.preparation.length; word++) {
+            if (word % 12 === 11 && sampleCase.mode !== null) continue;
+            assert.equal(
+              result.source.preparation[word],
+              full.source.preparation[word],
+              `Native source preparation changed across ${sampleCase.name}/${route}, word=${word}`,
+            );
+          }
+        }
         assert.equal(result.remapped, remap);
         if (route === "stripe") assert.ok(result.windows > 1);
         if (route === "full") expected = result.rgb;
         // A live VSM directory may itself force remapping at this projected
         // limit; each path below must retain every actual descriptor.
-        for (let index = 0; index < expected.length; index++) {
+        for (let index = 0; index < expected.length && !sampleCase.missing; index++) {
           assert.equal(
             result.rgb[index],
             expected[index],
-            `${sampleCase.name}/${route} HDR differs at ${index}`
+            `${sampleCase.name}/${route} HDR differs at ${index}`,
           );
         }
         windowResults.push({
           case: sampleCase.name,
           windows: result.windows,
           remapped: result.remapped,
-          valid: result.valid
+          valid: result.valid,
+          source:
+            result.source === null
+              ? null
+              : {
+                  count: result.source.count,
+                  prepared: result.source.prepared,
+                  qualified: result.source.qualified,
+                  missing: result.source.missing,
+                  shadowRays: result.source.shadowRays,
+                  reusedVisibility: result.source.reusedVisibility,
+                  visibility: result.source.visibility,
+                },
         });
         directory.destroy();
       }
@@ -518,7 +720,7 @@ export async function runScgiProductionGpuOracle(options = {}) {
     assert.equal(
       renderer._scgi.estimator,
       estimatorBeforeLight,
-      "numeric light edits reuse pipelines/query batches"
+      "numeric light edits reuse pipelines/query batches",
     );
     const originalQuery = renderer._scgi.scenes.current;
     meshes[0].transform_local.position.x += 0.05;
@@ -527,7 +729,7 @@ export async function runScgiProductionGpuOracle(options = {}) {
     await tick();
     assert.ok(
       renderer._scgi.scenes.current !== originalQuery,
-      "rigid/material edits replace current query truth"
+      "rigid/material edits replace current query truth",
     );
     assert.equal(renderer._scgi.runtime.poisoned, false);
     renderer.setAmbientOcclusionSettings({ enabled: true });
@@ -537,7 +739,7 @@ export async function runScgiProductionGpuOracle(options = {}) {
     const inventory = renderer._scgi.estimator.input.scene.materials.source.materials
       .filter(
         (material) =>
-          material.binding.layoutEntries.filter((entry) => entry.texture !== undefined).length === 10
+          material.binding.layoutEntries.filter((entry) => entry.texture !== undefined).length === 10,
       )
       .map((material) =>
         nativeSurfaceBindingGroups(material.binding.layoutEntries, {
@@ -548,8 +750,8 @@ export async function runScgiProductionGpuOracle(options = {}) {
           finalPixel: true,
           physicalSun: true,
           virtualTextures: true,
-          reflections: "sssr-base-coat"
-        })
+          reflections: "sssr-base-coat",
+        }),
       );
     // Actual custom source is dispatched by the production Surface above.
     assert.equal(inventory.length, 1);
@@ -566,9 +768,38 @@ export async function runScgiProductionGpuOracle(options = {}) {
     await tick();
     assert.equal(renderer._temporalPolicy, "bypass");
     if (options.gather === true) {
-      return { scope: "existing authored materials/window/Native/FSR3 slice before independent 4K and fault matrix",
-        frames: renderer.frame_count, storageBindings, sampledBindings, windowResults,
-        gather: renderer._scgi.cost.gather, errors };
+      const gatherCost = renderer._scgi.cost.gather;
+      // Exercise the Final-Pixel Unlit binding profile without a GI/light
+      // directory. Mixed lit/Unlit above cannot cover its disabled ranges.
+      capture = false;
+      renderer.setSurfaceCacheGiSettings({ enabled: false });
+      renderer.setAmbientOcclusionSettings({ enabled: false });
+      renderer.setScreenSpaceReflectionsSettings({ enabled: false });
+      scene = new Scene();
+      const unlit = new StandardShadeMaterial();
+      unlit.is_unlit = true;
+      unlit.diffuse_color.set(0.5, 0.25, 0.125, 1);
+      scene.add(Mesh.from(new BoxGeometry(), unlit));
+      const unlitProduct = await cookSceneGeometryProductV1(scene, {
+        module: await createDefaultWebGeometryCookerModule(),
+        producerId: "scgi-unlit-disabled-source",
+        producerVersion: "3",
+        maxDecodedProductBytes: 32 * 1024 ** 2,
+      });
+      await renderer.uploadCookedSceneProduct(scene, unlitProduct);
+      await tick();
+      assert.equal(renderer._scgi, null);
+      assert.deepEqual(errors, []);
+      return {
+        scope: "existing authored materials/window/Native/FSR3 slice before independent 4K and fault matrix",
+        frames: renderer.frame_count,
+        storageBindings,
+        sampledBindings,
+        windowResults,
+        gather: gatherCost,
+        unlitWithoutGi: true,
+        errors,
+      };
     }
     renderer.setResolutionScale(1);
     // Isolate mandatory GI segmentation from the independent SSSR memory ceiling.
@@ -584,8 +815,8 @@ export async function runScgiProductionGpuOracle(options = {}) {
         extent: renderer.resolutionEvidence(),
         plan: renderer._scgi.estimator.plan.profile,
         segments: renderer._scgi.estimator.plan.screen.length,
-        native: [nativeFrame.width, nativeFrame.height]
-      })
+        native: [nativeFrame.width, nativeFrame.height],
+      }),
     );
     assert.ok(nativeFrame.scgi.lighting.plan.windowRows < 2160);
     renderer.resize(67, 51);
@@ -612,7 +843,7 @@ export async function runScgiProductionGpuOracle(options = {}) {
       const frame = prepareLights({ ...request, indexCapacity: 1, taskBudget: 1 });
       localOverflowRead = {
         source: frame.data,
-        buffer: device.createBuffer({ size: 128, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST })
+        buffer: device.createBuffer({ size: 128, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }),
       };
       return frame;
     };
@@ -653,7 +884,7 @@ export async function runScgiProductionGpuOracle(options = {}) {
     await device.queue.onSubmittedWorkDone();
     assert.ok(
       renderer._finalPixelLighting.allocatedBytes > 0,
-      "submitted failure retains quarantined directory"
+      "submitted failure retains quarantined directory",
     );
     const desired = renderer.surfaceCacheGiSettings;
     device.destroy();
@@ -689,7 +920,7 @@ export async function runScgiProductionGpuOracle(options = {}) {
       module: await createDefaultWebGeometryCookerModule(),
       producerId: "scgi-production-scene-switch",
       producerVersion: "8",
-      maxDecodedProductBytes: 32 * 1024 ** 2
+      maxDecodedProductBytes: 32 * 1024 ** 2,
     });
     await renderer.uploadCookedSceneProduct(alternate, alternateProduct);
     scene = alternate;
@@ -715,7 +946,7 @@ export async function runScgiProductionGpuOracle(options = {}) {
       hdrMaterial: true,
       rigidMutation: true,
       pendingResize: true,
-      errors
+      errors,
     };
   } finally {
     await device.queue.onSubmittedWorkDone();

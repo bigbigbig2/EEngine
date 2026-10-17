@@ -19,7 +19,7 @@ verifies:
 
 唯一详细设计为[SCGI设计](../next-design/eengine-surface-cache-gi-2026-10.md)。需求输入为[母稿](../reviews/EEngine_Surface_Cache_GI_WebGPU_Mother_Design_2026-10-17.md)；设计§17逐项映射母稿，设计§1列明勘误。本文件是细单元状态与实施结果唯一记录，workstream和粗执行不复制细状态。
 
-**当前状态：SCGI-R1/R2 已完成实现与局部验证，默认1080p实验屋接通；R3 与 SCGI-10 尚未完成，不能认定整个模块完成或成本已经合格。** 原始失败基线为 `2f276576`（2026-10-18），文档批准提交为 `b69b346e`，R1代码提交为`4d65b4f2`；实施与成本见§8.4/8.5。后续按 **SCGI-R3→SCGI-10**，本轮停在 R3 边界。旧实施记录见§7，保留当时结果与失败，不逐项重开未受影响的cache/滤波/事务机制，也不把旧通过当成新架构验证。skin/morph随共享动画延期，4GB不作复杂大场景承诺。当前示例和本轮最高验收尺寸为 **1920×1080、internalScale=1**；不新增1440p/4K要求，不靠缩场景或降方向数关单。
+**当前状态：SCGI-R1/R2/R3 已完成实现与局部验证，默认1080p实验屋接通；SCGI-10 尚未完成，不能认定整个模块完成或成本已经合格。** 原始失败基线为 `2f276576`（2026-10-18），文档批准提交为 `b69b346e`，R1/R2代码提交为`4d65b4f2`/`b92bc907`；实施与成本见§8.4/8.5/8.6。下一单元为 **SCGI-10**，本轮停在 R3 完成边界。旧实施记录见§7，保留当时结果与失败，不逐项重开未受影响的cache/滤波/事务机制，也不把旧通过当成新架构验证。skin/morph随共享动画延期，4GB不作复杂大场景承诺。当前示例和本轮最高验收尺寸为 **1920×1080、internalScale=1**；不新增1440p/4K要求，不靠缩场景或降方向数关单。
 
 ## 1. 完整范围、依赖与生产切换
 
@@ -36,7 +36,7 @@ verifies:
 | SCGI-9 | Screen Radiance Gather完整近场残差增强 | 8 | 当前范围实现与局部验收闭合；见§7.15，画质收益有限且未获整链资格 |
 | SCGI-R1 | 共享求交arena、scene TLAS、完整query执行与全部直接consumer切换 | 已有2/5/8/9事实 | 已完成，实施、验证与成本限制见§8.4 |
 | SCGI-R2 | estimator样本扁平批处理、紧凑shadow与确定性reduce | R1 | 已完成，实施、验证与批量成本限制见§8.5 |
-| SCGI-R3 | Gather先需求后Native共享源、合格visibility复用与补缺 | R1、R2稳定边界 | 待实施 |
+| SCGI-R3 | Gather先需求后Native共享源、合格visibility复用与补缺 | R1、R2稳定边界 | 已完成，实施、局部验证及新增存储成本见§8.6 |
 | SCGI-10 | 全场景、故障、资源峰值、成本与文档闭合 | R1、R2、R3 | 待实施 |
 
 SCGI-2与3算法依赖可独立准备，但遵守本仓库不使用子agent、GPU验证串行的要求。单元内允许代码暂时不可运行；稳定边界不能有两套production GI。SCGI-1～7构建完整新闭包并用真实算法fixture验证，**SCGI-8之前不把部分实现打开为默认生产功能**。既有renderer保持当前行为；测试fixture不是生产fallback。
@@ -929,7 +929,7 @@ Native最多四次112B逻辑field读、四次Visibility/work验证与guide/SH数
 
 ### 8.3 当前交付与后续顺序
 
-文档批准时只更新设计/执行与source map；该时点未实施R1/R2/R3，未运行新的GPU/画面测试或性能benchmark。随后R1按§8.4落地并提交，R2按§8.5落地；R3仍待授权。三个单元按§3连续构建各自完整闭包，单元末集中必要验证；SCGI-10再集中同条件画面、动态响应、整链故障/容量/成本。用户没有授权降实验屋分辨率/方向/几何质量；自适应方向、HZB近似、粗query proxy、wide BVH等按设计§20.4另行判断，不作为本轮效果缩水或无限增加施工步骤的理由。
+文档批准时只更新设计/执行与source map；该时点未实施R1/R2/R3，未运行新的GPU/画面测试或性能benchmark。随后R1/R2/R3分别按§8.4/8.5/8.6落地。三个单元按§3构建各自完整闭包，单元末集中必要验证；SCGI-10再集中同条件画面、动态响应、整链故障/容量/成本。用户没有授权降实验屋分辨率/方向/几何质量；自适应方向、HZB近似、粗query proxy、wide BVH等按设计§20.4另行判断，不作为本轮效果缩水或无限增加施工步骤的理由。
 
 ### 8.4 SCGI-R1：共享求交场景与完整执行切换（2026-10-18）
 
@@ -1025,4 +1025,51 @@ budget包括builder两套512-slot uniform/storage参数、indirect、scratch、m
 
 B1024 stage另有VSM/shadow9.258944ms、Native13.105152ms、Temporal4.063232ms；SCGI filter区间5.230592ms还包含该宏阶段后续field/previous-residual准备，不能当单shader净成本。原始结果为`.local/scgi-r2-batch{128,1024}-stage-1080.json`及`scgi-r2-batch1024-coarse-1080.json/png`；默认截图已打开检查，仍有明显暗区与噪声，不能宣称最终画质合格。无GPU/page error或device loss，正常主frame submit=1。clear/copy是声明量非DRAM流量。R2小B确实增加dispatch，合批后才明显摊薄；R3未改造的全半屏source约24ms仍是最大SCGI阶段，不提前认定R3收益。当前完整帧约68ms仍不实时。
 
-**关单与停止边界。** 全部旧逐sample生产调度已删除，consumer与生命周期闭合，固定N/样本/阴影能量和窗口独立性已由真实GPU验证；本轮R2实现与必要局部验证关闭，停在R3，不自动开始Native source重组。R1已提交；R2代码与实施记录在master工作区，尚未提交。完整动态画质/故障/退休峰值/长窗口与跨设备仍归SCGI-10。
+**关单与停止边界。** 全部旧逐sample生产调度已删除，consumer与生命周期闭合，固定N/样本/阴影能量和窗口独立性已由真实GPU验证；R2实现与必要局部验证关闭。R2已提交`b92bc907`，随后`c8711f19`合并远端同树文档提交，保留R1/R2内容。R3后续实施见§8.6；完整动态画质/故障/退休峰值/长窗口与跨设备仍归SCGI-10。
+
+### 8.6 SCGI-R3：请求驱动Native源与visibility补缺（2026-10-18）
+
+**实际切换。** 基于master `c8711f19`，删除`ScgiGather`的整H材质分类/source graph pipelines/独立source material work，不保留旧生产桥。pre在filter/world publication之后、Native之前执行previous residual重投影及spawn→geometry-only closest→screen验证/去重；post在Native之后补齐visibility、finalise source、fill→project→interpolate。probe方向、固定N/PDF、半球Gram、signed residual、距离window、previous-only world输入与t+1消费均不改变。默认实验屋仍1920×1080/internal1、tile12/16方向/Gather B65536，estimator B1024/U128/hemi8/connect2/pool32。
+
+`scgi_gather::request`检查同帧lineage、Product group/meshlet/primitive、法线和双plane后保存方向mapping。GPU atomicOr bitset只给每half source一张ticket，RNG仍使用half source ID而非atomic ticket顺序。`ScgiGatherWork`集中定义offset/容量；lookup的8B是ticket与exact sourcePixel，两者均加1表示valid。world field可能尚未有效，不能借它的sourcePixel替代请求身份，否则会丢emission/direct。mapping为16Q、同帧lease保护的index/distance，不保存跨帧scratch或全Q×96B hits。容量C=min(H,Q)，work/texture/dispatch/counter上限在创建前协商，超界明确拒绝，不静默丢方向。
+
+**Native/source能量。** 实际Native material invocation已拥有camera/derivatives/VT/shaded normal，exact请求像素写48B：diffuse×camera coat-underlayer/instance flags、Le+material-occlusion×diffuse×underlayer×exact world-only E/valid、mapped normal/sun visibility。未合入residual、specular、IBL fallback、HDR或exposure；world无效仅world项为零，emission/direct保留。Unlit共享实际base emission，不重编一份图。post把48B与immutable anchor拼到batch96B source scratch，再沿原灯池proposal/PDF做local与普通directional/physical sun贡献，不能复制主Surface全灯总和作为随机sample。unknown query使source无效；未请求区域source.w=0，debug紫色，与合法黑源不同。
+
+VSM helper每invocation重置资格，只有实际fine/coarse查询通过且receiver reference depth在[0,1]才记录该太阳visibility；缺页/dirty/outside的neutral1不能复用。只有真实非零贡献且receivesShadow的缺失visibility进compact query；receivesShadow=false直接累加，合法太阳可复用。GPU source_count/shadow_count生成实际indirect，独立48B indirect buffer在phase间copy，避免writable storage与indirect同pass冲突。每phase一source最多一shadow lane，source_shadow唯一writer累加，跨phase有dispatch依赖，不用float atomics。
+
+**逐route绑定与寿命。** 下列均为真实Native profile及production窗口，不新增第五张storage texture或额外source SSBO：
+
+| route / profile | 输入与输出 / descriptor | 覆写前消费者 |
+|---|---|---|
+| full | group1 binding2既有lighting buffer改storage read_write；binding9 ranges128B。world112H、previous residual32H、request8H、preparation48H不相交 | 全部material bins结束后drain到GI紧凑48C |
+| stripe | 同binding与200B/window half-pixel；每窗含完整halo及exact pixel请求，独占pixel写preparation | 本窗drain完成后再copy下一窗；halo不重复发布 |
+| remap | 同binding与ranges；既有GPU local/VSM remap后，copy本窗world/residual/request，清preparation | 同command本窗drain，禁止保留目录引用 |
+| 最满lit/custom+VT+compact+SSSR | 4 groups、16 SSBO、16 sampled；4 storage textures未增加 | 原Native/VT/SSSR消费者不变 |
+| Unlit finalPixel | lighting组仅binding2 storage与binding9 uniform；混合场景照常发布请求源 | 无GI/light owner时绑定4B disabled directory+128B零ranges，计资源并随Surface fence释放 |
+
+`FrameProgram`增加`gi-source-requests`和`gi-source-preparation`，Lowering显式GI写requests→Native读写preparation→Gather读，source不是HDR重建。Surface在窗口结束用本次`input.command`drain，不能抓住旧frame command。request/work是当帧scratch；残差/探针candidate只有postEncoded且成功提交才交换role；abort/retry/冻结/resize/disable/退休仍由原owner负责，不能partial commit source到world。没有新增生产submit或GPU→CPU→GPU决策。
+
+**Cost Card。** work=`64+4ceil(H/32)+8H+52C+16Q+4B`，默认20141408B=19.2083MiB，另48B indirect。保留16H dense source供随机fill/debug；删旧source classification/material执行资源，实际Gather owner从83903104B变103781868B，增19878764B；query private524704B另计。目录从144B/H变200B/H，每full slot增29030400B=27.6855MiB；本次两live slots为213665024B，对照R2的155604192B增加58060832B。最多三slot额外约83.06MiB，不能只报bitset/mapping的4.456MiB下界。SCGI currentOwned从321561528B变341440292B；该值不含目录/借用资源/退休query，Renderer memory snapshot注册范围亦不完整，不用两表机械相加当驱动VRAM。
+
+设S为unique请求、K为其真实非零需visibility贡献、v为已合格复用比例。每帧仍付work/source清零、Q geometry、request原子去重/随机mapping、Native request lookup、8B/window copy与48B/window clear、window drain扫描；实际48S写/读与post source工作随S变化，missing query随K(1-v)变化。0/50/100%请求分别为S=0/C÷2/C，post有效prefix随之变化，但CPU仍编码ceil(C/B)空indirect窗口；0/50/100% visibility复用分别需K/K÷2/0条补ray，不取消probe query与固定copy/clear。旧基线有H次第二遍graph与全H灯光准备，break-even是**被删graph/未请求灯光/合格visibility节省 > request+mapping+Native lookup+preparation+drain税**；S=C、v=0最坏仍保留完整材质/阴影，不保证所有场景提速。即使S=0也有新增存储/带宽固定税，不能说零请求零成本。Native不新增material graph求值，所有local/shadow仍依R1 exact query/coverage。dispatch上界显式含pre/post/source及query，另按实际window计drain；逻辑阶段不冒称物理零dispatch。copy/clear声明bytes不是DRAM流量。
+
+**最终必要验证。** `npm run build:test --prefix OEngine`、`npm run typecheck --prefix OEngine`通过；`scgi-gather`/`scgi-native`/`frame-program`三个contract共22/22通过。GPU所用构建source SHA256 `6a97c649eb8c772a0836af56755ee3745eca79f7578f5b33e9c89536d1d08099`，output `0ab16f57103c94958bff8cb585bcf8554014d395761ae49de79fd25bc9519358`。最后review仅补全source clear全H dispatch的创建前limit检查，shader/默认场景工作不变；随后新鲜build:test与直接contract通过，最终编译source `d18ab8634a1bdad31e4d40b1857f18dbc4b0adf355dbae6735e32529b876c726`、output `4f1145512b19288e3c5c3485eb4b8b0c140686bc597ca96a44a210a540e60031`，不把先前GPU记录伪称此hash。GPU作业串行，未扫全仓或重跑无关4K矩阵。
+
+- `scgi-gather-final-02.json`：2248 unique/5709 screen映射/2248实际写源；去重、未请求invalid与exact sourcePixel一致。39遮挡、2160可见、47金属、15发光源，独立box/light/world能量最大绝对误差8.503e−8；2186条missing query、无伪visibility复用。独立2×2不同材质GPU输入检查exact pixel2、coat0.5、occlusion0.25、sun0.375、invalid world保留emission及world/request字节不变。
+- 相同最终Gather用例保留固定N/Gram/HDR/signed/project/interpolate数学；独立8192spp×32probe配对近场目标RMSE从world-only0.052015到Gather0.040950。它借真实published source做解析box visibility，**不是完整path tracing参考**。world bytes无回灌、freeze、abort/retry、lighting/moving-emitter失效、odd resize、disable/re-enable、device recovery与Native/FSR3检查通过；full/15stripe/80remap实际HDR字节一致。
+- `scgi-r3-materials-final-04.json`：真实Standard/Unlit/clearcoat/custom camera graph、8 resident+2 VT、MASK、AO×GI×SSSR和满16/16 profile，Native/FSR3/bypass通过。为保证每材质都被测，fixture显式GPU输入请求所有825 valid anchors；这是测试输入，不是production fallback，自然请求另由上一用例覆盖。full/4stripe/2remap均825请求/825 preparation，未曝光prep在exposure×2/÷4和各route一致；实际fine/coarse及三filter mode有790 qualified/35 missing，790次实际复用；强制全缺页为0 qualified/790真实shadow/0复用。
+- 材质场景加入0.035m薄隔板；封闭12m enclosure内97个内部receiver的精确box遮挡应为0，actual及coarse三模式的合格VSM最大/平均可见度误差均0。这里只证明该封闭输入，不能外推开放门边PCF与exact triangle等价；更完整动态门边/半影误差归SCGI-10。关闭GI后真正Unlit-only场景实际render通过，未依赖mixed lighting owner。
+
+中间失败保留在`.local`：materials01暴露Unlit混入依赖LocalLightLookup的完整helper，改declarations-only；02的旧40KiB stripe fixture按真实200B/H改80KiB；04原小场景screen请求只命中外壳，新增显式全材质请求输入；06错用viewDirection domain，改为view；final新增Unlit用例误用不存在的base_color_factor，改真实diffuse_color；final-02被fresh-build拒绝（源码时序变更），无GPU通过声明。最终04通过。首次公开counter脚本import了另一Vite模块身份，捕获不到Renderer，改读取实际loaded engine模块URL；只改local诊断脚本。没有吞异常、放宽能量容差、减production覆盖或恢复旧owner。
+
+引擎typecheck通过；额外尝试全examples typecheck失败在未改动旧demo的`debug/render_settings/indicate_view_change`等已退休API及已生成dist worker模块引用，未为R3恢复旧接口或修改无关demo。改用local临时tsconfig仅覆盖公开SCGI实验屋及其真实imports；该检查结果与全examples失败分别记录。`docs-verify`为0 findings/66 historical warnings，`git diff --check`通过。
+
+**公开1080p与性能解释。** 相同sun/main camera、39 instances/1324 triangles、9次主submit、host9读GPU8；Chrome155/Turing，与R2相同参数。早期stage短样本整帧48.925600ms，对照R2/B1024 stage68.300960ms；source24.059680→1.377856ms，probe pre5.459968+post1.650624=7.110592ms（旧5.775072），Native13.105152→15.067136ms，estimator2.245056→2.553856ms。不能把source收益当总净收益。随后coarse49.308ms（R2 coarse68.285664），CPU graph5.785ms，375dispatch/334compute（R2为481/440），96clear/159014656声明bytes（旧106/139156352），1847copy/80384440声明bytes（旧1354/76243112）。copy次数和clear bytes确实增加，非全项优化。
+
+最终双plane构建后的另一次stage样本189.606624ms，VSM45.721696/Native56.567904/Temporal16.252128ms等多个未同幅修改阶段均变慢，source3.420160ms、probe pre16.984160+post8.058496ms。记录在`.local/scgi-r3-stage-final-1080.json`，不能删除该慢样本或归因于未经证实的驱动/温度，也不能据短序列宣布稳定49ms。本轮不做长窗口性能资格；SCGI-10须稳定条件下冷暖/静动及分阶段复测。
+
+同构建复采coarse180.690848ms、CPU graph5.980ms，375dispatch/334compute，16153请求/16153Native写、screen-valid18621/reuse11450/fault0，GPU/page errors为空，记录在`.local/scgi-r3-batch1024-coarse-1080.json/png`。早期49.308ms只作为历史短样本保留在本节，不能作为当前稳定表现；最近实测仍严重慢，R3机制闭合与整链性能合格必须分开。当前不新增第四重构单元或越权开始SCGI-10，也不靠降1080p/16方向掩盖它。
+
+公开GPU当帧header：Q230400/H518400，screen-valid18898→unique16304→Native writes16304，fault0，nonzero qualified solar reuse11584/missing0；最终双planestage为19317→16548→16548，reuse11840/missing0。计数表明主要省去无人消费的源，不是把实际Q降低。计数通过**主帧完成后local-only诊断encoder**读64B，不参与production决策，额外诊断submit不计主frame；生产仍1submit，仅原timestamp readback（coarse16B/stage320B）。截图及source图已打开检查：最终画面仍明显偏暗、有噪声，source紫色是未请求/invalid。原316ms失败、R2约68ms与本轮全部短样本保留，不追认AAA画质或实时目标。
+
+**来源与关闭边界。** 固定FidelityFX/Brixelizer参考不变；request-first exact Native共享、8B lookup/48B preparation、窗口drain与VSM资格是Local integration，非AMD整套port。R3所有生产route已原子切换并通过必要直接语义/生命周期检查，关闭本单元。代码和文档位于master工作区；本次未自动提交，未启动SCGI-10。后者集中完成公开实验屋收敛与动态画质、开放门边VSM误差、组合故障/退休峰值和稳定成本检查；本节不替代最终资格。

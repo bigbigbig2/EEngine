@@ -40,6 +40,13 @@ test("SCGI screen residual has a post-Surface producer and a next-frame GI consu
   assert.equal(residual.version, "history-role");
   assert.deepEqual(residual.consumers, ["surface-cache-gi"]);
   assert.deepEqual(residual.extent, [320, 180]);
+  const request = program.facts.find((fact) => fact.product === "gi-source-requests");
+  const preparation = program.facts.find((fact) => fact.product === "gi-source-preparation");
+  assert.equal(request.producer, "surface-cache-gi");
+  assert.deepEqual(request.consumers, ["surface"]);
+  assert.equal(preparation.producer, "surface");
+  assert.deepEqual(preparation.consumers, ["surface-cache-gi-gather"]);
+  assert.equal(preparation.domain, "gpu-work");
 });
 
 test("Bloom upsamples each mip at its high input extent", () => {
@@ -68,7 +75,7 @@ test("Bloom upsamples each mip at its high input extent", () => {
     new BloomPass(device).addToGraph(graph, { scene: sceneColor, preExposure, width: 640, height: 360 });
     for (let level = 0; level < 4; level++) {
       const node = Array.from({ length: graph.resourceNodeCount }, (_, id) => graph.getResourceNode(id)).find(
-        (node) => node.name === `Bloom/up${level}`
+        (node) => node.name === `Bloom/up${level}`,
       );
       assert.ok(node);
       const descriptor = graph.getDescriptor(node.id);
@@ -152,17 +159,19 @@ test("AO quality and denoise are structural while disabled AO canonicalizes its 
   assert.equal(medium.request.aoDenoisePasses, 0);
   assert.equal(
     buildFrameProgram({ ...scene, aoProfile: "off", aoDenoisePasses: 3 }).key,
-    buildFrameProgram({ ...scene, aoProfile: "off", aoDenoisePasses: 0 }).key
+    buildFrameProgram({ ...scene, aoProfile: "off", aoDenoisePasses: 0 }).key,
   );
   assert.throws(
     () => buildFrameProgram({ ...scene, aoProfile: "scalar-high", aoDenoisePasses: 4 }),
-    /denoise/i
+    /denoise/i,
   );
 });
 
 test("AO debug declares its actual scalar consumer and disabled debug stays neutral", () => {
   const enabled = buildFrameProgram({ ...scene, aoProfile: "scalar-high", debugView: "ambient-occlusion" });
-  assert.ok(enabled.facts.find((fact) => fact.product === "indirect-visibility").consumers.includes("debug-view"));
+  assert.ok(
+    enabled.facts.find((fact) => fact.product === "indirect-visibility").consumers.includes("debug-view"),
+  );
   const disabled = buildFrameProgram({ ...scene, aoProfile: "off", debugView: "ambient-occlusion" });
   assert.ok(disabled.stages.includes("debug-view"));
   assert.ok(!disabled.products.includes("indirect-visibility"));
@@ -614,7 +623,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   const environment = {
     parameters: { size: 64 },
     luts: { views: lut },
-    ibl: { specularTexture: {}, views: { diffuse: {}, specular: {}, dfg: {} } }
+    ibl: { specularTexture: {}, views: { diffuse: {}, specular: {}, dfg: {} } },
   };
   const environmentPlan = buildFrameProgram({ ...request, physicalEnvironment: true });
   const environmentOwners = {
@@ -774,7 +783,7 @@ test("SSSR declares finite opaque correction and selected debug dependencies", (
     "reflection-surface",
     "reflection-depth",
     "indirect-specular",
-    "opaque-reflected-radiance"
+    "opaque-reflected-radiance",
   ]) {
     assert.ok(on.products.includes(product));
     assert.ok(!off.products.includes(product));
@@ -784,13 +793,13 @@ test("SSSR declares finite opaque correction and selected debug dependencies", (
   const debug = buildFrameProgram({
     ...scene,
     reflectionProfile: "sssr-base-coat",
-    debugView: "screen-space-reflection-temporal"
+    debugView: "screen-space-reflection-temporal",
   });
   assert.ok(debug.facts.find((f) => f.product === "indirect-specular").consumers.includes("debug-view"));
   const inactive = buildFrameProgram({ ...scene, debugView: "screen-space-reflection-temporal" });
   assert.ok(!inactive.stages.includes("sssr"));
   assert.throws(
     () => buildFrameProgram({ ...scene, hasLit: false, reflectionProfile: "sssr-base-coat" }),
-    /lit Native/
+    /lit Native/,
   );
 });

@@ -5,6 +5,49 @@ import { SCGI_ABI_WGSL, SCGI_IRRADIANCE_WGSL } from "../render/gi/ScgiAbi.js";
 export const SCGI_NATIVE_WGSL = /* wgsl */ `
 ${SCGI_ABI_WGSL}
 ${SCGI_IRRADIANCE_WGSL}
+// Only the exact anchor source invocation owns this 48B record. World-only SH
+// comes from that anchor, before bilinear interpolation or residual injection.
+fn scgi_native_source(pixel: vec2u, diffuse: vec3f, occlusion: f32,
+    emission: vec3f, underlayer: f32, normal: vec3f, flags: u32) {
+  if (lighting_ranges.source.w == 0u) { return; }
+  let half_pixel = pixel / 2u;
+  let local = half_pixel - lighting_ranges.remap.yz;
+  if (any(half_pixel < lighting_ranges.remap.yz) || local.x >= lighting_ranges.remap.w) { return; }
+  let index = local.y * lighting_ranges.remap.w + local.x;
+  if (index >= lighting_ranges.source.z || lighting_directory[lighting_ranges.source.x + index * 2u] == 0u) { return; }
+  if (lighting_directory[lighting_ranges.source.x + index * 2u + 1u] != pixel.y * settings.dimensions.x + pixel.x + 1u) { return; }
+  let field = lighting_ranges.segments.z + index * 28u;
+  let state = lighting_directory[field + 11u];
+  var packed: array<u32, 8>;
+  for (var word = 0u; word < 8u; word++) { packed[word] = lighting_directory[field + word]; }
+  var coefficients: array<f32, 12>;
+  if ((state & 3u) == 3u) { coefficients = scgi_unpack_irradiance(packed, scgi_field_scale(state)); }
+  var world: vec3f;
+  for (var channel = 0u; channel < 3u; channel++) {
+    world[channel] = 0.28209479177387814 * coefficients[channel] + 0.4886025119029199 *
+      (normal.x * coefficients[3u + channel] + normal.y * coefficients[6u + channel] + normal.z * coefficients[9u + channel]);
+  }
+  let radiance = emission + diffuse * underlayer * occlusion * max(world, vec3f(0.0));
+  let at = lighting_ranges.source.y + index * 12u;
+  for (var channel = 0u; channel < 3u; channel++) {
+    lighting_directory[at + channel] = bitcast<u32>(diffuse[channel] * underlayer);
+    lighting_directory[at + 4u + channel] = bitcast<u32>(radiance[channel]);
+    lighting_directory[at + 8u + channel] = bitcast<u32>(normal[channel]);
+  }
+  lighting_directory[at + 3u] = flags;
+  lighting_directory[at + 7u] = bitcast<u32>(1.0);
+  lighting_directory[at + 11u] = bitcast<u32>(-1.0);
+}
+fn scgi_native_source_sun(pixel: vec2u, value: f32, qualified: bool) {
+  if (lighting_ranges.source.w == 0u || !qualified) { return; }
+  let half_pixel = pixel / 2u;
+  let local = half_pixel - lighting_ranges.remap.yz;
+  if (any(half_pixel < lighting_ranges.remap.yz) || local.x >= lighting_ranges.remap.w) { return; }
+  let index = local.y * lighting_ranges.remap.w + local.x;
+  if (index >= lighting_ranges.source.z || lighting_directory[lighting_ranges.source.x + index * 2u] == 0u) { return; }
+  if (lighting_directory[lighting_ranges.source.x + index * 2u + 1u] != pixel.y * settings.dimensions.x + pixel.x + 1u) { return; }
+  lighting_directory[lighting_ranges.source.y + index * 12u + 11u] = bitcast<u32>(value);
+}
 var<private> scgi_receiver_position: vec3f;
 var<private> scgi_receiver_normal: vec3f;
 var<private> scgi_receiver_instance: OEngineInstanceRecord;
