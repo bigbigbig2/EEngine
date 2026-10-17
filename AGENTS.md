@@ -12,9 +12,9 @@
 
 1. 用 `node tools/vibe.mjs context <path>` 查询 owner/文档入口，阅读当前源码、直接消费者和近目录约束。导航不是许可或验证门禁。
 2. 按当前 architecture unit 连续完成 producer→产品→全部直接 consumer、绑定/reset/capacity、提交/中止/重试与退休。替换已有架构时先完整构建并验证新闭包，再于一个原子单元切换全部 production ownership 并立即删除旧依赖；不逐步迁移 production consumers。阶段内允许暂时不可运行，稳定边界仅一套生产 ownership；Git 用于追溯，不建 A/B bridge、adapter 或 fallback VM。
-3. 开发中按需要 typecheck、shader compile、build 或极小 targeted/oracle；不每 patch 跑全套、browser、benchmark、evidence、claims、clean revision 或文档门禁。阶段内可临时断链，单元结束修复真实编译失败并闭合实际产品。
-4. 单元闭合后 architecture review，再集中 typecheck/build、新鲜 build:test、必要独立语义/生命周期与真实 GPU 接线/画面/资源上界和粗粒度成本检查，GPU 作业串行。功能模块不要求先通过整 Renderer FPS/净收益验收。保存原失败、分类定位根因、局部修复并重跑受影响验证；未运行/缺项/必需失败如实未完成。
-5. 单元关闭后停在下一单元边界。大模块完成后暂停，依据实际代码重新设计下一模块；不能自动跨多个大模块。正式全 Renderer browser/画质/同条件 P50/P95、evidence/claims 留最终集成；当前单元必需正确性与成本不因此后移。
+3. 开发中按需要 typecheck、shader compile、build 或极小 targeted/oracle；不每 patch 跑全套、browser、benchmark、evidence、claims、clean revision 或文档门禁。阶段内可临时断链，单元结束修复真实编译失败并闭合实际产品。按用户2026-10-17再次确认，优先连续实现新架构；不按宽泛文件名扫整类测试，不为无关测试修复、旧ABI兼容或完整Renderer宿主反复中断当前开发。
+4. 单元实现完成后做 architecture review，并集中进行与改动直接相关的编译及少量独立语义/生命周期检查；GPU算法按需用最小真实GPU输入→输出验证，GPU作业串行。既有未受影响结果不反复重跑。实际模块基本连通后，再集中做新鲜build:test、完整接线/画面、组合生命周期、资源上界与粗粒度成本检查；不要求每个前置单元先通过完整Renderer宿主。功能模块不要求先通过整 Renderer FPS/净收益验收。保存原失败、分类定位根因、局部修复并重跑受影响验证；尚未运行的集成验证明确归属后续集成阶段，不冒称通过。
+5. 单元关闭后停在下一单元边界；用户已连续授权的后续单元按该授权推进。大模块完成后暂停，依据实际代码重新设计下一模块；不能自动跨多个大模块。正式全 Renderer browser/画质/同条件 P50/P95、evidence/claims 留最终集成；已发现的实现错误、漏工作和失控容量不得当作“只欠集成测试”延期。禁止为了运行旧测试把新旧production owner混接、恢复退休实现或增加临时兼容桥；退休表示测试删除/迁移，必要语义由新owner直接验证。
 
 详细验证和失败分类见 [VALIDATION](docs/VALIDATION.md#validation-failure-contract)。旧 ABI 退休可删/迁移表示测试；material numeric、导数/LOD、normal、HDR、motion、publication atomicity、abort/retry、device loss、唯一 writer 等语义必须留给新 owner。禁止吞异常、跳必需断言、放宽容差、缩最终场景、漏工作、测试专用 production fallback；预期改变须有数学/来源依据，质量或功能范围改变按用户授权处理。
 

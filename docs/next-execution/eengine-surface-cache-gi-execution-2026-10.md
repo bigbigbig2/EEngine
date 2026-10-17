@@ -45,9 +45,11 @@ SCGI-2与3算法依赖可独立准备，但遵守本仓库不使用子agent、GP
 1. producer→产品→全部直接consumer、bindings、完整写域、invalid与容量均闭合；新增consumer不能偷偷另建world/material数据库。
 2. 记录实际source revision、文件/函数、采用/改写/本地新增、关键分支和不同物理调度。没有移植的部分明确为Reference/Local，不能只写“参考RTX/Unity”。
 3. 动工前更新本单元Cost Card的ADD/REMOVE、bytes、samples/ALU、随机/顺序访问、atomics/barriers、dispatch/PSO、stable/peak。没有优化要求净提速；做优化则给0/50/100%收益和break-even。
-4. commit/abort不是孤立单测：必须用真实command/owner绑定验证未提交失败、已提交通知异常、异步error、retry、disable、resize、replacement、loss、last-consumer fence；错误分类见§5。
-5. 开发中按需typecheck/shader compile/targeted，不每patch全量GPU。单元闭合后集中typecheck/build、新鲜build:test、必要独立oracle、真实GPU接线/画面/容量/粗成本。工具命令沿仓库package scripts，不发明尚不存在的脚本名。
+4. commit/abort的局部owner协议由少量独立用例验证；GPU读写相关部分按需验证最小真实command输入→输出。完整Renderer中的未提交失败、已提交通知异常、异步error、retry、disable、resize、replacement、loss、last-consumer fence组合，在SCGI-8接线后及SCGI-10集中验收；不在每个前置单元重复全套。已发现的owner错误就地修复，错误分类见§5。
+5. 按用户2026-10-17再次确认，开发中以连续完成功能为主，按需typecheck/shader compile/极小targeted；不用宽泛文件名匹配运行整类回归，不为旧测试恢复旧ABI/owner或新增兼容桥。前置单元实现完成时做相关编译、少量必要语义/生命周期验证，GPU算法按需做最小独立oracle；完整生产宿主、全场景接线/画面/组合容量与粗成本集中到SCGI-8/10。未受影响验证不反复跑，无关失败记录分类；工具命令沿仓库package scripts，不发明尚不存在的脚本名。
 6. 所有必需失败、未运行项保留原结果；不能降低alpha/材质/几何范围、跳断言、改容差或缩最终场景来关单。仅表示测试可随旧ABI退休，数值/identity/生命周期语义迁给新owner。
+
+以上调整改变验证时点与范围，不取消算法机制：例如SCGI-2尚缺query cut/工作集机制属于实现未完成，应继续编码；完整生产画面和跨系统组合验收则归SCGI-8/10，不要求SCGI-2先交付整个GI。分开记录实现、局部验证和最终集成结果，不因未来集成用例未运行反复重开已完成的前置实现。
 
 ## 3. 各单元详细工作
 
