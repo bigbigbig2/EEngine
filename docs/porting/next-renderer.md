@@ -14,6 +14,9 @@ verifies:
     - OEngine/src/gpu/GeometryQueryWorkingSet.ts
     - OEngine/src/gpu/GeometryQueryCoverage.ts
     - OEngine/src/render/gi/ScgiQueryScenePublication.ts
+    - OEngine/src/render/gi/ScgiGather.ts
+    - OEngine/src/shaders/scgi_gather.ts
+    - OEngine/src/shaders/scgi_gather_source.ts
     - OEngine/src/gpu/GPUDescriptorCaches.ts
     - OEngine/src/render/surface
     - OEngine/src/framegraph/FrameGraph.ts
@@ -1781,6 +1784,8 @@ R-DX前缀 src/core/src/dx/。已核下列host/kernel的关键执行与数据依
 WebGPU适配不是“RadeonRays可直接接入浏览器”；它是保留算法闭包、换执行与资源表达。CPU独立oracle→WGSL真实kernel→EEngine production consumer三层齐备后才提升对应算法采用状态。硬件RT未来可替换AS/traverse，但本模块不预建空native backend。
 
 ### Near-field screen gather的有限donor范围
+
+SCGI-9源码复核固定为GPUOpen FidelityFX SDK `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`，MIT，Copyright (C) 2024 Advanced Micro Devices, Inc.；本地`.local/fsr3-source2`为研究副本。`ffx_brixelizergi_main.h` 的 SpawnScreenProbes（444）、Reproject（607）、Fill（894）、Project（1067）、Interpolate（1446）与`ffx_brixelizergi_probe_shading.h`的SH关系是 **Reference / stage-decomposition Adapt**，本地对应`ScgiGather::encodePrevious/encode`及`scgi_gather`同名kernels。没有复制其SDF/brick查询、压缩RGB、wave操作或完整shader；不是逐行shader port。半球Gram、hemioctahedral PDF、exact triangle/screen配对、Native diffuse source、signed history与事务为 **Original/Local**。独立CPU积分、实际WGSL kernel和公开Renderer消费记录在执行§7.15；这些只支持所列机制，不能将它写成整套Brixelizer GI移植或性能adoption。
 
 FidelityFX路径 sdk/include/FidelityFX/gpu/brixelizergi/ffx_brixelizergi_main.h、ffx_brixelizergi_probe_shading.h 与 docs/techniques/brixelizer-gi.md。已核FfxBrixelizerGISpawnScreenProbes、screen reprojection/fill、SH projection/blend、FfxBrixelizerGIInterpolateScreenProbes的阶段关系，以及其中SDF/brick查询依赖。
 

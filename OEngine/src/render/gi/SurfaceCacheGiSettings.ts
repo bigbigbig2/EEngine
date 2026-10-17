@@ -23,7 +23,13 @@ export interface SurfaceCacheGiSettings {
   readonly post: boolean;
   readonly spatialTaps: number;
   readonly lookupTaps: number;
-  readonly debug: "off" | "irradiance" | "confidence";
+  readonly gather: boolean;
+  readonly gatherTile: number;
+  readonly gatherDirections: number;
+  readonly gatherBatchRays: number;
+  readonly gatherDistance: number;
+  readonly gatherFreeze: boolean;
+  readonly debug: "off" | "irradiance" | "confidence" | "world-only" | "residual" | "gather-confidence" | "gather-source" | "appearance-world-only";
 }
 
 export const SURFACE_CACHE_GI_DEFAULTS: SurfaceCacheGiSettings = Object.freeze({
@@ -47,6 +53,12 @@ export const SURFACE_CACHE_GI_DEFAULTS: SurfaceCacheGiSettings = Object.freeze({
   post: true,
   spatialTaps: 8,
   lookupTaps: 8,
+  gather: false,
+  gatherTile: 8,
+  gatherDirections: 64,
+  gatherBatchRays: 4096,
+  gatherDistance: 3,
+  gatherFreeze: false,
   debug: "off",
 });
 
@@ -70,7 +82,7 @@ export function surfaceCacheGiSettings(
   base = SURFACE_CACHE_GI_DEFAULTS,
 ): SurfaceCacheGiSettings {
   const value = { ...base, ...input };
-  for (const key of ["enabled", "multiBounce", "spatial", "post"] as const) {
+  for (const key of ["enabled", "multiBounce", "spatial", "post", "gather", "gatherFreeze"] as const) {
     if (typeof value[key] !== "boolean") {
       throw new TypeError(`SCGI ${key} must be boolean`);
     }
@@ -91,6 +103,9 @@ export function surfaceCacheGiSettings(
     "queryMaximumBytes",
     "spatialTaps",
     "lookupTaps",
+    "gatherTile",
+    "gatherDirections",
+    "gatherBatchRays",
   ] as const) {
     if (!Number.isSafeInteger(value[key]) || value[key] < 1 || value[key] > 0xfffffffd) {
       throw new RangeError(`SCGI ${key} must be a positive bounded integer`);
@@ -103,7 +118,10 @@ export function surfaceCacheGiSettings(
     value.lookupTaps > 4096 ||
     !Number.isFinite(Math.fround(value.voxelSize)) ||
     value.voxelSize <= 0 ||
-    !["off", "irradiance", "confidence"].includes(value.debug)
+    value.gatherTile < 4 || value.gatherTile % 2 !== 0 || value.gatherDirections > 256 ||
+    value.gatherBatchRays < value.gatherDirections ||
+    !Number.isFinite(Math.fround(value.gatherDistance)) || value.gatherDistance <= 0 ||
+    !["off", "irradiance", "confidence", "world-only", "residual", "gather-confidence", "gather-source", "appearance-world-only"].includes(value.debug)
   ) {
     throw new RangeError("Invalid SCGI quality/representation settings");
   }

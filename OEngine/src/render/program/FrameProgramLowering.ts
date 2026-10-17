@@ -614,6 +614,7 @@ function compileSceneGraph(
   const nativeFrame = bind("native-surface-frame", (bindings) => ({ bindings }));
   let reflectionSurface = -1;
   let nativeHdr = -1;
+  let giResidual: ResourceId | undefined;
   let reactive = -1;
   let seed = -1;
   let identity = -1;
@@ -701,6 +702,15 @@ function compileSceneGraph(
         })),
       ),
     );
+    if (plan.request.surfaceCacheGiGather) {
+      gi.read(graph.import_resource("SCGI/previous independent residual and probe history", { kind: "imported" },
+        bind("scgi-gather-previous", (bindings) => ({
+          probes: bindings.scgi!.gather!.previous,
+          residual: bindings.scgi!.gather!.previousResidual,
+        }))));
+      giResidual = gi.write(graph.import_resource("SCGI/current reprojected signed residual", { kind: "imported" },
+        bind("scgi-gather-current", (bindings) => bindings.scgi!.gather!.residual)));
+    }
     gi.write(
       graph.import_resource(
         "SCGI/candidate world",
@@ -798,6 +808,7 @@ function compileSceneGraph(
               command: context.encoder as ShadeGPUCommandContext,
               debug: frame.scgi.settings.debug,
               lightingChanged: frame.scgi.lightingChanged,
+              gather: frame.scgi.gather,
             },
       virtualFeedback: frame.virtualTextures?.frameFeedback,
       width: plan.request.internalWidth,
@@ -865,15 +876,6 @@ function compileSceneGraph(
   }
   if (vtFeedback !== undefined) {
     vtFeedback = native.write(vtFeedback);
-    const finish = graph.add(
-      "VT/feedback finalize and delayed readback",
-      nativeFrame,
-      (data, _resources, context) => {
-        data.bindings.virtualTextures!.finishFeedback(context.encoder as ShadeGPUCommandContext);
-      },
-    );
-    finish.write(vtFeedback);
-    finish.make_side_effect();
   }
   for (const id of [
     cameraBuffer,
@@ -897,6 +899,7 @@ function compileSceneGraph(
     vsmContentVersion,
     lightingRanges,
     giField,
+    giResidual,
     physicalEnvironmentSun,
     atmosphereEnvironment,
     virtualMetadata,
@@ -929,6 +932,42 @@ function compileSceneGraph(
   reactive = native.write(seedProducts.response);
   seed = native.write(seedProducts.seed);
   identity = native.write(seedProducts.identity);
+  if (plan.request.surfaceCacheGiGather) {
+    const gatherHdr = nativeHdr;
+    const gather = graph.add("SCGI/surface-cache-gi-gather", nativeFrame, (data, resources) => {
+      const frame = data.bindings;
+      frame.scgi!.owner.encodeGather(frame.scgi!, frame.job,
+        resolveTextureView(resources.get(result.frame.visibilityKey)));
+      const output = resources.get(gatherHdr) as GPUTexture & { gpu_texture?: GPUTexture };
+      frame.scgi!.gather!.owner.encodeDebug(frame.scgi!.gather!, output.gpu_texture ?? output,
+        resources.get(gpuPreviousExposure) as GPUBuffer);
+    });
+    gather.read(nativeHdr);
+    gather.read(gpuPreviousExposure);
+    gather.read(giField!);
+    gather.read(result.frame.visibilityKey);
+    gather.read(result.frame.meshletWork.records);
+    gather.read(result.frame.frameInstances);
+    gather.read(result.frame.frameGeometry);
+    gather.read(vertexPayload);
+    gather.read(lightRecords!);
+    for (const resource of [...vtResources, virtualMetadata, ...(virtualBanks ?? []), physicalEnvironmentSun, atmosphereEnvironment]) {
+      if (resource !== undefined && resource !== null) { gather.read(resource); }
+    }
+    if (vtFeedback !== undefined) { vtFeedback = gather.write(vtFeedback); }
+    gather.write(graph.import_resource("SCGI/next signed residual probe history and source", { kind: "imported" },
+      bind("scgi-gather-next", (bindings) => bindings.scgi!.gather!)));
+    gather.make_side_effect();
+    nativeHdr = gather.write(nativeHdr);
+  }
+  if (vtFeedback !== undefined) {
+    const finish = graph.add("VT/feedback finalize and delayed readback", nativeFrame,
+      (data, _resources, context) => {
+        data.bindings.virtualTextures!.finishFeedback(context.encoder as ShadeGPUCommandContext);
+      });
+    finish.write(vtFeedback);
+    finish.make_side_effect();
+  }
   const temporalPolicy = frameTemporalPolicy(plan.request);
   const temporalDebug =
     plan.request.debugView === RenderDebugViewValue.Velocity ||

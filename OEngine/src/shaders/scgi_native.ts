@@ -11,6 +11,9 @@ var<private> scgi_receiver_instance: OEngineInstanceRecord;
 var<private> scgi_material_revision: u32;
 var<private> scgi_receiver_slot: u32;
 var<private> scgi_reactivity: f32;
+var<private> scgi_world_irradiance: vec3f;
+var<private> scgi_residual_irradiance: vec3f;
+var<private> scgi_residual_confidence: f32;
 fn scgi_oct_decode(packed: u32) -> vec3f {
   let xy = unpack2x16snorm(packed);
   var n = vec3f(xy, 1.0 - abs(xy.x) - abs(xy.y));
@@ -20,6 +23,9 @@ fn scgi_oct_decode(packed: u32) -> vec3f {
   return normalize(n);
 }
 fn scgi_native_irradiance(normal: vec3f, pixel: vec2u) -> vec4f {
+  scgi_world_irradiance = vec3f(0.0);
+  scgi_residual_irradiance = vec3f(0.0);
+  scgi_residual_confidence = 0.0;
   if (lighting_ranges.gi.w == 0u) {
     return vec4f(0.0);
   }
@@ -30,6 +36,7 @@ fn scgi_native_irradiance(normal: vec3f, pixel: vec2u) -> vec4f {
   var coefficients: array<f32, 12>;
   var total = 0.0;
   var confidence = 0.0;
+  var correction: array<f32, 12>;
   for (var tap = 0u; tap < 4u; tap++) {
     let step = vec2i(i32(tap & 1u), i32(tap >> 1u));
     let half_pixel = vec2u(clamp(base + step, vec2i(0), vec2i(lighting_ranges.gi.xy) - vec2i(1)));
@@ -100,6 +107,20 @@ fn scgi_native_irradiance(normal: vec3f, pixel: vec2u) -> vec4f {
     for (var term = 0u; term < 12u; term++) {
       coefficients[term] += decoded[term] * weight;
     }
+    if (lighting_ranges.residual.z != 0u) {
+      let residual_at = lighting_ranges.residual.x +
+        (local_pixel.y * lighting_ranges.remap.w + local_pixel.x) * 8u;
+      if (residual_at + 7u < lighting_ranges.residual.x + lighting_ranges.residual.y) {
+        let scale = bitcast<f32>(lighting_directory[residual_at + 6u]);
+        let residual_confidence = clamp(bitcast<f32>(lighting_directory[residual_at + 7u]), 0.0, 1.0);
+        for (var pair = 0u; pair < 6u; pair++) {
+          let value = unpack2x16float(lighting_directory[residual_at + pair]) * scale;
+          correction[pair * 2u] += value.x * residual_confidence * weight;
+          correction[pair * 2u + 1u] += value.y * residual_confidence * weight;
+        }
+        scgi_residual_confidence += residual_confidence * weight;
+      }
+    }
     confidence += f32((flags >> 10u) & 65535u) / 65535.0 * weight;
     total += weight;
   }
@@ -112,7 +133,15 @@ fn scgi_native_irradiance(normal: vec3f, pixel: vec2u) -> vec4f {
     irradiance[channel] = (0.28209479177387814 * coefficients[channel] +
       0.4886025119029199 * (normal.x * coefficients[3u + channel] +
         normal.y * coefficients[6u + channel] + normal.z * coefficients[9u + channel])) / total;
+    scgi_residual_irradiance[channel] = (0.28209479177387814 * correction[channel] +
+      0.4886025119029199 * (normal.x * correction[3u + channel] +
+        normal.y * correction[6u + channel] + normal.z * correction[9u + channel])) / total;
   }
-  return vec4f(max(irradiance, vec3f(0.0)), clamp(confidence, 0.0, 1.0));
+  scgi_world_irradiance = irradiance;
+  scgi_residual_confidence /= total;
+  if (lighting_ranges.extent_debug.z == 3u || lighting_ranges.extent_debug.z == 7u) {
+    return vec4f(max(irradiance, vec3f(0.0)), clamp(confidence, 0.0, 1.0));
+  }
+  return vec4f(max(irradiance + scgi_residual_irradiance, vec3f(0.0)), clamp(confidence, 0.0, 1.0));
 }
 `;

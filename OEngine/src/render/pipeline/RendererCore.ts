@@ -2976,6 +2976,7 @@ export class Renderer {
           command,
           filterData,
           scgiFrame === null ? undefined : [width, height],
+          (scgiFrame as ScgiRendererFrame | null)?.gather != null,
         );
         localLightWork = this._localLightWork.prepare({
           publication,
@@ -3078,6 +3079,7 @@ export class Renderer {
         textureBankMask,
         hasLit,
         surfaceCacheGi: scgiFrame !== null,
+        surfaceCacheGiGather: (scgiFrame as ScgiRendererFrame | null)?.gather != null,
         reflectionProfile: reflectionEnabled ? "sssr-base-coat" : "off",
         aoProfile:
           ambientOcclusion.enabled && ambientOcclusion.strength > 0 && hasLit && activeSets.length > 0

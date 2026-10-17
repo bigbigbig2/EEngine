@@ -14,6 +14,8 @@ verifies:
     - OEngine/src/shaders/scgi_anchor.ts
     - OEngine/src/shaders/scgi_estimator.ts
     - OEngine/src/shaders/scgi_native.ts
+    - OEngine/src/shaders/scgi_gather.ts
+    - OEngine/src/shaders/scgi_gather_source.ts
     - OEngine/src/shaders/scgi_lighting_gather.ts
     - OEngine/src/render/environment/PhysicalEnvironmentRuntime.ts
     - OEngine/src/shaders/native_environment_brdf.ts
@@ -77,6 +79,8 @@ NativeVisibilityPass 和 VSM native alpha caster 消费同一 native material pu
 旧 SurfaceWorkRuntime、GPU Tape/ExactDag interpreter、Closure Cache、coherence、field/signal heap、global Signal History 和 generic opaque Reconstruct 已从本工作树删除；不保留 adapter 或第二条生产路径。资产 cook、Graph 数学/CPU oracle、Geometry、providers、FrameGraph 与 Registry 生命周期继续由真实 owner 持有。历史 B2 数值失败没有被追认为修复；存活语义由 native update/publication/abort-retry/HDR 测试承担。
 
 2026-10-17 SCGI生产切换：`ScgiRenderer`组合真实query/cache/anchor/estimator/filter；公开`surfaceCacheGi`设置、preset与debug沿FrameProgram进入Surface前宏stage。GI私有112B half field/history分片经有序copy/halo供Native消费；96B lighting ranges保留全部local/VSM/solar/noise引用，单次window×bin partition，必要时GPU gather七个keyed VSM descriptor，无新增Native绑定。Native在真实shaded normal评价SH，以confidence混合environment×AO，材质occlusion仅一次，GI lighting response进入原Temporal；SSSR继续消费被GI照亮的Surface。默认关闭，启用后无旧GI选择器。旧probe/atlas/long-range/screen-diffuse与无consumer的旧BLAS/TLAS已删除，DynamicBvh cooker保留。缺页/非Product/不支持的形变保持unknown；不会把不完整AS当天空。近场residual未实施，完整画质与性能资格仍归后续单元。
+
+2026-10-17 SCGI近场接线：可选`ScgiGather`在同一SCGI owner下复用query scene、Native材质bin/几何与VT反馈，Surface后产生RGBA32F diffuse-only源、tile probe signed SH与下一代32B/H residual。Surface前按previous residual配对的world guide/identity重投影，Native通过112B lighting ranges与原目录读取，先合world+signed residual再非负处理。world seed/field/cache与screen残差独立；旧文的96B ranges及“residual未实施”是SCGI-8时点事实，现由该实现替代。专用场景与调试入口为`tools/scgi-lab.mjs`，测试覆盖与画质/成本限制只读执行§7.15；不宣称完整AAA资格。
 
 ## 仍需验证
 

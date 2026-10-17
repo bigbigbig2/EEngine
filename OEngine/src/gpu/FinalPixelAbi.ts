@@ -4,7 +4,7 @@ export const FINAL_PIXEL_DIRECTORY_WORDS = 8;
 export const FINAL_PIXEL_SOLAR_WIDTH = 256;
 export const FINAL_PIXEL_SOLAR_HEIGHT = 64;
 export const FINAL_PIXEL_SOLAR_BYTES = FINAL_PIXEL_SOLAR_WIDTH * FINAL_PIXEL_SOLAR_HEIGHT * 8;
-export const FINAL_PIXEL_LIGHTING_RANGES_BYTES = 96;
+export const FINAL_PIXEL_LIGHTING_RANGES_BYTES = 112;
 export const FINAL_PIXEL_DIRECTORY_WGSL = /* wgsl */ `
 struct NativeMaterialDirectoryEntry {
   constant_base: u32,
@@ -62,6 +62,7 @@ struct NativeTemporalSeedView {
 `;
 
 export interface FinalPixelLightingDirectoryPlan {
+  readonly residual: boolean;
   readonly giOffset: number;
   readonly giBytes: number;
   readonly giWidth: number;
@@ -97,6 +98,7 @@ export function planFinalPixelLightingDirectory(
   descriptorCount: number,
   filterNoiseBytes = 0,
   giExtent?: readonly [number, number],
+  residual = false,
 ): FinalPixelLightingDirectoryPlan {
   for (const count of [lookupCount, descriptorCount]) {
     if (!Number.isSafeInteger(count) || count < 1 || count > 0xffffffff) {
@@ -135,7 +137,8 @@ export function planFinalPixelLightingDirectory(
     throw new RangeError("GI directory source pixel identity exceeds u32");
   }
   const available = maximum - giOffset;
-  const rowCapacity = giWidth === 0 ? 0 : Math.floor(available / (giWidth * 112));
+  const fieldStride = residual ? 144 : 112;
+  const rowCapacity = giWidth === 0 ? 0 : Math.floor(available / (giWidth * fieldStride));
   // Two half rows on each side cover the complete bilinear/edge-aware footprint.
   // Windows shade multiples of eight full rows, matching Native work tiles.
   let windowRows = giHeight <= rowCapacity ? (giExtent?.[1] ?? 0) : Math.floor((rowCapacity - 4) / 4) * 8;
@@ -150,7 +153,7 @@ export function planFinalPixelLightingDirectory(
     const windowBytes = (width: number, height: number) =>
       fixed +
       width * height * (8 + 7 * 20) +
-      (Math.ceil(width / 2) + 4) * (Math.ceil(height / 2) + 4) * 112 +
+      (Math.ceil(width / 2) + 4) * (Math.ceil(height / 2) + 4) * fieldStride +
       alignment * 3;
     windowRows = 8;
     while (windowWidth > 8 && windowBytes(windowWidth, windowRows) > maximum) {
@@ -164,7 +167,7 @@ export function planFinalPixelLightingDirectory(
     }
     nativeBytes = windowBytes(windowWidth, windowRows);
   }
-  const giBytes = remapped ? 0 : giWidth * Math.min(giHeight, Math.ceil(windowRows / 2) + 4) * 112;
+  const giBytes = remapped ? 0 : giWidth * Math.min(giHeight, Math.ceil(windowRows / 2) + 4) * fieldStride;
   const bytes = giWidth === 0 || remapped ? baseBytes : giOffset + giBytes;
   if (
     !Number.isSafeInteger(bytes) ||
@@ -174,6 +177,7 @@ export function planFinalPixelLightingDirectory(
     throw new RangeError("Final Pixel lighting directory exceeds negotiated capacity");
   }
   return Object.freeze({
+    residual,
     giOffset,
     giBytes,
     giWidth,
@@ -218,6 +222,10 @@ export function planFinalPixelLightingDirectory(
       0,
       0,
       0,
+      0,
+      0,
+      0,
+      0,
     ]),
   });
 }
@@ -231,6 +239,7 @@ struct FinalPixelLightingRanges {
   window: vec4u, // first x, width, height, first y
   extent_debug: vec4u,
   remap: vec4u,
+  residual: vec4u, // signed coefficient word offset/length, enabled, reserved
 }
 @group(1) @binding(9) var<uniform> lighting_ranges: FinalPixelLightingRanges;
 fn final_pixel_local_lookup(index: u32) -> LocalLightLookup {

@@ -19,7 +19,7 @@ verifies:
 
 唯一详细设计为[SCGI设计](../next-design/eengine-surface-cache-gi-2026-10.md)。需求输入为[母稿](../reviews/EEngine_Surface_Cache_GI_WebGPU_Mother_Design_2026-10-17.md)；设计§17逐项映射母稿，设计§1列明勘误。本文件是细单元状态与实施结果唯一记录，workstream和粗执行不复制细状态。
 
-**SCGI-1～SCGI-8当前范围已闭合，生产基础GI已接通，默认设置关闭、显式启用使用唯一SCGI路径。** SCGI-8实施、生产验证与成本见§7.14；SCGI-2静态/刚体、精确coverage、GPU世界域工作集及本地publication见§7.9。skin/morph随共享动画模块延期，4GB不作复杂大场景承诺。此前各节保留其当时快照，不覆盖本节最新状态。停在SCGI-9边界；近场residual与SCGI-10正式整链画质/性能验收尚未完成，不能将基础接线完成写成整个模块完成。
+**SCGI-1～SCGI-9当前范围已闭合，基础GI与可选近场signed residual已接通，默认GI/gather关闭、显式启用使用唯一SCGI路径。** SCGI-9实现、专用场景、独立数值参照与画质限制见§7.15；SCGI-8基础生产切换见§7.14。skin/morph随共享动画模块延期，4GB不作复杂大场景承诺。此前各节保留其当时快照，不覆盖本节最新状态。停在SCGI-10边界；全场景整链画质/成本验收尚未完成，不能将当前小场景通过写成整个模块或AAA画质资格完成。
 
 ## 1. 完整范围、依赖与生产切换
 
@@ -33,7 +33,7 @@ verifies:
 | SCGI-6 | 全光源估计、punctual重连接、multi-bounce | 3、4、5 | 当前范围实现与局部验收闭合；§7.12 |
 | SCGI-7 | 统计、动态失效、A0/A1/A2过滤、L1 screen field | 6 | 当前范围实现与局部验收闭合；§7.13 |
 | SCGI-8 | FrameProgram+Native全部route原子接线、旧owner退休 | 1–7 | 当前范围完成；见§7.14 |
-| SCGI-9 | Screen Radiance Gather完整近场残差增强 | 8 | 待实施 |
+| SCGI-9 | Screen Radiance Gather完整近场残差增强 | 8 | 当前范围实现与局部验收闭合；见§7.15，画质收益有限且未获整链资格 |
 | SCGI-10 | 全场景、故障、资源峰值、成本与文档闭合 | 8、9 | 待实施 |
 
 SCGI-2与3算法依赖可独立准备，但遵守本仓库不使用子agent、GPU验证串行的要求。单元内允许代码暂时不可运行；稳定边界不能有两套production GI。SCGI-1～7构建完整新闭包并用真实算法fixture验证，**SCGI-8之前不把部分实现打开为默认生产功能**。既有renderer保持当前行为；测试fixture不是生产fallback。
@@ -822,3 +822,31 @@ Native最多四次112B逻辑field读、四次Visibility/work验证与guide/SH数
 **来源与停止边界。** Source map已记录所选RadeonRays机制的生产Adapt与Local integration；Unity仍仅Reference，绝非整SDK直接接WebGPU。停在SCGI-9，不自动实施near-field source/probes/residual。
 
 最终补充检查：同field/camera经remap的pre-exposure=2与0.25，相对原HDR的half精度缩放逐值一致；GI history不含曝光值。共享solar oracle适配当前96B ranges后4145 samples通过，原131072B half LUT publication字节不变、写域互不重叠，CPU最大差约5.96e-8。最终`scgi-transaction`使用同一fresh build通过，原始结果`.local/scgi8-transaction-final.json`/`scgi8-solar-final.json`。文档检查0 findings/66 historical warnings，`git diff --check`通过。未运行项仍按本节边界，不把局部曝光比对提升为整Renderer自动曝光/色调映射资格。
+
+### 7.15 SCGI-9：独立近场残差、专用场景与实际检查
+
+**实现边界。** `ScgiGather`是既有SCGI的可选owner，借用同一query scene、GeometryProduct解码、Native材质、实例身份与VT feedback。没有独立SSGI renderer、第二套几何或生产额外submit/readback。FrameProgram显式声明Surface后的gather和下一帧pre-Surface历史消费；Lowering记录previous probe/residual、current reprojected residual及next compound产品。GI默认和gather默认仍关闭；关闭gather退休私有资源，world GI保留。
+
+**实际物理闭包。**
+
+- half anchor的exact sourcePixel经过Visibility→meshlet work→instance/material bin，复用`ScgiQueryHitWork` count/prefix/scatter和indirect逐bin执行Native C/X/Y材质投影，不逐bin扫描全屏。与主Native共享geometry input函数，camera graph输入与VT语义保持一致。
+- 源为未曝光Rec.709 RGBA32F：Le + diffuse BRDF × underlayer ×（带visibility/PDF的direct + occlusion × world-only irradiance）。全部directional/physical sun和抽样local均走同query shadow，金属没有specular混入；不会读取最终HDR、sky、aerial、旧residual或SSSR history。
+- tile spawn/disocclusion、history lookup、hemioctahedral方向及显式solid-angle PDF、完整triangle query、精确lineage/asset/meshlet/primitive与plane验证、fill、signed SH project、variance/count/history和edge-aware interpolate全部执行。方向为batch复用f32 scratch；按固定N积分，missing coverage=零修正。world field零confidence不用于生成预测probe；负prediction不clamp。
+- probe每role160B，双role；signed residual双role32B/H，与同代world field guide/identity配对。pre-Surface重投影读取previous residual+previous world guide，检查完整identity、depth/normal、双plane，写当前32B/H；Native经原lighting directory追加段消费，不增加绑定。lighting ranges由96B增到112B。合成保持`max(0,Eworld_raw+confidence*δE)`，不能单独clamp负残差。
+- commit推进角色，abort保留角色；encode后abort/retry、冻结、光照/实例revision拒绝、disable/re-enable、奇数resize、FSR3低internal与device loss/recovery已实际运行。退休等待query与最后consumer fence；constructor部分分配失败清理，异步失败隔离到device epoch。world缓存与field在gather编码前后逐字节相同，不存在seed/multibounce残差回灌。
+
+**独立验证与观察。** Windows Chrome155 / NVIDIA Turing硬件，16 SSBO、4 groups、128MiB binding、256MiB buffer；浏览器返回空device description，不能据此写具体显卡型号。以下为局部真实GPU结果，不是正式全Renderer benchmark。
+
+1. `scgi-gather`公开Renderer专用房间：红绿墙、白盒接触、薄隔板、纯金属对照、独立移动发光片和point light。160×120主oracle、320×240交互截图；均上传真实cooked Product。最终小场景292有效probe、285有接收样本、4139有效重投影half residual、1602负SH系数；负数是signed correction的合法结果。
+2. GPU实际Gram helper对18组旋转法线/常量/HDR（最高1e8）最大相对误差`8.624e-7`。独立262144样本角域积分对照实际project kernel：8192方向合并的L0约3.3226，对照3.3410；Z约5.0025，对照5.0152。保留1/4覆盖得到约0.83538/1.25345，没有accepted-count放大。另测normal/support倾斜的非零误差，不能套常量证明；真实interpolate kernel拒绝不相容normal、plane、identity，负HDR -1e8压缩解码约-99942400，符合half误差。
+3. 4800个source texel用独立解析盒体visibility、point衰减和公开world field核对，含48个遮挡、4679个照亮、71个纯金属、27个发光片；最终最大绝对差`1.521e-7`。该参考明确借用world field，仅独立验证source公式/visibility，不冒充独立multi-bounce真值。
+4. 32个接收probe、每个8192样本的解析盒体visibility + published diffuse source参考，配对近场L1目标：无修正RMSE `0.10402`，加置信度残差 `0.08236`，约20.8%下降。这是当前随机相位/有限点集的测量，不是全房间path tracing/SSIM，不外推为任意场景画质改善。窄亮源与不同support的L1模型误差仍存在。
+5. 同一production Native frame全目录、15 stripe、80 remap窗口HDR逐字节相同。单独`scgi-gather-materials`复用SCGI-8真实材质场景的相关slice：Standard/Unlit/Clearcoat/custom、VT+MASK、PhysicalSun/VSM、AO×GI×SSSR、16 storage/16 sampled、Native/FSR3/bypass、full/stripe/remap和曝光缩放通过。它明确止于原4K/故障矩阵之前；本轮专用场景另覆盖abort/freeze/moving emitter/recovery，不为了重复SCGI-8跑整套4K全组合。
+
+**专用调试与截图。** `node tools/scgi-lab.mjs`打开可交互房间；`--capture`保存在`.local/scgi9-captures/`，包括final、appearance-world-only、world-only irradiance、combined irradiance、signed residual（红正蓝负）、confidence和diffuse source。每张伴随JSON参数/计数/成本。截图序列诊断性固定同一world field/residual并关闭颜色AA，避免将world更新/Temporal变化当成gather增益；这些copy/readback仅存在测试宿主，生产没有依赖。当前320×240截图实际已逐张查看：局部修正偏弱，final/world-only肉眼差异小，基础world GI存在明显低采样斑块。PNG显示域MAE约0.370/255、最大差12/255；该数值只说明变化幅度，不代表质量得分。**不宣称AAA画质达标**；SCGI-10必须继续全场景画面/动态响应与成本检查。
+
+**成本卡，ADD而非提速声明。** 新增`320Np +112H +32·Bdirection` owner基本存储，另有两份query scratch、batch ray80B、source hit96B、query hit96B、source state16B、bin prefix/indirect及参数；不重复算借用world/geometry。目录最多另96H；设计§15.2更新1080p/1440p/4K的理论附加小计112.84/200.52/451.00MiB（含最多三目录残差，尚未含query与retiring）。4K stripe以实际窗口替换full目录项，不能把所有表机械相加。
+
+320×240 lab实际gather owner 2,866,816B + query private169,508B；history1,612,800B，当前重投影614,400B，方向scratch32768B；1200 probes×64=76800方向，source19200 texel，单local阴影上界19200。正常未冻结编码dispatch上界5059（含完整query tail与bin槽），**不是GPU ms**。低memory需独立关闭gather或降低internal/tile/profile；1080p tile8全probe64方向约207万query，当前软件triangle transport不承诺实时。带宽包括source写16H、interpolate写32H、reproject读previous guide112H+residual32H/写32H、Native最多4 tap×新增32B及目录copy读写；随机triangle/material/VT访问另外计。0/50/100%覆盖仍付全域source/guide与probe槽调度税，当前仅hit/material通过GPU indirect缩减，不能说空覆盖零成本。未来优化可融合准备、减少query尾调度、调节probe更新，但不得删除完整visibility、固定N或事务。
+
+**构建、失败与停止点。** `build`包含typecheck/Vite/declarations通过，fresh `build:test`通过；四个focused contract文件28/28通过。最终原始GPU结果`.local/scgi9-gpu-final.log`，材料矩阵`.local/scgi9-materials-final.log`，截图`.local/scgi9-capture-06.log`与同目录PNG/JSON；两份GPU测试source SHA `e9efb6b7fd30b8286487d9a3414a80d7f39189a4e31fc1cb49ad71a1898ead85`（随后仅补batch dispatch上限的host admission，未改受测GPU算法）。保留01～18及早期build/capture失败：WGSL保留字/非法常量、admission误算真实segment、fixture light默认1m、mesh transform字段和截图wrapper丢参数；已按根因修复、仅重跑相关检查。没有删除原失败或放宽断言。没有跑全仓回归、跨GPU/浏览器、全场景path-traced图像、正式P50/P95和claims。上述未获资格不等于生产算法缺机制；当前局部功能验收闭合，停在SCGI-10，不自动跨单元。

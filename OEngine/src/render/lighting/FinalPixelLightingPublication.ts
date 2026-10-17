@@ -50,6 +50,7 @@ export class FinalPixelLightingPublication {
     command: ShadeGPUCommandContext,
     filterData?: Uint8Array<ArrayBuffer>,
     giExtent?: readonly [number, number],
+    residual = false,
   ): FinalPixelLightingFrame {
     if (this.destroyed || command.closed || command.device !== this.device) {
       throw new Error("Final lighting publication requires a live frame command on its device");
@@ -60,6 +61,7 @@ export class FinalPixelLightingPublication {
       descriptorCount,
       filterData?.byteLength ?? 0,
       giExtent,
+      residual,
     );
     let allocation = this.allocations.find(
       (value) =>
@@ -68,6 +70,7 @@ export class FinalPixelLightingPublication {
         value.plan.descriptorCount === descriptorCount &&
         value.plan.giWidth === plan.giWidth &&
         value.plan.giHeight === plan.giHeight &&
+        value.plan.residual === plan.residual &&
         value.filterData === filterData,
     );
     if (!allocation) {

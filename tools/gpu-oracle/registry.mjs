@@ -11,6 +11,26 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "scgi-gather-materials",
+    file: "OEngine/tests/oracle/scgi-gather-materials-gpu.mjs",
+    url: "/OEngine/tests/oracle/scgi-gather-materials-gpu.mjs",
+    entry: "runScgiGatherMaterialsGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    timeoutMs: 300000,
+    allowPrefixes: ["OEngine/src/render/assets/", "OEngine/src/assets/web-cook/wasm/vendor/"],
+    description: "SCGI gather on existing max-binding Native/VT/MASK/VSM production matrix.",
+  }),
+  Object.freeze({
+    name: "scgi-gather",
+    file: "OEngine/tests/oracle/scgi-gather-gpu.mjs",
+    url: "/OEngine/tests/oracle/scgi-gather-gpu.mjs",
+    entry: "runScgiGatherGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    timeoutMs: 300000,
+    allowPrefixes: ["OEngine/src/render/assets/", "OEngine/src/assets/web-cook/wasm/vendor/"],
+    description: "SCGI-9 dedicated room, actual Native source, screen probes and signed residual.",
+  }),
+  Object.freeze({
     name: "scgi-production",
     file: "OEngine/tests/oracle/scgi-production-gpu.mjs",
     url: "/OEngine/tests/oracle/scgi-production-gpu.mjs",

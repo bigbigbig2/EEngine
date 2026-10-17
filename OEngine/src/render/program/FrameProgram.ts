@@ -16,6 +16,7 @@ export type FrameProduct =
   | "reflection-surface"
   | "reflection-depth"
   | "indirect-diffuse"
+  | "indirect-diffuse-residual"
   | "indirect-specular"
   | "opaque-reflected-radiance"
   | "surface-radiance"
@@ -43,6 +44,7 @@ export type FrameProgramStage =
   | "xe-gtao"
   | "vsm"
   | "surface-cache-gi"
+  | "surface-cache-gi-gather"
   | "sssr"
   | "surface"
   | "physical-sky"
@@ -100,6 +102,7 @@ export type FrameProgramRequest = FrameProgramBase &
         textureBankMask?: number;
         hasLit: boolean;
         surfaceCacheGi?: boolean;
+        surfaceCacheGiGather?: boolean;
         reflectionProfile?: "off" | "sssr-base-coat";
         aoProfile?: FrameAoProfile;
         aoDenoisePasses?: 0 | 1 | 2 | 3;
@@ -210,6 +213,15 @@ const PRODUCT_SPEC: Readonly<
     value: "world-only directional irradiance, guide and identity",
     coverage: "full ceil half internal",
     invalid: "zero confidence",
+    version: "history-role",
+  },
+  "indirect-diffuse-residual": {
+    producer: "surface-cache-gi-gather",
+    domain: "internal-half",
+    format: "structured-buffer",
+    value: "next-frame signed diffuse residual, probe guide and variance",
+    coverage: "bounded screen probes over full ceil half internal",
+    invalid: "zero correction; world-only remains valid",
     version: "history-role",
   },
   "reflection-surface": {
@@ -479,6 +491,10 @@ const INPUT_CONTRACTS: Readonly<
     "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" },
     depth: { domain: "internal-full", value: "reverse depth" },
   },
+  "indirect-diffuse-residual": {
+    "surface-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
+    "indirect-diffuse": { domain: "internal-half", value: "world-only directional irradiance, guide and identity" },
+  },
   "temporal-response": { visibility: { domain: "internal-full", value: "packed VisibilityKey" } },
   "temporal-seed": {
     "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" },
@@ -680,6 +696,7 @@ function structuralKey(request: FrameProgramRequest): string {
     request.textureBankMask ?? 0xffff,
     request.hasLit,
     request.surfaceCacheGi === true,
+    request.surfaceCacheGiGather === true,
     request.reflectionProfile ?? "off",
     request.aoProfile ?? "off",
     request.aoDenoisePasses ?? 0,
@@ -695,6 +712,8 @@ function structuralKey(request: FrameProgramRequest): string {
 function dependencies(product: FrameProduct, request: FrameProgramRequest): readonly FrameProduct[] {
   if (request.kind === "empty") return [];
   switch (product) {
+    case "indirect-diffuse-residual":
+      return ["surface-radiance", "indirect-diffuse"];
     case "indirect-diffuse":
       return ["visibility", "meshlet-work", "depth"];
     case "reflection-surface":
@@ -880,6 +899,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
   requireProduct("temporal-seed");
   requireProduct("temporal-response");
   requireProduct("temporal-identity");
+  if (request.surfaceCacheGiGather) { requireProduct("indirect-diffuse-residual"); }
   const temporalDebug =
     request.debugView === RenderDebugViewValue.Velocity ||
     request.debugView === RenderDebugViewValue.HistoryValidity ||
@@ -909,6 +929,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
     ...(request.aoProfile !== "off" ? ["xe-gtao" as const] : []),
     ...(request.surfaceCacheGi ? ["surface-cache-gi" as const] : []),
     "surface",
+    ...(request.surfaceCacheGiGather ? ["surface-cache-gi-gather" as const] : []),
     ...(request.reflectionProfile === "sssr-base-coat" ? ["sssr" as const] : []),
     ...(request.physicalEnvironment ? ["physical-sky" as const, "aerial" as const] : []),
     ...(frameTemporalPolicy(request) === "upscale" || temporalDebug
@@ -934,6 +955,11 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
       .filter((candidate) => dependencies(candidate, request).includes(product))
       .map((candidate) => productSpec(candidate, request).producer);
     if (product === "swapchain") consumers.push("canvas");
+    if (product === "indirect-diffuse-residual") {
+      // This is a committed role read by the next frame's pre-Surface GI
+      // stage, not a same-frame edge back from Surface to its producer.
+      consumers.push("surface-cache-gi");
+    }
     if (product === "hzb") {
       if (request.previousHzb || request.currentHzbLateRecheck) consumers.push("visibility");
     }
@@ -943,7 +969,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
         : spec.domain === "output-full"
           ? [request.outputWidth, request.outputHeight]
           : spec.domain === "internal-half"
-            ? product === "indirect-diffuse"
+            ? product === "indirect-diffuse" || product === "indirect-diffuse-residual"
               ? [Math.ceil(request.internalWidth / 2), Math.ceil(request.internalHeight / 2)]
               : [Math.max(1, request.internalWidth >>> 1), Math.max(1, request.internalHeight >>> 1)]
             : [request.internalWidth, request.internalHeight];

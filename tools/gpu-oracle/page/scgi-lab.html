@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+  <meta charset="utf-8" />
+  <title>EEngine SCGI Lab</title>
+  <style>
+    body {
+      margin: 24px;
+      background: #15191f;
+      color: #e5e9ed;
+      font: 15px system-ui;
+    }
+    canvas {
+      width: 800px;
+      height: 600px;
+      image-rendering: pixelated;
+      background: black;
+    }
+    button,
+    select {
+      padding: 8px;
+      margin: 6px;
+    }
+    pre {
+      white-space: pre-wrap;
+      max-width: 1000px;
+    }
+  </style>
+  <script type="importmap">
+    { "imports": { "node:assert/strict": "/__gpu-oracle/page/assert-strict.mjs" } }
+  </script>
+  <h1>SCGI · 三角形遮挡与近场辐射</h1>
+  <p>红绿墙 / 接触遮挡 / 薄隔板 / 金属对照 / 发光片。红色残差为增加能量，蓝色为减少能量。</p>
+  <select id="view">
+    <option value="off">最终画面</option>
+    <option value="world-only">仅 World GI</option>
+    <option value="irradiance">合成 Irradiance</option>
+    <option value="confidence">World Confidence</option>
+    <option value="residual">有符号残差</option>
+    <option value="gather-confidence">Gather Confidence</option>
+    <option value="gather-source">Diffuse-only Source</option>
+    <option value="appearance-world-only">最终画面：仅 World GI</option>
+  </select>
+  <button id="gather">Gather 开 / 关</button
+  ><button id="freeze">冻结 / 解冻 Gather</button>
+  <button id="step">推进 8 帧</button
+  ><button id="move">移动发光片</button>
+  <canvas width="320" height="240"></canvas>
+  <pre id="metrics">正在准备 GPU…</pre>
+  <script type="module">
+    const { createScgiLab, scgiLabData } = await import(
+      "/OEngine/tests/oracle/scgi-gather-gpu.mjs?gpuOracleShim=1"
+    );
+    const lab = await createScgiLab(document.querySelector("canvas").getContext("webgpu"), 320, 240, true);
+    window.__SCGI_LAB__ = lab;
+    let busy = false;
+    const draw = async (frames = 8) => {
+      while (busy) await new Promise((resolve) => setTimeout(resolve, 20));
+      busy = true;
+      try {
+        for (let i = 0; i < frames; i++) await lab.tick();
+        const data = lab.frame.scgi?.gather ? await scgiLabData(lab) : { gather: false };
+        document.querySelector("#metrics").textContent = JSON.stringify(
+          {
+            frames: lab.renderer.frame_count,
+            settings: lab.renderer.surfaceCacheGiSettings,
+            data,
+            cost: lab.renderer._scgi.cost
+          },
+          null,
+          2
+        );
+      } finally {
+        busy = false;
+      }
+    };
+    window.__SCGI_DRAW__ = draw;
+    document.querySelector("#view").onchange = async (event) => {
+      lab.renderer.setSurfaceCacheGiSettings({ debug: event.target.value });
+      await draw(2);
+    };
+    document.querySelector("#gather").onclick = async () => {
+      lab.renderer.setSurfaceCacheGiSettings({ gather: !lab.renderer.surfaceCacheGiSettings.gather });
+      await draw();
+    };
+    document.querySelector("#freeze").onclick = async () => {
+      lab.renderer.setSurfaceCacheGiSettings({
+        gatherFreeze: !lab.renderer.surfaceCacheGiSettings.gatherFreeze
+      });
+      await draw();
+    };
+    document.querySelector("#step").onclick = () => draw();
+    document.querySelector("#move").onclick = async () => {
+      lab.movingEmitter.transform_local.position.x *= -1;
+      lab.movingEmitter.updateMatrices();
+      await draw();
+    };
+    await draw(48);
+    window.__SCGI_READY__ = true;
+  </script>
+</html>

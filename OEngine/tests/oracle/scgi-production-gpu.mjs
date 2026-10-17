@@ -23,7 +23,7 @@ import { fixtureTexture } from "./texture-fixture.mjs";
 import { nativeSurfaceBindingGroups } from "../../.test-dist/shaders/native_surface.js";
 
 /** Exact public Renderer/config/upload/render entry. No alternate GI producer. */
-export async function runScgiProductionGpuOracle() {
+export async function runScgiProductionGpuOracle(options = {}) {
   const adapter = await navigator.gpu.requestAdapter({
     powerPreference: "high-performance",
     featureLevel: "core"
@@ -54,6 +54,8 @@ export async function runScgiProductionGpuOracle() {
     autoExposure: false,
     surfaceCacheGi: {
       enabled: true,
+      gather: options.gather === true,
+      gatherBatchRays: 1024,
       resolution: 4,
       cascades: 2,
       patches: 128,
@@ -401,7 +403,8 @@ export async function runScgiProductionGpuOracle() {
           original.plan.descriptorCount,
           commandView,
           original.plan.filterNoiseBytes === 0 ? undefined : renderer._vsmFilterData,
-          [65, 49]
+          [65, 49],
+          options.gather === true
         );
         command.copyBufferToBuffer(original.buffer, 0, lighting.buffer, 0, original.plan.descriptorBytes);
         command.copyBufferToBuffer(
@@ -562,6 +565,11 @@ export async function runScgiProductionGpuOracle() {
     renderer.fsr3_enabled = false;
     await tick();
     assert.equal(renderer._temporalPolicy, "bypass");
+    if (options.gather === true) {
+      return { scope: "existing authored materials/window/Native/FSR3 slice before independent 4K and fault matrix",
+        frames: renderer.frame_count, storageBindings, sampledBindings, windowResults,
+        gather: renderer._scgi.cost.gather, errors };
+    }
     renderer.setResolutionScale(1);
     // Isolate mandatory GI segmentation from the independent SSSR memory ceiling.
     // The full AO/GI/SSSR combination was exercised above at admitted extents.

@@ -4,12 +4,15 @@ import type { FinalPixelLightingFrame } from "../lighting/FinalPixelLightingPubl
 import type { NativeSurfaceGeometry } from "../surface/SurfaceV4.js";
 import { scgiFieldCopies } from "./ScgiLightingWindow.js";
 import { FINAL_PIXEL_SOLAR_BYTES } from "../../gpu/FinalPixelAbi.js";
+import type { SurfaceCacheGiSettings } from "./SurfaceCacheGiSettings.js";
+import type { ScgiGatherFrame } from "./ScgiGather.js";
 
 export interface ScgiNativeWindowInput {
   readonly publication: ScgiFramePublication;
   readonly lighting: FinalPixelLightingFrame;
   readonly command: ShadeGPUCommandContext;
-  readonly debug: "off" | "irradiance" | "confidence";
+  readonly debug: SurfaceCacheGiSettings["debug"];
+  readonly gather?: ScgiGatherFrame | null;
   readonly lightingChanged?: boolean;
 }
 
@@ -48,7 +51,9 @@ export function encodeScgiNativeWindow(
   const descriptorOffset = plan.remapped ? align(lookupOffset + w * h * 8) : plan.descriptorOffset;
   const fieldOffset = plan.remapped ? align(descriptorOffset + w * h * 7 * 20) : plan.giOffset;
   const fieldBytes = fieldWidth * fieldHeight * 112;
-  if (fieldOffset + fieldBytes > lighting.nativeBuffer.size) {
+  const residualOffset = fieldOffset + fieldBytes;
+  const residualBytes = input.gather == null ? 0 : fieldWidth * fieldHeight * 32;
+  if (residualOffset + residualBytes > lighting.nativeBuffer.size) {
     throw new RangeError("SCGI window does not fit its admitted complete directory");
   }
   const ranges = new Uint32Array([
@@ -70,12 +75,16 @@ export function encodeScgiNativeWindow(
     y,
     width,
     height,
-    input.debug === "irradiance" ? 1 : input.debug === "confidence" ? 2 : 0,
+    ["off", "irradiance", "confidence", "world-only", "residual", "gather-confidence", "gather-source", "appearance-world-only"].indexOf(input.debug),
     0,
     Number(plan.remapped),
     firstX,
     firstY,
     fieldWidth,
+    residualOffset / 4,
+    residualBytes / 4,
+    Number(input.gather != null),
+    0,
   ]);
   ranges[19] = Number(input.publication.activeWorld === null || input.lightingChanged === true);
   command.writeBuffer(lighting.ranges, 0, ranges.buffer, 0, ranges.byteLength);
@@ -162,6 +171,25 @@ export function encodeScgiNativeWindow(
         copy.destinationOffset,
         copy.bytes,
       );
+    }
+    if (input.gather != null) {
+      let index = (firstY + row) * halfWidth + firstX;
+      let remaining = fieldWidth;
+      let destination = residualOffset + row * fieldWidth * 32;
+      let segmentFirst = 0;
+      for (let segment = 0; segment < publication.anchors.length && remaining > 0; segment++) {
+        const count = publication.anchors[segment]!.plan.ranges.anchors!.count;
+        if (index >= segmentFirst && index < segmentFirst + count) {
+          const copied = Math.min(remaining, segmentFirst + count - index);
+          command.copyBufferToBuffer(input.gather.residual[segment]!, (index - segmentFirst) * 32,
+            lighting.nativeBuffer, destination, copied * 32);
+          index += copied;
+          destination += copied * 32;
+          remaining -= copied;
+        }
+        segmentFirst += count;
+      }
+      if (remaining !== 0) { throw new Error("SCGI residual does not cover its complete Native window"); }
     }
   }
   return [x, y, w, h];

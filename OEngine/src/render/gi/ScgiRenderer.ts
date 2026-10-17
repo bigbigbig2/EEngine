@@ -20,6 +20,7 @@ import { surfaceCacheGiFilter, type SurfaceCacheGiSettings } from "./SurfaceCach
 import { geometryQueryCut } from "../../gpu/GeometryQueryCut.js";
 import type { GeometryQueryCut } from "../../gpu/GeometryQueryCut.js";
 import type { GeometryProductDescriptorV1 } from "../../assets/geometry-product/GeometryProductV1.js";
+import { ScgiGather, type ScgiGatherFrame } from "./ScgiGather.js";
 
 export interface ScgiRendererFrame {
   readonly owner: ScgiRenderer;
@@ -32,6 +33,7 @@ export interface ScgiRendererFrame {
   readonly previousValid: boolean;
   readonly lightingChanged: boolean;
   readonly queryRevision: number;
+  readonly gather: ScgiGatherFrame | null;
 }
 
 /** Composition of the existing GI owners. Asynchronous preparation borrows the
@@ -47,6 +49,8 @@ export class ScgiRenderer {
   private invalidation: ScgiInvalidation | null = null;
   private estimator: ScgiEstimator | null = null;
   private estimatorKey = "";
+  private gather: ScgiGather | null = null;
+  private gatherKey = "";
   private lastFence: Promise<void> = Promise.resolve();
   private stopped = false;
   private committedLighting = "";
@@ -66,7 +70,7 @@ export class ScgiRenderer {
 
   /** Compound macro write domain: private work stays with its actual owner. */
   get graphWork() {
-    return { estimator: this.estimator, invalidation: this.invalidation };
+    return { estimator: this.estimator, invalidation: this.invalidation, gather: this.gather };
   }
 
   get cost() {
@@ -79,7 +83,9 @@ export class ScgiRenderer {
       queryBytes: query,
       estimator,
       invalidationBytes: invalidation,
-      currentOwnedBytes: runtime.totalBytes + query + (estimator?.privateBytes ?? 0) + invalidation,
+      gather: this.gather?.cost,
+      currentOwnedBytes: runtime.totalBytes + query + (estimator?.privateBytes ?? 0) + invalidation +
+        (this.gather?.cost.ownedBytes ?? 0) + (this.gather?.cost.queryPrivateBytes ?? 0),
       note: "Excludes borrowed geometry/textures, retired query/estimator generations, directory and driver allocations"
     };
   }
@@ -345,7 +351,7 @@ export class ScgiRenderer {
     );
   }
 
-  private frame(
+  private async frame(
     input: {
       command: ShadeGPUCommandContext;
       settings: SurfaceCacheGiSettings;
@@ -355,7 +361,7 @@ export class ScgiRenderer {
     transaction: ScgiFrameTransaction,
     query: ScgiQueryScene,
     camera: readonly [number, number, number]
-  ): ScgiRendererFrame {
+  ): Promise<ScgiRendererFrame> {
     const estimatorInput = this.estimator!.input;
     const lighting = JSON.stringify([
       this.estimatorKey,
@@ -368,6 +374,25 @@ export class ScgiRenderer {
       this.queryRevisions.get(query)
     ]);
     const lightingChanged = lighting !== this.committedLighting;
+    const gatherKey = JSON.stringify([input.settings.gatherTile, input.settings.gatherDirections,
+      input.settings.gatherBatchRays, input.settings.gatherDistance]);
+    if (!input.settings.gather || this.gatherKey !== gatherKey) {
+      this.gather?.retire();
+      this.gather = null;
+      this.gatherKey = "";
+    }
+    if (input.settings.gather && this.gather === null) {
+      const candidate = await ScgiGather.create(input.command.device, transaction.workset.plan,
+        this.estimator!, input.settings, query.runtime.virtualGeometry !== null, this.graphics.resource_accounting);
+      if (this.stopped || input.command.closed) {
+        candidate.retire();
+        throw new Error("SCGI gather preparation cancelled");
+      }
+      this.gather = candidate;
+      this.gatherKey = gatherKey;
+    }
+    const gather = this.gather?.prepare(transaction, input.view, input.settings, camera,
+      input.previousValid && !lightingChanged && transaction.publication.previousWorldField !== null) ?? null;
     input.command.observeSubmission({
       submitted: () => {
         this.committedLighting = lighting;
@@ -385,7 +410,8 @@ export class ScgiRenderer {
       camera,
       previousValid: input.previousValid,
       lightingChanged,
-      queryRevision: this.queryRevisions.get(query)!
+      queryRevision: this.queryRevisions.get(query)!,
+      gather,
     };
   }
 
@@ -459,9 +485,21 @@ export class ScgiRenderer {
       coneSpread: 2 / (transaction.publication.extent[1] * Math.abs(view.camera.projection_matrix[5]!))
     });
     this.filter.encode(transaction, surfaceCacheGiFilter(settings, serial, frame.queryRevision));
+    if (frame.gather !== null) {
+      frame.gather.owner.encodePrevious(frame.gather);
+    }
+  }
+
+  encodeGather(frame: ScgiRendererFrame, job: PackedVisibilityJob, visibility: GPUTextureView): void {
+    if (frame.gather === null) { throw new Error("SCGI gather stage has no prepared owner"); }
+    frame.gather.owner.encode(frame.gather, nativeWinnerGeometry(job.assets, job.prepared.workSet.frameVertices,
+      job.prepared.workSet.meshletWorkCandidate!.queue, job.prepared.workSet.frameInstances.records, job.runtime), visibility);
   }
 
   private retireEstimator(): void {
+    this.gather?.retire();
+    this.gather = null;
+    this.gatherKey = "";
     const previous = this.estimator;
     this.estimator = null;
     this.estimatorKey = "";

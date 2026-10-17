@@ -32,6 +32,16 @@ const scene = {
   physicalEnvironment: true,
 };
 
+test("SCGI screen residual has a post-Surface producer and a next-frame GI consumer", () => {
+  const program = buildFrameProgram({ ...scene, surfaceCacheGi: true, surfaceCacheGiGather: true });
+  assert.ok(program.stages.indexOf("surface-cache-gi") < program.stages.indexOf("surface"));
+  assert.ok(program.stages.indexOf("surface-cache-gi-gather") > program.stages.indexOf("surface"));
+  const residual = program.facts.find((fact) => fact.product === "indirect-diffuse-residual");
+  assert.equal(residual.version, "history-role");
+  assert.deepEqual(residual.consumers, ["surface-cache-gi"]);
+  assert.deepEqual(residual.extent, [320, 180]);
+});
+
 test("Bloom upsamples each mip at its high input extent", () => {
   const previousUsage = globalThis.GPUTextureUsage;
   const previousStage = globalThis.GPUShaderStage;

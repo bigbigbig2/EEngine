@@ -19,6 +19,8 @@ verifies:
     - OEngine/src/shaders/scgi_anchor.ts
     - OEngine/src/shaders/scgi_estimator.ts
     - OEngine/src/shaders/scgi_native.ts
+    - OEngine/src/shaders/scgi_gather.ts
+    - OEngine/src/shaders/scgi_gather_source.ts
     - OEngine/src/shaders/scgi_lighting_gather.ts
     - OEngine/src/shaders/primary_surface_identity.ts
     - OEngine/src/shaders/primary_surface_motion.ts
@@ -460,7 +462,7 @@ CPU commit不逐patch遍历，也不等待GPU读回“所有patch成功”。GPU
 
 在Surface后产生下一帧输入，杜绝GI↔Surface环。需要的源是**diffuse outgoing、unexposed、无specular/sky/aerial/bloom**；仅开启gather时由Native材质bin在低分辨率anchor位置产出，并保留exact guide。不能直接读取最终HDR减去猜测specular，也不能硬拿SSSR color history。
 
-源选RGBA32F（16H B），保持未曝光HDR不受half最大值限制，按显式textureLoad/自定义过滤访问，不额外要求float32-filterable。direction scratch可用当帧统一power-of-two scale的half RGB+有效性/距离，scale由f32源有限最大值reduction得到；source/world prediction不同scale先解码再相减。signed residual另有其role scale，不能拿相机preExposure当缓存编码。
+源选RGBA32F（16H B），保持未曝光HDR不受half最大值限制，按显式textureLoad访问，不额外要求float32-filterable。SCGI-9实际物理布局选择32B/方向的f32 delta/mask+direction/PDF，在有界probe batch中复用，避免全屏方向数组和无必要half量化；不需要源最大值reduction。signed residual仍有独立power-of-two scale，不能拿相机preExposure当缓存编码。
 
 该源的direct照明必须采用与world estimator一致的visibility：当前主表面local lighting尚无完整点/聚光阴影，不能直接将其未遮挡结果反馈成GI。低分辨率源复用query shadow与同灯光采样/PDF形成shadowed diffuse direct；太阳可用经过coverage证明的现有VSM结果，否则仍query。相关query数和源方差计入gather预算，不能把补光误当高频细节。
 
@@ -537,13 +539,13 @@ SCGI-3另增双bank cacheState共32K B，不复用patch的postValid/lastCohort/s
 - ray batch基础work48+result32+payload32+continuation64=176B/ray，65536条为11MiB；若采用64×u32 spill再16MiB，共27MiB。另有bin counts/prefix/indirect与light sample pool。64B continuation包括两层遍历上下文，不能只存一个node就声称能恢复TLAS/BLAS。parent-pointer route无64-slot spill但有其state。B控制临时量，Qtotal控制工作量。
 - bounce requests112B/项，双bank若各K=65536则14MiB；visible demand临时若逐H存项则1080p为55.37MiB。anchor完整写H，rank0需求先按commit-only全局窗口轮转，再cell去重；存完整112B request，队列cap显式给出。defer新cache需求是cache miss，不可丢已计划query/cohort。claim索引若每cell4B，R32/C4另8MiB；如复用map sentinel须证明完整恢复才能抵扣。defrag scratch按真实搬迁record计。
 
-near-field采用紧凑SH history，不保存双份方向数组。参考负载每8×8 internal tile一个probe，`Np=ceil(Wi/8)·ceil(Hi/8)`、每probe64方向。probe每role144B（48B f32 SH+64B identity+16B位置/guide+16B variance/flags），双history288Np；方向单scratch16×64Np；f32 diffuse源16H，guide复用当前anchor；signed residual双history64H，复用同代world guide；当前重投影残差目录32H、最多三份96H。该参考更新全部probe，实际更新比例是runtime参数。
+near-field采用紧凑SH history，不保存双份方向数组。实际布局每8×8 internal tile一个probe，`Np=ceil(Wi/8)·ceil(Hi/8)`、每probe64方向。probe每role160B（SH48+位置/depth16+normal/confidence16+identity64+variance/count/anchor/valid16），双history320Np；方向scratch为`32·floor(B/64)·64`字节，B默认4096。f32 diffuse源16H；signed residual双history64H，复用同代world guide；当前重投影残差另有32H scratch，目录最多三份96H。这些是不同资源，不相互抵扣。当前更新全部probe；tile/directions/batch为有界allocation profile，distance/freeze为运行时行为，不声称已有稀疏更新调度。
 
-| internal | probe双history MiB | 方向单scratch MiB | diffuse源 MiB | residual双history MiB | 三目录残差 MiB | 附加小计 MiB |
-|---|---:|---:|---:|---:|---:|---:|
-| 1080p | 8.90 | 31.64 | 7.91 | 31.64 | 47.46 | 127.55 |
-| 1440p | 15.82 | 56.25 | 14.06 | 56.25 | 84.38 | 226.76 |
-| 4K | 35.60 | 126.56 | 31.64 | 126.56 | 189.84 | 510.21 |
+| internal | probe双history MiB | 方向scratch MiB | diffuse源 MiB | residual双history MiB | 当前重投影 MiB | 三目录残差 MiB | 附加小计 MiB |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 1080p | 9.89 | 0.13 | 7.91 | 31.64 | 15.82 | 47.46 | 112.84 |
+| 1440p | 17.58 | 0.13 | 14.06 | 56.25 | 28.13 | 84.38 | 200.52 |
+| 4K | 39.55 | 0.13 | 31.64 | 126.56 | 63.28 | 189.84 | 451.00 |
 
 probe列表/scan/validation与query scratch另计；目录分块时以window真实量替换三份full残差段。方向scratch可分probe batch复用，但须保留必要邻域/投影寿命。表是给定布局的理论量，不是质量推荐或GPU实测。
 
