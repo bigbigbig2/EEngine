@@ -439,14 +439,22 @@ test("Instance V2 narrows stable, small, large, static, material, and visibility
   };
   const create = new SceneCommand(device, writes);
   const handle = scene.instantiate(source, create);
-  const initialUpload = writes.at(-1);
+  const initialUpload = writes.find(value => value.size === source.count * GPU_INSTANCE_RECORD_STRIDE);
   const initialView = new DataView(initialUpload.data, initialUpload.dataOffset, initialUpload.size);
+  const lineageUpload = writes.find(value => value.size === source.count * 16);
+  assert.ok(lineageUpload, "GpuScene publishes lineage beside the same instance transaction");
+  const lineage = new Uint32Array(lineageUpload.data, lineageUpload.dataOffset, lineageUpload.size / 4);
+  for (let index = 0; index < source.count; index++) {
+    assert.deepEqual([...lineage.subarray(index * 4, index * 4 + 4)], [1, 1, index, 1]);
+  }
   for (let index = 0; index < source.count; index++) {
     const base = index * GPU_INSTANCE_RECORD_STRIDE;
     assert.equal(initialView.getUint32(base + GPU_INSTANCE_RECORD_OFFSETS.geometry_record_index, true), 7);
     assert.equal(initialView.getUint32(base + GPU_INSTANCE_RECORD_OFFSETS.geometry_generation, true), 41);
   }
   create.finish();
+  assert.equal(scene.bindings().identities, lineageUpload.buffer);
+  assert.equal(scene.evidence().identityResidentBytes, 5 * 16);
   assert.equal(scene.evidence().recordStride, 176);
   assert.equal(scene.evidence().staticRecordStride, GPU_INSTANCE_STATIC_RECORD_STRIDE);
   assert.equal(scene.evidence().dynamicRecordStride, GPU_INSTANCE_DYNAMIC_RECORD_STRIDE);
@@ -597,7 +605,7 @@ test("multi-Product instances publish their own slot and generation lanes", () =
   };
   const command = new SceneCommand(device, writes);
   scene.instantiate(source, command);
-  const upload = writes.at(-1);
+  const upload = writes.find(value => value.size === source.count * GPU_INSTANCE_RECORD_STRIDE);
   const view = new DataView(upload.data, upload.dataOffset, upload.size);
   assert.equal(view.getUint32(GPU_INSTANCE_RECORD_OFFSETS.product_table_slot, true), 2);
   assert.equal(view.getUint32(GPU_INSTANCE_RECORD_OFFSETS.geometry_generation, true), 11);
@@ -645,6 +653,9 @@ test("GpuScene appends Product instances with a stable handle and rolls back an 
 
   const append = new SceneCommand(device, writes);
   scene.append(handle, source(3, 9), new Uint32Array([8]), append);
+  const appendedLineage = writes.at(-1);
+  assert.deepEqual([...new Uint32Array(appendedLineage.data, appendedLineage.dataOffset, 4)], [1, 1, 1, 1]);
+  assert.equal(appendedLineage.bufferOffset, (begin + 1) * 16);
   const remap = writes.findLast((write) => write.size === 4);
   assert.equal(
     remap.bufferOffset,
@@ -681,6 +692,8 @@ test("GpuScene same-command replacement reuses the released range without duplic
   const initialCommand = new SceneCommand(device, writes);
   const initial = scene.instantiate(source(4), initialCommand);
   initialCommand.finish();
+  const initialLineage = writes.find(value => value.buffer === scene.bindings().identities);
+  const initialIdentity = new Uint32Array(initialLineage.data, initialLineage.dataOffset, 4).slice();
 
   const replacementCommand = new SceneCommand(device, writes);
   scene.release(initial, replacementCommand);
@@ -688,6 +701,12 @@ test("GpuScene same-command replacement reuses the released range without duplic
   replacementCommand.finish();
   assert.equal(scene.range(replacement).start, 1);
   assert.equal(scene.evidence().activeInstanceCount, 2);
+  const replacementLineage = writes.filter(value => value.buffer === scene.bindings().identities).at(-1);
+  const replacementIdentity = new Uint32Array(replacementLineage.data, replacementLineage.dataOffset, 4);
+  assert.equal(replacementIdentity[0], initialIdentity[0], "same set slot is reused");
+  assert.equal(replacementIdentity[2], initialIdentity[2], "same local instance is reused");
+  assert.ok(replacementIdentity[1] > initialIdentity[1], "set generation distinguishes replacement");
+  assert.ok(replacementIdentity[3] > initialIdentity[3], "slot lifetime distinguishes replacement");
 
   const releaseReplacement = new SceneCommand(device, writes);
   scene.release(replacement, releaseReplacement);

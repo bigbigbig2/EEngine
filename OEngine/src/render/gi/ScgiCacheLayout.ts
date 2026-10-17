@@ -3,8 +3,8 @@
  * polling. Parent sums are a separate dispatch's input. */
 export const SCGI_CACHE_WORKGROUP_SIZE = 128;
 export const SCGI_CACHE_DIRTY_CAPACITY = 32;
-// source/destination/old-generation/reserved + 288B patch + 48B A1 + 16B cache state.
-export const SCGI_CACHE_MOVE_STRIDE = 368;
+// source/destination/old-generation/seed-source + 304B patch + 48B A1 + 16B cache state.
+export const SCGI_CACHE_MOVE_STRIDE = 384;
 
 export function scgiCacheScratchParts(
   cells: number,

@@ -8,6 +8,8 @@ export const GPU_INSTANCE_DYNAMIC_RECORD_STRIDE = 112;
 export const GPU_INSTANCE_RECORD_STRIDE =
   GPU_INSTANCE_STATIC_RECORD_STRIDE + GPU_INSTANCE_DYNAMIC_RECORD_STRIDE;
 export const GPU_INSTANCE_FALLBACK_RECORD_INDEX = 0;
+/** GpuScene owns this immutable lineage beside physical instance records. */
+export const GPU_INSTANCE_IDENTITY_STRIDE = 16;
 export const GPU_INSTANCE_MOTION_RELATIVE_DETERMINANT_EPSILON = 1e-8;
 /** ADR-0013 compile-time ShadingBinId copied unchanged into MeshletWork. */
 export const GPU_INSTANCE_SHADING_BIN_SHIFT = 8;

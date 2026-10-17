@@ -33,6 +33,16 @@ fn native_facts_sky_previous_clip(uv: vec2f) -> vec4f {
 // Test-only c71c6d31 facts + unchanged T3 algorithm. Both graphs consume the
 // same actual Native HDR and raster depth; only the facts producer differs.
 export class FinalPixelSeedReference {
+  // Harness adaptation only: frozen temporal algorithms now borrow production
+  // pass classes with asynchronous preparation. Never change their math.
+  async preparePipelines() {
+    await this.fsr.lumaPyramid.preparePipelines(this.width, this.height);
+    await Promise.all([
+      this.fsr.prepareInputs, this.fsr.shadingPyramid, this.fsr.shadingChange,
+      this.fsr.prepareReactivity, this.fsr.lumaInstability, this.fsr.accumulate, this.fsr.rcas,
+    ].map(owner => owner.preparePipelines()));
+    await this.ideal?.preparePipelines();
+  }
   constructor(device, width, height, analytic = false) {
     this.device = device;
     this.width = width;

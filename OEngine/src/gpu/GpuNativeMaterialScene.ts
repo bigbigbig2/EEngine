@@ -421,6 +421,7 @@ export class GpuNativeMaterialScene {
       const old = oldIndex < 0 ? undefined : previous!.sources[oldIndex];
       const unchanged =
         old !== undefined &&
+        previous!.bindings[oldIndex] === bound &&
         previous!.values[oldIndex]!.length === data.length &&
         previous!.values[oldIndex]!.every((value, index) => Object.is(value, data[index]));
       const valueRevision = unchanged ? old!.valueRevision! : (old?.valueRevision ?? 0) + 1;

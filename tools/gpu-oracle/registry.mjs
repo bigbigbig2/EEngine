@@ -11,6 +11,15 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "scgi-anchor",
+    file: "OEngine/tests/oracle/scgi-anchor-gpu.mjs",
+    url: "/OEngine/tests/oracle/scgi-anchor-gpu.mjs",
+    entry: "runScgiAnchorGpuOracle",
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    timeoutMs: 180000,
+    description: "SCGI-4 primary anchors, complete identity and committed world-only seed."
+  }),
+  Object.freeze({
     name: "scgi-cache",
     file: "OEngine/tests/oracle/scgi-cache-gpu.mjs",
     url: "/OEngine/tests/oracle/scgi-cache-gpu.mjs",

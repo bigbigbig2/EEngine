@@ -31,16 +31,18 @@ export interface ScgiFramePublication {
   readonly candidateWorldField: ScgiFieldProduct;
   readonly privateScratch: ScgiBufferProduct;
   readonly queryBatch: ScgiBufferProduct;
+  readonly anchors: readonly ScgiBufferProduct[];
   status: "prepared" | "encoded" | "submitted" | "aborted" | "poisoned";
   /** Declared by the real producer after its complete write domain is encoded. */
   fieldComplete: boolean;
+  cacheComplete: boolean;
 }
 
 export interface ScgiCompoundFact {
   readonly generation: number;
   readonly halfExtent: readonly [number, number];
-  readonly fieldStride: 96;
-  readonly identityBytes: 48;
+  readonly fieldStride: 112;
+  readonly identityBytes: 64;
   readonly completeWrite: boolean;
   readonly domain: "linear-rec709-unexposed";
 }
@@ -69,8 +71,8 @@ export function assertScgiCompoundFact(publication: ScgiFramePublication, fact: 
     const range = segment.plan.ranges.worldField;
     if (
       range === undefined ||
-      range.stride !== 96 ||
-      range.bytes !== range.count * 96 ||
+      range.stride !== SCGI_ABI.halfField.stride ||
+      range.bytes !== range.count * SCGI_ABI.halfField.stride ||
       range.offset + range.bytes > segment.buffer.size
     ) {
       throw new Error("SCGI field/guide/identity buffer does not cover its complete extent");
@@ -87,7 +89,7 @@ export function assertScgiCompoundFact(publication: ScgiFramePublication, fact: 
 export function bindScgiPublication<TBindings>(
   layout: FrameGraphBindingLayout<TBindings>,
   initial: TBindings,
-  resolve: (bindings: TBindings) => ScgiFramePublication
+  resolve: (bindings: TBindings) => ScgiFramePublication,
 ): ScgiFramePublication {
   return layout.slot("scgi-publication", initial, resolve);
 }

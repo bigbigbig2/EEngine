@@ -272,6 +272,14 @@ export async function runNativeSurfaceIntegrationGpuOracle(
     if (qualityState) resources.push(qualityState);
     const camera = qualityState?.buffer ?? fixture.uniform(cameraWords, "S1/current and previous camera");
     seedReference = phase3Matrix ? new FinalPixelSeedReference(device, width, height) : null;
+    if (phase3Matrix) {
+      await fsr.lumaPyramid.preparePipelines(width, height);
+      await Promise.all([
+        fsr.prepareInputs, fsr.shadingPyramid, fsr.shadingChange,
+        fsr.prepareReactivity, fsr.lumaInstability, fsr.accumulate, fsr.rcas,
+      ].map(owner => owner.preparePipelines()));
+      await seedReference.preparePipelines();
+    }
     const visibilityView = new ArrayBuffer(192);
     const visibilityFloats = new Float32Array(visibilityView);
     visibilityFloats.set(fixture.projection, 0);

@@ -19,7 +19,7 @@ verifies:
 
 唯一详细设计为[SCGI设计](../next-design/eengine-surface-cache-gi-2026-10.md)。需求输入为[母稿](../reviews/EEngine_Surface_Cache_GI_WebGPU_Mother_Design_2026-10-17.md)；设计§17逐项映射母稿，设计§1列明勘误。本文件是细单元状态与实施结果唯一记录，workstream和粗执行不复制细状态。
 
-**当前已实施SCGI-1资源/事务/ABI与SCGI-3稀疏cache，生产GI仍未开启。** 当前授权为复核前置缺项并完成SCGI-3；按完整目标推进，不把阶段产物宣布为完整GI。每个单元结束记录实际验证；大模块结束停在下一模块边界，不自动继续Local Specular Cache/ReSTIR等。
+**当前已实施SCGI-1资源/事务、SCGI-3稀疏cache及SCGI-4 anchor/seed基础闭包，生产GI仍未开启。** 当前授权为复核前置缺项并完成SCGI-4；SCGI-2共享查询几何/形变publication仍未闭合，SCGI-4不能据基础fixture关单，详见§7.6。按完整目标推进，不把阶段产物宣布为完整GI。每个单元结束记录实际验证；大模块结束停在下一模块边界，不自动继续Local Specular Cache/ReSTIR等。
 
 ## 1. 完整范围、依赖与生产切换
 
@@ -28,7 +28,7 @@ verifies:
 | SCGI-1 | owner/publication/事务/能力与具体ABI | 源码基线和source map | 已完成，见§7 |
 | SCGI-2 | GeometryProduct query section、coverage cut、residency、共享变形publication | 1 | 实施中，未关单 |
 | SCGI-3 | cascaded sparse cache、ring/scroll/evict/defrag/rank | 1 | 已完成，见§7.5 |
-| SCGI-4 | half-res anchors、共享identity、screen history seed | 2、3 | 待实施 |
+| SCGI-4 | half-res anchors、共享identity、screen history seed | 2、3 | 基础闭包已实施并验证；SCGI-2前置与动态有效路径未齐，未关单，见§7.6 |
 | SCGI-5 | 完整RadeonRays算法适配、query、material/alpha/VT | 1、2 | 待实施 |
 | SCGI-6 | 全光源估计、punctual重连接、multi-bounce | 3、4、5 | 待实施 |
 | SCGI-7 | 统计、动态失效、A0/A1/A2过滤、L1 screen field | 6 | 待实施 |
@@ -60,7 +60,7 @@ SCGI-2与3算法依赖可独立准备，但遵守本仓库不使用子agent、GP
 **具体工作。**
 
 - 将设计§3、12变成精确CPU state/transition；active/candidate/frame-readable/retiring与deviceEpoch分离。commit函数幂等、无分配、不抛异常。
-- 实现设计§19选定ABI：48B SurfaceIdentity、8B cell、288B patch/bank（含A0/A2）、96B request、96B half field/guide、64B raw cohort、64B node+8B links、128B query instance、48/32/32/64B ray/result/payload/continuation。offset/stride/alignment由CPU pack与WGSL load/store独立核对；continuation同时保TLAS/BLAS返回上下文，撤销旧256B patch/16B identity/32B continuation预算，layout变更同步设计§15/19。
+- 实现设计§19当前ABI：64B SurfaceIdentity、8B cell、304B patch/bank（含A0/A2）、112B request、112B half field/guide、128B primary anchor、64B raw cohort、64B node+8B links、128B query instance、48/32/32/64B ray/result/payload/continuation。SCGI-4修正了此前48B身份缺少独立local primitive的问题；offset/stride/alignment由CPU pack与WGSL load/store独立核对；continuation同时保TLAS/BLAS返回上下文，撤销旧256B patch/16B identity/32B continuation预算，layout变更同步设计§15/19。
 - 双world state完整copy、GI private临时资源、immutable staticAS、dynamic candidateAS与resource leases分清；不能把所有资源机械双份，不能漏复制allocator/history。
 - 建frame binding resolver，缓存图每帧取当前publication；compound semantic fact验证每个constituent格式/extent/完整写域。
 - capability preflight覆盖全部Native route和SSSR组合。默认GI复用既有lighting-directory binding；定义全目录/stripe窗口容量route、subgroup/portable与finite AS shard。满绑定不能以额外一张texture解决。SCGI-1给出可执行的容量/descriptor planner，GI writer与Native读取在7/8接入，不提前造空生产stage。
@@ -103,7 +103,7 @@ GPU事务fixture可以写固定值验证真资源/command行为，但不接为�
 - domain内完整coarse coverage+guard，fine query cut不依赖raster visibility；query LOD误差/alpha-critical/薄墙约束进入选择。unknown与miss不同编码。
 - query leases延长page有效性；page搬迁、fine publish、AS rebuild、Product replacement原子交换；旧page/AS/mat refs最后fence后退。
 - 实现刚体transform view、负/非均匀缩放；当前SkinnedMesh是标记类，不能只接revision。Product包含joint/weight/morph数据，动画owner批量发布palette/weights，geometry owner GPU生成current/previous positions、normal/tangent、cluster bounds；raster、VSM、query消费同一publication，不能建GI私有skinning。
-- 48B身份缺少的slot lifetime由既有GpuScene分配owner side table补齐；materialValueRevision用真实内容版本，不能把nativeMaterialRevision有限hash当稳定身份。page搬迁不改变stable primitive，topology替换则改变generation。
+- 64B身份所需的slot lifetime由既有GpuScene分配owner side table补齐；materialValueRevision用真实内容版本，不能把nativeMaterialRevision有限hash当稳定身份。page搬迁不改变stable primitive，topology替换则改变generation。
 - origin rebase与真实moving assembly区别；camera teleport有query coarse预取/有效性，不能走到新区域直接把所有未驻留物体当不存在。
 
 **producer / product / consumer。** Product cook+GpuRenderWorld→QueryScenePublication/page leases/covered-domain→SCGI-5 build/traversal与SCGI-4 anchors。loader只交付数据，无长期GPU owner。
@@ -492,3 +492,42 @@ R32/C4/K65536/Q8192/B8192/U4096、7×5 screen真实hardware fixture分配117,033
 **失败留痕与未运行项。** 原始失败保留`scgi-3-cache-initial.json`及编号记录：WGSL保留字、binding visibility/indirect读写usage冲突为实现错误，已修正；新增fixture曾使用非法evictionAge=0、disable后未重建新plan的cache，为fixture错误，修复实际输入与物理实例后重跑。审查还发现cacheState缺range、move368B与分配352B不符、post字段被alias、不相容request错误解析等真实问题，本轮已修正并补GPU断言。未放宽容差/跳断言/缩最终场景。完整GI画面、场景和全Renderer P50/P95尚未运行：当前未到SCGI-5～10，不伪称AAA效果或完整GI。SCGI-3基础设施已闭合；文档检查和提交仍按本轮实际结果执行，停在SCGI-4边界，SCGI-2仍需先补齐。
 
 提交前检查：`node tools/docs-verify.mjs`为0 findings/66 historical warnings；暂存区`--staged`为0 findings/81 historical warnings（历史文档对本地未提交产物的引用警告保留）；`git diff --cached --check`通过。新增/修改生产TS格式检查与cache源码style guard均通过。
+
+### 7.6 SCGI-4 anchor/seed基础实施与未闭合前置（2026-10-17）
+
+**状态与前置判断。** 本节记录已验证的基础实现，**SCGI-4未关单**。源码`GeometryProductV1.ts`仍为schema1、无query section/minimum query cut；`SkinnedMesh.ts`仍为标记类，没有动画批量palette/weights→共享current/previous变形位置/normal/tangent/bounds publication；query coverage/residency leases也未实现。这些SCGI-2缺项不能后移为最终性能验收，不能用普通三角fixture或拒绝动态history替代有效动态路径。本轮没有完成此前要求的SCGI-2返工，不能因此声称完成SCGI-4。SCGI-5/生产集成不启动；后续首先补SCGI-2，再回本单元补齐必需动态/共享publication验收。
+
+**当前producer→consumer。** 新`ScgiAnchors.ts`/`scgi_anchor.ts`借用既有VisibilityKey/meshlet work、frame instances、普通resident attributes或Product metadata/四banks及Native material publication，使用原command完成`runtime.encode→encodeAnchors→cache.encode→encodeSeeds`。不新增queue submit、GPU→CPU→GPU控制、独立scene/material数据库或normal GBuffer。pipeline仅create时异步编译并核对compilationInfo；本地64线程kernel，不依赖subgroups/f16。FrameProgram默认生产接线仍按SCGI-8，不把本单元部分功能提前开启。
+
+- 完整写`ceil(W/2)·ceil(H/2)` anchor；2×2从提交相位开始查找实际winner，sourcePixel用u32，sky/invalid全记录归零并置invalid源。frame instance generation必须等于work generation；场景lineage必须等于当前set generation。
+- 当前anchor产生rank0需求，全局循环窗口`start=(sampleSerial·Q) mod H`控制请求上界，每个anchor仍完整写；不在先到的分片耗尽全部budget。窗口外有效需求计deferred；abort不推进2×2或窗口相位。稀疏有效像素会浪费窗口名额，这不是遗漏anchor或伪称所有cache miss已满足。
+- GpuScene新增16B/physical instance side table，保存set id/set generation/local slot/slot lifetime；当前local slot只append、不单独复用，lifetime使用set generation。grow/copy/abort/commit/retire与instances成对；release清active实例，不需额外清lineage。material真实bindings/publication发生变化时递增valueRevision，避免texture变化但numeric常量相同仍误复用。
+- identity由48B修正为64B，分别保存asset-local meshlet和local primitive，保留尾部零lane；无hash/截断。普通meshlet减geometry.meshlet_begin；Product从winner的global reference解析local asset，global group减当前asset groupBegin，再组合local meshlet。64B identity贯穿patch/request/history，patch304B、request112B、field112B，move384B并搬迁seed source，seedSources单scratch4K；不是并存旧新两套ABI。
+- Native与GI复用primary world position与UV/clip/positive-depth数学，Native保留原compact temporal identity。GI严格身份独立于Native压缩表示。anchor保存128B/H单scratch；previous inverse VP/view在anchor编码时快照，seed没有第二个可漂移相机输入。没有真实previous deformation时拒绝seed；该保守拒绝只防错，不声明动态能力完整。
+- 新rank0 patch唯一writer消费previous committed **world-only** field及该role原guide、scale。验证完整identity、previous/sourcePixel、normal、depth、双向绝对plane距离、world/tangent距离与device/scene/numeric/origin/voxel资格；奇数重投影地址`floor(uv·fullExtent)/2`。拒绝残差/final HDR反馈。初始化A0/A2、mean/seed/post validity，真实MC count/cohort保持0，A1待当帧滤波重建。多segment组合顺序dispatch，只有匹配anchor/history区间的slot写入。
+- Cache bindgroup key补scratch身份，修正resize保world但scratch变更时复用旧binding的问题；overflow/defrag/abort仍由原cache/runtime owner处理。
+
+**Cost Card（理论，非benchmark）。** 相对旧ABI：双world patch增加32K B、双bounce增加32·Nbounce B（Nbounce为bounce请求容量）、move增加16K、seedSources增加4K、receiver queue增加16Q、双field增加32H、anchor增加128H；GpuScene增加16·physicalInstanceCapacity。anchor约H次三角重建、每H至多4次visibility读，128H顺序写，几何/材质/lineage随机读；有效窗口内至多Q次CAS预留，每request28次atomicStore。无GPU全局轮询。seed是`K·NanchorSegments·NhistorySegments` invocations的有界实现，先读seedSource/live/rank筛选，再随机读anchor/guide及12系数，成功写A0/A2/stats；无seed atomics。每anchor分片1 dispatch；有有效history时每分片组合1 seed dispatch，4K/128MiB profile为2+4个dispatch，cache工作另算。临时uniform各368B/anchor segment和192B/seed组合，现有池对齐/retire，CPU bindgroup构建也随此有限组合增长。未来可用new-patch compact list/segment bin减少空invocations；尚未实现，不宣称已有收益。没有稳定frame pipeline创建。
+
+沿用§7.5同profile重新由真实planner计算：R24/C3/K65536/Q65536/B8192/U8192/rayBatch16384/spill0，128MiB binding、256B alignment。旧§7.5表是提交当时快照，以下替代其作为当前分配依据。
+
+| internal | 双world MiB | scratch+batch MiB（无anchor） | 单anchor MiB | 双field MiB | owner合计 MiB |
+|---|---:|---:|---:|---:|---:|
+| 1080p | 52.3755 | 45.7564 | 63.2813 | 110.7422 | 272.1553 |
+| 1440p | 52.3755 | 45.7564 | 112.5000 | 196.8750 | 407.5069 |
+| 4K | 52.3755 | 45.7564 | 253.1250 | 442.9688 | 794.2257 |
+
+每帧world copy27,459,840B，读写52.3755MiB；scratch+batch clear45.7564MiB，candidate field clear另112H，anchor全写不重复clear。外部lighting directory、query/AS、VT/VSM/SSSR、原renderer、替换/retiring和driver margin另计，不承诺4GB资格。1080p anchor顺序写63.2813MiB，60Hz约3.708GiB/s理想流量；不等于实际带宽。128MiB绑定4K分两段；更低绑定的真实GPU测试强制三段证明寻址，不用截断像素满足容量。
+
+**验证。** 完整`npm run build --prefix OEngine`（含typecheck/Vite/declaration）、新鲜`build:test`通过；保留Basis/KTX的node:module externalize警告。五个targeted文件scgi/runtime-geometry-instance-residency-v2/native-material-scene/native-surface-lighting/final-pixel-phase1共37/37通过。GPU作业串行，以下均通过，gpuErrors/scopedGpuErrors为空：
+
+- `scgi-anchor`：独立平面/相机投影oracle；同primitive调用真实Native seed数学数值对照；平移/旋转/180°/teleport、cut、双向depth/normal/NaN拒绝；不同local instance、set/slot lifetime、material/primitive身份拒绝；scale=2的A0/A2、count0；abort/retry及编码后相机变更；world resize保留；1×1和1919×1079（518400 anchors）、sky、细杆、边界、Q3 deferred/完整轮转。真实双Product通过MultiRuntime加载完整page并消费decoder，physical-address perturbation不改变local身份；该扰动**不是**SCGI-2 page lease/搬迁事务的验收。强制64KiB binding三段、跨段seed有真实有效写。真实GpuScene upload/grow/abort/retry/同range replacement检查lineage。Visibility和prev world-only field是隔离输入，不证明query coverage或estimator完成。
+- `scgi-cache`：50提交帧原oracle全部通过，包含新304/112/384 ABI、defrag、rank/overflow/ABA、真实GPU queue；R32/C4/K65536/Q8192/B8192/U4096、7×5 owner分配120,836,816B，单world38,928,640B，scratch+batch42,975,312B。52/69 dispatch两次GPU timestamp约8.343104/2.924544ms，只是粗观测，不是P50/P95、shader净收益或完整GI帧时。
+- `scgi-transaction`：18类typed WGSL ABI、真实descriptors、in-flight/observer fault/async validation/resize/disable/fence/device loss回归。
+- `final-pixel-seed-epoch`及`final-pixel-seed-quality`：后者保留原4组1080p各256帧动态比较与原断言，未缩场景/放宽阈值。冻结Facts参考只适配其借用的现行FSR pass异步prepare，未改冻结算法数学。
+
+最终source SHA256为`9551a42cf338dc5821b9dfe9748e314e0a00d038e47c8dca50282db09c815e5d`。原始结果`.local/validation/scgi-4-anchor-final-rigid.json`（追加负/非均匀刚体scale的current/previous position、normal朝向、motion/depth独立oracle后通过）、`scgi-4-cache-final.json`、`scgi-4-transaction-final.json`、`scgi-4-native-seed-epoch-final.json`、`scgi-4-native-seed-quality-final.json`；1919×1079 anchor完整读回的wall约174.4ms包含readback/CPU oracle，不当GPU shader性能。来源状态仍Local/Reference，未production adopt。
+
+**失败与未运行项。** 保留anchor-initial及02～14等原始结果：WGSL生成括号、float sourcePixel NaN表示、exact-zero motion断言分别修正为有效WGSL、u32 source和有独立投影依据的1e-7 f32比较；Product fixture错误使用global group0、mappedRange重叠为fixture错误，修正确实输入/映射调用后重跑。审查同时修正真实Product身份global group地址依赖。transaction旧device-loss fixture未请求新mixed geometry所需storage limits，quality旧wrapper未prepare异步PSO，均保留失败并只修fixture准备。SCGI-2完整共享deformation有效路径及raster/VSM/query位置一致性、coverage/lease原子迁移未验证也未实现；真实skin/morph动态场景全组合尚未形成本单元完整证据，故未关单。完整GI画面/estimator/filter、默认生产接线及最终Renderer画质/性能不在本轮宣布完成。
+
+提交前文档检查：工作区`docs-verify`为0 findings/66 historical warnings，暂存区`--staged`为0 findings/81 historical warnings；保留历史引用警告。`git diff --cached --check`通过。

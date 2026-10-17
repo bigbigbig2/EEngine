@@ -61,9 +61,12 @@ const ENTRIES = [
  * physical-layout pipelines once; encode only records bounded GPU work. */
 export class ScgiCache {
   private readonly encoded = new WeakSet<ScgiFrameTransaction>();
-  private readonly groups = new WeakMap<GPUBuffer, WeakMap<GPUBuffer, GPUBindGroup>>();
+  private readonly groups = new WeakMap<GPUBuffer, WeakMap<GPUBuffer, WeakMap<GPUBuffer, GPUBindGroup>>>();
   private readonly scanGroups = new WeakMap<GPUBuffer, GPUBindGroup>();
-  private readonly argsGroups = new WeakMap<GPUBuffer, WeakMap<GPUBuffer, GPUBindGroup>>();
+  private readonly argsGroups = new WeakMap<
+    GPUBuffer,
+    WeakMap<GPUBuffer, WeakMap<GPUBuffer, GPUBindGroup>>
+  >();
   private lastFrame = 0;
   private lastOriginEpoch = 0;
 
@@ -213,7 +216,12 @@ export class ScgiCache {
       byPrevious = new WeakMap();
       this.groups.set(world, byPrevious);
     }
-    let group = byPrevious.get(previous);
+    let byScratch = byPrevious.get(previous);
+    if (byScratch === undefined) {
+      byScratch = new WeakMap();
+      byPrevious.set(previous, byScratch);
+    }
+    let group = byScratch.get(scratch);
     if (group === undefined) {
       group = this.device.createBindGroup({
         layout: this.layout,
@@ -223,7 +231,7 @@ export class ScgiCache {
           { binding: 2, resource: { buffer: previous } },
         ],
       });
-      byPrevious.set(previous, group);
+      byScratch.set(scratch, group);
     }
     let scanGroup = this.scanGroups.get(scratch);
     if (scanGroup === undefined) {
@@ -238,7 +246,12 @@ export class ScgiCache {
       byPreviousArgs = new WeakMap();
       this.argsGroups.set(world, byPreviousArgs);
     }
-    let argsGroup = byPreviousArgs.get(previous);
+    let byScratchArgs = byPreviousArgs.get(previous);
+    if (byScratchArgs === undefined) {
+      byScratchArgs = new WeakMap();
+      byPreviousArgs.set(previous, byScratchArgs);
+    }
+    let argsGroup = byScratchArgs.get(scratch);
     if (argsGroup === undefined) {
       argsGroup = this.device.createBindGroup({
         layout: this.argsLayout,
@@ -249,7 +262,7 @@ export class ScgiCache {
           { binding: 3, resource: { buffer: publication.queryBatch.buffer } },
         ],
       });
-      byPreviousArgs.set(previous, argsGroup);
+      byScratchArgs.set(scratch, argsGroup);
     }
     const dispatch = (entry: (typeof ENTRIES)[number], count: number, indirect?: number): void => {
       const pass = command.beginComputePass({ label: `SCGI/cache/${entry}` });
@@ -329,6 +342,7 @@ export class ScgiCache {
     dispatch("quotas", 1);
     dispatch("select_updates", 0, 32);
     dispatch("finish", 1);
+    publication.cacheComplete = true;
   }
 
   private packSettings(input: ScgiCacheSettings, previous: boolean) {

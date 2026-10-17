@@ -110,6 +110,7 @@ export function planScgiAllocation(limits: ScgiBufferLimits, profile: ScgiAlloca
     ["requests", profile.requests, SCGI_ABI.request.stride],
     ["updateList", profile.updates, 4],
     ["countersArgs", 16, 4],
+    ["seedSources", profile.patches, 4],
     ...scgiCacheScratchParts(cells, profile.patches, profile.requests, profile.bounceRequests),
   ]);
   const batch = planScgiArena(limits, [
@@ -122,7 +123,8 @@ export function planScgiAllocation(limits: ScgiBufferLimits, profile: ScgiAlloca
   ]);
   const fieldStride = SCGI_ABI.halfField.stride;
   const pixelsPerSegment = Math.floor(
-    Math.min(limits.maxBufferSize, limits.maxStorageBufferBindingSize) / fieldStride,
+    Math.min(limits.maxBufferSize, limits.maxStorageBufferBindingSize) /
+      Math.max(fieldStride, SCGI_ABI.anchor.stride),
   );
   scgiInteger(pixelsPerSegment, "field pixels per segment");
   const screen: ScgiArenaPlan[] = [];
@@ -133,10 +135,14 @@ export function planScgiAllocation(limits: ScgiBufferLimits, profile: ScgiAlloca
       ]),
     );
   }
+  const anchors = screen.map((segment) =>
+    planScgiArena(limits, [["anchors", segment.ranges.worldField!.count, SCGI_ABI.anchor.stride]]),
+  );
+  const anchorBytes = anchors.reduce((sum, segment) => sum + segment.bytes, 0);
   const screenRoleBytes = screen.reduce((bytes, segment) => bytes + segment.bytes, 0);
   const worldBytes = world.bytes * 2;
   const screenHistoryBytes = screenRoleBytes * 2;
-  const privateScratchBytes = scratch.bytes + batch.bytes;
+  const privateScratchBytes = scratch.bytes + batch.bytes + anchorBytes;
   const totalBytes = worldBytes + screenHistoryBytes + privateScratchBytes;
   scgiInteger(totalBytes, "allocation total", 1, Number.MAX_SAFE_INTEGER);
   return Object.freeze({
@@ -150,6 +156,8 @@ export function planScgiAllocation(limits: ScgiBufferLimits, profile: ScgiAlloca
     scratch,
     batch,
     screen: Object.freeze(screen),
+    anchors: Object.freeze(anchors),
+    anchorBytes,
     screenRoleBytes,
     pixelsPerSegment,
     worldBytes,
@@ -163,6 +171,23 @@ export function planScgiAllocation(limits: ScgiBufferLimits, profile: ScgiAlloca
 }
 
 export type ScgiAllocationPlan = ReturnType<typeof planScgiAllocation>;
+
+/** Mixed ordinary/Product geometry is the SCGI profile, negotiated before any
+ * world/screen allocation. Optional shader features are not required. */
+export function assertScgiAnchorCapabilities(limits: GPUSupportedLimits, plan: ScgiAllocationPlan): void {
+  if (
+    limits.maxStorageBuffersPerShaderStage < 13 ||
+    limits.maxUniformBuffersPerShaderStage < 1 ||
+    limits.maxSampledTexturesPerShaderStage < 1 ||
+    limits.maxBindGroups < 2 ||
+    limits.maxBindingsPerBindGroup < 10 ||
+    limits.maxUniformBufferBindingSize < 368 ||
+    Math.ceil(Math.max(plan.profile.patches, Math.min(plan.pixelsPerSegment, plan.halfPixels)) / 64) >
+      limits.maxComputeWorkgroupsPerDimension
+  ) {
+    throw new RangeError("SCGI anchor/seed exceeds negotiated geometry bindings or dispatch capacity");
+  }
+}
 
 /** Validate physical cache dispatches before the runtime allocates any arenas. */
 export function assertScgiCacheCapabilities(limits: GPUSupportedLimits, plan: ScgiAllocationPlan): void {
@@ -208,7 +233,7 @@ export function planScgiLightingWindow(limits: ScgiBufferLimits, input: ScgiLigh
   scgiInteger(input.width * input.height, "window source pixels");
   const halfWidth = Math.ceil(input.width / 2);
   const halfHeight = Math.ceil(input.height / 2);
-  const stride = input.residual ? 128 : 96;
+  const stride = SCGI_ABI.halfField.stride + (input.residual ? 32 : 0);
   const alignment = limits.minStorageBufferOffsetAlignment;
   scgiInteger(alignment, "window storage alignment", 4);
   if (alignment % 4 !== 0) {

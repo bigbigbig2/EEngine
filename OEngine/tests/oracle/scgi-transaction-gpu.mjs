@@ -55,12 +55,13 @@ export async function runScgiTransactionGpuOracle(device) {
   try {
     // Literal expected sizes and offsets are independent of generated WGSL.
     const layouts = {
-      identity: [48, [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44]],
+      identity: [64, [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52]],
       cell: [8, [0, 4]],
       cacheState: [16, [0, 4, 8, 12]],
-      patch: [288, [0, 16, 32, 80, 96, 112, 128, 144, 160, 208, 256, 272]],
-      request: [96, [0, 16, 28, 32, 80]],
-      halfField: [96, [0, 32, 36, 40, 44, 48]],
+      patch: [304, [0, 16, 32, 80, 96, 112, 128, 144, 160, 208, 256, 272, 288]],
+      request: [112, [0, 16, 28, 32, 80, 96]],
+      anchor: [128, [0, 16, 28, 32, 48, 64]],
+      halfField: [112, [0, 32, 36, 40, 44, 48]],
       raw: [64, [0, 48]],
       node: [64, [0, 12, 16, 28, 32, 44, 48, 60]],
       links: [8, [0, 4]],
@@ -134,7 +135,7 @@ ${assignments.join("\n")}
       for (let word = 0; word < actual.length; word++)
         check(actual[word] === reference[word], `${kind} word ${word}`);
     }
-    results.push("17 typed WGSL ABI records: second-element stride, nonzero/max u32 and signed floats");
+    results.push("18 typed WGSL ABI records: second-element stride, nonzero/max u32 and signed floats");
 
     const coefficients = [1, -2, 3, 0.5, -0.25, 4, 5, 6, -7, 8, 9, 10];
     const packed = buffer(32, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
@@ -323,8 +324,8 @@ ${assignments.join("\n")}
     const fact = {
       generation: resized.publication.generation,
       halfExtent: resized.publication.halfExtent,
-      fieldStride: 96,
-      identityBytes: 48,
+      fieldStride: 112,
+      identityBytes: 64,
       completeWrite: true,
       domain: "linear-rec709-unexposed"
     };
@@ -468,7 +469,8 @@ ${assignments.join("\n")}
     // can still report its own successful disposal and error scopes.
     const adapter = await navigator.gpu.requestAdapter();
     check(adapter !== null, "secondary loss adapter");
-    const lostDevice = await adapter.requestDevice();
+    check(adapter.limits.maxStorageBuffersPerShaderStage >= 13, "loss fixture requires mixed geometry bindings");
+    const lostDevice = await adapter.requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 13 } });
     const lostGraphics = scgiGraphics(lostDevice);
     const lostRuntime = new ScgiRuntime(lostDevice, 10);
     try {

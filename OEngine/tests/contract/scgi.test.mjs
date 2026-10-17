@@ -26,6 +26,7 @@ const limits = {
   maxBindingsPerBindGroup: 1000,
   maxStorageBuffersPerShaderStage: 16,
   maxUniformBuffersPerShaderStage: 12,
+  maxUniformBufferBindingSize: 65536,
   maxSampledTexturesPerShaderStage: 24,
   maxStorageTexturesPerShaderStage: 4,
   maxSamplersPerShaderStage: 16,
@@ -119,12 +120,13 @@ const flush = async () => {
 
 test("SCGI exact nonzero/max ABI and literal offsets", () => {
   const expected = {
-    identity: 48,
+    identity: 64,
     cell: 8,
     cacheState: 16,
-    patch: 288,
-    request: 96,
-    halfField: 96,
+    patch: 304,
+    request: 112,
+    halfField: 112,
+    anchor: 128,
     raw: 64,
     node: 64,
     links: 8,
@@ -151,7 +153,7 @@ test("SCGI exact nonzero/max ABI and literal offsets", () => {
   }
   assert.deepEqual(
     SCGI_ABI.patch.fields.map((f) => f.offset),
-    [0, 16, 32, 80, 96, 112, 128, 144, 160, 208, 256, 272],
+    [0, 16, 32, 80, 96, 112, 128, 144, 160, 208, 256, 272, 288],
   );
   assert.deepEqual(
     SCGI_ABI.halfField.fields.map((f) => f.offset),
@@ -172,12 +174,16 @@ test("SCGI capacity: total arena, binding ranges, full/window/remap, finite shar
   assert.equal(plan.halfPixels, 12);
   assert.equal(
     plan.totalBytes,
-    plan.world.bytes * 2 + plan.screenRoleBytes * 2 + plan.scratch.bytes + plan.batch.bytes,
+    plan.world.bytes * 2 +
+      plan.screenRoleBytes * 2 +
+      plan.scratch.bytes +
+      plan.batch.bytes +
+      plan.anchorBytes,
   );
   assert.equal(plan.batch.ranges.spill, undefined);
   assert.equal(plan.batch.ranges.continuations.bytes, 8 * 64);
   assert.equal(plan.world.ranges.cacheState.bytes, scgiProfile.patches * 16);
-  assert.equal(plan.scratch.ranges.cacheMoves.bytes, scgiProfile.patches * 368);
+  assert.equal(plan.scratch.ranges.cacheMoves.bytes, scgiProfile.patches * 384);
   for (const arena of [plan.world, ...plan.screen, plan.scratch, plan.batch]) {
     for (const range of Object.values(arena.ranges)) {
       assert.equal(range.offset % 256, 0);
@@ -188,7 +194,7 @@ test("SCGI capacity: total arena, binding ranges, full/window/remap, finite shar
   assert.throws(() => planScgiAllocation({ ...limits, maxStorageBufferBindingSize: 1000 }, scgiProfile));
   const fourK = planScgiAllocation(limits, { ...scgiProfile, width: 3840, height: 2160 });
   assert.equal(fourK.screen.length, 2);
-  assert.equal(fourK.screenRoleBytes, 1920 * 1080 * 96);
+  assert.equal(fourK.screenRoleBytes, 1920 * 1080 * 112);
   assert.equal(
     fourK.screen.reduce((sum, segment) => sum + segment.ranges.worldField.count, 0),
     1920 * 1080,
@@ -554,4 +560,19 @@ test("SCGI cache rejects dispatch limits before allocating any GPU arena", async
   await assert.rejects(runtime.configure(demand, scgiProfile), /cache physical/);
   assert.equal(device.created, 0);
   runtime.destroy();
+});
+
+test("SCGI anchor rejects mixed geometry capability before allocating world or history", async () => {
+  for (const change of [
+    { maxStorageBuffersPerShaderStage: 12 },
+    { maxBindGroups: 1 },
+    { maxUniformBufferBindingSize: 256 },
+  ]) {
+    const device = fakeDevice();
+    device.limits = { ...limits, ...change };
+    const runtime = new ScgiRuntime(device, 1);
+    await assert.rejects(runtime.configure(demand, scgiProfile), /anchor\/seed/);
+    assert.equal(device.created, 0);
+    runtime.destroy();
+  }
 });

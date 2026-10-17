@@ -128,9 +128,9 @@ fn stored_cell(pos: vec3f, c: u32, direction: u32) -> u32 {
 }
 fn req_word(id: u32, lane: u32) -> u32 {
   if id < counter(0u) {
-    return atomicLoad(&scratch[REQUEST + id * 24u + lane]);
+    return atomicLoad(&scratch[REQUEST + id * 28u + lane]);
   }
-  return previous[BOUNCE + (id - counter(0u)) * 24u + lane];
+  return previous[BOUNCE + (id - counter(0u)) * 28u + lane];
 }
 fn req_pos(id: u32) -> vec3f {
   return bitcast<vec3f>(vec3u(req_word(id, 0u), req_word(id, 1u), req_word(id, 2u)));
@@ -159,6 +159,9 @@ fn compatible(id: u32, at: u32, c: u32) -> bool {
     if req_word(id, 8u + lane) != atomicLoad(&world[at + 8u + lane]) {
       return false;
     }
+  }
+  for (var lane = 0u; lane < 4u; lane++) {
+    if req_word(id, 24u + lane) != atomicLoad(&world[at + 72u + lane]) { return false; }
   }
   return true;
 }
@@ -369,7 +372,7 @@ fn allocate(@builtin(global_invocation_id) tid: vec3u) {
     atomicAdd(&scratch[CONTROL + 9u], 1u);
     return;
   }
-  for (var lane = 0u; lane < 72u; lane++) {
+  for (var lane = 0u; lane < 76u; lane++) {
     atomicStore(&world[at + lane], 0u);
   }
   for (var lane = 0u; lane < 12u; lane++) {
@@ -381,6 +384,10 @@ fn allocate(@builtin(global_invocation_id) tid: vec3u) {
   for (var lane = 0u; lane < 12u; lane++) {
     atomicStore(&world[at + 8u + lane], req_word(id, 8u + lane));
   }
+  for (var lane = 0u; lane < 4u; lane++) {
+    atomicStore(&world[at + 72u + lane], req_word(id, 24u + lane));
+  }
+  atomicStore(&scratch[${s("seedSources")} + slot], req_word(id, 22u) + 1u);
   let address = cell_for(req_pos(id), req_normal(id));
   atomicStore(&world[at + 20u], address.x);
   atomicStore(&world[at + 21u], address.y);
@@ -426,7 +433,7 @@ fn plan_moves(@builtin(global_invocation_id) tid: vec3u) {
   if source >= counter(2u) {
     let ticket = atomicAdd(&scratch[CONTROL + 8u], 1u);
     if ticket < setting(7u) {
-      atomicStore(&scratch[MOVES + ticket * 92u], source);
+      atomicStore(&scratch[MOVES + ticket * 96u], source);
     }
   }
 }
@@ -436,21 +443,22 @@ fn snapshot_moves(@builtin(global_invocation_id) tid: vec3u) {
   if id >= min(counter(8u), setting(7u)) {
     return;
   }
-  let source = atomicLoad(&scratch[MOVES + id * 92u]);
+  let source = atomicLoad(&scratch[MOVES + id * 96u]);
   let destinationSlot = atomicLoad(&world[FREE + id]);
   // The rebuilt free list contains all holes in ascending order. Slots below
   // live count are exactly as numerous as live sources above that boundary.
-  let record = MOVES + id * 92u;
+  let record = MOVES + id * 96u;
   atomicStore(&scratch[record + 1u], destinationSlot);
+  atomicStore(&scratch[record + 3u], atomicLoad(&scratch[${s("seedSources")} + source]));
   atomicStore(&scratch[record + 2u], atomicLoad(&world[patch_address(destinationSlot) + 23u]));
   for (var lane = 0u; lane < 4u; lane++) {
-    atomicStore(&scratch[record + 88u + lane], atomicLoad(&world[cache_state(source) + lane]));
+    atomicStore(&scratch[record + 92u + lane], atomicLoad(&world[cache_state(source) + lane]));
   }
-  for (var lane = 0u; lane < 72u; lane++) {
+  for (var lane = 0u; lane < 76u; lane++) {
     atomicStore(&scratch[record + 4u + lane], atomicLoad(&world[patch_address(source) + lane]));
   }
   for (var lane = 0u; lane < 12u; lane++) {
-    atomicStore(&scratch[record + 76u + lane], atomicLoad(&scratch[A1 + source * 12u + lane]));
+    atomicStore(&scratch[record + 80u + lane], atomicLoad(&scratch[A1 + source * 12u + lane]));
   }
 }
 @compute @workgroup_size(${W})
@@ -459,7 +467,7 @@ fn apply_moves(@builtin(global_invocation_id) tid: vec3u) {
   if id >= min(counter(8u), setting(7u)) {
     return;
   }
-  let record = MOVES + id * 92u;
+  let record = MOVES + id * 96u;
   let source = atomicLoad(&scratch[record]);
   let destinationSlot = atomicLoad(&scratch[record + 1u]);
   let generation = atomicLoad(&scratch[record + 2u]);
@@ -468,16 +476,18 @@ fn apply_moves(@builtin(global_invocation_id) tid: vec3u) {
     return;
   }
   let at = patch_address(destinationSlot);
-  for (var lane = 0u; lane < 72u; lane++) {
+  for (var lane = 0u; lane < 76u; lane++) {
     atomicStore(&world[at + lane], atomicLoad(&scratch[record + 4u + lane]));
   }
   for (var lane = 0u; lane < 12u; lane++) {
-    atomicStore(&scratch[A1 + destinationSlot * 12u + lane], atomicLoad(&scratch[record + 76u + lane]));
+    atomicStore(&scratch[A1 + destinationSlot * 12u + lane], atomicLoad(&scratch[record + 80u + lane]));
   }
   for (var lane = 0u; lane < 4u; lane++) {
-    atomicStore(&world[cache_state(destinationSlot) + lane], atomicLoad(&scratch[record + 88u + lane]));
+    atomicStore(&world[cache_state(destinationSlot) + lane], atomicLoad(&scratch[record + 92u + lane]));
   }
   atomicStore(&world[at + 23u], generation + 1u);
+  atomicStore(&scratch[${s("seedSources")} + destinationSlot], atomicLoad(&scratch[record + 3u]));
+  atomicStore(&scratch[${s("seedSources")} + source], 0u);
   let cell = atomicLoad(&world[at + 20u]);
   atomicStore(&world[MAP + cell * 2u], destinationSlot);
   atomicStore(&world[MAP + cell * 2u + 1u], generation + 1u);
@@ -694,12 +704,12 @@ fn add(@builtin(global_invocation_id) tid: vec3u) {
  * retry deferred demand from next frame's receivers/paths; no fake radiance is
  * published. Requests contain semantic identities and cells, never physical
  * patch addresses, so bounded defrag requires no stale queue pointer fixup. */
-export function scgiCacheRequestWgsl(plan: ScgiAllocationPlan): string {
+export function scgiCacheRequestWgsl(plan: ScgiAllocationPlan, receiverOnly = false): string {
   const requests = plan.scratch.ranges.requests!.offset / 4;
   const control = plan.scratch.ranges.cacheControl!.offset / 4;
   const bounce = plan.world.ranges.bounceRequests!.offset / 4;
   return /* wgsl */ `
-fn scgi_append_receiver_request(record: array<u32, 24>) -> bool {
+fn scgi_append_receiver_request(record: array<u32, 28>) -> bool {
   var ticket = atomicLoad(&scratch[${control}u]);
   loop {
     if ticket >= ${plan.profile.requests}u {
@@ -712,16 +722,20 @@ fn scgi_append_receiver_request(record: array<u32, 24>) -> bool {
     }
     ticket = reservation.old_value;
   }
-  for (var lane = 0u; lane < 24u; lane++) {
-    atomicStore(&scratch[${requests}u + ticket * 24u + lane], record[lane]);
+  for (var lane = 0u; lane < 28u; lane++) {
+    atomicStore(&scratch[${requests}u + ticket * 28u + lane], record[lane]);
   }
   return true;
 }
-fn scgi_append_bounce_request(record: array<u32, 24>, sourcePatch: u32) -> bool {
+${
+  receiverOnly
+    ? ""
+    : /* wgsl */ `
+fn scgi_append_bounce_request(record: array<u32, 28>, sourcePatch: u32) -> bool {
   if sourcePatch >= ${plan.profile.patches}u {
     return false;
   }
-  let source = ${plan.world.ranges.patches!.offset / 4}u + sourcePatch * 72u;
+  let source = ${plan.world.ranges.patches!.offset / 4}u + sourcePatch * 76u;
   let cache = ${plan.world.ranges.cacheState!.offset / 4}u + sourcePatch * 4u;
   // Only scheduled rank0 work discovers secondary demand. Rank1 never fans out.
   if atomicLoad(&world[cache + 3u]) == 0u || atomicLoad(&world[source + 68u]) != 0u ||
@@ -740,8 +754,8 @@ fn scgi_append_bounce_request(record: array<u32, 24>, sourcePatch: u32) -> bool 
     }
     ticket = reservation.old_value;
   }
-  for (var lane = 0u; lane < 24u; lane++) {
-    atomicStore(&world[${bounce}u + ticket * 24u + lane], record[lane]);
+  for (var lane = 0u; lane < 28u; lane++) {
+    atomicStore(&world[${bounce}u + ticket * 28u + lane], record[lane]);
   }
   return true;
 }
@@ -755,6 +769,8 @@ fn scgi_resolve_request_patch(requestIndex: u32) -> vec2u {
   }
   let at = ${plan.world.ranges.map!.offset / 4}u + cell * 2u;
   return vec2u(atomicLoad(&world[at]), atomicLoad(&world[at + 1u]));
+}
+`
 }
 `;
 }

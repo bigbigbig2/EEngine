@@ -1,3 +1,4 @@
+import { PRIMARY_SURFACE_MOTION_WGSL } from "./primary_surface_motion.js";
 import { NATIVE_TEMPORAL_SEED_VIEW_WGSL } from "../gpu/FinalPixelAbi.js";
 
 /** Composed into Native and only the unassigned lanes of existing bin classify.
@@ -7,10 +8,11 @@ export function nativeTemporalSeedWgsl(
   seed: number,
   response: number,
   identity: number,
-  surface = true,
+  surface = true
 ): string {
   return /* wgsl */ `
 ${NATIVE_TEMPORAL_SEED_VIEW_WGSL}
+${PRIMARY_SURFACE_MOTION_WGSL}
 @group(${group}) @binding(${seed}) var temporal_seed: texture_storage_2d<rgba32float, write>;
 @group(${group}) @binding(${response}) var temporal_response: texture_storage_2d<rgba8unorm, write>;
 @group(${group}) @binding(${identity}) var temporal_identity: texture_storage_2d<rgba32uint, write>;
@@ -60,8 +62,9 @@ ${
   entry: NativeMaterialDirectoryEntry, alpha_mask: bool) {
   let view = seed_view();
   let previous_world = oengine_instance_previous_from_current(instance) * vec4f(position, 1.0);
-  let previous_view = view.previous_view * previous_world;
-  let clip = view.previous_projection * previous_view;
+  let primary_motion = primary_surface_motion(position, previous_world.xyz, pixel, view.control.xy,
+    current_view, view.previous_view, view.previous_projection, oengine_instance_motion_valid(instance));
+  let clip = primary_motion.previous_clip;
   var geometry_signature = seed_hash(2166136261u, instance.instance_set_generation);
   geometry_signature = seed_hash(geometry_signature, oengine_instance_geometry_generation(instance));
   geometry_signature = seed_hash(geometry_signature, work.geometry_slot);
@@ -72,9 +75,9 @@ ${
   material_signature = seed_hash(material_signature, entry.value_revision);
   let identity = vec4u(work.instance_slot + 1u, geometry_signature,
     material_signature, work.material_slot_or_range + 1u);
-  seed_store(pixel, clip, max(-previous_view.z, 0.0),
-    max(-(current_view * vec4f(position, 1.0)).z, 0.0), identity,
-    oengine_instance_motion_valid(instance) && entry.value_revision != 0u, 0.0, alpha_mask);
+  seed_store(pixel, clip, primary_motion.expected_depth,
+    primary_motion.current_depth, identity,
+    primary_motion.valid && entry.value_revision != 0u, 0.0, alpha_mask);
 }`
     : ""
 }

@@ -35,10 +35,12 @@ export const SCGI_ABI = Object.freeze({
     ["productGeneration", "u32", 1],
     ["assetRecordIndex", "u32", 1],
     ["geometryGeneration", "u32", 1],
-    ["stablePrimitiveId", "u32", 1],
+    ["assetLocalMeshletId", "u32", 1],
     ["materialHandle", "u32", 1],
     ["materialValueRevision", "u32", 1],
     ["deformationRevision", "u32", 1],
+    ["localPrimitive", "u32", 1],
+    ["reservedIdentity", "u32", 3],
   ]),
   cell: layout("ScgiCell", [
     ["patchIndex", "u32", 1],
@@ -63,6 +65,7 @@ export const SCGI_ABI = Object.freeze({
     ["a2", "f32", 12],
     ["numericEpochs", "u32", 4],
     ["rankPostCohortStatus", "u32", 4],
+    ["identityTail", "u32", 4],
   ]),
   request: layout("ScgiRequest", [
     ["positionRadius", "f32", 4],
@@ -70,6 +73,7 @@ export const SCGI_ABI = Object.freeze({
     ["source", "u32", 1],
     ["identity", "u32", 12],
     ["cellRankPixelStatus", "u32", 4],
+    ["identityTail", "u32", 4],
   ]),
   halfField: layout("ScgiHalfField", [
     ["packedCoefficients", "u32", 8],
@@ -77,7 +81,15 @@ export const SCGI_ABI = Object.freeze({
     ["octNormal", "u32", 1],
     ["sourcePixel", "u32", 1],
     ["confidenceFlags", "u32", 1],
-    ["identity", "u32", 12],
+    ["identity", "u32", 16],
+  ]),
+  anchor: layout("ScgiAnchor", [
+    ["positionValid", "f32", 4],
+    ["normal", "f32", 3],
+    ["sourcePixel", "u32", 1],
+    ["previousPositionValid", "f32", 4],
+    ["motionDepth", "f32", 4],
+    ["identity", "u32", 16],
   ]),
   raw: layout("ScgiRaw", [
     ["coefficients", "f32", 12],

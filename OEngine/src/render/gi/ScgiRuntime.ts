@@ -6,6 +6,7 @@ import type {
 import { SCGI_CELL_EMPTY } from "./ScgiAbi.js";
 import {
   assertScgiCacheCapabilities,
+  assertScgiAnchorCapabilities,
   planScgiAllocation,
   scgiExecutionProfile,
   scgiInteger,
@@ -169,6 +170,7 @@ export class ScgiRuntime {
     const plan = planScgiAllocation(this.device.limits, profile);
     scgiExecutionProfile(this.device);
     assertScgiCacheCapabilities(this.device.limits, plan);
+    assertScgiAnchorCapabilities(this.device.limits, plan);
     const previous = this.#active;
     const same = (a: ScgiBufferProduct, b: { bytes: number; ranges: unknown }) =>
       a.plan.bytes === b.bytes && JSON.stringify(a.plan.ranges) === JSON.stringify(b.ranges);
@@ -195,9 +197,11 @@ export class ScgiRuntime {
       const scratch =
         previous !== null &&
         same(previous.scratch.products[0]!, plan.scratch) &&
-        same(previous.scratch.products[1]!, plan.batch)
+        same(previous.scratch.products[1]!, plan.batch) &&
+        previous.plan.profile.width === profile.width &&
+        previous.plan.profile.height === profile.height
           ? previous.scratch
-          : this.#allocate("scratch", [plan.scratch, plan.batch], created);
+          : this.#allocate("scratch", [plan.scratch, plan.batch, ...plan.anchors], created);
       const fields: readonly [ScgiFieldProduct, ScgiFieldProduct] =
         screen === previous?.screen
           ? previous.fields
@@ -362,8 +366,10 @@ export class ScgiRuntime {
       candidateWorldField: workset.fields[screenRole]!,
       privateScratch: workset.scratch.products[0]!,
       queryBatch: workset.scratch.products[1]!,
+      anchors: workset.scratch.products.slice(2),
       status: "prepared",
       fieldComplete: false,
+      cacheComplete: false,
     };
     const transaction = new ScgiFrameTransaction(this, command, workset, leases, publication, replaced);
     this.#pending = transaction;

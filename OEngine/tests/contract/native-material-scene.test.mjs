@@ -282,12 +282,15 @@ test("stable native Scene keeps code/bindings; numeric edits remain atomic acros
   unlit.onFinished.send1(unlit);
   await tick();
   assert.equal(scene.active.hasLit, false);
+  const previousResourceRevision = scene.active.publication.entries[0].valueRevision;
   set.generation++;
   f.graphics.texture_residency.onPublicationChanged.emit();
   scene.canPrepareFrame();
   await tick();
   assert.equal(scene.canPrepareFrame(), true);
   assert.notEqual(scene.candidate.bindings[0], bindings);
+  assert.notEqual(scene.candidate.publication.entries[0].valueRevision, previousResourceRevision,
+    "exact resource publication changes invalidate GI/history identity even with equal numeric values");
   const resources = f.command();
   scene.prepareFrame(resources);
   resources.onFinished.send1(resources);

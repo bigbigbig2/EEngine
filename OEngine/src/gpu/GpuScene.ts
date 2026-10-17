@@ -8,6 +8,7 @@ import {
   readGpuInstanceAffineMatrix,
   writeGpuInstanceAffineMatrix,
   GPU_INSTANCE_ABI_VERSION,
+  GPU_INSTANCE_IDENTITY_STRIDE,
   GPU_INSTANCE_DYNAMIC_RECORD_STRIDE,
   GPU_INSTANCE_FLAGS,
   GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK,
@@ -132,6 +133,8 @@ export interface GpuSceneBindings {
   /** Changes after a committed instance/content mutation. */
   readonly contentRevision: number;
   readonly instances: GPUBuffer;
+  /** Exact set/local slot lineage, 16B per physical instance, same publication. */
+  readonly identities: GPUBuffer;
   readonly recordStride: number;
   readonly highWaterCount: number;
   readonly activeCount: number;
@@ -163,6 +166,8 @@ export interface GpuSceneEvidence {
   readonly allocatedBytes: number;
   readonly retiringBytes: number;
   readonly peakAllocatedBytes: number;
+  readonly identityAllocatedBytes: number;
+  readonly identityResidentBytes: number;
   readonly reclaimableBytes: number;
   readonly cpuShadowBytes: number;
   readonly cpuStaticShadowBytes: number;
@@ -197,7 +202,13 @@ export interface GpuSceneEvidence {
 }
 
 type EntryState =
-  "pending" | "resident" | "pending-append" | "pending-patch" | "pending-release" | "released" | "aborted";
+  | "pending"
+  | "resident"
+  | "pending-append"
+  | "pending-patch"
+  | "pending-release"
+  | "released"
+  | "aborted";
 
 interface InstanceSetEntry {
   readonly handle: InstanceSetHandle;
@@ -224,6 +235,8 @@ interface HandleRuntimeState {
 interface BufferReplacement {
   readonly previous: GPUBuffer;
   readonly next: GPUBuffer;
+  readonly previousIdentity: GPUBuffer;
+  readonly nextIdentity: GPUBuffer;
 }
 
 interface MutationUpload {
@@ -249,6 +262,7 @@ export const INSTANCE_SOURCE_FLAGS = GPU_INSTANCE_FLAGS;
 export class GpuScene {
   private readonly motionScratch = createGpuInstanceMotionScratch();
   private buffer: GPUBuffer;
+  private identityBuffer: GPUBuffer;
   private readonly slots: SlotState[] = [{ generation: 0 }];
   private readonly freeSlots: number[] = [];
   private cursorCount = 1;
@@ -301,7 +315,13 @@ export class GpuScene {
     private readonly resourceAccounting?: ResourceAccounting,
   ) {
     this.buffer = this.createZeroBuffer("GpuScene/instances/fallback", GPU_INSTANCE_RECORD_STRIDE);
-    this.peakAllocatedBytes = this.buffer.size;
+    try {
+      this.identityBuffer = this.createZeroBuffer("GpuScene/identity/fallback", GPU_INSTANCE_IDENTITY_STRIDE);
+    } catch (cause) {
+      this.destroyBuffer(this.buffer);
+      throw cause;
+    }
+    this.peakAllocatedBytes = this.buffer.size + this.identityBuffer.size;
   }
 
   instantiate(source: InstanceSource, command: ShadeGPUCommandContext | GpuSceneCommand): InstanceSetHandle {
@@ -368,8 +388,22 @@ export class GpuScene {
         records.byteOffset,
         records.byteLength,
       );
+      this.writeIdentities(
+        command,
+        replacement?.nextIdentity ?? this.identityBuffer,
+        reuseReleasedRange ? releaseEntryForReuse!.start : cursorBefore,
+        source.count,
+        slot,
+        generation,
+        0,
+      );
       recordGpuQueueUpload(this.device.queue, "GpuScene/bulk-instances", records.byteLength);
-      const upload = { calls: 1, sourceBytes: records.byteLength, uploadedBytes: records.byteLength };
+      const identityBytes = source.count * GPU_INSTANCE_IDENTITY_STRIDE;
+      const upload = {
+        calls: 2,
+        sourceBytes: records.byteLength + identityBytes,
+        uploadedBytes: records.byteLength + identityBytes,
+      };
       const committed = entry;
       command.onFinished.addOne(() => {
         if (committed.state !== "pending") return;
@@ -478,6 +512,15 @@ export class GpuScene {
         appended.byteOffset,
         appended.byteLength,
       );
+      this.writeIdentities(
+        command,
+        replacement?.nextIdentity ?? this.identityBuffer,
+        cursorBefore,
+        source.count,
+        entry.slot,
+        entry.generation,
+        entry.count,
+      );
       recordGpuQueueUpload(this.device.queue, "GpuScene/append-instances", appended.byteLength);
       const lastTransformFrame = new Uint32Array(entry.count + source.count);
       lastTransformFrame.set(entry.lastTransformFrame);
@@ -501,9 +544,9 @@ export class GpuScene {
         this.logicalBytes += appended.byteLength;
         this.cpuShadowBytes += appended.byteLength + source.count * Uint32Array.BYTES_PER_ELEMENT;
         this.commitUpload({
-          calls: remapCount + 1,
-          sourceBytes: remapCount * 4 + appended.byteLength,
-          uploadedBytes: remapCount * 4 + appended.byteLength,
+          calls: remapCount + 2,
+          sourceBytes: remapCount * 4 + appended.byteLength + source.count * GPU_INSTANCE_IDENTITY_STRIDE,
+          uploadedBytes: remapCount * 4 + appended.byteLength + source.count * GPU_INSTANCE_IDENTITY_STRIDE,
         });
         if (growth !== null) {
           this.commitReplacement(growth);
@@ -950,6 +993,7 @@ export class GpuScene {
       resourceEpoch: this.resourceEpoch,
       contentRevision: this.contentRevision,
       instances: this.buffer,
+      identities: this.identityBuffer,
       recordStride: GPU_INSTANCE_RECORD_STRIDE,
       highWaterCount: this.publishedCursorCount,
       activeCount: this.activeInstanceCount,
@@ -1020,9 +1064,11 @@ export class GpuScene {
       highWaterInstanceCount: this.cursorCount,
       logicalBytes: this.logicalBytes,
       residentBytes: this.cursorCount * GPU_INSTANCE_RECORD_STRIDE,
-      allocatedBytes: this.buffer.size,
+      allocatedBytes: this.buffer.size + this.identityBuffer.size,
       retiringBytes: this.retiringBytes,
       peakAllocatedBytes: this.peakAllocatedBytes,
+      identityAllocatedBytes: this.identityBuffer.size,
+      identityResidentBytes: this.cursorCount * GPU_INSTANCE_IDENTITY_STRIDE,
       reclaimableBytes: this.reclaimableBytes,
       cpuShadowBytes: this.cpuShadowBytes,
       cpuStaticShadowBytes: this.activeInstanceCount * GPU_INSTANCE_STATIC_RECORD_STRIDE,
@@ -1086,6 +1132,7 @@ export class GpuScene {
     }
     this.destroyed = true;
     this.destroyBuffer(this.buffer);
+    this.destroyBuffer(this.identityBuffer);
     for (const slot of this.slots) {
       if (slot.entry !== undefined) slot.entry.state = "released";
       slot.entry = undefined;
@@ -1206,6 +1253,27 @@ export class GpuScene {
     return bytes;
   }
 
+  private writeIdentities(
+    command: ShadeGPUCommandContext | GpuSceneCommand,
+    target: GPUBuffer,
+    first: number,
+    count: number,
+    set: number,
+    generation: number,
+    local: number,
+  ): void {
+    const words = new Uint32Array(count * 4);
+    for (let index = 0; index < count; index++) {
+      const offset = index * 4;
+      words[offset] = set;
+      words[offset + 1] = generation;
+      words[offset + 2] = local + index;
+      words[offset + 3] = generation;
+    }
+    command.writeBuffer(target, first * GPU_INSTANCE_IDENTITY_STRIDE, words.buffer, 0, words.byteLength);
+    recordGpuQueueUpload(this.device.queue, "GpuScene/identity", words.byteLength);
+  }
+
   private grow(requiredCount: number, command: ShadeGPUCommandContext | GpuSceneCommand): BufferReplacement {
     const previous = this.buffer;
     const requiredBytes = requiredCount * GPU_INSTANCE_RECORD_STRIDE;
@@ -1218,23 +1286,40 @@ export class GpuScene {
       size: nextSize,
       usage: STORAGE_USAGE,
     });
-    command.copyBufferToBuffer(previous, 0, next, 0, previous.size);
+    const previousIdentity = this.identityBuffer;
+    let nextIdentity: GPUBuffer | undefined;
+    try {
+      nextIdentity = this.createZeroBuffer(
+        "GpuScene/identity/grow",
+        Math.ceil(nextSize / GPU_INSTANCE_RECORD_STRIDE) * GPU_INSTANCE_IDENTITY_STRIDE,
+      );
+      command.copyBufferToBuffer(previous, 0, next, 0, previous.size);
+      command.copyBufferToBuffer(previousIdentity, 0, nextIdentity, 0, previousIdentity.size);
+    } catch (cause) {
+      this.destroyBuffer(next);
+      if (nextIdentity !== undefined) {
+        this.destroyBuffer(nextIdentity);
+      }
+      throw cause;
+    }
     this.attemptedGrowCount++;
     this.peakAllocatedBytes = Math.max(
       this.peakAllocatedBytes,
-      previous.size + next.size + this.retiringBytes,
+      previous.size + next.size + previousIdentity.size + nextIdentity.size + this.retiringBytes,
     );
-    return { previous, next };
+    return { previous, next, previousIdentity, nextIdentity };
   }
 
   private commitReplacement(replacement: BufferReplacement): void {
     this.buffer = replacement.next;
+    this.identityBuffer = replacement.nextIdentity;
     this.committedGrowCount++;
     this.retiredBufferCount++;
-    this.retiringBytes += replacement.previous.size;
+    this.retiringBytes += replacement.previous.size + replacement.previousIdentity.size;
     const destroy = (): void => {
       this.destroyBuffer(replacement.previous);
-      this.retiringBytes -= replacement.previous.size;
+      this.destroyBuffer(replacement.previousIdentity);
+      this.retiringBytes -= replacement.previous.size + replacement.previousIdentity.size;
       this.destroyedRetiredBufferCount++;
     };
     void this.device.queue.onSubmittedWorkDone().then(destroy, destroy);
@@ -1242,7 +1327,9 @@ export class GpuScene {
 
   private rollbackReplacement(replacement: BufferReplacement): void {
     this.buffer = replacement.previous;
+    this.identityBuffer = replacement.previousIdentity;
     this.destroyBuffer(replacement.next);
+    this.destroyBuffer(replacement.nextIdentity);
   }
 
   private commitUpload(upload: MutationUpload): void {
@@ -1437,7 +1524,7 @@ function normalizePatch(
     return delta === 0 ? left - right : delta;
   });
   let write = 0;
-  for (let read = 0; read < orders.length;) {
+  for (let read = 0; read < orders.length; ) {
     const index = indices[orders[read]!]!;
     let lastOrder = orders[read]!;
     read++;

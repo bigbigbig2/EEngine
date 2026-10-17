@@ -15,6 +15,9 @@ verifies:
     - OEngine/src/render/lighting
     - OEngine/src/render/gi
     - OEngine/src/shaders/scgi_cache.ts
+    - OEngine/src/shaders/scgi_anchor.ts
+    - OEngine/src/shaders/primary_surface_identity.ts
+    - OEngine/src/shaders/primary_surface_motion.ts
     - OEngine/src/render/reflections
     - OEngine/src/render/temporal
     - docs/reviews/EEngine_Surface_Cache_GI_WebGPU_Mother_Design_2026-10-17.md
@@ -22,7 +25,7 @@ verifies:
 
 # EEngine Surface Cache GI：完整算法与生产接入设计
 
-本设计与[执行文档](../next-execution/eengine-surface-cache-gi-execution-2026-10.md)构成当前模块唯一施工依据。用户选定的[母稿](../reviews/EEngine_Surface_Cache_GI_WebGPU_Mother_Design_2026-10-17.md)保留为需求与研究输入；本文明确修正的内容以本文为准。总体位置见[路线](eengine-feature-expansion-roadmap-2026-10.md)。本轮只设计、改文档，不修改 TS/WGSL，不声明已经移植、运行或达到性能目标。
+本设计与[执行文档](../next-execution/eengine-surface-cache-gi-execution-2026-10.md)构成当前模块唯一施工依据。用户选定的[母稿](../reviews/EEngine_Surface_Cache_GI_WebGPU_Mother_Design_2026-10-17.md)保留为需求与研究输入；本文明确修正的内容以本文为准。总体位置见[路线](eengine-feature-expansion-roadmap-2026-10.md)。目标与实施事实分开：已完成/未完成项只读执行文档，不由设计采纳推断生产切换、来源采用或性能资格。
 
 源码基线：`3000de2ab7caee2f5a20d86ded367ff3ba2e32c5`，研究日期 2026-10-17。以下分开写“源码事实”“目标决定”和“待实测参数”。源码核对覆盖本模块 producer→直接 consumer 及生命周期，不声称逐行审计整个引擎。外部固定 revision、许可证、入口与移植范围见 [source map](../porting/next-renderer.md#surface-cache-gi-2026-10-17)。
 
@@ -196,7 +199,7 @@ backface 命中与 geometry double-sided 分开：合法双面材质朝query接�
 
 逻辑地址为 `(originEpoch, cascade, worldCellXYZ, octNormalBin)`，A=4，即16 bins，cell边长 `s_c=s_0·2^c`。各 cascade 按整数格移动，storage address 用正确 signed modulo；R=24 不能用 `R-1` 位掩码取模。每格必须验证当前 toroidal origin/epoch，不能把 scroll 前的旧 patch 当新位置。
 
-cell→patch map 保留稀疏物理分配；每 cell 两 u32 的母稿 8B只是 map+claim 起点。稳定身份/owner reference 放 patch metadata，计入新增成本。position+flat normal、cell backreference、slot generation、rank、last access、sample count、short mean/variance、A0/A2 RGB L1、当前estimate与空间临时结果全部有独立写域。约200B donor logical patch不是最终WGSL stride；本设计采用§19的288B/patch/bank，A1另有48B/patch scratch。
+cell→patch map 保留稀疏物理分配；每 cell 两 u32 的母稿 8B只是 map+claim 起点。稳定身份/owner reference 放 patch metadata，计入新增成本。position+flat normal、cell backreference、slot generation、rank、last access、sample count、short mean/variance、A0/A2 RGB L1、当前estimate与空间临时结果全部有独立写域。约200B donor logical patch不是最终WGSL stride；本设计采用§19的304B/patch/bank，A1另有48B/patch scratch。
 
 **单 writer 分配**：anchor/bounce request 先写 bounded request list；GPU 对 cell atomic claim 只选 request index，不在同 dispatch 轮询“是否初始化好”。下一 dispatch 每个 cell winner 分配一次 ring slot并完整初始化，再发布 valid map。多个请求同格的代表位置按确定优先级（visible优先、平面相容、轮转公平）选择；不能多个 invocation 同时覆盖一个 patch geometry。已存在 patch 的 touch/rank 先 atomic 汇总，下一阶段统一写 statistics。
 
@@ -222,11 +225,17 @@ claim阶段只读已完成bank copy中的patch，先过滤与已有合法patch�
 
 共享 `PrimarySurfaceIdentity` helper 从 VisibilityKey→本帧work→primitive/barycentric→instance current/previous→camera current/previous，重建 current/previous world position、flat geometric normal、previous clip、positive view depth与validity。与 Native Seed 的 jitter/UV符号一致；不消费Surface尚未产生的temporal textures。geometry/material变化、deformation previous无效、实例slot重用均拒绝seed。
 
-Anchor guide/history保存source pixel、depth、flat normal及§19的完整identity。选定48B identity，明确保留instance set/slot generation、Product/geometry、primitive、material/value revision与deformation事实；上一版16B无法容纳这些字段，已撤销其预算。world patch不是跟着物体移动的lightmap，新位置重新求值；身份比较不等于位置未动，仍需previous position与plane test。
+Anchor guide/history保存source pixel、depth、flat normal及§19的完整identity。选定64B identity，明确保留instance set/slot generation、Product/geometry、asset-local meshlet与local primitive、material/value revision及deformation事实。48B缺少独立local primitive，不能截断或hash后称精确身份。world patch不是跟着物体移动的lightmap，新位置重新求值；身份比较不等于位置未动，仍需previous position与plane test。
 
 新patch seed只读上一 **已提交且未失效的world-only** half-res L1 field；screen residual始终独立，主画面合成结果永不成为seed。重投影在bounds内、scene/origin相容、完整identity匹配、法线相容、**绝对**plane distance与depth误差在voxel尺度阈值内才接受。母稿引用的上游单边plane比较不能直接移植为双向正确判据。motion history不可信时可用静态世界重投影，但必须证明该实例静态。seed同时初始化A0/A2及统计validity，real query count保持0，空间临时A1不凭空增加样本数。
 
 resize/renderScale改变重建screen history，保留相容world cache；camera cut拒绝screen seed并scroll世界体积，不能一律清所有world lighting。曝光变化不清未曝光cache；实际environment/灯光变化进入dirty与drift。
+
+SCGI-4物理合同：GpuScene同一instantiate/append/replacement事务批量写16B/physical-instance lineage side table，扩容copy、abort及最后fence退休与instance一致。当前没有local slot独立回收，slot lifetime等于set generation；将来独立回收须推进该lane。Native material精确binding publication变化也推进valueRevision，不能让纹理替换保留旧身份。Native最终重建仍使用已有压缩identity ABI，GI用完整tuple；两者共享primary position/motion数学，不能把最终重建hash当GI严格身份。
+
+当前anchor为128B/H单scratch：position/valid16、flat normal12+sourcePixel u32、previous position/valid16、motion/expected depth/current depth16、identity64，不新增full-res normal GBuffer。完整写所有H，rank0需求使用提交序号驱动的全局循环窗口，Q独立有界，避免前面分片长期抢满queue；abort不推进窗口和2×2 phase。seed按新physical patch唯一writer，source引用随defrag迁移；上一field必须用原guide及scale。previous half坐标为`floor(previousUV*fullExtent)/2`，奇数尺寸不能用`previousUV*halfExtent`。完整identity、双向绝对plane、normal、depth、world/tangent位移及device/scene/numeric/origin/voxel资格全部成立才初始化A0/A2和seed/post validity；真实sample/cohort count仍0，A1当帧重建。
+
+SCGI-2当前缺共享deformation producer，dynamic_revision不能证明previous position，实现因此明确拒绝该分支seed。这是安全拒绝，不能作为完整动态路线交付或SCGI-4关单依据。SCGI-7尚未产出真实world-only field，隔离fixture只证明seed数学与事务，不能证明估计器、完整GI或query接通。
 
 ## 8. 材质、VT 与完整灯光估计
 
@@ -298,13 +307,13 @@ lookup读已完成candidate filtered cache，保留中心小权重、tangent jit
 
 `nativeSurfaceBindingGroups`最满Product+compact+VT+SSSR route为：geometry组4基础read+5 Product+1 reflection=10 SSBO；lighting组3 SSBO；material组publication+compact+feedback=3，合计16。已有sampled texture为visibility1+lighting5=6，再加material/VT纹理；4个group全部在用；HDR/reactive/seed/identity最多4 storage textures。`GpuNativeMaterialScene.snapshot`按剩余sampled数分bank，某个单材质自身也可能占满；再分更多bin不能让单材质少用必需纹理。
 
-因此默认GI接入 **不增加任何Native sampled/storage/group binding**：在现有`FinalPixelLightingPublication`同一个buffer后追加只读GI segment，Native从`lighting_directory`原有group1/binding2读packed half SH与u32 guide；§19固定96B/half-pixel。GI producer单独以storage子range写该段；local/VSM/solar/noise的写域仍互不重叠，range uniform扩为明确offset/length/extent/scale字段，不能靠“solar后紧接”硬编码推地址。这个publication只管物理拼装，GI仍拥有算法和history，不把VSM/Local owner并进GI。
+因此默认GI接入 **不增加任何Native sampled/storage/group binding**：在现有`FinalPixelLightingPublication`同一个buffer后追加只读GI segment，Native从`lighting_directory`原有group1/binding2读packed half SH与u32 guide；§19固定112B/half-pixel。GI producer单独以storage子range写该段；local/VSM/solar/noise的写域仍互不重叠，range uniform扩为明确offset/length/extent/scale字段，不能靠“solar后紧接”硬编码推地址。这个publication只管物理拼装，GI仍拥有算法和history，不把VSM/Local owner并进GI。
 
-world-only双history仍是GI私有；当前field直接生成到本帧directory segment，随后GPU copy该segment到本帧history role（96H B），供下帧seed。只拷贝一次选定段；残差启用时另有32H的directory段，base保留原值。directory现有实现最多3个未完成frame allocations，故全量segment按最多3份计入峰值，不能以双world bank队列复用推导它也只有两份。
+world-only双history仍是GI私有；当前field直接生成到本帧directory segment，随后GPU copy该segment到本帧history role（112H B），供下帧seed。只拷贝一次选定段；残差启用时另有32H的directory段，base保留原值。directory现有实现最多3个未完成frame allocations，故全量segment按最多3份计入峰值，不能以双world bank队列复用推导它也只有两份。
 
 ### 10.2 单binding容量不足时的完整分块route
 
-如果`oldDirectoryBytes + 96H (+32H residual)`超过实际`maxStorageBufferBindingSize`，不拒绝原来合法的材质、不改为默认灰色：field先写GI私有分片buffer，按horizontal stripe复制含所有upsample tap halo的局部field到现有directory的固定GI窗口；该stripe所有material bins完成后，再覆盖窗口并执行下个stripe。同一queue、同command、pass边界保证先读后写，无CPU回读。shader保留全局pixel/half坐标并减窗口origin，非法halo是错误，不依赖OOB零。
+如果`oldDirectoryBytes + 112H (+32H residual)`超过实际`maxStorageBufferBindingSize`，不拒绝原来合法的材质、不改为默认灰色：field先写GI私有分片buffer，按horizontal stripe复制含所有upsample tap halo的局部field到现有directory的固定GI窗口；该stripe所有material bins完成后，再覆盖窗口并执行下个stripe。同一queue、同command、pass边界保证先读后写，无CPU回读。shader保留全局pixel/half坐标并减窗口origin，非法halo是错误，不依赖OOB零。
 
 窗口的预留空间来自既有directory容量计划：不能直接缩VSM容量挪空间。若旧directory本身几乎满，按stripe需求同样对local lookup和VSM descriptor建立**GPU gather到窗口的局部索引**；solar/noise保持固定，descriptor不截断、页ID经映射访问。全局原目录作为GPU producer输入保留，Native绑定局部完整窗口。单位stripe按实际可容纳页描述符/lookup选择上界，极端一stripe缩至一个work tile；索引重映射和所有consumer都在SCGI-8原子切换。此路径是有限的容量实现，不是广义deferred renderer。
 
@@ -428,45 +437,47 @@ gather budget按screen probe数×方向样本与query budget独立计；不能�
 
 ### 15.1 基础screen资源与目录帧槽
 
-§19选定96B/H/role：L1 32B、guide16B、完整identity48B。GI双world-only history是192H B；当前field生成在既有lighting directory的96H段中，该publication最多持有3个fence-held allocations，所以新增目录段峰值为288H B。两者是不同资源，不能只算其中一个；也不能把GI双history再次机械乘3。
+§19选定112B/H/role：L1 32B、guide16B、完整identity64B。GI双world-only history是224H B；当前field生成在既有lighting directory的112H段中，该publication最多持有3个fence-held allocations，所以新增目录段峰值为336H B。两者是不同资源，不能只算其中一个；也不能把GI双history再次机械乘3。
 
-| internal尺寸 | P / H | 双history 192H MiB | 三目录增量288H MiB | screen合计480H MiB |
+| internal尺寸 | P / H | 双history 224H MiB | 三目录增量336H MiB | screen合计560H MiB |
 |---|---:|---:|---:|---:|
-| 1920×1080 | 2,073,600 / 518,400 | 94.92 | 142.38 | 237.30 |
-| 2560×1440 | 3,686,400 / 921,600 | 168.75 | 253.13 | 421.88 |
-| 3840×2160 | 8,294,400 / 2,073,600 | 379.69 | 569.53 | 949.22 |
-| 1280×720（1080p输出约2/3 scale） | 921,600 / 230,400 | 42.19 | 63.28 | 105.47 |
+| 1920×1080 | 2,073,600 / 518,400 | 110.74 | 166.11 | 276.86 |
+| 2560×1440 | 3,686,400 / 921,600 | 196.88 | 295.31 | 492.19 |
+| 3840×2160 | 8,294,400 / 2,073,600 | 442.97 | 664.45 | 1107.42 |
+| 1280×720（1080p输出约2/3 scale） | 921,600 / 230,400 | 49.22 | 73.83 | 123.05 |
 
-一份目录+双history的在用量为288H，表列三份目录的保守峰值。母稿72H只算双SH+depth，不是本地全量screen成本；上一稿128H没有容纳完整身份，撤销。4K internal单个96H段约189.84MiB，已超过128MiB binding设备的单range上限，因此§10分块route是必需能力。
+当前128H anchor scratch还须另计：1080p63.28MiB、1440p112.50MiB、4K253.13MiB、720p28.13MiB；上表加anchor分别340.14、604.69、1360.55、151.17MiB，尚非完整GI预算。anchor为单scratch，不机械双bank。
 
-分块route直接在candidate history分片生成world field，再GPU copy stripe+halo到directory window；不同时分配完整96H directory segment。其screen模型是`192H + NframeSlots·Wdirectory + Bpartition + Bhalo`，Wdirectory包含窗口完整light/VSM/GI数据，已有全局目录保留另计。source与destination为不同GPUBuffer，不在同buffer重叠copy。resize旧screen roles、旧目录槽与新set的并存按真实fence计，不用“最终两份”解释峰值。
+一份目录+双history的在用量为336H，表列三份目录的保守峰值。母稿72H只算双SH+depth，不是本地全量screen成本；上一稿128H没有容纳完整身份，撤销。4K internal单个112H段约221.48MiB，已超过128MiB binding设备的单range上限，因此§10分块route是必需能力。
+
+分块route直接在candidate history分片生成world field，再GPU copy stripe+halo到directory window；不同时分配完整112H directory segment。其screen模型是`224H + 128H(anchor) + NframeSlots·Wdirectory + Bpartition + Bhalo`，Wdirectory包含窗口完整light/VSM/GI数据，已有全局目录保留另计。source与destination为不同GPUBuffer，不在同buffer重叠copy。resize旧screen roles、旧目录槽与新set的并存按真实fence计，不用“最终两份”解释峰值。
 
 ### 15.2 世界cache、AS、queues与near-field
 
-`Ncell=R³·16·C`；两个map banks为`16Ncell B`；两个288B patch banks为`576K B`。A1为48K scratch，raw cohort为64U，allocator/header/requests/defrag另算。
+`Ncell=R³·16·C`；两个map banks为`16Ncell B`；两个304B patch banks为`608K B`。A1为48K scratch，raw cohort为64U，allocator/header/requests/defrag另算。
 
-SCGI-3另增双bank cacheState共32K B，不复用patch的postValid/lastCohort/status；全cell claim为4Ncell单scratch。令T=Q+B，cache scratch另含4T request-cell、4K active、16K四类priority、368K move snapshot、1024B dirty bounds、256B settings、256B control，以及free/live/winner/visible-winner/四priority的flags+prefix层级，每层每元素8B；分层n依次取ceil(n/128)直到≤128。batch另增64B indirect range，各range对齐仍另计。完整分配示例见执行§7.5，以上基础表故意未把这些新增项混入旧的小计。
+SCGI-3另增双bank cacheState共32K B，不复用patch的postValid/lastCohort/status；全cell claim为4Ncell单scratch。令T=Q+B，cache scratch另含4T request-cell、4K active、16K四类priority、384K move snapshot + 4K seed-source、1024B dirty bounds、256B settings、256B control，以及free/live/winner/visible-winner/四priority的flags+prefix层级，每层每元素8B；分层n依次取ceil(n/128)直到≤128。batch另增64B indirect range，各range对齐仍另计。完整分配示例见执行§7.5，以上基础表故意未把这些新增项混入旧的小计。
 
 | 示例profile | 单map MiB | 双map MiB | 双patch MiB | 加1080p双screen history的小计 MiB |
 |---|---:|---:|---:|---:|
-| R24/C3/K32768 | 5.06 | 10.13 | 18.00 | 123.05 |
-| R32/C4/K65536 | 16.00 | 32.00 | 36.00 | 162.92 |
-| R48/C4/K131072 | 54.00 | 108.00 | 72.00 | 274.92 |
+| R24/C3/K32768 | 5.06 | 10.13 | 19.00 | 139.87 |
+| R32/C4/K65536 | 16.00 | 32.00 | 38.00 | 180.74 |
+| R48/C4/K131072 | 54.00 | 108.00 | 76.00 | 294.74 |
 
-小计**不含**目录帧槽、AS、query新增payload、queues/scratch、VT/VSM/SSSR、gather、retiring和renderer已有资源。中间profile加1080p三目录GI段后已约305.30MiB，仍未加query。80–160MiB不能代表完整GI预算。
+小计**不含**目录帧槽、anchor、AS、query新增payload、queues/scratch、VT/VSM/SSSR、gather、retiring和renderer已有资源。中间profile加1080p三目录GI段后已约346.86MiB，再加anchor为410.14MiB，仍未加query。80–160MiB不能代表完整GI预算。
 
 - AS保守容量：每node64B+links8B，按约2T节点预留，refs16T，合约160T B；100万三角约152.59MiB、400万约610.35MiB。最终child/leaf编码可缩小allocated node count，但admission先按保守容量计。另有32B/cluster目录、query instance128B及按2×72B预留的TLAS nodes，约272B/instance；10万实例约25.94MiB。跨shard重复TLAS leaf/索引另加，变换真值不重复。每page额外query lease/目录若16B，10万page约1.53MiB；完整payload与新增proxy分开记。
 - 静态AS不双份copy；动态candidate/rebuild计旧+新node/ref/links与scratch。排序key+index双buffer可按16T估计，parent jumping双ancestor/distance约16Nnode，depth/level lists约8Nnode，histogram/prefix/treelet scratch另列。只有寿命不交叠才alias；多组BLAS build可复用scratch，不永久保留所有资产各自的最大临时量。page lease延长的共享geometry驻留同样计工作集。
 - ray batch基础work48+result32+payload32+continuation64=176B/ray，65536条为11MiB；若采用64×u32 spill再16MiB，共27MiB。另有bin counts/prefix/indirect与light sample pool。64B continuation包括两层遍历上下文，不能只存一个node就声称能恢复TLAS/BLAS。parent-pointer route无64-slot spill但有其state。B控制临时量，Qtotal控制工作量。
-- bounce requests96B/项，双bank若各K=65536则12MiB；visible demand临时若逐H存项则1080p为47.46MiB。选定先cell去重/有界分批，再存完整96B request；队列cap显式给出。defer新cache需求是cache miss，不可丢已计划query/cohort。claim索引若每cell4B，R32/C4另8MiB；如复用map sentinel须证明完整恢复才能抵扣。defrag scratch按真实搬迁record计。
+- bounce requests112B/项，双bank若各K=65536则14MiB；visible demand临时若逐H存项则1080p为55.37MiB。anchor完整写H，rank0需求先按commit-only全局窗口轮转，再cell去重；存完整112B request，队列cap显式给出。defer新cache需求是cache miss，不可丢已计划query/cohort。claim索引若每cell4B，R32/C4另8MiB；如复用map sentinel须证明完整恢复才能抵扣。defrag scratch按真实搬迁record计。
 
-near-field采用紧凑SH history，不保存双份方向数组。参考负载每8×8 internal tile一个probe，`Np=ceil(Wi/8)·ceil(Hi/8)`、每probe64方向。probe每role128B（48B f32 SH+48B identity+16B位置/guide+16B variance/flags），双history256Np；方向单scratch16×64Np；f32 diffuse源16H，guide复用当前anchor；signed residual双history64H，复用同代world guide；当前重投影残差目录32H、最多三份96H。该参考更新全部probe，实际更新比例是runtime参数。
+near-field采用紧凑SH history，不保存双份方向数组。参考负载每8×8 internal tile一个probe，`Np=ceil(Wi/8)·ceil(Hi/8)`、每probe64方向。probe每role144B（48B f32 SH+64B identity+16B位置/guide+16B variance/flags），双history288Np；方向单scratch16×64Np；f32 diffuse源16H，guide复用当前anchor；signed residual双history64H，复用同代world guide；当前重投影残差目录32H、最多三份96H。该参考更新全部probe，实际更新比例是runtime参数。
 
 | internal | probe双history MiB | 方向单scratch MiB | diffuse源 MiB | residual双history MiB | 三目录残差 MiB | 附加小计 MiB |
 |---|---:|---:|---:|---:|---:|---:|
-| 1080p | 7.91 | 31.64 | 7.91 | 31.64 | 47.46 | 126.56 |
-| 1440p | 14.06 | 56.25 | 14.06 | 56.25 | 84.38 | 225.00 |
-| 4K | 31.64 | 126.56 | 31.64 | 126.56 | 189.84 | 506.25 |
+| 1080p | 8.90 | 31.64 | 7.91 | 31.64 | 47.46 | 127.55 |
+| 1440p | 15.82 | 56.25 | 14.06 | 56.25 | 84.38 | 226.76 |
+| 4K | 35.60 | 126.56 | 31.64 | 126.56 | 189.84 | 510.21 |
 
 probe列表/scan/validation与query scratch另计；目录分块时以window真实量替换三份full残差段。方向scratch可分probe batch复用，但须保留必要邻域/投影寿命。表是给定布局的理论量，不是质量推荐或GPU实测。
 
@@ -474,11 +485,11 @@ probe列表/scan/validation与query scratch另计；目录分块时以window真�
 
 独立物理ray数`Qnew=U·S_hemi + Q_sun + N_light_origin + U·S_reconnect + Q_gather`；alpha continuation通常续跑同一条ray，不与新ray混计。另报traversal invocations、node/triangle visits、coverage evaluations、shard/bin重访。K65536、U=K/4、S_hemi=2时仅hemisphere32768条，全更新131072条；不包含shadow/local/gather。1080p每8×8一个probe、64方向全更新是2073600个方向样本；screen tests未必各发world ray，但最坏query fallback也须计入。
 
-R32/C4/K65536的map+patch单bank为34MiB，copy读+写68MiB/frame，60Hz约3.98GiB/s理想流量，尚未含bounce队列copy。A1 3MiB、raw64U、全map维护扫描另计。world field生成到目录后copy到history又读写192H B，1080p约94.92MiB/frame；分块route生成到history再copy窗口总体同量级，halo另加。后续dirty copy/COW优化必须维持§12事务，不提前声称这些开销已经消除。
+R32/C4/K65536的map+patch单bank为35MiB，copy读+写70MiB/frame，60Hz约4.10GiB/s理想流量，尚未含bounce队列copy。A1 3MiB、raw64U、全map维护扫描另计。world field生成到目录后copy到history又读写224H B，1080p约110.74MiB/frame；分块route生成到history再copy窗口总体同量级，halo另加。后续dirty copy/COW优化必须维持§12事务，不提前声称这些开销已经消除。
 
 SCGI-3独立cacheState使上述单bank再加1MiB（读写再加2MiB/frame）。当前clear claims为Ncell、维护/分类/scan为K/T上界，claim与更新消费者使用GPU indirect实际count；这是完整但尚未优化的物理调度。GPU粗成本与52/69 dispatch实例见执行§7.5，不宣称实时性能资格。后续可合并分类/多输出、复用scan scratch、按slab维护或按budget缩move scratch，但不能破坏claim→init→consumer、snapshot→apply的全局同步边界。
 
-Native融合省去单独full RGBA16F的写+读：1080p31.64MiB/frame、1440p56.25MiB、4K126.56MiB。它不是总净收益；4 tap保守每tap96B时逻辑读取384P B，1080p约759.38MiB/frame（60Hz约44.49GiB/s）。先读guide再SH、相邻pixel cache复用可降低实际流量，但须GPU实测。packed/texture/window路线比较bytes、ALU、cache与binding，不凭省一张texture宣布更快。
+Native融合省去单独full RGBA16F的写+读：1080p31.64MiB/frame、1440p56.25MiB、4K126.56MiB。它不是总净收益；4 tap保守每tap112B时逻辑读取448P B，1080p约885.94MiB/frame（60Hz约51.91GiB/s）。先读guide再SH、相邻pixel cache复用可降低实际流量，但须GPU实测。packed/texture/window路线比较bytes、ALU、cache与binding，不凭省一张texture宣布更快。
 
 逻辑stage不等于physical dispatch。build有radix digits×scan层+topology/refit levels/restructure；query有batch×shards、K wavefront×material bins、完整tail；cache有scroll/claim/allocate/init/publish/defrag；filter有A0/A1/A2；screen有anchor/lookup/残差重投影/目录window。分别记录CPU编码上界和GPU indirect有效工作。未来可融合独立输出/共享准备，但不能删必要全局同步。PSO维度限capability、物理layout、material Program和有限route；spp、hysteresis、update比例保持runtime参数。
 
@@ -532,11 +543,11 @@ Native融合省去单独full RGBA16F的写+读：1080p31.64MiB/frame、1440p56.2
 
 ## 19. 可实施的ABI、分片和资源清单
 
-以下是本轮选定的本地布局合同，实际CPU/WGSL实现尚不存在；不是预建通用schema。u32索引先检查容量，f32均有限。按结构实际alignment验证，host pack和WGSL解码独立比对；调整布局必须同步§15与执行成本卡。
+以下是选定的本地布局合同，已有实现的ABI以ScgiAbi及独立CPU/GPU验证为事实；query等尚未完成部分不因列出布局而成立。u32索引先检查容量，f32均有限。按结构实际alignment验证，host pack和WGSL解码独立比对；调整布局必须同步§15与执行成本卡。
 
 ### 19.1 身份：不拿hash或物理地址冒充稳定身份
 
-`SurfaceIdentity`为12×u32=48B，offset顺序为0 instanceSetId、4 setGeneration、8 localInstanceSlot、12 slotGeneration、16 productTableSlot、20 productGeneration、24 assetRecordIndex、28 geometryGeneration、32 stablePrimitiveId、36 materialHandle、40 materialValueRevision、44 deformationRevision。ordinary geometry的product两字段为0，asset/geometry/primitive仍有效；只比较真实地址域中的ID。material handle本身若允许重用，revision必须随重用改变；不能只改texture pointer而保留旧身份。
+`SurfaceIdentity`为16×u32=64B，offset顺序为0 instanceSetId、4 setGeneration、8 localInstanceSlot、12 slotGeneration、16 productTableSlot、20 productGeneration、24 assetRecordIndex、28 geometryGeneration、32 assetLocalMeshletId、36 materialHandle、40 materialValueRevision、44 deformationRevision、48 localPrimitive、52–63 reserved=0。primitive是(meshlet,localPrimitive)元组，不hash或截断。ordinary geometry的product两字段为0，meshlet用physical slot减geometry.meshlet_begin，Product meshlet引用保持asset-local；物理page搬迁不变，topology更换generation。material handle若重用，revision必须随重用改变；不能只改texture pointer而保留旧身份。
 
 当前ABI9的instance_set_generation、geometry_generation、dynamic_revision只是可复用输入，**没有声称现有176B record已经包含上述全部字段**。缺少的slot lifetime generation由既有GpuScene实例分配/释放owner维护side table，经现有批量upload发布；history只保留精确值，不扩展成GI独立scene。generation将wrap时先换scene/device identity epoch并失效所有相关历史，不能等待32-bit碰撞后用hash补救。whole-scene epoch存publication header，per-pixel不重复存；旧header租约未退不复用其ID。
 
@@ -547,23 +558,24 @@ Product/table物理迁移不改变语义identity；topology/primitive remap改�
 | 产品 | offset/stride | 完整字段/生命周期 |
 |---|---|---|
 | Cell map | 8B/cell/bank | patchIndex、patchSlotGeneration；EMPTY/CLAIM状态用专门不与合法index冲突的sentinel，claim后下一dispatch才读patch |
-| Patch state | 288B/patch/bank | 0 position.xyz/radius；16 normal.xyz/planeError；32 SurfaceIdentity48；80 cell/cascade/orientation/patchGeneration；96 updateCount/sampleSerialLo/Hi/flags；112 access/update/birth/dirtyAge；128 shortMean.xyz/confidence；144 variance.xyz/seedConfidence；160 A0 RGBL1 48；208 A2 RGBL1 48；256 geometry/material/light/environment数值epochs；272 rank/postValid/lastCohort/status |
-| Cache state | 16B/patch/bank | 0 demotionFrame、4 dirty、8 selectionFrame、12 live；仅allocator/scheduler拥有，不能占用288B patch中的post/cohort状态；随world copy/abort/defrag一起迁移 |
+| Patch state | 304B/patch/bank | 0 position.xyz/radius；16 normal.xyz/planeError；32 identity前48B；80 cell/cascade/orientation/patchGeneration；96 updateCount/sampleSerialLo/Hi/flags；112 access/update/birth/dirtyAge；128 shortMean.xyz/confidence；144 variance.xyz/seedConfidence；160 A0 RGBL1 48；208 A2 RGBL1 48；256 geometry/material/light/environment数值epochs；272 rank/postValid/lastCohort/status；288 identity尾16B |
+| Cache state | 16B/patch/bank | 0 demotionFrame、4 dirty、8 selectionFrame、12 live；仅allocator/scheduler拥有，不能占用304B patch中的post/cohort状态；随world copy/abort/defrag一起迁移 |
 | Spatial A1 | 48B/patch，单scratch | 4×vec3f按紧凑u32 pack（每色f32），不能用WGSL `array<vec3f>`误变64B；所有live目标完整写 |
-| Allocation/bounce request | 96B/request | position/radius16+normal/source16+identity48+cell/rank/sourcePixel/status16；队列上界独立，不能只按K假设全部请求都可容纳 |
-| Half field/guide | 96B/H/role | 0–31四个packed RGBA16F向量（RGB系数，空lane为0）；32 depth f32；36 oct normal u32；40 sourcePixel u32；44 confidence/flags；48–95 SurfaceIdentity。scale/extent/origin/epoch在header |
+| Allocation/bounce request | 112B/request | position/radius16+normal/source16+identity前48+cell/rank/sourcePixel/status16+identity尾16；队列上界独立，不能只按K假设全部请求都可容纳 |
+| Half field/guide | 112B/H/role | 0–31四个packed RGBA16F向量（RGB系数，空lane为0）；32 depth f32；36 oct normal u32；40 sourcePixel u32；44 confidence/flags；48–111 SurfaceIdentity。scale/extent/origin/epoch在header |
+| Primary anchor | 128B/H单scratch | 0 current position/valid；16 flat normal.xyz；28 sourcePixel u32；32 previous position/valid；48 motion.xy/expectedDepth/currentDepth；64 identity64B |
 | Raw estimate | 64B/updated patch | 48B RGBL1+cohortId/plannedN/completion/fault16；单scratch，完整cohort完成后A0消费 |
 | World bank header | 固定256B/bank | generation/epochs/origin/cascade offsets/ring counters/capacity/validity；C有已协商上限，超限扩明确header布局，不越界写 |
 
 confidence可用16-bit unorm，flags16-bit，身份仍完整u32。depth/position不用f16。sourcePixel用线性u32 index前验证Wi×Hi范围；odd extent与inactive padding完全写invalid。raw/patch中的RGBL1按12连续f32存；读helper明确stride，不能混用vec4 padding。
 
-双world banks包括map、288K patch、allocator与**上一代bounce request队列**；更新列表、claim scratch、A1、raw cohort为同command transient，可按不重叠寿命复用。candidate内的历史A2和allocator必须copy，A1不copy。screen双history独立于world bank、由提交role推进；同queue有序GPU覆写可复用，但当前FinalPixel目录仍有最多3个fence-held frame槽。
+双world banks包括map、304K patch、allocator与**上一代bounce request队列**；更新列表、claim scratch、A1、raw cohort为同command transient，可按不重叠寿命复用。candidate内的历史A2和allocator必须copy，A1不copy。screen双history独立于world bank、由提交role推进；同queue有序GPU覆写可复用，但当前FinalPixel目录仍有最多3个fence-held frame槽。
 
 SCGI-1固定world header为256B、最多4 cascades：0 generation/device/scene/view；16 numeric epochs；32 origin/scale；48 patch/cell/bounce capacity/validity；64 allocator start/end/count/serial；80 bounce count/overflow/status；96四组cascade origin/scale；160四组cascade offset/ring；224 addressGeneration/sampleSerialLo/sampleSerialHi/reserved；240 reserved。将来超过4 cascades须显式版本化，不复用reserved偷扩ABI。allocator free-slot数组另按4K B/bank计入完整world arena。
 
 SCGI-3明确header已有字段的使用：60B为sticky cache fault（非零禁止更新/有效lookup）；64B start/end/count为逻辑active ring；76B为提交frame；80B/84B为candidate bounce count/overflow；160B每cascade为signed integer origin.xyz+originEpoch；240B reserved四word明确分配为四类update cursor，仍保持256B stride和4 cascade上限。frame只接受1…0xfffffffd；序号重启需fresh world，slotGeneration接近sentinel时GPU置fault并停止有效更新，不能wrap重用。纯origin重基当前保守失效world patch；scale变化也失效，即使存储cell数字偶然相同。
 
-half field/history是**逻辑完整、物理可分片**的96H产品：按线性half-pixel连续区间分配，每段不拆96B记录，完整binding range满足实际maxBufferSize/maxStorageBufferBindingSize。publication携带有序segments及half extent，各段起点由前段count累加，完整写域校验所有段无遗漏。两history roles具有相同分片布局、各自scale；4K在128MiB binding上必须分片（单role约189.84MiB）。Native仍走§10目录窗口，不能把私有分片误当新增Native binding。compound fact同时约束field/guide/48B identity的stride、extent、generation、颜色域与完整写域。
+half field/history是**逻辑完整、物理可分片**的112H产品：按线性half-pixel连续区间分配，每段不拆112B记录，完整binding range满足实际maxBufferSize/maxStorageBufferBindingSize。publication携带有序segments及half extent，各段起点由前段count累加，完整写域校验所有段无遗漏。两history roles具有相同分片布局、各自scale；4K在128MiB binding上必须分片（单role约221.48MiB）。Native仍走§10目录窗口，不能把私有分片误当新增Native binding。compound fact同时约束field/guide/64B identity的stride、extent、generation、颜色域与完整写域。
 
 ### 19.3 query布局与没有bindless时的访问
 

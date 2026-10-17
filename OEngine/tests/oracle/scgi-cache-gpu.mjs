@@ -28,6 +28,7 @@ function request(position, normal = [0, 0, 1], rank = 0, identity = 7) {
     source: 0,
     identity: new Uint32Array(12).fill(identity),
     cellRankPixelStatus: [0, rank, 0, 0],
+    identityTail: [0, 0, 0, 0],
   });
 }
 
@@ -100,8 +101,8 @@ export async function runScgiCacheGpuOracle(device) {
     const settings = { ...baseSettings, frame, ...options.settings };
     const regions = [];
     if (requests.length) {
-      const bytes = new Uint8Array(requests.length * 96);
-      requests.forEach((value, i) => bytes.set(value, i * 96));
+      const bytes = new Uint8Array(requests.length * 112);
+      requests.forEach((value, i) => bytes.set(value, i * 112));
       regions.push({
         destination: scratch.buffer,
         destinationOffset: scratch.plan.ranges.requests.offset,
@@ -161,7 +162,7 @@ export async function runScgiCacheGpuOracle(device) {
     const map = world.plan.ranges.map.offset / 4;
     const live = [];
     for (let slot = 0; slot < state.profile.patches; slot++) {
-      const at = patchBase + slot * 72;
+      const at = patchBase + slot * 76;
       if (words[world.plan.ranges.cacheState.offset / 4 + slot * 4 + 3] === 0) continue;
       const cell = words[at + 20];
       check(cell < state.plan.cells, "live cell bounds");
@@ -357,7 +358,7 @@ export async function runScgiCacheGpuOracle(device) {
       settings: { evictionAge: 2, moveBudget: 1 },
       write: ({ regions, world, scratch }) => {
         for (let slot = 0; slot < 4; slot++) {
-          const at = world.plan.ranges.patches.offset + slot * 288;
+          const at = world.plan.ranges.patches.offset + slot * 304;
           regions.push({
             destination: world.buffer,
             destinationOffset: at + 112,
@@ -379,7 +380,7 @@ export async function runScgiCacheGpuOracle(device) {
         for (const offset of [160, 208])
           regions.push({
             destination: world.buffer,
-            destinationOffset: world.plan.ranges.patches.offset + sourceSlot * 288 + offset,
+            destinationOffset: world.plan.ranges.patches.offset + sourceSlot * 304 + offset,
             bytes: new Uint8Array(
               new Float32Array(Array.from({ length: 12 }, (_, i) => offset + i * 0.25)).buffer,
             ),
@@ -435,7 +436,7 @@ export async function runScgiCacheGpuOracle(device) {
         for (const slot of [1, 3, 5, 7]) {
           regions.push({
             destination: world.buffer,
-            destinationOffset: world.plan.ranges.patches.offset + slot * 288 + 112,
+            destinationOffset: world.plan.ranges.patches.offset + slot * 304 + 112,
             bytes: new Uint8Array(new Uint32Array([4]).buffer),
           });
           regions.push({
@@ -537,7 +538,7 @@ export async function runScgiCacheGpuOracle(device) {
       ${scgiCacheRequestWgsl(gpuProducer.plan)}
       @compute @workgroup_size(64)
       fn main(@builtin(global_invocation_id) id: vec3u) {
-        let record = array<u32, 24>(${[...payloadWords].map((v) => `${v}u`).join(",")});
+        let record = array<u32, 28>(${[...payloadWords].map((v) => `${v}u`).join(",")});
         let accepted = scgi_append_receiver_request(record);
       }
     `,
@@ -574,7 +575,7 @@ export async function runScgiCacheGpuOracle(device) {
       ${scgiCacheRequestWgsl(gpuProducer.plan)}
       @compute @workgroup_size(64)
       fn main() {
-        var record = array<u32, 24>(${[...payloadWords].map((v) => `${v}u`).join(",")});
+        var record = array<u32, 28>(${[...payloadWords].map((v) => `${v}u`).join(",")});
         record[0] = bitcast<u32>(3.25);
         let accepted = scgi_append_bounce_request(record, 0u);
       }
