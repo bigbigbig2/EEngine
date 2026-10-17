@@ -19,7 +19,7 @@ verifies:
 
 唯一详细设计为[SCGI设计](../next-design/eengine-surface-cache-gi-2026-10.md)。需求输入为[母稿](../reviews/EEngine_Surface_Cache_GI_WebGPU_Mother_Design_2026-10-17.md)；设计§17逐项映射母稿，设计§1列明勘误。本文件是细单元状态与实施结果唯一记录，workstream和粗执行不复制细状态。
 
-**SCGI-1～SCGI-5当前范围的实现及局部验收已闭合，SCGI-5结果见§7.11，生产GI未开启。** SCGI-2当前交付为静态/刚体、精确coverage、GPU世界域工作集及本地publication，结果与边界见§7.9；SCGI-4在当前产品上的复核、接线修复与关单见§7.10。完整Renderer集成仍按既定节奏在SCGI-8/10集中完成。用户确认暂不实现skin/morph；未证保真的raster coarse不当有效遮挡，4GB不作复杂大场景承诺。§7.6～7.8保留此前实施快照，不覆盖§7.9～7.11的当前状态。本轮停在SCGI-6边界，不自动实现estimator或开启GI。
+**SCGI-1～SCGI-6当前范围的实现及局部验收已闭合，SCGI-6结果见§7.12，生产GI未开启。** SCGI-2当前交付为静态/刚体、精确coverage、GPU世界域工作集及本地publication，结果与边界见§7.9；SCGI-4在当前产品上的复核、接线修复与关单见§7.10。完整Renderer集成仍按既定节奏在SCGI-8/10集中完成。用户确认暂不实现skin/morph；未证保真的raster coarse不当有效遮挡，4GB不作复杂大场景承诺。§7.6～7.8保留此前实施快照，不覆盖§7.9～7.12的当前状态。本轮停在SCGI-7边界，不自动实现filter或开启GI。
 
 ## 1. 完整范围、依赖与生产切换
 
@@ -30,7 +30,7 @@ verifies:
 | SCGI-3 | cascaded sparse cache、ring/scroll/evict/defrag/rank | 1 | 已完成，见§7.5 |
 | SCGI-4 | half-res anchors、共享identity、screen history seed | 2、3 | 当前静态/刚体范围实现及局部验收完成，见§7.10；真实world field/composition归7/8 |
 | SCGI-5 | 完整RadeonRays算法适配、query、material/alpha/VT | 1、2 | 当前静态/刚体范围实现及局部验收完成，见§7.11；默认生产消费与整链资格仍归8/10 |
-| SCGI-6 | 全光源估计、punctual重连接、multi-bounce | 3、4、5 | 待实施 |
+| SCGI-6 | 全光源估计、punctual重连接、multi-bounce | 3、4、5 | 当前范围实现与局部验收闭合；§7.12 |
 | SCGI-7 | 统计、动态失效、A0/A1/A2过滤、L1 screen field | 6 | 待实施 |
 | SCGI-8 | FrameProgram+Native全部route原子接线、旧owner退休 | 1–7 | 待实施 |
 | SCGI-9 | Screen Radiance Gather完整近场残差增强 | 8 | 待实施 |
@@ -699,3 +699,36 @@ SCGI-7尚未实现真实world-only field writer，SCGI-8尚未接FrameProgram；
 **关单边界。** 本轮未跑整仓Node、整Renderer AAA画面、Bistro/Dungeon组合峰值、跨GPU/浏览器、正式P50/P95或source adoption/evidence门禁；它们按既定计划归8/10，不能据局部fixture宣布完成。SCGI-6/7必须真实消费query result/material/VT mapping/view资格并完成cohort，8必须将scene/cache/Native/FrameProgram原子接通，10再验完整工作集与性能。4GB低端设备按实际预算能力拒绝或选完整较小profile，不承诺复杂大场景。下一单元为SCGI-6，本轮不自动跨入。
 
 文档同步检查`node tools/docs-verify.mjs`为0 findings / 66 historical warnings / 205 documents，原历史warning保留；`git diff --check`通过。本轮只更新设计中已落地的物理布局/owner细节、domain事实与本节实施结果，不新增重复status文件或修改workstream细单元状态。
+
+### 7.12 SCGI-6：全光源估计、重连接与多跳输入闭合（2026-10-17）
+
+**范围。** 基于master `930a2e29`实现本单元，未stash分流。`ScgiEstimator`直接消费既有GpuScene/GeometryProduct的immutable query scene、Native coverage/diffuse/emission、LightDatabase与PhysicalEnvironment；输出raw RGB L1、完整cohort状态、sample sequence与rank1需求。没有第二套Renderer/geometry/material truth，没有新frame submit或GPU读回控制。当前生产GI仍关闭；A0/A1/A2 writer、screen lookup和Native原子接线分别属于7/8，本节不提前宣称已有最终GI画面。
+
+**对照设计逐项闭合。**
+
+| 合同 | 当前实现与直接验证 |
+|---|---|
+| hemisphere、SH与固定分母 | uniform `1/(2π)`，标准0/x/y/z basis，π与2π/3卷积；物理零/no-hit不删槽、不改分母；全局常量由两相反半球求和验收，倾斜半球在任意方向对照`πL(1+n·ng)/2` |
+| 光源分区 | hemisphere只计environment、Le、authored directional/physical sun、previous A0；点/spot只走light-origin池重连接，避免当前单跳重复；零base发射仍保持1:2:4，physical sun使用hitPosition透射LUT |
+| 完整全灯 | 枚举point/spot occupancy，不使用LocalLightWork屏幕tile；uniform reference与power-CDF含正support；70盏灯包含零power全部发布，64槽容量整cohort拒绝；灯删除后旧owner在encode及提交前失效 |
+| pool与重连接 | 固定192B槽保留no-hit，有限range支持域外为零；任意finite cutoff不是零；完整PDF/area Jacobian、距离/range/cone、shading/geometric cosine比；验证instance/primitive/generation/64B identity/t/error，相同primitive不同实例的28次遮挡目标拒绝 |
+| world visibility | closest与any-hit沿同coverage/tail；离屏遮挡、MASK穿透、surface/shadow独立mask、CastsShadow=false保留transport；太阳lit→world blocker后结果为零 |
+| multi-bounce | previous committed A0检查world/逐patch epochs、slot/identity/normal/双边plane/距离；rank0缺失发rank1 demand，missing计数交7降低confidence；候选A0注入1e20不能回灌；关闭continuation回零 |
+| cohort与serial | raw64B的Nhemi/Nconnect/valid/fault完整写域，unknown/inside/fault整组不发布部分值；sequence low/high每尝试推进，失败不重复采样，abort不推进；real count/A0/A2留7唯一writer |
+| 容量与生命周期 | finite batch、GPU count/indirect、同command顺序重用；10 SSBO估计器与query实际inventory分别准入；分配失败清理；deviceEpoch与light/material/environment resource版本验证；提交后失败隔离、不可伪回滚，fence退休/device loss保留 |
+
+**数值与真实GPU。** 新增`tests/oracle/scgi-estimator-gpu.mjs`使用真实Product、GpuScene、Native PSO、ScgiCache/QueryBatch、GPULightCollection和PhysicalEnvironment owner。天空N512的解析接受界采用独立有界变量积分；punctual/spot采用300×300三角形面积积分，独立计算二阶矩及两阶段有放回采样方差`Var(g)[1/Npool+(1−1/Npool)/Nconnect]`，接受6 SE加1e−4积分/浮点余量，不使用随意百分比放宽。最终point约0.616058，对照0.558994、SE0.087273；spot约0.519306，对照0.532729、SE0.031068。SH截断与精确cosine的表示误差分开，不当作浮点容差。
+
+独立方向积分得有限大墙L1 form factor=0.9841986001；RGB反射率(0.8,0.2,0.1)、直接边界(0.1,0.2,0.4)，18轮真实GPU continuation输出为(0.4656425,0.2494245,0.4439092)，解析固定点为(0.4702759,0.2490163,0.4436655)。oracle显式提供每轮previous-A0边界，验证估计器Jacobi传输/彩色反射率，而非伪造SCGI-7 filter；黑/白/彩色与吸收、开关分支分别覆盖。完整Cornell画面、动态材质/门变化的真实A0/A2收敛仍按7/8/10直接consumer验收，不能由本输入oracle代替。
+
+最终新鲜build:test source SHA `28a785305bd1b9b92947c50b9ffc40a00e9329035ca422308e785e723bfc6041`，output SHA `18e8c63d57518de59f6856b6dbea18f92b1c4a65bde2fe3ed5242dbd4da41374`；GPU运行NVIDIA Turing/Chrome155硬件，16 storage/128MiB binding。`scgi-estimator`77个提交的`gpuErrors/scopedGpuErrors/pageErrors`为空。`scgi-query`原64B消费、完整81层alpha与affine更新路径也通过，确认64→可选96B扩展未替换旧消费者。最终同一source/output build的query兼容复核和估计器96B消费均通过。没有据此提升完整Renderer或跨设备资格。
+
+**成本卡。** 内存公式、ray/dispatch上界见设计§8.4。实际sky fixture U1/L4/H512/C4/B4的private bytes=12,600，pool768B，理论最大ray520，encoded dispatch上界7,245，command参数266,496B。punctual U1/L2048/H64/C256/B256的private bytes=543,832，pool393,216B，最大ray2,368，encoded dispatch上界4,606，command参数171,520B；query batch私有bytes已包含，借用AS、world双bank、Native/VT/environment与owner退休峰值必须另外合计。容量示例L1024/B256/U2048/maxLights4096的arena516,352B，与output像素无乘法关系。
+
+每光源表16B GPU顺序枚举/CDF、pool192B随机重连接、path224B/命中96B批量写读、每patch raw64B与cohort96B；每次64线程lane独占自己的path/cohort，灯压缩、诊断、bounce队列用u32 atomics，无float atomic/subgroup硬依赖、无跨workgroup spin。理想miss省directional/cache实际shader工作，正常opaque有完整hemisphere/reconnect，最坏多灯+alpha成本按完整query visits另计，不将new ray数等同intersection次数。现阶段每H/C仍有窗口dispatch与临时参数固定税，不宣称最终性能；首个512样本4-lane天空fixture的timestamp跨度约156.23ms，含命令间隙/冷启动，不是净shader或P50/P95。该结果说明当前高样本验证配置不能当实时profile，保留为后续融合/共享准备/合理生产预算的成本事实，不通过少算样本/截断alpha伪优化。
+
+**验证与失败留痕。** 完整`npm --prefix OEngine run build`（含typecheck）和新鲜`build:test`通过，4个targeted合同文件23/23通过。GPU作业串行，不跑整仓/整Renderer回归；日志保留`.local/scgi6-reference/`，未把本地产物加入Git。早期fixture缺真实Graphics bindings、WGSL保留字/无限常量、assert shim无throws、staging48→16误拷贝、太阳horizon、rank1公平调度、倾斜normal旧patch复用、粗cell跨零坐标导致rank1不足、未启用timestamp feature等均保留原失败。修复fixture或真实shader原因，不吞错误、不加production fallback、不放宽原生产语义。有限ray miss语义与扩展几何finite检查是真实实现修正；power全灯/epoch/serial/abort均保留断言。
+
+**来源与关单边界。** 重新研究固定Unity UCL源码仅作Reference；估计器本地独立推导实现，具体入口/差异见source map，不冒称Unity代码port或production adoption。当前静态/刚体opaque+MASK单元闭合；skin/morph按用户授权继续随共享动画后续实现。7必须直接消费`estimateComplete`与raw valid/fault/missing、写真实A0/statistics/epochs，再完成A1/A2与动态失效；8才启用生产。未运行完整Cornell/大场景画质、最终world→Native闭环、跨GPU、正式吞吐/帧时/4GB资格，均保持未验证。本轮停在SCGI-7边界。
+
+文档同步检查：`node tools/docs-verify.mjs`为0 findings / 66 historical warnings / 205 documents；`--staged`为0 findings / 81 historical warnings / 205 documents，差异来自历史文档引用未跟踪本地产物，保留原warnings。`git diff --cached --check`通过。

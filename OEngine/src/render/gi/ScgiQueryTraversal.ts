@@ -101,6 +101,7 @@ export class ScgiQueryTraversal {
         work?: ScgiQueryHitWork;
         binIndex?: number;
         output: GPUBuffer;
+        outputStride?: 64 | 96;
         feedback?: GPUBuffer;
         feedbackBuffers?: readonly GPUBuffer[];
         view: ArrayLike<number>;
@@ -159,7 +160,7 @@ export class ScgiQueryTraversal {
     }
     if (
       diffuse !== undefined &&
-      (diffuse.output.size < input.rayCount * 64 ||
+      (diffuse.output.size < input.rayCount * (diffuse.outputStride ?? 64) ||
         (diffuse.material.binding.program.virtualTextures &&
           diffuse.feedback === undefined &&
           !diffuse.feedbackBuffers?.length))
@@ -259,7 +260,8 @@ export class ScgiQueryTraversal {
             work?.listWordOffset,
             wavefront?.phase,
             input.pendingWork !== undefined || input.tailWork !== undefined,
-            nodeQuantum
+            nodeQuantum,
+            diffuse?.outputStride ?? 64
           )
         },
         entryPoint:
@@ -272,7 +274,7 @@ export class ScgiQueryTraversal {
     });
     const settings = device.createBuffer({
       label: "SCGI/opaque geometry parameters",
-      size: 48,
+      size: 64,
       usage: GPUBufferUsage.UNIFORM,
       mappedAtCreation: true
     });
@@ -291,7 +293,14 @@ export class ScgiQueryTraversal {
         lease.productTableSlot,
         lease.assetReferenceBegin + input.asset,
         input.instances.first,
-        input.instances.count
+        input.instances.count,
+        new DataView(
+          lease.cut.descriptor.assetRecords.buffer,
+          lease.cut.descriptor.assetRecords.byteOffset
+        ).getUint32(input.asset * 128 + 88, true),
+        0,
+        0,
+        0
       ]);
       settings.unmap();
       traceSettings = device.createBuffer({

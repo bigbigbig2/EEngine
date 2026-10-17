@@ -202,7 +202,8 @@ export function scgiQueryGeometryWgsl(
   hitListWord?: number,
   wavefront?: "candidate" | "coverage" | "tail",
   pendingWork = false,
-  nodeQuantum = 256
+  nodeQuantum = 256,
+  outputStride = 64
 ): string {
   const cursor = SCGI_QUERY_CONTINUATION.candidate;
   const tail = SCGI_QUERY_CONTINUATION.tail;
@@ -229,6 +230,10 @@ struct GeometrySettings {
   asset_reference: u32,
   instance_first: u32,
   instance_count: u32,
+  group_begin: u32,
+  reserved0: u32,
+  reserved1: u32,
+  reserved2: u32,
 }
 @group(0) @binding(0) var<uniform> geometry: GeometrySettings;
 @group(0) @binding(1) var<storage, read_write> scratch: array<u32>;
@@ -246,6 +251,7 @@ struct QueryTriangle {
   cluster: u32,
   primitive: u32,
   source_primitive: u32,
+  meshlet: u32,
   p0: vec3f,
   p1: vec3f,
   p2: vec3f,
@@ -294,6 +300,7 @@ fn query_triangle(index: u32) -> QueryTriangle {
   result.cluster = cluster;
   result.primitive = primitive;
   result.source_primitive = product_heap[product_heap[at + 18u] + primitive];
+  result.meshlet = (product_heap[at + 1u] - geometry.group_begin) * 128u + local_meshlet;
   result.p0 = frame_vertex_position(v0);
   result.p1 = frame_vertex_position(v1);
   result.p2 = frame_vertex_position(v2);
@@ -587,6 +594,13 @@ fn trace_opaque(@builtin(global_invocation_id) id: vec3u) {
       if (primitive >= arrayLength(&instances)) { status = 5u; break; }
       let instance = instances[primitive];
       if ((instance.shardGenerationMaskFlags[3] & 0x80000000u) != 0u) { status = 3u; break; }
+      // Ray kind bit 0 selects shadow visibility. Transport/reconnection sees
+      // every admitted surface, including surfaces which do not cast shadows.
+      if ((batch[ray + 10u] & 1u) != 0u && (instance.shardGenerationMaskFlags[3] & 2u) == 0u) {
+        previous = node;
+        node = parent;
+        continue;
+      }
       if ((instance.shardGenerationMaskFlags[2] & batch[ray + 9u]) == 0u) {
         previous = node;
         node = parent;
@@ -771,13 +785,25 @@ fn shade_hit(@builtin(global_invocation_id) id: vec3u) {
     transport_basis[2] = -transport_basis[2];
   }
   let hit = native_diffuse_hit(entry.x, inputs.inputs, transport_basis, -direction);
-  let output = ray_index * 4u;
+  let output = ray_index * ${outputStride / 16}u;
   diffuse_hits[output] = vec4f(hit.diffuse, hit.occlusion);
   diffuse_hits[output + 1u] = vec4f(hit.emission, hit.underlayer);
   diffuse_hits[output + 2u] = vec4f(hit.normal, f32(hit.valid));
   let position = affine_point(instances[instance_slot].objectToWorld,
     triangle.p0 * (1.0 - bary.x - bary.y) + triangle.p1 * bary.x + triangle.p2 * bary.y, 1.0);
   diffuse_hits[output + 3u] = vec4f(position, bitcast<f32>(source.flags));
+  ${outputStride === 96 ? `
+  diffuse_hits[output + 4u] = bitcast<vec4f>(vec4u(geometry.asset, triangle.meshlet,
+    triangle.primitive, triangle.source_primitive));
+  let world0 = affine_point(instances[instance_slot].objectToWorld, triangle.p0, 1.0);
+  let world1 = affine_point(instances[instance_slot].objectToWorld, triangle.p1, 1.0);
+  let world2 = affine_point(instances[instance_slot].objectToWorld, triangle.p2, 1.0);
+  var flat = normalize(cross(world1 - world0, world2 - world0));
+  if (dot(flat, -direction) < 0.0) { flat = -flat; }
+  // Forward-error bound, scaled by world-coordinate magnitude and triangle extent.
+  let error = 32.0 * 1.1920928955078125e-7 *
+    max(max(length(position), max(length(world1 - world0), length(world2 - world0))), 1.0);
+  diffuse_hits[output + 5u] = vec4f(flat, error);` : ""}
 }`
     : ""
 }

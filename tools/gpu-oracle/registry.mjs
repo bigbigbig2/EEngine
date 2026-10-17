@@ -11,6 +11,16 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "scgi-estimator",
+    file: "OEngine/tests/oracle/scgi-estimator-gpu.mjs",
+    url: "/OEngine/tests/oracle/scgi-estimator-gpu.mjs",
+    entry: "runScgiEstimatorGpuOracle",
+    requiredFeatures: ["timestamp-query"],
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    timeoutMs: 180000,
+    description: "SCGI-6 actual Product/native/query/light/cache estimator and independent transport expectations."
+  }),
+  Object.freeze({
     name: "scgi-query-continuation",
     file: "OEngine/tests/oracle/geometry-budgeted-residency-gpu.mjs",
     url: "/OEngine/tests/oracle/geometry-budgeted-residency-gpu.mjs",

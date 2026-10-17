@@ -36,6 +36,7 @@ export interface ScgiFramePublication {
   /** Declared by the real producer after its complete write domain is encoded. */
   fieldComplete: boolean;
   cacheComplete: boolean;
+  estimateComplete: boolean;
 }
 
 export interface ScgiCompoundFact {

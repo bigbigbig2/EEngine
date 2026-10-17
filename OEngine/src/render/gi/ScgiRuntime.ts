@@ -370,6 +370,7 @@ export class ScgiRuntime {
       status: "prepared",
       fieldComplete: false,
       cacheComplete: false,
+      estimateComplete: false,
     };
     const transaction = new ScgiFrameTransaction(this, command, workset, leases, publication, replaced);
     this.#pending = transaction;

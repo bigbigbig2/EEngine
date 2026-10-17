@@ -1725,6 +1725,8 @@ GRS-3集中复核补齐原始完整Page→真实Residency→production WGSL的�
 
 本节对应[详细设计](../next-design/eengine-surface-cache-gi-2026-10.md)与[执行](../next-execution/eengine-surface-cache-gi-execution-2026-10.md)。来源状态：**Reference / Planned Adapt / Local，未production adopt**；SCGI-1事务与SCGI-3缓存本地实现/独立GPU验证见本节末及执行记录，其余部分仍待实施。设计阶段下载并核读下列固定源码的算法入口、关键分支/数据布局/宿主调度；未构建第三方工程，不宣称审计整个Unity/FidelityFX工程。论文支持数学判断，完整生产接线仍由后续执行单元完成。
 
+**SCGI-6来源核对补充。** 重新核读下表固定Unity revision的`Estimation.hlsl::Estimate`、`PunctualLightSampling.hlsl::SamplePunctualLights`、`PathTracing.hlsl::SamplePunctualLightBounceRadiance`及其环境/方向光/cache continuation。它们保持UCL Reference身份；本地`ScgiEstimator.ts`、`ScgiEstimatorLayout.ts`与`shaders/scgi_estimator.ts`依据传输积分独立编写，不复制或逐行翻译Unity。保留完整light-origin池、no-hit、reconnect、Jacobian、Le/方向光/previous cache机制；明确改用预定分母、失败推进序列、整cohort invalid、EEngine既有range/spot衰减、normal-map shading/geometric比、publication事务。标准SH用上表论文；面积积分和两阶段抽样方差在本地oracle独立推导。query继续沿用已记录RadeonRays Adapt与Native/VT本地owner，不引入新的库依赖。真实GPU估计器/独立面积参考/多跳输入验证已完成，结果只读执行§7.12；Renderer尚未切换，不提升为完整production adoption。
+
 ### 固定来源与许可证
 
 | 来源 | 固定版本与许可 | 已核范围 / 本地边界 |

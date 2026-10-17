@@ -214,7 +214,7 @@ export class ScgiQueryScene {
         coverageBytes +
         builderBytes +
         scratchBytes +
-        geometryCount * (owner.blasPlan.hierarchy.bytes + 48) +
+        geometryCount * (owner.blasPlan.hierarchy.bytes + 64) +
         shardCount * (owner.tlasPlan.hierarchy.bytes + instanceBytes);
       if (!Number.isSafeInteger(finalBytes) || finalBytes > profile.maximumBytes) {
         throw new RangeError("Complete query AS publication exceeds the admitted working-set budget");
@@ -302,7 +302,7 @@ export class ScgiQueryScene {
                 throw new Error("Query device was lost during BLAS preparation");
               }
               owner.staticBlas.push({ ...acquired, geometry, count });
-              owner.bytes += acquired.entry.buffer.size + 48;
+              owner.bytes += acquired.entry.buffer.size + 64;
               for (
                 let first = 0;
                 first < Math.max(1, owner.sourceInstances.count);

@@ -17,6 +17,7 @@ verifies:
     - OEngine/src/render/FrameInstanceTransforms.ts
     - OEngine/src/shaders/scgi_cache.ts
     - OEngine/src/shaders/scgi_anchor.ts
+    - OEngine/src/shaders/scgi_estimator.ts
     - OEngine/src/shaders/primary_surface_identity.ts
     - OEngine/src/shaders/primary_surface_motion.ts
     - OEngine/src/render/reflections
@@ -301,6 +302,24 @@ patch从包含no-hit槽的完整固定Nlight池抽样，再追patch→sample重�
 不能同时在普通hit路径全量采punctual又加完整reconnection而不做MIS。选定路径按光源类别分区：环境+太阳+emissive+cache continuation走hemisphere，punctual single-bounce走重连接；多跳cache已含上一轮所有类别，属于更高阶transport，不重复当前单跳。全灯uniform选样为有完整support的reference，生产可GPU power-CDF/alias改善variance；所有非零灯都有正概率，PDF与light revision一致，禁用只采前N灯。
 
 sample pool不是ReSTIR reservoir，不需要本模块引入RTXDI。动态灯修改/删除使旧sample revision失效；geometry/material改变使相关sample无效。light池、reconnection、alpha continuation、bounce request的预算都计入总query数。
+
+### 8.4 SCGI-6物理产品、工作窗口与接受合同
+
+`ScgiEstimator`捕获现有`ScgiQueryScene`、Native material publication、全局`GPULightCollection`与可选`PhysicalEnvironmentRuntime`；创建及每次encode/提交前检查light/source/material/environment generation和resource identity。它不拥有另一份geometry、material或light truth，不执行独立submit。view/camera复制为不可变输入；view-dependent、VT mapping generation写入cohort资格。authored环境显式记录`authoredSolarDisk=absent/embedded`，保留资产，不自动删盘；physical散射环境与太阳直射分开。
+
+LightDatabase的point/spot page occupancy完整枚举为16B/light表。uniform reference和带5% uniform support的power-CDF使用同一全灯集合；超过`maximumLights`、非法功率或f32 CDF丢区间都使整publication失败，不截前N灯。directional按完整发布槽枚举，physical sun独立消费现有LUT。没有灯也完整保留固定no-hit池与预定分母。
+
+物理布局由`ScgiEstimatorLayout.ts`拥有：control128B、light16B、固定pool192B/slot、path224B/有限batch lane、cohort96B/selected update，各段按storage offset alignment对齐。ray/result合计80B/lane，Native hit扩展为可选96B，前64B保持既有消费者；后32B给出asset/asset-local meshlet/local primitive/source primitive、world flat normal与误差。几何settings扩为64B以携带Product groupBegin。实例/primitive/generation、64B语义identity、目标t及误差全部一致才接受重连接，不能以primitive相同代替实例相同。query resolve拒绝扩展几何非有限/退化值。
+
+有限窗口重复使用同一closest与shadow batch；每段完成全部AS shards、MASK continuation和Native projection后才能覆写。GPU count/indirect决定窗口实际工作，CPU仅编码有界容量循环，不读回决定工作。dispatch参数使用现有command transient pool逐阶段不可变切片，不能用多次queue.writeBuffer覆盖同command前序参数。pool每帧重建，不跨publication缓存。
+
+whole-world coverage允许无限ray miss读取环境；有限域query出域为unknown，有限ray cutoff miss也不是世界miss。light-origin只有灯光有限range已包含全部支持域时，range-end miss才是物理零；任意budget cutoff不可这样处理。source几何cosine与面积PDF解析抵消；有normal map时保留shading/geometric cosine比，不用grazing clamp改变积分。
+
+每个raw64B为12个RGB L1浮点与`Nhemi/Nconnect/valid/fault`四word，先验证全部系数再由单lane发布；`publication.estimateComplete`只证明完整encode，不是GPU完成或field有效。patch的`countSerialFlags`明确为real count/sequence low/sequence high/flags；SCGI-6仅推进后两者，不增加real count、不写A0/A2。序列溢出进入高word，高word耗尽置world fault；失败尝试也推进，pre-submit abort丢弃candidate所以不推进。`rankPostCohortStatus`依次为rank/post validity/last cohort fault/missing A0 lookups。SCGI-7必须按missing降低置信，不能把缺失的continuation当高置信物理零。
+
+previous A0 lookup检查world及逐patch numericEpochs、scene/device、slot generation、完整identity、orientation、双边plane/normal与距离；只读上一committed bank。SCGI-7只有成功的数值writer才更新patch numericEpochs，SCGI-6更新world header不能令旧patch自动获得新epoch资格。rank0缺失发有界rank1 demand，rank1不继续递归扩需求。submitted失败隔离estimator/query/cache publication并保留fence资源，不回滚已执行GPU；成功fence或pre-submit abort才可正常释放，device loss统一销毁。
+
+成本上界令L=pool槽、H=hemisphere samples、C=reconnect samples、U=updates、B=batch lanes、D=authored directional+physical sun：新ray≤`L+U(H+C)+UHD`；cache lookup≤`UH`，alpha continuation/node visits另由query成本报告。arena约`128+16·maximumLights+192L+224B+96U`加对齐，额外176B/lane及query私有内存、12B indirect、64B disabled参数和8B disabled纹理；command transient参数另计。窗口数`W=ceil(U/B)`、`P=ceil(L/B)`，local dispatch上界`5+3P+W[1+H(2+2D)+2C]`，再加`[P+W(H+C)]·queryDispatch+WHD·shadowDispatch`。无hit可省shader内shadow/cache工作，但已编码dispatch固定税仍存在；当前不是最终吞吐资格。未来窗口融合/共享准备不改变固定pool/cohort语义；不能为降dispatch删除alpha或样本。
 
 几何query mask分`surface-transport`与`shadow-visibility`：可见表面不能因`CastsShadow=false`从hemisphere hit中消失；shadow类尊重现有casts/receives语义与明确GI设置。MASK完整支持；BLEND、折射/体积transmission仍由未来透明/介质模块定义，当前不会假装拥有这些transport，也不能无声将BLEND当opaque。admission/report明确透明内容限制；本模块“完整”指母稿的opaque+MASK动态漫反射闭包，而非无限扩展到尚不存在的透射renderer。
 

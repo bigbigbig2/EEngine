@@ -57,6 +57,8 @@ export const SCGI_ABI = Object.freeze({
     ["normalPlaneError", "f32", 4],
     ["identity", "u32", 12],
     ["cellCascadeOrientationGeneration", "u32", 4],
+    // count, sequence low, sequence high, flags. Estimator advances both
+    // sequence words on every attempted complete plan, including failed plans.
     ["countSerialFlags", "u32", 4],
     ["accessUpdateBirthDirty", "u32", 4],
     ["shortMeanConfidence", "f32", 4],
@@ -64,6 +66,7 @@ export const SCGI_ABI = Object.freeze({
     ["a0", "f32", 12],
     ["a2", "f32", 12],
     ["numericEpochs", "u32", 4],
+    // rank, post-filter validity, last cohort fault bits, missing A0 lookups.
     ["rankPostCohortStatus", "u32", 4],
     ["identityTail", "u32", 4],
   ]),

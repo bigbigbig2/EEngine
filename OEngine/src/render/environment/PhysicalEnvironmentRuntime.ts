@@ -23,6 +23,11 @@ export class PhysicalEnvironmentRuntime {
   private pendingSkyKey: string | null = null;
   private destroyed = false;
 
+  /** Current same-encoder generation, usable before the frame commits. */
+  get queryGeneration(): number {
+    return this.pendingGeneration ?? this.state.active?.generation ?? 0;
+  }
+
   constructor(private readonly device: GPUDevice) {
     this.luts = new AtmosphereLutResources(device);
     this.ibl = new PhysicalSkyIblResources(device);

@@ -13,6 +13,8 @@ export interface ScgiQueryBatchInput {
   readonly rayCount: number;
   readonly resultByteOffset: number;
   readonly output: GPUBuffer;
+  /** Optional geometry facts for transport, in the same output binding. */
+  readonly outputStride?: 64 | 96;
   readonly view: ArrayLike<number>;
   readonly camera: ArrayLike<number>;
   readonly coneWidth: number;
@@ -130,6 +132,7 @@ export class ScgiQueryBatch {
     scgiInteger(input.wavefrontRounds, "query wavefront rounds", 0, 64);
     scgiInteger(input.rayCount, "query batch ray capacity", 1);
     if (
+      (input.outputStride !== undefined && input.outputStride !== 64 && input.outputStride !== 96) ||
       !Number.isSafeInteger(input.resultByteOffset) ||
       input.resultByteOffset % 4 !== 0 ||
       input.resultByteOffset < input.rayCount * 48 ||
@@ -139,7 +142,7 @@ export class ScgiQueryBatch {
       !(input.batch.usage & GPUBufferUsage.STORAGE) ||
       !(input.output.usage & GPUBufferUsage.STORAGE) ||
       !(input.output.usage & GPUBufferUsage.COPY_DST) ||
-      input.output.size < input.rayCount * 64 ||
+      input.output.size < input.rayCount * (input.outputStride ?? 64) ||
       Math.ceil(input.rayCount / 64) > device.limits.maxComputeWorkgroupsPerDimension
     ) {
       throw new RangeError("Query batch requires complete nonoverlapping ray/result ranges");
@@ -318,6 +321,7 @@ export class ScgiQueryBatch {
                 binIndex: bin.index,
                 work: diffuseWork,
                 output: input.output,
+                outputStride: input.outputStride,
                 feedback: input.feedback,
                 ...(owner.usesVirtualTextures && input.feedback === undefined
                   ? { feedbackBuffers: scene.virtualTextures!.queryFeedbackBuffers }
@@ -447,14 +451,24 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     batch[at + 3u] = 3u;
     return;
   }
-  if (hits[id.x * 4u + 2u].w != 1.0) { batch[at + 3u] = 2u; return; }
+  if (hits[id.x * ${(this.input.outputStride ?? 64) / 16}u + 2u].w != 1.0) { batch[at + 3u] = 2u; return; }
   for (var item = 0u; item < 3u; item++) {
-    if (any((bitcast<vec4u>(hits[id.x * 4u + item]) & vec4u(0x7f800000u)) == vec4u(0x7f800000u))) {
+    if (any((bitcast<vec4u>(hits[id.x * ${(this.input.outputStride ?? 64) / 16}u + item]) & vec4u(0x7f800000u)) == vec4u(0x7f800000u))) {
       batch[at + 3u] = 5u;
     }
   }
-  if (any((bitcast<vec3u>(hits[id.x * 4u + 3u].xyz) & vec3u(0x7f800000u)) == vec3u(0x7f800000u))) {
+  if (any((bitcast<vec3u>(hits[id.x * ${(this.input.outputStride ?? 64) / 16}u + 3u].xyz) & vec3u(0x7f800000u)) == vec3u(0x7f800000u))) {
     batch[at + 3u] = 5u;
+  }
+  ${
+    this.input.outputStride === 96
+      ? `
+  let geometry = hits[id.x * 6u + 5u];
+  if (any((bitcast<vec4u>(geometry) & vec4u(0x7f800000u)) == vec4u(0x7f800000u)) ||
+      dot(geometry.xyz, geometry.xyz) < 0.5 || geometry.w < 0.0) {
+    batch[at + 3u] = 5u;
+  }`
+      : ""
   }`
   }
 }`
@@ -483,30 +497,32 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     ) {
       throw new Error("Query batch requires its encoded immutable scene publication");
     }
-    if (this.commands.has(command)) {
-      throw new Error("Query batch can be encoded only once in a command");
+    // Sequential reuse is intentional: a consumer must finish reading the old
+    // results before overwriting rays. Encoder order is the dependency, with
+    // one scene/fence registration for all windows in this command.
+    if (!this.commands.has(command)) {
+      this.scene.observeUse(command);
+      this.commands.add(command);
+      this.inFlight++;
+      command.observeSubmission({
+        submitted: (fence) => {
+          void fence.then(
+            () => {
+              this.inFlight--;
+            },
+            () => {
+              this.poisoned = true;
+            }
+          );
+        },
+        aborted: () => {
+          this.inFlight--;
+        },
+        failed: () => {
+          this.poisoned = true;
+        }
+      });
     }
-    this.scene.observeUse(command);
-    this.commands.add(command);
-    this.inFlight++;
-    command.observeSubmission({
-      submitted: (fence) => {
-        void fence.then(
-          () => {
-            this.inFlight--;
-          },
-          () => {
-            this.poisoned = true;
-          }
-        );
-      },
-      aborted: () => {
-        this.inFlight--;
-      },
-      failed: () => {
-        this.poisoned = true;
-      }
-    });
     this.rayWork?.encode(command);
     if (this.emptyScene !== undefined) {
       if (this.rayWork !== undefined) {

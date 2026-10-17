@@ -10,7 +10,7 @@ import { scgiInteger } from "./ScgiCapacity.js";
 import { GEOMETRY_QUERY_DIRECTORY_HEADER_BYTES } from "../../gpu/GeometryQueryDirectory.js";
 
 /** An immutable asset/shard binding. Its source geometry owner retains pages;
- * this binding borrows them and owns only 48B of immutable scalar settings. */
+ * this binding borrows them and owns only 64B of immutable scalar settings. */
 export class ScgiQueryGeometry {
   private destroyed = false;
 
@@ -65,7 +65,7 @@ export class ScgiQueryGeometry {
     }
     const settings = device.createBuffer({
       label: "SCGI/query geometry parameters",
-      size: 48,
+      size: 64,
       usage: GPUBufferUsage.UNIFORM,
       mappedAtCreation: true
     });
@@ -81,6 +81,13 @@ export class ScgiQueryGeometry {
         range.cutCount,
         lease.productTableSlot,
         lease.assetReferenceBegin + asset,
+        0,
+        0,
+        new DataView(
+          lease.cut.descriptor.assetRecords.buffer,
+          lease.cut.descriptor.assetRecords.byteOffset
+        ).getUint32(asset * 128 + 88, true),
+        0,
         0,
         0
       ]);
