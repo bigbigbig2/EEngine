@@ -85,6 +85,8 @@ NativeVisibilityPass 和 VSM native alpha caster 消费同一 native material pu
 
 2026-10-18 SCGI query执行切换：`ScgiQueryArena`按有限storage范围聚合多Product BLAS与48B精确求交payload，以完整GpuScene实例构建scene TLAS；`ScgiQueryRouteWork`空间筛选实际ray，`scgi_query_scene`在invocation内完整遍历并内联Native MASK，最终material按Native Program bin求值。`ScgiGather` probe消费96B geometry closest，不运行diffuse graph；estimator与两类shadow共享同一query scene。旧per-asset实例TLAS、wavefront/quantum/tail控制和64B/ray continuation已删除；packed静态arena可跨刚体publication共享，candidate/fence/abort协议仍由原query publication持有。默认1080p实验屋已接通；R2 estimator批处理、R3 request-first Native源与SCGI-10仍未完成，不能将R1解读为GI质量或整Renderer性能资格。实际成本、诊断与限制只读执行§8.4。
 
+2026-10-18 SCGI estimator批处理：`ScgiEstimator`以GPU selected前缀组织patch×sample窗口，`scgi_estimator`用独占radiance、工作组prefix shadow队列、固定directional/sample顺序两级reduce产生原raw cohort；Native hit/完整MASK仍走R1 query。全局point/spot灯按稳定page/slot生成CDF，固定no-hit池、PDF/Jacobian、previous A0和abort/serial语义保留。示例batch1024不改变U128/hemi8/connect2/16方向；B7/64多patch及不同pool/shadow窗口真实GPU检查通过，默认1080p接通。R3 source仍全半屏准备；实际成本和验证边界见执行§8.5，不据R2关闭宣称整体实时或AAA画质合格。
+
 ## 仍需验证
 
 当前单机完整authored场景、streamed多Product、Lighting矩阵和受控恢复/释放的实际覆盖读执行记录；跨浏览器/GPU、完整AAA画质、超出本轮窗口的长序列/极值峰值与正式evidence/claims仍未完成。小场景闭包或预算有界不能证明这些结果，非Surface基线失败继续留在对应执行计划。

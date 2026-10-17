@@ -53,7 +53,7 @@ const LAB_GI: SurfaceCacheGiSettings = surfaceCacheGiSettings({
   hemisphereSamples: 8,
   connectionSamples: 2,
   lightSamples: 32,
-  batchRays: 128,
+  batchRays: 1024,
   maximumLights: 32,
   primitiveCapacity: 4096,
   queryMaximumBytes: 64 * 1024 ** 2,
@@ -98,6 +98,10 @@ if ([0.5, 0.667, 0.75, 1].includes(launchScale)) {
   presentation.scale = launchScale;
 }
 const gi: Mutable<SurfaceCacheGiSettings> = { ...LAB_GI };
+const launchBatch = Number(launchParameters.get("batch"));
+if (Number.isInteger(launchBatch) && launchBatch >= 1 && launchBatch <= 65536) {
+  gi.batchRays = launchBatch;
+}
 const sceneParameters: SceneParameters = { ...SCENE_DEFAULTS };
 const experiment = {
   preset: "sun" as ExperimentName,
@@ -391,7 +395,7 @@ function buildControls(): void {
     "06 · 工作容量 / 执行",
     "超过设备或工作集上界会明确报错，不截断几何。batchRays 是执行批大小，不是每像素 ray 数。参数上限仅是本 demo 的交互范围。"
   );
-  number(advanced, gi, "batchRays", "Estimator batch", 32, 1024, 32);
+  number(advanced, gi, "batchRays", "Estimator batch", 32, 65536, 32);
   number(advanced, gi, "requests", "请求容量", 512, 8192, 512);
   number(advanced, gi, "bounceRequests", "Bounce 请求容量", 64, 2048, 64);
   number(advanced, gi, "primitiveCapacity", "Query primitive 容量", 1024, 32768, 1024);
@@ -479,7 +483,8 @@ async function createRenderer(): Promise<void> {
     gpuCounterSampleInterval: 32,
     historyCapacity: 128,
     readbackRingSlots: 4,
-    cpuPassTimings: false
+    cpuPassTimings: false,
+    gpuTimingMode: launchParameters.get("timing") === "stage" ? "stage" : "coarse"
   });
   unsubscribeProfile = renderer.profiler.subscribe((profile) => {
     lastProfile = profile;

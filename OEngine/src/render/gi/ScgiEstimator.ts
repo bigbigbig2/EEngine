@@ -11,6 +11,8 @@ import type { ScgiQueryScene } from "./ScgiQueryScene.js";
 import { scgiEstimatorWgsl } from "../../shaders/scgi_estimator.js";
 
 const ENTRIES = [
+  "light_page_counts",
+  "light_page_offsets",
   "publish_lights",
   "light_distribution",
   "begin_cohorts",
@@ -19,8 +21,12 @@ const ENTRIES = [
   "pool_hits",
   "hemisphere_rays",
   "hemisphere_hits",
+  "shadow_reset",
   "shadow_rays",
+  "shadow_count",
   "shadow_hits",
+  "shadow_reduce",
+  "sample_reduce",
   "connection_rays",
   "connection_hits",
   "finish_cohorts",
@@ -93,7 +99,16 @@ export class ScgiEstimator {
     readonly profile: ScgiEstimatorProfile,
     public input: ScgiEstimatorInput
   ) {
-    this.arena = planScgiEstimator(device.limits, profile, plan.profile.updates);
+    this.arena = planScgiEstimator(
+      device.limits,
+      profile,
+      plan.profile.updates,
+      Math.max(1, input.lights.pointLights.dispatch_page_count + input.lights.spotLights.dispatch_page_count)
+    );
+    scgiInteger(
+      profile.batchRays * Math.max(1, input.lights.directionalLights.count + Number(input.physical !== null)),
+      "shadow candidate window"
+    );
     if (
       device.limits.maxStorageBuffersPerShaderStage < 10 ||
       device.limits.maxSampledTexturesPerShaderStage < 2 ||
@@ -106,7 +121,8 @@ export class ScgiEstimator {
           plan.profile.updates,
           profile.batchRays,
           input.lights.pointLights.dispatch_page_count,
-          input.lights.spotLights.dispatch_page_count
+          input.lights.spotLights.dispatch_page_count,
+          input.lights.pointLights.dispatch_page_count + input.lights.spotLights.dispatch_page_count
         ) / 64
       ) > device.limits.maxComputeWorkgroupsPerDimension ||
       profile.batchRays * 96 >
@@ -276,6 +292,17 @@ export class ScgiEstimator {
     ) {
       return false;
     }
+    scgiInteger(
+      this.profile.batchRays *
+        Math.max(1, input.lights.directionalLights.count + Number(input.physical !== null)),
+      "shadow candidate window"
+    );
+    if (
+      input.lights.pointLights.dispatch_page_count + input.lights.spotLights.dispatch_page_count >
+      this.arena.ranges.lightPages!.count
+    ) {
+      return false;
+    }
     const pointPages = input.lights.pointLights.dispatch_page_count;
     const spotPages = input.lights.spotLights.dispatch_page_count;
     if (
@@ -300,15 +327,16 @@ export class ScgiEstimator {
     const hemisphere = updates * p.hemisphereSamples;
     const shadows = hemisphere * (this.directionalSlots + Number(this.input.physical !== null));
     const reconnect = updates * p.connectionSamples;
-    const windows = Math.ceil(updates / p.batchRays);
+    const hemiWindows = Math.ceil(hemisphere / p.batchRays);
+    const reconnectWindows = Math.ceil(reconnect / p.batchRays);
     const poolWindows = Math.ceil(p.lightSamples / p.batchRays);
     const directionalCount = this.directionalSlots + Number(this.input.physical !== null);
-    const queryCalls = poolWindows + windows * (p.hemisphereSamples + p.connectionSamples);
-    const shadowCalls = windows * p.hemisphereSamples * directionalCount;
-    const localDispatches =
-      5 +
-      poolWindows * 3 +
-      windows * (1 + p.hemisphereSamples * (2 + 2 * directionalCount) + p.connectionSamples * 2);
+    const queryCalls = poolWindows + hemiWindows + reconnectWindows;
+    const fullWindows = Math.floor(hemisphere / p.batchRays);
+    const remainder = hemisphere % p.batchRays;
+    const shadowCalls =
+      fullWindows * directionalCount + Math.ceil((remainder * directionalCount) / p.batchRays);
+    const localDispatches = 7 + poolWindows * 3 + hemiWindows * 4 + reconnectWindows * 4 + shadowCalls * 5;
     const uniformAlignment = this.device.limits.minUniformBufferOffsetAlignment;
     return Object.freeze({
       privateBytes:
@@ -327,6 +355,10 @@ export class ScgiEstimator {
       maximumReconnectRays: reconnect,
       maximumCacheLookups: this.input.multiBounce ? hemisphere : 0,
       queryBatchRays: p.batchRays,
+      closestBatches: queryCalls,
+      shadowBatches: shadowCalls,
+      hemisphereWindows: hemiWindows,
+      reconnectWindows,
       maximumEncodedDispatches:
         localDispatches +
         queryCalls * this.closest.cost.totalDispatches +
@@ -417,7 +449,8 @@ export class ScgiEstimator {
         this.poisoned = true;
       }
     });
-    command.clearBuffer(this.buffer);
+    command.clearBuffer(this.buffer, this.arena.ranges.control!.offset, this.arena.ranges.control!.bytes);
+    command.clearBuffer(this.buffer, this.arena.ranges.cohorts!.offset, this.arena.ranges.cohorts!.bytes);
     const raw = this.plan.scratch.ranges.raw!;
     command.clearBuffer(publication.privateScratch.buffer, raw.offset, raw.bytes);
     // Each stage has immutable encoder-ordered parameters. No queue.writeBuffer
@@ -429,7 +462,8 @@ export class ScgiEstimator {
       directional = 0,
       stage = 1,
       count = this.profile.batchRays,
-      indirect = true
+      indirect = true,
+      shadowWindow = 0
     ): void => {
       const data = new ArrayBuffer(SCGI_ESTIMATOR.settingsBytes);
       const u = new Uint32Array(data),
@@ -466,6 +500,8 @@ export class ScgiEstimator {
         20
       );
       u[24] = publication.sampleSerial;
+      u[25] = shadowWindow;
+      u[26] = this.directionalSlots;
       const settings = command.allocateTransientBufferAndLoad(data);
       const buffers = [
         publication.candidateWorld.buffer,
@@ -500,7 +536,12 @@ export class ScgiEstimator {
         pass.dispatchWorkgroups(
           Math.ceil(
             count /
-              (entry === "window_count" || entry === "light_distribution" || entry === "finish_epochs"
+              (entry === "window_count" ||
+              entry === "light_distribution" ||
+              entry === "finish_epochs" ||
+              entry === "shadow_reset" ||
+              entry === "shadow_count" ||
+              entry === "light_page_offsets"
                 ? 1
                 : 64)
           )
@@ -508,6 +549,8 @@ export class ScgiEstimator {
       }
       pass.end();
     };
+    dispatch("light_page_counts", 0, 0, 0, 1, Math.max(1, this.pointPages + this.spotPages), false);
+    dispatch("light_page_offsets", 0, 0, 0, 1, 1, false);
     dispatch("publish_lights", 0, 0, 0, 1, Math.max(1, this.pointPages, this.spotPages), false);
     dispatch("light_distribution", 0, 0, 0, 1, 1, false);
     dispatch("begin_cohorts", 0, 0, 0, 1, this.plan.profile.updates, false);
@@ -523,26 +566,38 @@ export class ScgiEstimator {
       this.closest.encode(command);
       dispatch("pool_hits", window, 0, 0, 0);
     });
-    windows(this.plan.profile.updates, 1, (window) => {
-      for (let sample = 0; sample < this.profile.hemisphereSamples; sample++) {
-        dispatch("hemisphere_rays", window, sample);
-        this.closest.encode(command);
-        dispatch("hemisphere_hits", window, sample);
-        for (
-          let directional = this.input.physical === null ? 1 : 0;
-          directional <= this.directionalSlots;
-          directional++
-        ) {
-          dispatch("shadow_rays", window, sample, directional);
-          this.shadow.encode(command);
-          dispatch("shadow_hits", window, sample, directional);
-        }
+    // Windows cover flattened (patch, sample) work; no per-sample query loop.
+    // Query capacity controls temporary memory, never the sample denominator.
+    const hemiTotal = this.plan.profile.updates * this.profile.hemisphereSamples;
+    const connections = this.plan.profile.updates * this.profile.connectionSamples;
+    const directions = this.directionalSlots + Number(this.input.physical !== null);
+    scgiInteger(this.profile.batchRays * Math.max(1, directions), "shadow candidate window");
+    const reduce = (window: number, samples: number, stage: number) => {
+      const count = Math.min(this.plan.profile.updates, Math.ceil(this.profile.batchRays / samples) + 1);
+      dispatch("sample_reduce", window, 0, 0, stage, count, false);
+    };
+    windows(hemiTotal, 1, (window) => {
+      dispatch("hemisphere_rays", window);
+      this.closest.encode(command);
+      dispatch("hemisphere_hits", window);
+      const lanes = Math.min(this.profile.batchRays, hemiTotal - window);
+      for (let shadowWindow = 0; shadowWindow < lanes * directions; shadowWindow += this.profile.batchRays) {
+        dispatch("shadow_reset", window, 0, 0, 1, 1, false, shadowWindow);
+        dispatch("shadow_rays", window, 0, 0, 1, this.profile.batchRays, false, shadowWindow);
+        dispatch("shadow_count", window, 0, 0, 1, 1, false, shadowWindow);
+        command.copyBufferToBuffer(this.buffer, 18 * 4, this.indirect, 0, 12);
+        this.shadow.encode(command);
+        dispatch("shadow_hits", window, 0, 0, 1, this.profile.batchRays, true, shadowWindow);
+        // Each path adds its light contributions in source directional order.
+        dispatch("shadow_reduce", window, 0, 0, 1, lanes, false, shadowWindow);
       }
-      for (let sample = 0; sample < this.profile.connectionSamples; sample++) {
-        dispatch("connection_rays", window, sample);
-        this.closest.encode(command);
-        dispatch("connection_hits", window, sample);
-      }
+      reduce(window, this.profile.hemisphereSamples, 1);
+    });
+    windows(connections, 2, (window) => {
+      dispatch("connection_rays", window, 0, 0, 2);
+      this.closest.encode(command);
+      dispatch("connection_hits", window, 0, 0, 2);
+      reduce(window, this.profile.connectionSamples, 2);
     });
     dispatch("finish_cohorts", 0, 0, 0, 1, this.plan.profile.updates, false);
     dispatch("finish_epochs", 0, 0, 0, 1, 1, false);

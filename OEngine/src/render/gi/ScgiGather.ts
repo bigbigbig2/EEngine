@@ -614,6 +614,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       0,
       this.estimator.input.coneSpread
     );
+    command.enterTimingStage("scgi-gather-source");
     let first = 0;
     for (let segment = 0; segment < publication.anchors.length; segment++) {
       const count = publication.anchors[segment]!.plan.ranges.anchors!.count;
@@ -678,6 +679,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       }
       first += count;
     }
+    command.enterTimingStage("scgi-gather-probes");
     for (let firstProbe = 0; firstProbe < this.plan.probes; firstProbe += this.plan.probeBatch) {
       const probeCount = Math.min(this.plan.probeBatch, this.plan.probes - firstProbe);
       const rays = probeCount * this.plan.directions;

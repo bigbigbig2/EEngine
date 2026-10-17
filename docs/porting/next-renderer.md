@@ -1811,9 +1811,9 @@ SCGI-7（2026-10-17）：再次核对Unity Graphics a7e4c051d256a781ab362c64316b
 
 SCGI-8（2026-10-17）：`ScgiRenderer`、`ScgiLightingWindow`、`ScgiNativeWindow`、`scgi_native`、`scgi_lighting_gather`及FrameProgram/Native/事务接线为 **Local/Original integration**，复用EEngine GeometryProduct、Native材质/VT、lighting directory、VSM数学、原Temporal与同command提交；没有新增第三方renderer。上述RadeonRays固定revision `c8890b96b1f976bedd2cd280cc170dff5d655e0a`（MIT/Bullet）的Morton/radix/scan/拓扑/refit/treelet/intersection选定算法，经前述独立oracle、本地WGSL和本轮公开Renderer实际GI→field→Native GPU消费，记录为**所列机制的生产Adapt**；不是整套RadeonRays SDK移植/兼容资格，也不证明整链性能。Unity固定revision `a7e4c051d256a781ab362c64316b125a1e104694`仍为UCL **Reference**，未复制/逐行翻译；本轮不改变其许可或伪称Unity port。Brixelizer的SCGI-9子算法未实施。生产证据、受测能力及未验证范围见执行§7.14。
 
-### SCGI执行重构来源复核（2026-10-18，R1已实施，R2/R3待实施）
+### SCGI执行重构来源复核（2026-10-18，R1/R2已实施，R3待实施）
 
-下表记录研究与实际采用边界，唯一目标/步骤仍在SCGI设计§4/5/13/15/19及执行R1～R3，不构成第二authority。§7/SCGI-8/9既有adoption仅限当时所列机制。R1已有独立query GPU oracle与公开1080p实验屋消费，见执行§8.4；R2/R3仍无新实现证据。
+下表记录研究与实际采用边界，唯一目标/步骤仍在SCGI设计§4/5/13/15/19及执行R1～R3，不构成第二authority。§7/SCGI-8/9既有adoption仅限当时所列机制。R1已有独立query GPU oracle与公开1080p实验屋消费，见执行§8.4；R2批处理与独立GPU/公开场景检查见执行§8.5，R3仍无新实现证据。
 
 | 固定来源与许可 | 真实入口 / 研究内容 | 本地映射与适配边界 |
 |---|---|---|
@@ -1821,4 +1821,4 @@ SCGI-8（2026-10-17）：`ScgiRenderer`、`ScgiLightingWindow`、`ScgiNativeWind
 | [RadeonRays](https://github.com/GPUOpen-LibrariesAndSDKs/RadeonRays_SDK/tree/c8890b96b1f976bedd2cd280cc170dff5d655e0a)，沿用固定revision及MIT/Bullet notices | `src/core/src/dx/kernels/top_level_intersector.hlsl::TraceRays`：TLAS/BLAS完整遍历与instance切换；`intersector_common.hlsl::IntersectLeafNode/fast_intersect_triangle`：leaf/triangle路径 | 既有build/refit/treelet与triangle/slab Adapt继续使用，许可证保留；R1 parent遍历、源descriptor、GPU空间路由为 **Local integration**。`NonUniformResourceIndex`资源数组改为共享arena offsets及有限域路由；不复制C++/DX/Vulkan封装，不将旧quantum尾巴说成donor要求 |
 | [FidelityFX SDK](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/tree/c6efa6bf7f2027b3ec94f28578bb5965eabb9e55)，1.1.4 `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`；MIT/AMD 2024 | `sdk/include/FidelityFX/gpu/brixelizergi/ffx_brixelizergi_main.h::FfxBrixelizerGIFillScreenProbes`及spawn/reproject/project/interpolate；其世界transport依赖SDF/brick radiance cache | 既有screen阶段参考保留。其query不是EEngine exact triangle+Native diffuse source的同成本donor，不能按AMD性能倒推本地速度。R3先需求后Native复用、sourcePixel身份配对、visibility资格/补缺是 **Local/Original design**，不宣称AMD已有相同实现 |
 
-R2队列与确定性reduce为本地既有estimator的工程重组，保留所选积分/PDF/cohort机制，不额外伪称移植新算法。Unity仍是UCL Reference，未复制/逐行翻译。实现如采用第三方具体代码，随该单元补精确函数映射和notice；必须经独立oracle及真实新producer→consumer证据后才能提升新adoption。R1仅对实际列出的Local组织和保留Adapt机制记录新消费证据，不提升未移植的TinyBVH或未实现的R2/R3。
+R2实施前核读[pbrt-v4](https://github.com/mmp/pbrt-v4/tree/b4ce9687e6c695f5582997c61b0c66cf064bdb4a)，固定revision `b4ce9687e6c695f5582997c61b0c66cf064bdb4a`、Apache-2.0；具体`src/pbrt/wavefront/workitems.h::RaySamples/PixelSampleState/ShadowRayWorkItem`和`integrator.cpp::WavefrontPathIntegrator::Render`的finite queue reset→closest→material→shadow/样本state。作为 **Reference**：本地`ScgiEstimator`/layout与`scgi_estimator`按固定样本身份、独占path radiance、compact shadow、确定性reduce重组既有积分，不复制CUDA/OptiX、SOA模板、场景/film或C++队列，也不声称完整pbrt移植。稳定light page/slot CDF、WebGPU跨dispatch同步/indirect、固定pool与cohort、同publication事务均为 **Local integration**。真实GPU窗口独立性、独立积分与公开1080p消费见执行§8.5；这些结果不提升pbrt adoption。Unity仍是UCL Reference，未复制/逐行翻译。R1既有Adapt与TinyBVH Reference范围不变，R3仍待实施。

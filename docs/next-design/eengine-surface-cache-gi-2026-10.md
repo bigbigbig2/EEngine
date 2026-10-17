@@ -40,7 +40,7 @@ verifies:
 
 初始设计源码基线：`3000de2ab7caee2f5a20d86ded367ff3ba2e32c5`（2026-10-17）；本轮执行架构重构基线：`2f276576`（2026-10-18）。以下分开写“源码事实”“目标决定”和“待实测参数”。源码核对覆盖本模块 producer→直接 consumer 及生命周期，不声称逐行审计整个引擎。外部固定 revision、许可证、入口与移植范围见 [source map](../porting/next-renderer.md#surface-cache-gi-2026-10-17)。
 
-**本轮重构决定。** 保留完整 SCGI 算法，替换失控的物理工作组织：共享求交 arena 与场景 TLAS、estimator 样本批处理、先需求后 Native 源复用。执行计划只增加 SCGI-R1/R2/R3 三个完整单元，随后回到 SCGI-10。当前示例与本轮最高验收尺寸为 **1920×1080、internalScale=1**；不能降低分辨率、方向数、几何覆盖或材质范围来证明本次重构有效。旧实现的局部功能闭合不代表成本可接受。本设计描述目标合同；R1已切换的实现和局部验证读执行§8.4，R2/R3仍待实施，不由本文推断整链资格。
+**本轮重构决定。** 保留完整 SCGI 算法，替换失控的物理工作组织：共享求交 arena 与场景 TLAS、estimator 样本批处理、先需求后 Native 源复用。执行计划只增加 SCGI-R1/R2/R3 三个完整单元，随后回到 SCGI-10。当前示例与本轮最高验收尺寸为 **1920×1080、internalScale=1**；不能降低分辨率、方向数、几何覆盖或材质范围来证明本次重构有效。旧实现的局部功能闭合不代表成本可接受。本设计描述目标合同；已切换的实现和局部验证读执行§8.4/8.5，R3仍待实施，不由本文推断整链资格。
 
 ## 1. 选择、范围与必须纠正的母稿问题
 
@@ -325,9 +325,9 @@ sample pool不是ReSTIR reservoir，不需要本模块引入RTXDI。动态灯修
 
 LightDatabase的point/spot page occupancy完整枚举为16B/light表。uniform reference和带5% uniform support的power-CDF使用同一全灯集合；超过`maximumLights`、非法功率或f32 CDF丢区间都使整publication失败，不截前N灯。directional按完整发布槽枚举，physical sun独立消费现有LUT。没有灯也完整保留固定no-hit池与预定分母。
 
-物理布局由`ScgiEstimatorLayout.ts`拥有：control128B、light16B、固定pool192B/slot、path224B/有限batch lane、cohort96B/selected update，各段按storage offset alignment对齐。ray/result合计80B/lane，Native hit扩展为可选96B，前64B保持既有消费者；后32B给出asset/asset-local meshlet/local primitive/source primitive、world flat normal与误差。几何settings扩为64B以携带Product groupBegin。实例/primitive/generation、64B语义identity、目标t及误差全部一致才接受重连接，不能以primitive相同代替实例相同。query resolve拒绝扩展几何非有限/退化值。
+物理布局由`ScgiEstimatorLayout.ts`拥有：control128B、light16B、固定pool192B/slot、cohort96B/selected update，各段按storage offset alignment对齐。旧SCGI-6 path224B在R2改为240B/有限batch lane（增加独占radiance16B），另有16B/lane shadow贡献、4B/lane compact映射和8B/light page count/offset。ray/result合计80B/lane，Native hit96B，前64B保持既有消费者；后32B给出asset/asset-local meshlet/local primitive/source primitive、world flat normal与误差。实例/primitive/generation、64B语义identity、目标t及误差全部一致才接受重连接，不能以primitive相同代替实例相同。query resolve拒绝扩展几何非有限/退化值。
 
-上述布局是 SCGI-6 实现基线，R2 将物理样本循环扁平化为 `(patch generation, sample serial, path class, light sample)` 工作队列，在有界 scratch 窗口内批量 closest→accepted material bins→实际非零贡献的 compact shadow→确定性逐 patch reduce。不再在 TypeScript 中对每个 sample/directional 调用一次完整 query 调度。窗口容量只影响 scratch 和窗口数，不改变固定 N、样本身份或随机序列；压紧次序不能成为 RNG seed。全部相关 arena/MASK/material 完成后才能覆写窗口，pool 每帧重建。参数仍用 command transient 不可变切片，不用 queue.writeBuffer 覆盖前序参数；不用非确定 float atomic accumulation 替代 reduce。
+R2 将物理样本循环扁平化为 `(patch generation, sample serial, path class, light sample)` 工作，在有界 scratch 窗口内批量 closest→accepted material bins→实际非零贡献的 compact shadow→确定性逐 patch reduce。样本ID是`flat/sampleCount`与`flat%sampleCount`，GPU按selected count给实际前缀；灯池按全局light page/slot稳定编号后形成CDF，避免原子append顺序改变池候选。每样本独占radiance，shadow候选按path×directional编号、工作组prefix预约query槽；无receivesShadow的非零贡献直接写独占候选，需visibility的才进query。候选贡献按directional顺序归入path，path再按sample顺序归入cohort，跨窗口不清cohort、不用float atomic。窗口不改变固定N、样本身份或随机序列；全部相关arena/MASK/material完成后才能覆写窗口，pool每帧重建。参数仍用command transient不可变切片。实际实施、成本与验证见执行§8.5。
 
 whole-world coverage允许无限ray miss读取环境；有限域query出域为unknown，有限ray cutoff miss也不是世界miss。light-origin只有灯光有限range已包含全部支持域时，range-end miss才是物理零；任意budget cutoff不可这样处理。source几何cosine与面积PDF解析抵消；有normal map时保留shading/geometric cosine比，不用grazing clamp改变积分。
 

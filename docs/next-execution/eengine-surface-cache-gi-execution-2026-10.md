@@ -19,7 +19,7 @@ verifies:
 
 唯一详细设计为[SCGI设计](../next-design/eengine-surface-cache-gi-2026-10.md)。需求输入为[母稿](../reviews/EEngine_Surface_Cache_GI_WebGPU_Mother_Design_2026-10-17.md)；设计§17逐项映射母稿，设计§1列明勘误。本文件是细单元状态与实施结果唯一记录，workstream和粗执行不复制细状态。
 
-**当前状态：SCGI-R1 已完成共享求交场景与执行切换，局部 GPU 检查和默认 1080p 实验屋接通；R2/R3 与 SCGI-10 尚未完成，不能认定整个模块完成或成本已经合格。** 原始失败基线为 `2f276576`（2026-10-18），文档批准提交为 `b69b346e`；R1 实施与成本见§8.4。后续按 **SCGI-R2→R3→SCGI-10**，本轮停在 R2 边界。旧实施记录见§7，保留当时结果与失败，不逐项重开未受影响的cache/滤波/事务机制，也不把旧通过当成新架构验证。skin/morph随共享动画延期，4GB不作复杂大场景承诺。当前示例和本轮最高验收尺寸为 **1920×1080、internalScale=1**；不新增1440p/4K要求，不靠缩场景或降方向数关单。
+**当前状态：SCGI-R1/R2 已完成实现与局部验证，默认1080p实验屋接通；R3 与 SCGI-10 尚未完成，不能认定整个模块完成或成本已经合格。** 原始失败基线为 `2f276576`（2026-10-18），文档批准提交为 `b69b346e`，R1代码提交为`4d65b4f2`；实施与成本见§8.4/8.5。后续按 **SCGI-R3→SCGI-10**，本轮停在 R3 边界。旧实施记录见§7，保留当时结果与失败，不逐项重开未受影响的cache/滤波/事务机制，也不把旧通过当成新架构验证。skin/morph随共享动画延期，4GB不作复杂大场景承诺。当前示例和本轮最高验收尺寸为 **1920×1080、internalScale=1**；不新增1440p/4K要求，不靠缩场景或降方向数关单。
 
 ## 1. 完整范围、依赖与生产切换
 
@@ -35,7 +35,7 @@ verifies:
 | SCGI-8 | FrameProgram+Native全部route原子接线、旧owner退休 | 1–7 | 当前范围完成；见§7.14 |
 | SCGI-9 | Screen Radiance Gather完整近场残差增强 | 8 | 当前范围实现与局部验收闭合；见§7.15，画质收益有限且未获整链资格 |
 | SCGI-R1 | 共享求交arena、scene TLAS、完整query执行与全部直接consumer切换 | 已有2/5/8/9事实 | 已完成，实施、验证与成本限制见§8.4 |
-| SCGI-R2 | estimator样本扁平批处理、紧凑shadow与确定性reduce | R1 | 待实施 |
+| SCGI-R2 | estimator样本扁平批处理、紧凑shadow与确定性reduce | R1 | 已完成，实施、验证与批量成本限制见§8.5 |
 | SCGI-R3 | Gather先需求后Native共享源、合格visibility复用与补缺 | R1、R2稳定边界 | 待实施 |
 | SCGI-10 | 全场景、故障、资源峰值、成本与文档闭合 | R1、R2、R3 | 待实施 |
 
@@ -929,7 +929,7 @@ Native最多四次112B逻辑field读、四次Visibility/work验证与guide/SH数
 
 ### 8.3 当前交付与后续顺序
 
-文档批准时只更新设计/执行与source map；该时点未实施R1/R2/R3，未运行新的GPU/画面测试或性能benchmark。随后R1按§8.4落地；R2/R3仍待授权。三个单元按§3连续构建各自完整闭包，单元末集中必要验证；SCGI-10再集中同条件画面、动态响应、整链故障/容量/成本。用户没有授权降实验屋分辨率/方向/几何质量；自适应方向、HZB近似、粗query proxy、wide BVH等按设计§20.4另行判断，不作为本轮效果缩水或无限增加施工步骤的理由。
+文档批准时只更新设计/执行与source map；该时点未实施R1/R2/R3，未运行新的GPU/画面测试或性能benchmark。随后R1按§8.4落地并提交，R2按§8.5落地；R3仍待授权。三个单元按§3连续构建各自完整闭包，单元末集中必要验证；SCGI-10再集中同条件画面、动态响应、整链故障/容量/成本。用户没有授权降实验屋分辨率/方向/几何质量；自适应方向、HZB近似、粗query proxy、wide BVH等按设计§20.4另行判断，不作为本轮效果缩水或无限增加施工步骤的理由。
 
 ### 8.4 SCGI-R1：共享求交场景与完整执行切换（2026-10-18）
 
@@ -986,3 +986,43 @@ budget包括builder两套512-slot uniform/storage参数、indirect、scratch、m
 | GPU command span | 316.952896ms | 73.583328ms |
 
 首次接通另有74.525728ms、1473次copy、CPU graph7.875ms样本，保留在`scgi-r1-lab-1080.json`；最终清理移除了默认诊断buffer/copy及无consumer uniform，以上表最终样本为准。两次均为coarse frame-span采样，旧失败记录含更细阶段采样，GPU时间不能当严格同instrumentation倍速。clear/copy声明bytes不是DRAM流量；全域cache/history等未在R1消失。没有GPU/page error或device loss，没有修改主submit边界或降低分辨率/方向数。长窗口/多GPU/完整画质与组合故障仍归SCGI-10，R1不以“所有渲染成本已解决”关单。R2继续处理estimator逐sample整scene调用；R3继续处理全H源材质/灯光阶段。本轮没有提前实现两者。
+
+### 8.5 SCGI-R2：批量样本transport与确定性归约（2026-10-18）
+
+**生产切换。** 基线为R1提交`4d65b4f2`。`ScgiEstimator.encode`删除逐hemi/connection sample和逐directional整scene query循环，改为固定灯池窗口、扁平patch×hemi窗口、扁平patch×connection窗口。`window_count`读取GPU selected count，发布实际样本前缀和indirect；host只预编码容量窗口，不读回本帧count。`sample_index/sample_number`恢复patch和样本序号，RNG继续使用完整patch generation/identity与sample serial/epoch，压紧次序不参与随机种子。
+
+灯表由light-page count→offset→稳定page/slot scatter形成，point在spot之前；保留原全部全局灯集合、5% uniform support、功率CDF及overflow/非法数值整publication失败。offset为有限页表的单invocation前缀，scatter每page独占输出区；增加两个dispatch与8B/page，避免原全局append顺序改变灯池proposal。超过容量时不允许多个overflow页覆盖同一区间。固定192B池不压紧no-hit，池seed继续由publication sampleSerial与lightingEpoch决定。无灯时query count为0，但全部池槽明确写physical no-hit。
+
+每个path独占240B：原224B hit/result/identity/metadata，加16B radiance。hemisphere的Le、previous A0 continuation及environment先写独占radiance；shadow候选按path×directional编号，在有限B窗口中workgroup prefix、每组一次全局预约压紧query。shadow贡献独占16B/candidate，query槽到candidate映射4B；零贡献不进query，receivesShadow=false直接写候选贡献，未遮挡的合法query才写非零。非有限incident/贡献与unknown/fault继续使所属整patch cohort失败。query count超界仍由R1整batch fault，额外overflow标记使受影响window不发布。
+
+`shadow_reduce`每path按directional顺序累加，`sample_reduce`每patch按sample顺序累加；两层都有明确dispatch依赖，不用float atomics或跨workgroup自旋。同patch跨窗口时cohort累加保留，窗口内不同patch不共写SH。原固定N、PDF/Jacobian、flat/shading normal比、coat、Le不乘albedo、casts/receives、endpoint完整identity/t/error验证、previous-only multi-bounce、unknown整cohort拒绝和serial/abort/fence/poison协议保留。SCGI-7 raw及统计消费者ABI未改变。control/cohort每encode清零；pool/path/shadow由实际生产者完整覆盖所消费域，不再清全estimator arena。没有独立submit、第二scene或旧调度桥。
+
+**实际Cost Card与限制。** 设B为物理batch、U为updates、H/C为样本数、L为固定池、D为directional+physical sun、Ppage为point/spot页数。arena约`128+16·maximumLights+8Ppage+192L+260B+96U`，实际各range另对齐；260B包含path240、shadow16、map4。ray/result80B、Native hits96B、R1 query私有资源、12B indirect/64B defaults/8B black及command参数另计。相同B时新增36B/lane+8B/page，对照旧224B path；删除旧逐sample参数/调度和全arena clear，未新增U×spp永久数组。新增path读写、候选prefix的64×4B workgroup memory、barrier、shadow随机映射及reduce顺序访问明确付税。
+
+令`P=ceil(L/B)`、`Wh=ceil(UH/B)`、`Wc=ceil(UC/B)`；host shadow窗口`S=floor(UH/B)·D+ceil((UH%B)·D/B)`。closest调用上界`P+Wh+Wc`，shadow调用上界S；local dispatch上界`7+3P+4Wh+4Wc+5S`，再加各query实际route/bin上界。GPU实际query prefix随selected及shadow非零资格变化；WebGPU仍编码空indirect命令，不将GPU零工作说成零CPU成本。0/50/100%有效shadow贡献均付候选检查/prefix/reduce，query与候选非零写随有效数变化；100%时压紧本身无省ray收益，主要靠跨sample合批摊薄固定税。小B下reduce/queue税可能比旧调度高，必须如实保留对照。
+
+默认/balanced batch64→1024，quality128→2048；实验屋batch128→1024。它们只改变scratch窗口，U128/hemi8/connect2/pool32和Gather tile12/16方向/B65536均不变，输出/internal仍1920×1080/1。实验屋estimator private bytes：R1/B128为73112B，R2/B128为77976B，R2/B1024为479384B；扩批增量406272B（约0.387MiB）。query publication仍48460656B，原padded AS/packed副本没有在R2偷偷扣账。
+
+**针对性验证。** 最终测试构建source SHA256 `62d900eff0f53b148f0ca998594547376435b4948010154113b392d762782c3d`；`scgi-estimator`+`scgi`两个contract文件17/17通过，示例typecheck通过。真实GPU最终结果`.local/scgi-r2-estimator-final-02.json`通过，覆盖原天空解析/面积积分、黑材质emission、点/聚光重连接/物理零、方向光/physical sun遮挡、深MASK、unknown整cohort、previous A0/候选污染隔离、完整灯集合与overflow、abort/retry/serial。没有重跑R1全材质/VT矩阵或全仓回归。
+
+新增窗口独立性：512样本天空B4/7/1024逐位相同；3个真实selected patches、hemi19/connect5，B7/64跨patch边界raw逐位相同且每patch分母19/5完整；方向光B7/256/1024均110条有效shadow且raw逐位相同；两个方向光跨shadow窗口保全部能量、220条shadow、B7/1024相同。固定灯池/重连接用各自fresh runtime保持publication seed完全一致，B63/256/1024均54条重连接/54次accepted，raw逐位相同。这些是固定输入下结果，不外推所有设备f32逐位资格。
+
+失败原件保留：`estimator-01`为WGSL保留字active，已改名；`03`为构建身份检查拒绝stale build，未进入GPU；`04`为fixture只重置patch serial而没重置灯池publication serial，改为fresh runtime输入；`05`为fixture错误调用无destroy的cache；`07`为fixture两请求落同cell、实际selected2，改为三个不同真实cell，不修改allocator或放宽3-patch断言。`02/06/08/final/final-02`成功记录均保留。首次公开场景capture遇Vite源码format热重载导致navigation，重跑前停止源码修改；没有吞GPU异常或添加production测试路径。
+
+**1080p公开场景成本。** 每次独立启动，主相机/sun preset/9次提交，host9读GPU8；Chrome155/NVIDIA Turing，未暴露精确GPU型号。原R1与R2/B1024 coarse均两时间戳；另用显式`?timing=stage`记录阶段，`?batch=128`保留小窗口对照。阶段marker仅在显式采样时生效，不新增生产submit或per-ray诊断。以下均单次暖启动短序列，不是P50/P95或严格冻结相同cache的因果benchmark。
+
+| 指标 | R1/B128 coarse | R2/B128 stage | R2/B1024 stage | R2/B1024 coarse |
+|---|---:|---:|---:|---:|
+| estimator encoded dispatch上界 | 225 | 270 | 65 | 65 |
+| 整帧dispatch / compute pass | 641 / 600 | 686 / 645 | 481 / 440 | 481 / 440 |
+| clearBuffer次 / 声明bytes | 128 / 139092192 | 129 / 139056736 | 106 / 139156352 | 106 / 139156352 |
+| copyBuffer次 / 声明bytes | 1435 / 76247452 | 1497 / 76253416 | 1354 / 76243112 | 1354 / 76243112 |
+| CPU graph-execute ms | 8.865 | 9.770 | 6.705 | 7.300 |
+| GPU command span ms | 73.583328 | 75.631392 | 68.300960 | 68.285664 |
+| estimator stage ms | 未测 | 7.151424 | 2.245056 | 未测 |
+| Gather source stage ms | 未测 | 24.524800 | 24.059680 | 未测 |
+| Gather probes阶段（含project/interpolate）ms | 未测 | 5.829728 | 5.775072 | 未测 |
+
+B1024 stage另有VSM/shadow9.258944ms、Native13.105152ms、Temporal4.063232ms；SCGI filter区间5.230592ms还包含该宏阶段后续field/previous-residual准备，不能当单shader净成本。原始结果为`.local/scgi-r2-batch{128,1024}-stage-1080.json`及`scgi-r2-batch1024-coarse-1080.json/png`；默认截图已打开检查，仍有明显暗区与噪声，不能宣称最终画质合格。无GPU/page error或device loss，正常主frame submit=1。clear/copy是声明量非DRAM流量。R2小B确实增加dispatch，合批后才明显摊薄；R3未改造的全半屏source约24ms仍是最大SCGI阶段，不提前认定R3收益。当前完整帧约68ms仍不实时。
+
+**关单与停止边界。** 全部旧逐sample生产调度已删除，consumer与生命周期闭合，固定N/样本/阴影能量和窗口独立性已由真实GPU验证；本轮R2实现与必要局部验证关闭，停在R3，不自动开始Native source重组。R1已提交；R2代码与实施记录在master工作区，尚未提交。完整动态画质/故障/退休峰值/长窗口与跨设备仍归SCGI-10。

@@ -478,12 +478,14 @@ export class ScgiRenderer {
       normalCosine: 0.9,
       tangentDistance: settings.voxelSize
     });
+    transaction.command.enterTimingStage("scgi-estimator");
     frame.estimator.encode(transaction, {
       view: view.camera.camera.view_matrix,
       camera: frame.camera,
       coneWidth: 0,
       coneSpread: 2 / (transaction.publication.extent[1] * Math.abs(view.camera.projection_matrix[5]!))
     });
+    transaction.command.enterTimingStage("scgi-filter");
     this.filter.encode(transaction, surfaceCacheGiFilter(settings, serial, frame.queryRevision));
     if (frame.gather !== null) {
       frame.gather.owner.encodePrevious(frame.gather);

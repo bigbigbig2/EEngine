@@ -13,7 +13,7 @@ import { atmosphereRuntimeWgsl } from "./atmosphere/runtime.js";
 import { PRIMARY_SURFACE_IDENTITY_WGSL } from "./primary_surface_identity.js";
 
 /** Local estimator derived from transport integrals, not a translation of
- * Unity's UCL sources. One lane owns one path/cohort; only light compaction,
+ * Unity's UCL sources. One lane owns one sample path; a deterministic patch reducer owns SH. Only light compaction,
  * diagnostics and bounded bounce requests contend. Every phase is separated
  * by an encoder dependency. Baseline f32, no subgroup or float-atomic need. */
 export function scgiEstimatorWgsl(
@@ -28,11 +28,14 @@ export function scgiEstimatorWgsl(
   if (id.x < settings.${pagesLane}) {
     let page = database[${descriptor.page_lookup_address}u + id.x];
     if (page != 0xffffffffu) {
+      var local_rank = 0u;
+      let page_at = LIGHT_PAGES + (id.x + select(0u, settings.point_pages, 0u != ${kind}u)) * 2u;
       for (var slot = 0u; slot < ${descriptor.elements_per_page}u; slot++) {
         if ((database[page + 1u + slot / 32u] & (1u << (slot % 32u))) != 0u) {
           let index = id.x * ${descriptor.elements_per_page}u + slot;
           let light = ${descriptor.marshalling_method_read}(&database, index);
-          let ticket = atomicAdd(&estimate[0u], 1u);
+          let ticket = atomicLoad(&estimate[page_at + 1u]) + local_rank;
+          local_rank++;
           if (ticket >= ${profile.maximumLights}u) {
             atomicOr(&estimate[2u], 1u);
           } else {
@@ -81,8 +84,8 @@ struct Settings {
   normal_cosine: f32,
   plane_scale: f32,
   sample_serial: u32,
-  reserved0: u32,
-  reserved1: u32,
+  shadow_window: u32,
+  directional_count: u32,
   reserved2: u32,
   reserved3: vec4u,
 }
@@ -102,8 +105,11 @@ struct Settings {
 @group(0) @binding(13) var transmittance: texture_2d<f32>;
 @group(0) @binding(14) var atmosphere_sampler: sampler;
 const LIGHTS: u32 = ${e("lights")}u;
+const LIGHT_PAGES: u32 = ${e("lightPages")}u;
 const POOL: u32 = ${e("pool")}u;
 const PATHS: u32 = ${e("paths")}u;
+const SHADOW: u32 = ${e("shadow")}u;
+const SHADOW_MAP: u32 = ${e("shadowMap")}u;
 const COHORTS: u32 = ${e("cohorts")}u;
 const PATCH: u32 = ${w("patches")}u;
 const MAP: u32 = ${w("map")}u;
@@ -174,7 +180,7 @@ fn write_ray(lane: u32, origin: vec3f, direction: vec3f, distance: f32, kind: u3
   batch[at + 9u] = 0xffffffffu;
   batch[at + 10u] = kind;
   batch[at + 11u] = settings.snapshot;
-  // All-shard merge starts with physical miss and an unset endpoint.
+  // Query initialization starts with physical miss and an unset endpoint.
   for (var word = 0u; word < 8u; word++) { batch[RESULT + lane * 8u + word] = 0u; }
   batch[RESULT + lane * 8u] = bitcast<u32>(distance);
   batch[RESULT + lane * 8u + 3u] = 1u;
@@ -190,13 +196,28 @@ fn fail(index: u32, status: u32) {
 }
 @compute @workgroup_size(1)
 fn window_count() {
-  let total = select(min(atomicLoad(&scratch[CONTROL + 28u]), ${plan.profile.updates}u),
-    ${profile.lightSamples}u, settings.stage == 0u);
+  let updates = min(atomicLoad(&scratch[CONTROL + 28u]), ${plan.profile.updates}u);
+  var total = ${profile.lightSamples}u;
+  if (settings.stage == 1u) { total = updates * settings.n_hemi; }
+  if (settings.stage == 2u) { total = updates * settings.n_connect; }
   let count = min(CAPACITY, total - min(total, settings.window));
-  atomicStore(&estimate[6u], count);
+  atomicStore(&estimate[6u], select(count, 0u, settings.stage == 0u && atomicLoad(&estimate[0u]) == 0u));
+  atomicStore(&estimate[7u], count);
   atomicStore(&estimate[18u], (count + 63u) / 64u);
   atomicStore(&estimate[19u], 1u);
   atomicStore(&estimate[20u], 1u);
+}
+fn sample_index(lane: u32) -> u32 {
+  return (settings.window + lane) / select(settings.n_hemi, settings.n_connect, settings.stage == 2u);
+}
+fn sample_number(lane: u32) -> u32 {
+  return (settings.window + lane) % select(settings.n_hemi, settings.n_connect, settings.stage == 2u);
+}
+fn sample_active(lane: u32) -> bool { return lane < atomicLoad(&estimate[7u]); }
+fn add_radiance(path: u32, value: vec3f, index: u32) {
+  let next = ev(path + 56u) + value;
+  if (!finite3(value) || !finite3(next)) { fail(index, 5u); return; }
+  storev(path + 56u, next);
 }
 fn add_sh(index: u32, radiance: vec3f, direction: vec3f, weight: f32) {
   if (!finite3(radiance) || !finite3(direction)) { fail(index, 5u); return; }
@@ -299,7 +320,38 @@ fn previous_irradiance(path: u32, source_patch: u32) -> vec3f {
 }
 ${scgiCacheRequestWgsl(plan)}
 @compute @workgroup_size(64)
+fn light_page_counts(@builtin(global_invocation_id) id: vec3u) {
+  if (id.x >= settings.point_pages + settings.spot_pages) { return; }
+  let is_spot = id.x >= settings.point_pages;
+  let page_index = select(id.x, id.x - settings.point_pages, is_spot);
+  let lookup = select(${POINT.page_lookup_address}u, ${SPOT.page_lookup_address}u, is_spot);
+  let slots = select(${POINT.elements_per_page}u, ${SPOT.elements_per_page}u, is_spot);
+  let page = database[lookup + page_index];
+  var count = 0u;
+  if (page != 0xffffffffu) {
+    for (var word = 0u; word < (slots + 31u) / 32u; word++) {
+      count += countOneBits(database[page + 1u + word]);
+    }
+  }
+  atomicStore(&estimate[LIGHT_PAGES + id.x * 2u], count);
+}
+@compute @workgroup_size(1)
+fn light_page_offsets() {
+  var total = 0u;
+  for (var page = 0u; page < settings.point_pages + settings.spot_pages; page++) {
+    let at = LIGHT_PAGES + page * 2u;
+    atomicStore(&estimate[at + 1u], min(total, ${profile.maximumLights}u));
+    let count = atomicLoad(&estimate[at]);
+    if (count > ${profile.maximumLights}u - min(total, ${profile.maximumLights}u)) {
+      atomicOr(&estimate[2u], 1u);
+    }
+    total += min(count, ${profile.maximumLights}u - total);
+  }
+  atomicStore(&estimate[0u], total);
+}
+@compute @workgroup_size(64)
 fn publish_lights(@builtin(global_invocation_id) id: vec3u) {
+  if (atomicLoad(&estimate[2u]) != 0u) { return; }
   ${enumerate(POINT, 0, "point_pages")}
   ${enumerate(SPOT, 1, "spot_pages")}
 }
@@ -425,21 +477,22 @@ fn pool_hits(@builtin(global_invocation_id) id: vec3u) {
 }
 @compute @workgroup_size(64)
 fn hemisphere_rays(@builtin(global_invocation_id) id: vec3u) {
-  let index = settings.window + id.x;
-  if (!selected(index) || id.x >= CAPACITY) { return; }
+  let index = sample_index(id.x);
+  if (!sample_active(id.x)) { return; }
   let patch_at = PATCH + atomicLoad(&scratch[UPDATES + index]) * 76u;
   let cohort = COHORTS + index * 24u;
-  let seed = cohort_seed(cohort, settings.sample);
+  let seed = cohort_seed(cohort, sample_number(id.x));
   let direction = cone(seed, wv(patch_at + 4u), 0.0);
   let path = PATHS + id.x * ${ABI.pathStride / 4}u;
   storev(path + 48u, direction);
+  storev(path + 56u, vec3f(0.0));
   write_ray(id.x, offset_origin(wv(patch_at), wv(patch_at + 4u), patch_error(patch_at)), direction, settings.ray_distance, 0u);
   atomicAdd(&estimate[3u], 1u);
 }
 @compute @workgroup_size(64)
 fn hemisphere_hits(@builtin(global_invocation_id) id: vec3u) {
-  let index = settings.window + id.x;
-  if (!selected(index) || id.x >= CAPACITY) { return; }
+  let index = sample_index(id.x);
+  if (!sample_active(id.x)) { return; }
   let status = batch[RESULT + id.x * 8u + 3u];
   let path = PATHS + id.x * ${ABI.pathStride / 4}u;
   atomicStore(&estimate[path + 53u], status);
@@ -454,7 +507,7 @@ fn hemisphere_hits(@builtin(global_invocation_id) id: vec3u) {
     if (settings.environment_mode != 0u) {
       radiance = sample_native_environment_mip(environment, ev(path + 48u), 0u) * settings.environment_scale;
     }
-    add_sh(index, radiance, ev(path + 48u), 2.0 * PI / f32(settings.n_hemi));
+    add_radiance(path, radiance, index);
     return;
   }
   save_hit(path, id.x);
@@ -463,15 +516,15 @@ fn hemisphere_hits(@builtin(global_invocation_id) id: vec3u) {
     let irradiance = previous_irradiance(path, atomicLoad(&scratch[UPDATES + index]));
     radiance += ev(path) * ef(path + 7u) * irradiance;
   }
-  add_sh(index, radiance, ev(path + 48u), 2.0 * PI / f32(settings.n_hemi));
+  add_radiance(path, radiance, index);
 }
-fn directional_incident(path: u32) -> mat2x3f {
-  if (settings.directional == 0u) {
+fn directional_incident(path: u32, directional: u32) -> mat2x3f {
+  if (directional == 0u) {
     if (settings.physical == 0u) { return mat2x3f(vec3f(0.0, 1.0, 0.0), vec3f(0.0)); }
     return mat2x3f(normalize(physical.sun_direction_world),
       atmosphere_sun_irradiance(ev(path + 12u), physical, transmittance, atmosphere_sampler));
   }
-  let index = settings.directional - 1u;
+  let index = directional - 1u;
   let page_index = index / ${DIRECTIONAL.elements_per_page}u;
   let slot = index % ${DIRECTIONAL.elements_per_page}u;
   let page = database[${DIRECTIONAL.page_lookup_address}u + page_index];
@@ -481,47 +534,129 @@ fn directional_incident(path: u32) -> mat2x3f {
   let light = ${DIRECTIONAL.marshalling_method_read}(&database, index);
   return mat2x3f(-light.direction, light.color);
 }
+// A finite shadow window flattens path x directional. Candidate order stays
+// immutable; only query slots are compacted. Each candidate owns its RGB.
+var<workgroup> shadow_prefix: array<u32, 64>;
+var<workgroup> shadow_base: u32;
+@compute @workgroup_size(1)
+fn shadow_reset() {
+  atomicStore(&estimate[6u], 0u);
+  atomicStore(&estimate[24u], 0u);
+}
 @compute @workgroup_size(64)
-fn shadow_rays(@builtin(global_invocation_id) id: vec3u) {
-  let index = settings.window + id.x;
-  if (!selected(index) || id.x >= CAPACITY) { return; }
-  let path = PATHS + id.x * ${ABI.pathStride / 4}u;
-  let incident = directional_incident(path);
-  let path_active = atomicLoad(&estimate[path + 53u]) == 0u && dot(ev(path + 8u), incident[0]) > 0.0 && any(incident[1] > vec3f(0.0));
-  atomicStore(&estimate[path + 54u], u32(path_active));
-  let receives = (atomicLoad(&estimate[path + 15u]) & 4u) != 0u;
-  // ReceivesShadow=false is evaluated as unoccluded in shadow_hits.
-  write_ray(id.x, offset_origin(ev(path + 12u), ev(path + 20u), ef(path + 23u)), incident[0],
-    select(0.0, settings.ray_distance, path_active && receives), 1u);
-  if (path_active && receives) { atomicAdd(&estimate[4u], 1u); }
+fn shadow_rays(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_index) li: u32) {
+  let directions = settings.physical + settings.directional_count;
+  let total = atomicLoad(&estimate[7u]) * directions;
+  let flat = settings.shadow_window + id.x;
+  let candidate_valid = id.x < CAPACITY && flat < total;
+  let path_lane = flat / max(directions, 1u);
+  let directional = flat % max(directions, 1u) + select(1u, 0u, settings.physical != 0u);
+  let path = PATHS + path_lane * ${ABI.pathStride / 4}u;
+  var queued = false;
+  var incident = mat2x3f(vec3f(0.0, 1.0, 0.0), vec3f(0.0));
+  if (candidate_valid) {
+    storev(SHADOW + id.x * 4u, vec3f(0.0));
+    if (atomicLoad(&estimate[path + 53u]) == 0u) {
+      incident = directional_incident(path, directional);
+      let cosine = max(0.0, dot(ev(path + 8u), incident[0]));
+      let radiance = ev(path) * ef(path + 7u) * incident[1] * cosine;
+      let index = sample_index(path_lane);
+      if (!finite3(incident[0]) || !finite3(incident[1]) || !finite3(radiance)) {
+        fail(index, 5u);
+      } else if (cosine > 0.0 && any(radiance != vec3f(0.0))) {
+        if ((atomicLoad(&estimate[path + 15u]) & 4u) == 0u) {
+          storev(SHADOW + id.x * 4u, radiance);
+        } else { queued = true; }
+      }
+    }
+  }
+  shadow_prefix[li] = u32(queued);
+  workgroupBarrier();
+  for (var step = 1u; step < 64u; step *= 2u) {
+    var other = 0u;
+    if (li >= step) { other = shadow_prefix[li - step]; }
+    workgroupBarrier();
+    shadow_prefix[li] += other;
+    workgroupBarrier();
+  }
+  if (li == 0u) { shadow_base = atomicAdd(&estimate[6u], shadow_prefix[63u]); }
+  workgroupBarrier();
+  if (queued) {
+    let ticket = shadow_base + shadow_prefix[li] - 1u;
+    if (ticket >= CAPACITY) { atomicStore(&estimate[24u], 1u); return; }
+    atomicStore(&estimate[SHADOW_MAP + ticket], id.x);
+    write_ray(ticket, offset_origin(ev(path + 12u), ev(path + 20u), ef(path + 23u)),
+      incident[0], settings.ray_distance, 1u);
+    atomicAdd(&estimate[4u], 1u);
+  }
+}
+@compute @workgroup_size(1)
+fn shadow_count() {
+  let count = atomicLoad(&estimate[6u]);
+  if (count > CAPACITY) { atomicStore(&estimate[24u], 1u); }
+  atomicStore(&estimate[18u], (min(count, CAPACITY) + 63u) / 64u);
+  atomicStore(&estimate[19u], 1u);
+  atomicStore(&estimate[20u], 1u);
 }
 @compute @workgroup_size(64)
 fn shadow_hits(@builtin(global_invocation_id) id: vec3u) {
-  let index = settings.window + id.x;
-  if (!selected(index) || id.x >= CAPACITY) { return; }
-  let path = PATHS + id.x * ${ABI.pathStride / 4}u;
-  if (atomicLoad(&estimate[path + 54u]) == 0u) { return; }
-  let receives = (atomicLoad(&estimate[path + 15u]) & 4u) != 0u;
-  let status = select(1u, batch[RESULT + id.x * 8u + 3u], receives);
+  if (id.x >= min(atomicLoad(&estimate[6u]), CAPACITY)) { return; }
+  let candidate = atomicLoad(&estimate[SHADOW_MAP + id.x]);
+  let directions = settings.physical + settings.directional_count;
+  let flat = settings.shadow_window + candidate;
+  let path_lane = flat / directions;
+  let path = PATHS + path_lane * ${ABI.pathStride / 4}u;
+  let index = sample_index(path_lane);
+  let status = batch[RESULT + id.x * 8u + 3u];
   if (status > 1u) { fail(index, status); return; }
   if (status == 0u) { return; }
-  if (receives && bitcast<u32>(settings.ray_distance) != 0x7f800000u) { fail(index, 2u); return; }
-  let incident = directional_incident(path);
+  if (bitcast<u32>(settings.ray_distance) != 0x7f800000u) { fail(index, 2u); return; }
+  let directional = flat % directions + select(1u, 0u, settings.physical != 0u);
+  let incident = directional_incident(path, directional);
   let radiance = ev(path) * ef(path + 7u) * incident[1] * max(0.0, dot(ev(path + 8u), incident[0]));
-  add_sh(index, radiance, ev(path + 48u), 2.0 * PI / f32(settings.n_hemi));
+  storev(SHADOW + candidate * 4u, radiance);
+}
+@compute @workgroup_size(64)
+fn shadow_reduce(@builtin(global_invocation_id) id: vec3u) {
+  if (!sample_active(id.x)) { return; }
+  let directions = settings.physical + settings.directional_count;
+  let first = max(id.x * directions, settings.shadow_window);
+  let end = min((id.x + 1u) * directions, settings.shadow_window + CAPACITY);
+  if (first >= end) { return; }
+  let path = PATHS + id.x * ${ABI.pathStride / 4}u;
+  let index = sample_index(id.x);
+  if (atomicLoad(&estimate[24u]) != 0u) { fail(index, 5u); return; }
+  for (var flat = first; flat < end; flat++) {
+    add_radiance(path, ev(SHADOW + (flat - settings.shadow_window) * 4u), index);
+  }
+}
+@compute @workgroup_size(64)
+fn sample_reduce(@builtin(global_invocation_id) id: vec3u) {
+  let samples = select(settings.n_hemi, settings.n_connect, settings.stage == 2u);
+  let index = settings.window / samples + id.x;
+  if (!selected(index)) { return; }
+  let first = max(index * samples, settings.window);
+  let end = min((index + 1u) * samples, settings.window + atomicLoad(&estimate[7u]));
+  for (var flat = first; flat < end; flat++) {
+    let path = PATHS + (flat - settings.window) * ${ABI.pathStride / 4}u;
+    let weight = select(2.0 * PI / f32(samples), 1.0 / f32(samples), settings.stage == 2u);
+    add_sh(index, ev(path + 56u), ev(path + 48u), weight);
+  }
 }
 @compute @workgroup_size(64)
 fn connection_rays(@builtin(global_invocation_id) id: vec3u) {
-  let index = settings.window + id.x;
-  if (!selected(index) || id.x >= CAPACITY) { return; }
+  let index = sample_index(id.x);
+  if (!sample_active(id.x)) { return; }
   let patch_at = PATCH + atomicLoad(&scratch[UPDATES + index]) * 76u;
   let cohort = COHORTS + index * 24u;
-  let seed = cohort_seed(cohort, settings.n_hemi + settings.sample);
+  let seed = cohort_seed(cohort, settings.n_hemi + sample_number(id.x));
   let pool_index = min(u32(random(seed, 3u) * f32(${profile.lightSamples}u)), ${profile.lightSamples - 1}u);
   let pool = POOL + pool_index * 48u;
   let status = atomicLoad(&estimate[pool + 27u]);
   let path = PATHS + id.x * ${ABI.pathStride / 4}u;
   atomicStore(&estimate[path + 54u], 0u);
+  storev(path + 48u, vec3f(0.0, 0.0, 1.0));
+  storev(path + 56u, vec3f(0.0));
   atomicStore(&estimate[path + 55u], pool_index);
   atomicAdd(&estimate[cohort + 13u], 1u);
   if (status > 1u) { fail(index, status); }
@@ -544,8 +679,8 @@ fn connection_rays(@builtin(global_invocation_id) id: vec3u) {
 }
 @compute @workgroup_size(64)
 fn connection_hits(@builtin(global_invocation_id) id: vec3u) {
-  let index = settings.window + id.x;
-  if (!selected(index) || id.x >= CAPACITY) { return; }
+  let index = sample_index(id.x);
+  if (!sample_active(id.x)) { return; }
   let path = PATHS + id.x * ${ABI.pathStride / 4}u;
   if (atomicLoad(&estimate[path + 54u]) == 0u) { return; }
   let status = batch[RESULT + id.x * 8u + 3u];
@@ -597,7 +732,7 @@ fn connection_hits(@builtin(global_invocation_id) id: vec3u) {
     max(0.0, dot(normal, toward_patch)) * ef(pool + 7u) / ef(path + 51u);
   let radiance_over_pdf = selection_target.rgb * hits[id.x * 6u + 1u].w * intensity * scale;
   atomicAdd(&estimate[22u], 1u);
-  add_sh(index, radiance_over_pdf, ev(path + 48u), 1.0 / f32(settings.n_connect));
+  add_radiance(path, radiance_over_pdf, index);
 }
 @compute @workgroup_size(64)
 fn finish_cohorts(@builtin(global_invocation_id) id: vec3u) {

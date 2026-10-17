@@ -23,10 +23,12 @@ const profile = {
 test("estimator working set follows pool, bounded batch and selected updates; never pixels times spp", () => {
   const plan = planScgiEstimator(limits, profile, 2048);
   assert.equal(plan.ranges.pool.bytes, 1024 * 192);
-  assert.equal(plan.ranges.paths.bytes, 256 * 224);
+  assert.equal(plan.ranges.paths.bytes, 256 * 240);
   assert.equal(plan.ranges.cohorts.bytes, 2048 * 96);
   assert.equal(SCGI_ESTIMATOR.hitStride, 96);
-  assert.equal(plan.bytes, 516352);
+  assert.equal(plan.ranges.shadow.bytes, 256 * 16);
+  assert.equal(plan.ranges.shadowMap.bytes, 256 * 4);
+  assert.equal(plan.bytes, 525824);
   assert.equal(planScgiEstimator(limits, { ...profile, hemisphereSamples: 128 }, 2048).bytes, plan.bytes);
   for (const range of Object.values(plan.ranges)) assert.equal(range.offset % 256, 0);
 });
@@ -111,6 +113,7 @@ test("estimator abort retires safely; submitted failure quarantines rather than 
     Object.assign(Object.create(ScgiEstimator.prototype), {
       device,
       plan,
+      arena: { ranges: { control: { offset: 0, bytes: 128 }, cohorts: { offset: 128, bytes: 96 } } },
       profile: { batchRays: 1, lightSamples: 1, hemisphereSamples: 1, connectionSamples: 1 },
       input,
       lightRevision: 1,

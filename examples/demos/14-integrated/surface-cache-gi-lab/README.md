@@ -85,9 +85,9 @@ npm --prefix examples run demo:scgi
 
 面板提供 world cache、请求容量、更新数、半球样本、连接与光源样本、多跳、过滤 taps、Gather 距离、tile、方向数、执行 batch、query 预算及 AO / SSSR / Bloom / temporal / jitter / VSM 控制。`batchRays` 和 `gatherBatchRays` 是执行批大小，不是“每像素发多少 ray”的画质设置。
 
-当前 demo 的 Gather batch 为 65536，使完整 1080p 工作集不被极小批次拆成大量 query 命令。Estimator 保持 batch 128，当前 128 个更新本来就能装进一个窗口，盲目增大它没有减少当前调度量。该选择增加有界的 Gather batch scratch，不减少像素、方向数、样本或 query 完整性。
+当前 demo 的 Gather batch 为 65536，使完整 1080p 工作集不被极小批次拆成大量 query 命令。R2 将 Estimator 改为扁平的 patch×sample 工作，默认 batch 因此改为 1024：128 个更新×8 个半球样本可合入一个物理窗口，256 个重连接样本另一个窗口。128 是旧逐 sample 调度的配置，不再是合理的批量基线；扩大执行窗口没有减少更新数、样本或 query 完整性。`?batch=128` 可显式比较小批次成本；`?timing=stage` 开启有限阶段时间戳，默认保留 coarse 整帧采样。
 
-本轮默认 1080p 场景的成本检查中，Gather dispatch 理论上界由 100121 降至 6455，完整 probe / source shadow ray 上界仍分别为 230400 / 1036800，history 大小不变；Gather owner 和 query 私有 batch 资源合计增加约 28.125 MiB。这是执行切分的取舍，不是降低画质。局部诊断中的 CPU 主图编码从秒级降至几十毫秒，但完整路径的 GPU 时间戳采样仍为数百毫秒，首次完整 query 编译准备仍有数秒，**尚未达到实时性能**。这些短序列不属于正式同条件 benchmark，也不改变 SCGI-10 状态。
+初始大 batch 调整曾将 Gather dispatch 理论上界从 100121 降至 6455，完整 probe / source shadow ray 上界仍分别为 230400 / 1036800，history 大小不变；Gather owner 和 query 私有 batch 资源合计增加约 28.125 MiB。随后 R1 切换共享 query，R2 切换 estimator 批处理；最新默认 1080p 样本为481次整帧 dispatch、coarse GPU command span约68.29ms，尚未达到实时性能。R2 stage 样本 estimator约2.25ms、未改造的 Gather source约24.06ms。数值是短序列观测，不能当正式benchmark或最终画质通过；原失败与版本/参数差异见执行文档§8。
 
 ## 截图、条件和比较
 

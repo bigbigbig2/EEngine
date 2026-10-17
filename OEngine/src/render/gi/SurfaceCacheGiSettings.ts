@@ -44,7 +44,7 @@ export const SURFACE_CACHE_GI_DEFAULTS: SurfaceCacheGiSettings = Object.freeze({
   hemisphereSamples: 8,
   connectionSamples: 2,
   lightSamples: 64,
-  batchRays: 64,
+  batchRays: 1024,
   maximumLights: 4096,
   primitiveCapacity: 16384,
   queryMaximumBytes: 512 * 1024 * 1024,
@@ -73,7 +73,7 @@ export const SURFACE_CACHE_GI_PRESETS = Object.freeze({
     updates: 128,
     hemisphereSamples: 16,
     lightSamples: 128,
-    batchRays: 128,
+    batchRays: 2048,
   }),
 });
 

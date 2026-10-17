@@ -215,13 +215,16 @@ export async function runScgiEstimatorGpuOracle(device) {
         patchNormal = [0, 0, 1],
         before,
         after,
-        filtered = false
+        filtered = false,
+        runtimeOwner = runtime,
+        cacheOwner = cache,
+        beforeCache
       } = {}
     ) => {
       const command = scgiCommand(graphics);
       pending = command;
-      const tx = runtime.prepare(command, { scene: sceneEpoch, view: 1 });
-      runtime.encode(tx);
+      const tx = runtimeOwner.prepare(command, { scene: sceneEpoch, view: 1 });
+      runtimeOwner.encode(tx);
       const request = packScgiRecord("request", {
         positionRadius: [...patchPosition, 0],
         normal: patchNormal,
@@ -242,7 +245,8 @@ export async function runScgiEstimatorGpuOracle(device) {
           bytes: new Uint8Array(new Uint32Array([1]).buffer)
         }
       ]);
-      cache.encode(tx, { ...cacheSettings, voxelSize, frame: frame + 1 });
+      beforeCache?.(tx);
+      cacheOwner.encode(tx, { ...cacheSettings, voxelSize, frame: frame + 1 });
       before?.(tx);
       if (querySet) {
         const pass = command.gpu_encoder.beginComputePass({
@@ -348,11 +352,120 @@ export async function runScgiEstimatorGpuOracle(device) {
       assert.ok(Math.abs(actual - expected) < expected * 0.15, `${actual} vs ${expected}`);
     }
     const skyCost = estimator.cost;
+    // Freeze the attempted sample serial, then change the physical window.
+    // A patch straddles 7-lane windows; 1024 holds the entire same sample set.
+    const resetSerial = (tx) =>
+      tx.command.uploadRegions([
+        {
+          destination: tx.publication.candidateWorld.buffer,
+          destinationOffset: plan.world.ranges.patches.offset + 25 * 4,
+          bytes: new Uint8Array(new Uint32Array([0, 0]).buffer)
+        }
+      ]);
+    const windowResults = [];
+    for (const batchRays of [7, 1024]) {
+      const alternate = await ScgiEstimator.create(
+        device,
+        plan,
+        { ...estimator.profile, batchRays },
+        estimator.input
+      );
+      retained.push(alternate);
+      const result = await run(alternate, { before: resetSerial });
+      assert.equal(result.u[2], 1);
+      for (let i = 0; i < 12; i++) assert.equal(result.f[i], first.f[i], `window-independent sky term ${i}`);
+      windowResults.push({ batchRays, dispatches: alternate.cost.maximumEncodedDispatches });
+    }
+    const multiPatchWindows = [];
+    let multiPatchReference;
+    for (const batchRays of [7, 64]) {
+      const fresh = new ScgiRuntime(device, 1);
+      const multiPlan = await fresh.configure(
+        { enabled: true, hasGeometry: true, hasLitMaterials: true },
+        { ...profile, updates: 3, requests: 3 }
+      );
+      const freshCache = await ScgiCache.create(device, multiPlan);
+      const alternate = await ScgiEstimator.create(
+        device,
+        multiPlan,
+        { ...estimator.profile, hemisphereSamples: 19, connectionSamples: 5, batchRays },
+        estimator.input
+      );
+      retained.push(alternate);
+      const capture = device.createBuffer({
+        size: 196,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+      });
+      await run(alternate, {
+        runtimeOwner: fresh,
+        cacheOwner: freshCache,
+        beforeCache: (tx) => {
+          const requests = [
+            [-0.5, -0.5, 0],
+            [0.5, -0.5, 0],
+            [-0.5, 0.5, 0]
+          ].map((position) =>
+            packScgiRecord("request", {
+              positionRadius: [...position, 0],
+              normal: [0, 0, 1],
+              source: 0,
+              identity: new Uint32Array(12).fill(1),
+              cellRankPixelStatus: [0, 0, 0, 0],
+              identityTail: [0, 0, 0, 0]
+            })
+          );
+          const bytes = new Uint8Array(3 * 112);
+          requests.forEach((request, i) => bytes.set(request, i * 112));
+          tx.command.uploadRegions([
+            {
+              destination: tx.publication.privateScratch.buffer,
+              destinationOffset: multiPlan.scratch.ranges.requests.offset,
+              bytes
+            },
+            {
+              destination: tx.publication.privateScratch.buffer,
+              destinationOffset: multiPlan.scratch.ranges.cacheControl.offset,
+              bytes: new Uint8Array(new Uint32Array([3]).buffer)
+            }
+          ]);
+        },
+        after: (tx) => {
+          tx.command.copyBufferToBuffer(
+            tx.publication.privateScratch.buffer,
+            multiPlan.scratch.ranges.raw.offset,
+            capture,
+            0,
+            192
+          );
+          tx.command.copyBufferToBuffer(
+            tx.publication.privateScratch.buffer,
+            multiPlan.scratch.ranges.cacheControl.offset + 28 * 4,
+            capture,
+            192,
+            4
+          );
+        }
+      });
+      await capture.mapAsync(GPUMapMode.READ);
+      const words = new Uint32Array(capture.getMappedRange().slice(0));
+      capture.unmap();
+      capture.destroy();
+      fresh.destroy();
+      assert.equal(words[48], 3, "three actual selected patches");
+      for (let patch = 0; patch < 3; patch++) {
+        assert.equal(words[patch * 16 + 12], 19);
+        assert.equal(words[patch * 16 + 13], 5);
+        assert.equal(words[patch * 16 + 14], 1, "complete cohort across patch/window boundary");
+      }
+      multiPatchReference ??= words;
+      assert.deepEqual([...words], [...multiPatchReference], "multi-patch raw is bitwise window independent");
+      multiPatchWindows.push({ batchRays, selected: words[48] });
+    }
     // Retry consumes neither patch serial nor frame cohort seed.
     await run(estimator, { abort: true });
     const retry = await run(estimator);
     const patchBase = plan.world.ranges.patches.offset / 4;
-    assert.equal(retry.world[patchBase + 25], 3 * (512 + 4));
+    assert.equal(retry.world[patchBase + 25], 2 * (512 + 4));
     assert.equal(retry.u[2], 1);
     sceneEpoch++;
     const tilted = await run(estimator, { patchNormal: [0.6, 0, 0.8] });
@@ -619,7 +732,7 @@ export async function runScgiEstimatorGpuOracle(device) {
     update.finish();
     await update.gpuDone;
     estimator = await createEstimator();
-    const punctual = await run(estimator);
+    const punctual = await run(estimator, { before: resetSerial });
     assert.equal(punctual.u[2], 1, `punctual fault ${punctual.u[3]}`);
     const reference = areaReference([0, 0, 0], [2, 2, 2], 4);
     const actual = evaluate(punctual.f);
@@ -637,6 +750,30 @@ export async function runScgiEstimatorGpuOracle(device) {
     assert.ok(punctual.estimate[5] > 0, "actual endpoint reconnection issued");
     const punctualCost = estimator.cost;
     assert.ok(punctual.estimate[22] > 0, "correct instance endpoints contribute");
+    const reconnectWindows = [];
+    let reconnectReference;
+    for (const batchRays of [256, 63, 1024]) {
+      const fresh = new ScgiRuntime(device, 1);
+      const freshPlan = await fresh.configure(
+        { enabled: true, hasGeometry: true, hasLitMaterials: true },
+        profile
+      );
+      const freshCache = await ScgiCache.create(device, freshPlan);
+      const alternate = await ScgiEstimator.create(
+        device,
+        freshPlan,
+        { ...estimator.profile, batchRays },
+        estimator.input
+      );
+      retained.push(alternate);
+      const result = await run(alternate, { runtimeOwner: fresh, cacheOwner: freshCache });
+      fresh.destroy();
+      assert.equal(result.u[2], 1);
+      reconnectReference ??= result;
+      for (let i = 0; i < 12; i++)
+        assert.equal(result.f[i], reconnectReference.f[i], `pool and reconnect window term ${i}`);
+      reconnectWindows.push({ batchRays, rays: result.estimate[5], accepted: result.estimate[22] });
+    }
     // A changed light snapshot is rejected before an old pool can be reused.
     lights.source.remove(point);
     update = scgiCommand(graphics);
@@ -738,9 +875,54 @@ export async function runScgiEstimatorGpuOracle(device) {
     update.finish();
     await update.gpuDone;
     estimator = await createEstimator({}, { hemisphereSamples: 256, connectionSamples: 1, lightSamples: 1 });
-    const directionalLit = await run(estimator);
+    const directionalLit = await run(estimator, { before: resetSerial });
     assert.equal(directionalLit.u[2], 1);
     assert.ok(evaluate(directionalLit.f)[0] > 0.2, "authored directional uses world-space visibility at hit");
+    const shadowWindows = [];
+    for (const batchRays of [7, 1024]) {
+      const alternate = await createEstimator(
+        {},
+        { hemisphereSamples: 256, connectionSamples: 1, lightSamples: 1, batchRays }
+      );
+      retained.push(alternate);
+      const result = await run(alternate, { before: resetSerial });
+      assert.equal(result.u[2], 1);
+      for (let i = 0; i < 12; i++)
+        assert.equal(result.f[i], directionalLit.f[i], `compacted shadow/window term ${i}`);
+      assert.equal(
+        result.estimate[4],
+        directionalLit.estimate[4],
+        "same admitted shadow set despite compact scheduling"
+      );
+      shadowWindows.push({ batchRays, rays: result.estimate[4] });
+    }
+      const secondDirectional = new DirectionalLight();
+      secondDirectional.forward = [0, 0, 1];
+      secondDirectional.intensity = 1;
+      lights.source.add(secondDirectional);
+      update = scgiCommand(graphics);
+      lights.update(update);
+      update.finish();
+      await update.gpuDone;
+      let multiLightReference;
+      for (const batchRays of [7, 1024]) {
+        const alternate = await createEstimator({}, {
+          hemisphereSamples: 256, connectionSamples: 1, lightSamples: 1, batchRays
+        });
+        retained.push(alternate);
+        const result = await run(alternate, { before: resetSerial });
+        assert.equal(result.u[2], 1);
+        multiLightReference ??= result;
+        for (let i = 0; i < 12; i++) assert.equal(result.f[i], multiLightReference.f[i], `two-light shadow window term ${i}`);
+        assert.equal(result.estimate[4], directionalLit.estimate[4] * 2);
+        assert.ok(Math.abs(evaluate(result.f)[0] - evaluate(directionalLit.f)[0] * 1.5) < 1e-5,
+          "two light contributions retain full energy across shadow windows");
+      }
+      lights.source.remove(secondDirectional);
+      update = scgiCommand(graphics);
+      lights.update(update);
+      update.finish();
+      await update.gpuDone;
     retained.push(estimator);
     estimator = null;
     await replaceScene([1, 1, 1], [0, 0, 0], { blocker: true });
@@ -1149,6 +1331,10 @@ export async function runScgiEstimatorGpuOracle(device) {
       raw: Array.from(f.slice(0, 12)),
       cohort: Array.from(u.slice(12)),
       cost: skyCost,
+      windowResults,
+      multiPatchWindows,
+      shadowWindows,
+      reconnectWindows,
       gpuCostObservation: {
         firstSkyMs: gpuCosts[0] ?? null,
         maximumFixtureMs: gpuCosts.length ? Math.max(...gpuCosts) : null,
