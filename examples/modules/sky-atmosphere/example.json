@@ -1,0 +1,6 @@
+{
+  "id": "sky-atmosphere",
+  "title": "Mesa Commons · Sky & Atmosphere",
+  "description": "A new procedural outdoor scene for Physical Sky, VSM shadows and temporal anti-aliasing.",
+  "tags": ["module", "sky", "atmosphere", "vsm", "fsr3", "webgpu"]
+}

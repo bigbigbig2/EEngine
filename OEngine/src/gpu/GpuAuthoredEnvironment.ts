@@ -72,6 +72,7 @@ type AuthoredIblAllocation = {
 };
 type AuthoredIblSet = {
   readonly specularTexture: GPUTexture;
+  readonly backgroundTexture: GPUTexture;
   readonly source: ShadeTexture;
   readonly allocations: Set<AuthoredIblAllocation>;
   readonly scratch: readonly AuthoredIblAllocation[];
@@ -114,6 +115,11 @@ export class GpuAuthoredEnvironment {
     const selected = this.pending ?? this.active;
     if (!selected) throw new Error("Authored IBL has no recorded generation");
     return selected.specularTexture;
+  }
+  get backgroundTexture(): GPUTexture {
+    const selected = this.pending ?? this.active;
+    if (!selected) throw new Error("Authored environment has no background radiance");
+    return selected.backgroundTexture;
   }
   get allocatedBytes(): number {
     const bytes = (set: AuthoredIblSet | null) =>
@@ -214,7 +220,7 @@ export class GpuAuthoredEnvironment {
         levels,
         "rgba16float",
         GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
-        true,
+        false,
       );
       const filtered = make(
         "AuthoredIBL/filtered specular",
@@ -304,6 +310,9 @@ export class GpuAuthoredEnvironment {
       dispatch(dfg, [dfgTexture.createView()], 64);
       const candidate: AuthoredIblSet = {
         specularTexture: filtered,
+        // Background blur samples the GGX-prefiltered chain, not box-downsampled
+        // octahedral source mips whose folded boundary is not seam-aware.
+        backgroundTexture: filtered,
         source,
         allocations,
         scratch,

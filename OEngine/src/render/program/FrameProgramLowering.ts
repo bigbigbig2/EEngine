@@ -20,6 +20,7 @@ import type { BloomPass } from "../passes/BloomPass.js";
 import type { LocalLightWorkGenerator } from "../lighting/LocalLightWorkGenerator.js";
 import type { VisibilityCounterPass } from "../passes/VisibilityCounterPass.js";
 import type { PhysicalSkyPass } from "../passes/PhysicalSkyPass.js";
+import type { AuthoredEnvironmentBackgroundPass } from "../passes/AuthoredEnvironmentBackgroundPass.js";
 import type { AerialPerspectivePass } from "../passes/AerialPerspectivePass.js";
 import type { XeGtaoPreparationPass } from "../ao/XeGtaoPreparationPass.js";
 import type { XeGtaoMainPass } from "../ao/XeGtaoMainPass.js";
@@ -46,6 +47,7 @@ export type FrameProgramOwners = Readonly<{
   present: SurfacePresentPass;
   debug: RenderDebugViewPass;
   sky: PhysicalSkyPass | null;
+  authoredBackground: AuthoredEnvironmentBackgroundPass;
   aerial: AerialPerspectivePass | null;
   localLightWork: LocalLightWorkGenerator;
   xeGtaoPreparation: XeGtaoPreparationPass;
@@ -1213,13 +1215,30 @@ function compileSceneGraph(
           preExposure: gpuPreviousExposure,
           width: result.frame.domain.width,
           height: result.frame.domain.height,
-        });
-  let reconstructedRadiance = aerialRadiance;
+      });
+  const authoredBackgroundRadiance = !plan.stages.includes("authored-background")
+    ? aerialRadiance
+    : owners.authoredBackground.addToGraph(graph, {
+        hdr: aerialRadiance,
+        depth: result.frame.depth,
+        camera: cameraBuffer,
+        preExposure: gpuPreviousExposure,
+        source: graph.import_resource(
+          "authored-background-radiance-mips",
+          { kind: "imported", label: "Authored environment radiance mip chain" },
+          bind("authored-background-radiance-mips", (bindings) => bindings.view.environment.lights.authoredIbl.backgroundTexture),
+        ),
+        width: result.frame.domain.width,
+        height: result.frame.domain.height,
+        exposure: initial.authoredBackground?.exposure ?? 1,
+        blur: initial.authoredBackground?.blur ?? 0,
+      });
+  let reconstructedRadiance = authoredBackgroundRadiance;
   if (temporalPolicy === "native") {
     reconstructedRadiance = initial.nativeTemporal.addToGraph(
       graph,
       {
-        color: aerialRadiance,
+        color: authoredBackgroundRadiance,
         seed,
         response: reactive,
         identity,
@@ -1235,7 +1254,7 @@ function compileSceneGraph(
     reconstructedRadiance = initial.fsr3.addToGraph(
       graph,
       {
-        color: aerialRadiance,
+        color: authoredBackgroundRadiance,
         depth: result.frame.depth,
         motion: seed,
         reactiveMask: temporalMask!,
@@ -1336,6 +1355,7 @@ function compileSceneGraph(
     plan.request.outputWidth,
     plan.request.outputHeight,
     debugColor !== null,
+    initial.displayToneMapping ?? "engine",
   );
   return graph.compile();
 }

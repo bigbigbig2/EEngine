@@ -49,6 +49,7 @@ import {
   type LocalLightWorkFrame,
 } from "../lighting/LocalLightWorkGenerator.js";
 import { PhysicalSkyPass } from "../passes/PhysicalSkyPass.js";
+import { AuthoredEnvironmentBackgroundPass } from "../passes/AuthoredEnvironmentBackgroundPass.js";
 import { AerialPerspectivePass } from "../passes/AerialPerspectivePass.js";
 import { FrameProgramCache, type FrameProgram } from "../program/FrameProgram.js";
 import {
@@ -539,7 +540,7 @@ export class Renderer {
       );
     }
     if (lit && scene.lights.environment) {
-      jobs.push(prepareAuthoredEnvironmentPipelines(this._graphics));
+      jobs.push(prepareAuthoredEnvironmentPipelines(this._graphics), this._authoredBackground.preparePipelines());
     }
     if (shadow) {
       jobs.push(
@@ -622,6 +623,10 @@ export class Renderer {
   private _localLightWork!: LocalLightWorkGenerator;
   private _physicalSky: PhysicalSkyPass | null = null;
   private _aerialPerspective: AerialPerspectivePass | null = null;
+  private _authoredBackground!: AuthoredEnvironmentBackgroundPass;
+  private _authoredBackgroundExposure = 1;
+  private _authoredBackgroundBlur = 0;
+  private _displayToneMapping: "engine" | "neutral" | "aces" | "reinhard" = "engine";
   private _present!: SurfacePresentPass;
   private _surface!: SurfaceV4;
   private _reflections: SssrRuntime | null = null;
@@ -915,6 +920,29 @@ export class Renderer {
   /** Explicit exposure reset. Color/TAA invalidation does not reset metering. */
   resetExposure(): void {
     this._gpuRadiometry.resetExposure();
+  }
+  setFixedExposure(value: number): void {
+    this._gpuRadiometry.setFixedExposure(value);
+  }
+  setAuthoredBackgroundSettings(settings: { exposure?: number; blur?: number }): void {
+    const exposure = settings.exposure ?? this._authoredBackgroundExposure;
+    const blur = settings.blur ?? this._authoredBackgroundBlur;
+    if (!Number.isFinite(exposure) || exposure < 0 || exposure > 16) {
+      throw new RangeError("Background exposure must be in [0, 16]");
+    }
+    if (!Number.isFinite(blur) || blur < 0 || blur > 1) {
+      throw new RangeError("Background blur must be in [0, 1]");
+    }
+    this._authoredBackgroundExposure = exposure;
+    this._authoredBackgroundBlur = blur;
+    this._authoredBackground?.setSettings({ exposure, blur });
+  }
+  setToneMapping(mode: "engine" | "neutral" | "aces" | "reinhard"): void {
+    this._displayToneMapping = mode;
+    this._present?.setToneMapping(mode);
+  }
+  setPresentationExposure(value: number): void {
+    this._present?.setExposure(value);
   }
   /** One-shot GPU exposure diagnostics; no automatic/per-frame readback. */
   readExposureDiagnostics() {
@@ -2210,6 +2238,7 @@ export class Renderer {
     this._xeGtaoMain = new XeGtaoMainPass(device);
     this._xeGtaoDenoise = new XeGtaoDenoisePass(device);
     this._present = new SurfacePresentPass(device, this._format, this._displayProfile);
+    this._authoredBackground = new AuthoredEnvironmentBackgroundPass(this._graphics);
     this._surface = new SurfaceV4(device, true, this._graphics, true);
     this._sssrDebug = new SssrDebug(device);
     this._finalPixelLighting = new FinalPixelLightingPublication(device, this._graphics);
@@ -2329,6 +2358,7 @@ export class Renderer {
       xeGtaoDenoise: this._xeGtaoDenoise,
       present: this._present,
       sky: this._physicalSky,
+      authoredBackground: this._authoredBackground,
       aerial: this._aerialPerspective,
       localLightWork: this._localLightWork,
       vsmDepthBounds: this._vsmDepthBounds,
@@ -3042,6 +3072,8 @@ export class Renderer {
         nativeTemporal: this._nativeTemporal,
         temporalSeed: this._temporalSeed,
         radiometry: this._gpuRadiometry,
+        authoredBackground: Object.freeze({ exposure: this._authoredBackgroundExposure, blur: this._authoredBackgroundBlur }),
+        displayToneMapping: this._displayToneMapping,
         lightingEnvironmentRevision:
           scene.lights.environment !== undefined
             ? (environment.lights.authoredIbl.publicationRevision | 0x80000000) >>> 0
@@ -3457,6 +3489,7 @@ export class Renderer {
     this._xeGtaoMain?.destroy();
     this._xeGtaoPreparation?.destroy();
     this._physicalSky?.destroy();
+    this._authoredBackground?.destroy();
     this._aerialPerspective?.destroy();
     this._fsr3?.destroy();
     this._nativeTemporal?.destroy();

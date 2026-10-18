@@ -48,6 +48,9 @@ export type SceneFrameBindings = Readonly<{
   nativeTemporal: NativeTemporalV2;
   temporalSeed: NativeTemporalSeed;
   radiometry: GpuRadiometryPass;
+  /** Visible authored HDR background controls; independent from material IBL. */
+  authoredBackground?: Readonly<{ exposure: number; blur: number }>;
+  displayToneMapping?: "engine" | "neutral" | "aces" | "reinhard";
   lightingEnvironmentRevision: number;
   /** GPU light collection publication revision; independent from sky/IBL revision. */
   lightingLightRevision: number;

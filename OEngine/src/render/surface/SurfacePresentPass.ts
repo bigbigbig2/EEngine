@@ -13,6 +13,7 @@ export const SURFACE_PRESENT_WGSL = /* wgsl */ `
 @group(0) @binding(3) var display_lut:texture_3d<f32>;
 @group(0) @binding(4) var display_lut_sampler:sampler;
 @group(0) @binding(5) var<storage,read> pre_exposure:array<f32>;
+@group(0) @binding(6) var<uniform> display_exposure:f32;
 @vertex fn vs(@builtin(vertex_index) index:u32)->@builtin(position) vec4f {
   return vec4f(f32((index<<1u)&2u)*2.0-1.0,
     f32(index&2u)*2.0-1.0,0.0,1.0);
@@ -21,7 +22,7 @@ export const SURFACE_PRESENT_WGSL = /* wgsl */ `
   let size=textureDimensions(surface_radiance);
   let pixel=min(vec2u(position.xy)*size/output_size,size-vec2u(1u));
   let hdr=textureLoad(surface_radiance,vec2i(pixel),0).rgb*
-    (adapted_exposure[0]/max(pre_exposure[0],1e-6));
+    (adapted_exposure[0]/max(pre_exposure[0],1e-6))*display_exposure;
   let encoded=clamp(vec3f(
     linear_to_logc(hdr.r),linear_to_logc(hdr.g),linear_to_logc(hdr.b)),
     vec3f(0.0),vec3f(1.0));
@@ -43,6 +44,7 @@ export const SURFACE_PRESENT_HDR_WGSL = /* wgsl */ `
 @group(0) @binding(3) var display_lut:texture_3d<f32>;
 @group(0) @binding(4) var display_lut_sampler:sampler;
 @group(0) @binding(5) var<storage,read> pre_exposure:array<f32>;
+@group(0) @binding(6) var<uniform> display_exposure:f32;
 fn linear_to_logc(x:f32)->f32 {
   return 0.244161*log2(5.555556*max(0.0,x)+0.047996)/log2(10.0)+0.386036;
 }
@@ -54,7 +56,7 @@ fn linear_to_logc(x:f32)->f32 {
   let extent=textureDimensions(surface_radiance);
   let pixel=min(vec2u(position.xy)*extent/output_size,extent-vec2u(1u));
   let scene=textureLoad(surface_radiance,vec2i(pixel),0).rgb*
-    (adapted_exposure[0]/max(pre_exposure[0],1e-6));
+    (adapted_exposure[0]/max(pre_exposure[0],1e-6))*display_exposure;
   let encoded=clamp(vec3f(linear_to_logc(scene.r),linear_to_logc(scene.g),
     linear_to_logc(scene.b)),vec3f(0.0),vec3f(1.0));
   let lut_size=f32(textureDimensions(display_lut).x);
@@ -94,7 +96,10 @@ export class SurfacePresentPass {
   private readonly lutView: GPUTextureView;
   private readonly lutSampler: GPUSampler;
   private readonly profile: "sdr" | "hdr";
+  private toneMapping: "engine" | "neutral" | "aces" | "reinhard" = "engine";
   private readonly size: GPUBuffer;
+  private readonly exposure: GPUBuffer;
+  private exposureValue = 1;
   private readonly bindings = new GpuBindGroupResourceCache();
   private readonly debugBindings = new GpuBindGroupResourceCache();
 
@@ -109,6 +114,12 @@ export class SurfacePresentPass {
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this.exposure = device.createBuffer({
+      label: "Surface/present exposure",
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(this.exposure, 0, new Float32Array([1, 0, 0, 0]));
     const lutSize = 32;
     this.lutTexture = device.createTexture({
       label: `Presentation/${profile} static display LUT`,
@@ -145,6 +156,7 @@ export class SurfacePresentPass {
         },
         { binding: 4, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
         { binding: 5, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+        { binding: 6, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
       ],
     });
     const module = device.createShaderModule({
@@ -171,8 +183,19 @@ export class SurfacePresentPass {
     });
   }
 
-  /** Rebuild only when static color-grade parameters change. */
-  setGrade(options: SdrGradeOptions): void {
+  setToneMapping(mode: "engine" | "neutral" | "aces" | "reinhard"): void {
+    this.toneMapping = mode;
+    this.uploadDisplayLut({ toneMapping: mode });
+  }
+
+  setExposure(value: number): void {
+    if (!Number.isFinite(value) || value < 0 || value > 16) throw new RangeError("Presentation exposure must be in [0, 16]");
+    if (value === this.exposureValue) return;
+    this.exposureValue = value;
+    this.device.queue.writeBuffer(this.exposure, 0, new Float32Array([value, 0, 0, 0]));
+  }
+
+  private uploadDisplayLut(options: SdrGradeOptions = {}): void {
     const size = 32;
     this.device.queue.writeTexture(
       { texture: this.lutTexture },
@@ -180,6 +203,11 @@ export class SurfacePresentPass {
       { bytesPerRow: size * (this.profile === "hdr" ? 8 : 4), rowsPerImage: size },
       { width: size, height: size, depthOrArrayLayers: size },
     );
+  }
+
+  /** Rebuild only when static color-grade parameters change. */
+  setGrade(options: SdrGradeOptions): void {
+    this.uploadDisplayLut({ ...options, toneMapping: this.toneMapping });
   }
 
   addToGraph(
@@ -191,7 +219,9 @@ export class SurfacePresentPass {
     width: number,
     height: number,
     debug = false,
+    toneMapping: "engine" | "neutral" | "aces" | "reinhard" = this.toneMapping,
   ): ResourceId {
+    if (toneMapping !== this.toneMapping) this.setToneMapping(toneMapping);
     const present = graph.add(
       debug ? "Surface/present debug color" : "Surface/present radiance",
       {},
@@ -211,6 +241,7 @@ export class SurfacePresentPass {
               { binding: 3, resource: this.lutView },
               { binding: 4, resource: this.lutSampler },
               { binding: 5, resource: { buffer: resources.get(preExposure) as GPUBuffer } },
+              { binding: 6, resource: { buffer: this.exposure } },
             ];
         const layout = debug ? this.debugLayout : this.layout;
         const bind = (debug ? this.debugBindings : this.bindings).obtain(
@@ -246,6 +277,7 @@ export class SurfacePresentPass {
   destroy(): void {
     this.lutTexture.destroy();
     this.size.destroy();
+    this.exposure.destroy();
     this.bindings.clear();
     this.debugBindings.clear();
   }

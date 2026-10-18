@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hello HDR + glTF | EEngine Module</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="viewport">
+      <canvas id="viewport" aria-label="Venice Mask under an HDR environment"></canvas>
+      <section class="pipeline-card" aria-label="Current render pipeline">
+        <p class="eyebrow">EENGINE / MODULE 02</p>
+        <h1>Hello HDR <span>+</span> glTF</h1>
+        <p class="lead">One authored model. One real HDR environment. One native render path.</p>
+        <div class="pipeline-title"><span>FRAME PIPELINE</span><span>01 — 09</span></div>
+        <ol class="pipeline">
+          <li><b>01</b><span><strong>glTF / Web Cook</strong><small>Local Venice Mask · Product publication</small></span><em>LOAD</em></li>
+          <li><b>02</b><span><strong>Authored HDRI</strong><small>RGBE → octahedral radiance</small></span><em>SETUP</em></li>
+          <li><b>03</b><span><strong>Virtual Geometry</strong><small>GPU meshlet visibility</small></span></li>
+          <li><b>04</b><span><strong>Depth + VisibilityKey</strong><small>Reverse-Z depth</small></span></li>
+          <li><b>05</b><span><strong>Native Surface + IBL</strong><small>glTF BRDF · diffuse + specular environment</small></span></li>
+          <li><b>06</b><span><strong>Authored HDR Background</strong><small>Same environment · camera-ray lookup</small></span></li>
+          <li><b>07</b><span><strong>Temporal Bypass</strong><small>No TAA / FSR3 / jitter</small></span></li>
+          <li><b>08</b><span><strong>Radiometry</strong><small>Fixed exposure · live control</small></span></li>
+          <li><b>09</b><span><strong>Display / Present</strong><small>EEngine LUT or selected tone map</small></span><em>OUTPUT</em></li>
+        </ol>
+        <div class="facts"><span>HZB / AO / VSM / Bloom off</span><span>No extra light</span></div>
+      </section>
+      <section class="status-card" aria-live="polite">
+        <span class="status-dot"></span><strong id="phase">初始化 WebGPU</strong>
+        <div class="status-meta"><span id="scene-state">等待模型与 HDR</span><span id="quick-fps">-- FPS</span></div>
+      </section>
+      <p id="error" class="error" role="alert"></p>
+    </main>
+    <aside id="debug-panel" aria-label="Scene settings">
+      <header class="panel-header"><div><span class="eyebrow">LIVE CONTROLS</span><h2>Scene settings</h2></div><button id="panel-toggle" type="button" aria-expanded="true" aria-controls="panel-body">−</button></header>
+      <div id="panel-body">
+        <section class="panel-section"><div class="section-heading"><span>DISPLAY</span><span>01</span></div>
+          <label class="control">Tone mapping<select id="tone-mapping"><option value="engine">EEngine · GT7</option><option value="neutral">Neutral</option><option value="aces">ACES Filmic</option><option value="reinhard">Reinhard</option></select></label>
+          <label class="control">Exposure <output id="exposure-value">1.00</output><input id="exposure" type="range" min="0.1" max="2" step="0.01" value="1" /></label>
+        </section>
+        <section class="panel-section"><div class="section-heading"><span>ENVIRONMENT</span><span>02</span></div>
+          <label class="control">Background intensity <output id="background-intensity-value">1.00</output><input id="background-intensity" type="range" min="0" max="2" step="0.01" value="1" /></label>
+          <label class="control">Background blur <output id="background-blur-value">0.00</output><input id="background-blur" type="range" min="0" max="1" step="0.01" value="0" /></label>
+          <p class="note">Background controls affect the visible HDR only. The model keeps sampling the full authored IBL.</p>
+        </section>
+        <section class="panel-section"><div class="section-heading"><span>CAMERA</span><span>03</span></div>
+          <p class="note">Drag to orbit · scroll to zoom · pan disabled.</p><button id="reset-camera" class="reset-button" type="button">Reset view</button>
+        </section>
+        <footer><span>VENICE MASK</span><span>HDRI HAVEN · VENICE SUNSET</span></footer>
+      </div>
+    </aside>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

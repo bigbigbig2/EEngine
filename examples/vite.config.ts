@@ -7,8 +7,9 @@ import { dungeonLocalModel } from "./integrated/dungeon-warkarma-texture-compres
 
 const examplesRoot = fileURLToPath(new URL(".", import.meta.url));
 const integratedRoot = resolve(examplesRoot, "integrated");
+const modulesRoot = resolve(examplesRoot, "modules");
 
-/** Every `integrated/<example>/index.html` becomes a build entry and a served route. */
+/** Every module or integrated example page becomes a build entry and route. */
 function collectExamplePages(directory: string): Record<string, string> {
   const pages: Record<string, string> = {};
 
@@ -43,7 +44,10 @@ export default defineConfig({
     outDir: resolve(examplesRoot, "examples-static"),
     emptyOutDir: true,
     rollupOptions: {
-      input: collectExamplePages(integratedRoot),
+      input: {
+        ...collectExamplePages(integratedRoot),
+        ...collectExamplePages(modulesRoot)
+      },
       output: {
         // Vite names HTML-entry chunks after the input key, which produces a
         // truncated directory name. Name each entry after its example instead.

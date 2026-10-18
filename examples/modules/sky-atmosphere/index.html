@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mesa Commons | EEngine Sky Module</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="viewport">
+      <canvas id="viewport" aria-label="Mesa Commons sky scene"></canvas>
+      <div id="loading" role="status">
+        <span class="status-dot"></span><strong id="phase">Initializing WebGPU</strong><span id="elapsed">0 s</span>
+      </div>
+    </main>
+
+    <aside id="debug-panel" aria-label="Render controls">
+      <header class="panel-header">
+        <div>
+          <h1>Mesa Commons</h1>
+          <span>Sky / Atmosphere / VSM</span>
+        </div>
+        <button id="panel-toggle" class="icon-button" title="Collapse panel" aria-label="Collapse panel" aria-expanded="true" aria-controls="panel-body">
+          <i data-lucide="panel-right-close"></i>
+        </button>
+      </header>
+
+      <div id="panel-body">
+        <div class="panel-overview">
+          <div class="mode"><strong id="mode-name">Procedural</strong><span id="dirty">已应用</span></div>
+          <nav aria-label="Scene actions">
+            <button id="frame-scene" class="icon-button" title="Frame scene" aria-label="Frame scene"><i data-lucide="scan"></i></button>
+            <button id="fullscreen" class="icon-button" title="Fullscreen" aria-label="Fullscreen"><i data-lucide="maximize"></i></button>
+            <button id="export" class="icon-button" title="Export screenshot" aria-label="Export screenshot"><i data-lucide="download"></i></button>
+          </nav>
+        </div>
+
+        <div class="quick-stats">
+          <div><span>Submitted FPS</span><strong id="quick-fps">--</strong></div>
+          <div><span>Render CPU</span><strong id="quick-cpu">--</strong></div>
+          <div><span>GPU span</span><strong id="quick-gpu">--</strong></div>
+        </div>
+
+        <div class="diagnostic-controls">
+          <details class="section" open>
+            <summary>Display</summary>
+            <div class="section-body">
+              <label class="control">View<select id="debug-view"></select></label>
+              <p class="note">Debug views read the renderer's real products and do not change lighting.</p>
+            </div>
+          </details>
+
+          <section class="effect section">
+            <label class="effect-heading" for="vsm"><span>VSM <small>Directional shadows</small></span><input id="vsm" class="switch" type="checkbox" role="switch" aria-controls="vsm-parameters" checked /></label>
+            <div id="vsm-parameters" class="effect-parameters" hidden>
+              <label class="control">Debug view<select id="vsm-debug-view"><option value="none">Final shaded</option><option value="visibility">Shadow visibility</option><option value="clip-level">Clip levels</option><option value="page-state">Page state</option></select></label>
+              <p class="note">Shadow visibility: white is lit, black is occluded, purple is missing page.</p>
+              <label class="control">Shadow filter<select id="vsm-filter"><option value="disk4">Vogel disk: 4 samples</option><option value="gather2x2">Stable 2x2: 1 gather</option><option value="point">Hard shadow: 1 sample</option></select></label>
+              <label class="control">Filter radius (texels)<output id="vsm-radius-value">1.50</output><input id="vsm-radius" type="range" min="0" max="3" step="0.05" value="1.5" /></label>
+              <label class="control">Depth bias (texels)<output id="vsm-depth-bias-value">1.00</output><input id="vsm-depth-bias" type="range" min="0" max="8" step="0.05" value="1" /></label>
+              <label class="control">Angular bias (texels)<output id="vsm-angular-bias-value">1.00</output><input id="vsm-angular-bias" type="range" min="0" max="8" step="0.05" value="1" /></label>
+              <label class="control">Coverage scale<output id="vsm-coverage-value">1.00 ×</output><input id="vsm-coverage" type="range" min="0.25" max="4" step="0.05" value="1" /></label>
+              <p class="note">The pillars and platform make page coverage, bias and soft shadow changes easy to inspect.</p>
+              <div class="vsm-actions"><button id="vsm-rebuild" class="text-button" type="button">Rebuild pages</button><button id="vsm-reset" class="text-button" type="button">Reset VSM</button></div>
+            </div>
+          </section>
+
+          <section class="effect section">
+            <label class="effect-heading" for="fsr3"><span>FSR3 <small>Temporal reconstruction</small></span><input id="fsr3" class="switch" type="checkbox" role="switch" checked aria-controls="fsr3-parameters" /></label>
+            <div id="fsr3-parameters" class="effect-parameters">
+              <label class="control">Render scale<output id="render-scale-value">70%</output><input id="render-scale" type="range" min="0.5" max="1" step="0.05" value="0.7" /></label>
+              <label class="toggle-row">Camera jitter<input id="jitter" class="switch" type="checkbox" role="switch" checked /></label>
+              <dl><dt>RCAS sharpness</dt><dd>fixed 0.2</dd><dt>History</dt><dd>renderer managed</dd></dl>
+            </div>
+          </section>
+
+          <details class="section" open>
+            <summary>Sun / sky</summary>
+            <div class="section-body">
+              <label class="control">Azimuth (°)<output id="sun-azimuth-value">125.0</output><input id="sun-azimuth" type="range" min="0" max="360" step="1" value="125" /></label>
+              <label class="control">Elevation (°)<output id="sun-elevation-value">42.0</output><input id="sun-elevation" type="range" min="5" max="85" step="1" value="42" /></label>
+              <label class="control">Direct sun intensity<output id="sun-value">1.60</output><input id="sun" type="range" min="0" max="3" step="0.05" value="1.6" /></label>
+              <label class="control">Sky energy<output id="sky-value">1.80</output><input id="sky" type="range" min="0" max="4" step="0.05" value="1.8" /></label>
+              <label class="control">Lighting view<select id="lighting-contribution"><option value="all">All lighting</option><option value="background-only">Sky background only</option><option value="diffuse-only">Sky diffuse IBL only</option><option value="specular-only">Sky specular IBL only</option><option value="direct-only">Direct lighting only</option><option value="aerial-only">Aerial scattering only</option></select></label>
+              <label class="toggle-row">Aerial perspective<input id="aerial-perspective" class="switch" type="checkbox" role="switch" checked /></label>
+              <p class="note">Sky energy scales background, environment lighting and aerial scattering. Direct sun is independent.</p>
+            </div>
+          </details>
+
+          <details class="section">
+            <summary>Exposure</summary>
+            <div class="section-body">
+              <label class="control">Mode<select id="exposure-mode"><option value="auto">Auto</option><option value="fixed" selected>Fixed</option></select></label>
+              <label class="control" id="fixed-exposure-control">Fixed exposure<input id="fixed-exposure" type="number" value="3.2" min="0.01" max="64" step="0.01" /></label>
+              <p class="note">Use Fixed exposure when comparing sky and sun lighting contributions.</p>
+            </div>
+          </details>
+
+          <details class="section" open>
+            <summary>Camera / controls</summary>
+            <div class="section-body">
+              <p class="note">Drag to orbit, right-drag to pan, scroll to zoom. The scene is a large procedural outdoor test space.</p>
+            </div>
+          </details>
+
+          <details class="section">
+            <summary>Diagnostics</summary>
+            <div class="section-body">
+              <p class="note">No external model or HDR asset. Geometry uses the same GeometryProduct cook/upload path as the integrated examples.</p>
+              <pre id="diagnostics">Waiting for first frame</pre>
+            </div>
+          </details>
+        </div>
+        <p id="error" role="alert"></p>
+      </div>
+    </aside>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

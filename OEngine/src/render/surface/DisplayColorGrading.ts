@@ -10,6 +10,9 @@ type Mat3 = readonly [number, number, number, number, number, number, number, nu
 const REC2020_TO_SRGB: Mat3 = [
   1.660491, -0.1245505, -0.0181508, -0.5876411, 1.1328999, -0.1005789, -0.0728499, -0.0083494, 1.1187297,
 ];
+const SRGB_TO_REC2020: Mat3 = [
+  0.6274, 0.0691, 0.0164, 0.3293, 0.9195, 0.088, 0.0433, 0.0113, 0.8956,
+];
 const REC2020_TO_P3: Mat3 = [
   1.325984, -0.064249, 0.001639, -0.279603, 1.062031, -0.01901, -0.046381, 0.002218, 1.017371,
 ];
@@ -38,6 +41,7 @@ export interface SdrGradeOptions {
   readonly contrast?: number;
   readonly vibrance?: number;
   readonly saturation?: number;
+  readonly toneMapping?: "engine" | "neutral" | "aces" | "reinhard";
 }
 
 const mul = (m: Mat3, v: Rgb): Rgb => [
@@ -153,7 +157,57 @@ function gradeUntonedRec2020(input: Rgb, options: SdrGradeOptions): Rgb {
 }
 
 export function gradeSdrRec2020(input: Rgb, options: SdrGradeOptions = {}): Rgb {
-  return gt7SdrRec2020(gradeUntonedRec2020(input, options));
+  const linear = gradeUntonedRec2020(input, options);
+  switch (options.toneMapping ?? "engine") {
+    case "neutral":
+      return neutralToneMap(linear);
+    case "reinhard":
+      return map(linear, (x) => x / (1 + x));
+    case "aces":
+      return mul(SRGB_TO_REC2020, threeAcesToneMap(mul(REC2020_TO_SRGB, linear)));
+    default:
+      return gt7SdrRec2020(linear);
+  }
+}
+
+function threeAcesToneMap(input: Rgb): Rgb {
+  const inputMatrix: Mat3 = [
+    0.59719, 0.076, 0.0284,
+    0.35458, 0.90834, 0.13383,
+    0.04823, 0.01566, 0.83777,
+  ];
+  const outputMatrix: Mat3 = [
+    1.60475, -0.10208, -0.00327,
+    -0.53108, 1.10813, -0.07276,
+    -0.07367, -0.00605, 1.07602,
+  ];
+  const color = map(mul(inputMatrix, map(input, (value) => value / 0.6)), (value) => Math.max(0, value));
+  const fit = map(color, (value) => {
+    const a = value * (value + 0.0245786) - 0.000090537;
+    const b = value * (0.983729 * value + 0.432951) + 0.238081;
+    return a / b;
+  });
+  return map(mul(outputMatrix, fit), clamp01);
+}
+
+function neutralToneMap(color: Rgb): Rgb {
+  const result = [...color] as [number, number, number];
+  const minimum = Math.min(...result);
+  const offset = minimum < 0.08 ? minimum - 6.25 * minimum * minimum : 0.04;
+  for (let index = 0; index < 3; index++) result[index] = Math.max(0, result[index]! - offset);
+  const peak = Math.max(...result);
+  if (peak < 0.76) return result;
+  const distance = 0.24;
+  const mappedPeak = 1 - (distance * distance) / (peak + distance - 0.76);
+  const compression = mappedPeak / peak;
+  const desaturation = 1 - 1 / (0.15 * (peak - mappedPeak) + 1);
+  const compressed = result.map((value) => value * compression) as [number, number, number];
+  const gray = [mappedPeak, mappedPeak, mappedPeak] as const;
+  return [
+    mix(compressed[0], gray[0], desaturation),
+    mix(compressed[1], gray[1], desaturation),
+    mix(compressed[2], gray[2], desaturation),
+  ];
 }
 
 /** Extended linear Display-P3 output; 1.0 denotes 250 nits paper white. */

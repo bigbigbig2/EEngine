@@ -1,0 +1,6 @@
+{
+  "id": "hello-hdr-gltf",
+  "title": "Hello HDR + glTF",
+  "description": "A product-backed Venice Mask lit and backgrounded by an authored HDR environment, with native display controls.",
+  "tags": ["module", "gltf", "hdr", "ibl", "virtual-geometry", "webgpu"]
+}

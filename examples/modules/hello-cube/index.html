@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hello Cube | EEngine Module</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="viewport">
+      <canvas id="viewport" aria-label="EEngine Hello Cube scene"></canvas>
+
+      <section class="intro" aria-label="Example description">
+        <p class="eyebrow">EENGINE / MODULE 01</p>
+        <h1>Hello Cube</h1>
+        <p class="description">
+          一个最小的 Product-backed 场景：薄地台、立方体、单个平行光。
+        </p>
+        <section class="pipeline" aria-label="当前渲染管线">
+          <div class="pipeline-heading">
+            <span>FRAME PIPELINE</span>
+            <span>01 — 08</span>
+          </div>
+          <ol class="pipeline-steps">
+            <li>
+              <span class="step-index">01</span>
+              <span class="step-copy"><strong>GeometryProduct</strong><small>Cook / publish Virtual Geometry</small></span>
+              <span class="step-kind setup">SETUP</span>
+            </li>
+            <li>
+              <span class="step-index">02</span>
+              <span class="step-copy"><strong>Visibility</strong><small>GPU meshlet traversal</small></span>
+            </li>
+            <li>
+              <span class="step-index">03</span>
+              <span class="step-copy"><strong>Depth + VisibilityKey</strong><small>Reverse-Z depth output</small></span>
+            </li>
+            <li>
+              <span class="step-index">04</span>
+              <span class="step-copy"><strong>LightDatabase</strong><small>One authored DirectionalLight</small></span>
+            </li>
+            <li>
+              <span class="step-index">05</span>
+              <span class="step-copy"><strong>Native Surface</strong><small>Material BRDF + direct light</small></span>
+              <span class="step-kind">OPAQUE</span>
+            </li>
+            <li>
+              <span class="step-index">06</span>
+              <span class="step-copy"><strong>Temporal Bypass</strong><small>No TAA / FSR3 / jitter</small></span>
+            </li>
+            <li>
+              <span class="step-index">07</span>
+              <span class="step-copy"><strong>Radiometry</strong><small>Fixed exposure · 1.0</small></span>
+            </li>
+            <li>
+              <span class="step-index">08</span>
+              <span class="step-copy"><strong>Present</strong><small>Display transform → canvas</small></span>
+              <span class="step-kind output">OUTPUT</span>
+            </li>
+          </ol>
+        </section>
+        <div class="scene-facts">
+          <span><i></i> HZB / AO / VSM / Bloom off</span>
+          <span><i></i> Native resolution · no post AA</span>
+        </div>
+      </section>
+
+      <section class="status-card" aria-live="polite">
+        <div class="status-line">
+          <span class="status-dot"></span>
+          <strong id="phase">初始化 WebGPU</strong>
+        </div>
+        <div class="status-meta">
+          <span id="scene-state">等待场景</span>
+          <span id="quick-fps">-- FPS</span>
+        </div>
+      </section>
+
+      <button id="reset-camera" class="reset-button" type="button">重置视角</button>
+      <p id="error" class="error" role="alert"></p>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

@@ -13,6 +13,7 @@ export type FrameProduct =
   | "adapted-exposure"
   | "aerial-radiance"
   | "sky-radiance"
+  | "authored-sky-radiance"
   | "reflection-surface"
   | "reflection-depth"
   | "indirect-diffuse"
@@ -50,6 +51,7 @@ export type FrameProgramStage =
   | "sssr"
   | "surface"
   | "physical-sky"
+  | "authored-background"
   | "aerial"
   | "temporal-classification"
   | "fsr3"
@@ -206,6 +208,15 @@ const PRODUCT_SPEC: Readonly<
     value: "working-linear pre-exposed",
     coverage: "background plus surface",
     invalid: "surface fallback",
+    version: "frame",
+  },
+  "authored-sky-radiance": {
+    producer: "authored-background",
+    domain: "internal-full",
+    format: "rgba16float",
+    value: "working-linear pre-exposed",
+    coverage: "full internal background plus surface",
+    invalid: "surface radiance preserved",
     version: "frame",
   },
   "indirect-diffuse": {
@@ -567,6 +578,10 @@ const INPUT_CONTRACTS: Readonly<
     "surface-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
     depth: { domain: "internal-full", value: "reverse depth" },
   },
+  "authored-sky-radiance": {
+    "surface-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
+    depth: { domain: "internal-full", value: "reverse depth" },
+  },
   "surface-radiance": {
     "indirect-diffuse": {
       domain: "internal-half",
@@ -803,9 +818,11 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
     case "reconstructed-color": {
       const radiance: FrameProduct = request.physicalEnvironment
         ? "aerial-radiance"
-        : request.reflectionProfile === "sssr-base-coat"
-          ? "opaque-reflected-radiance"
-          : "surface-radiance";
+        : request.authoredEnvironment
+          ? "authored-sky-radiance"
+          : request.reflectionProfile === "sssr-base-coat"
+            ? "opaque-reflected-radiance"
+            : "surface-radiance";
       const policy = frameTemporalPolicy(request);
       if (policy === "bypass") {
         return [radiance];
@@ -827,6 +844,8 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
         request.reflectionProfile === "sssr-base-coat" ? "opaque-reflected-radiance" : "surface-radiance",
         "depth",
       ];
+    case "authored-sky-radiance":
+      return ["surface-radiance", "depth"];
     case "temporal-response":
       return ["visibility"];
     case "surface-radiance":
@@ -981,6 +1000,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
     ...(request.surfaceCacheGiGather ? ["surface-cache-gi-gather" as const] : []),
     ...(request.reflectionProfile === "sssr-base-coat" ? ["sssr" as const] : []),
     ...(request.physicalEnvironment ? ["physical-sky" as const, "aerial" as const] : []),
+    ...(request.authoredEnvironment ? ["authored-background" as const] : []),
     ...(frameTemporalPolicy(request) === "upscale" || temporalDebug
       ? ["temporal-classification" as const]
       : []),

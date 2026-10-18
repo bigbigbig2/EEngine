@@ -1,7 +1,8 @@
 // Enforces the example-library contract:
-//   examples/integrated/<name>/ is one self-contained example: index.html + main.ts
-//   with its own config, metadata and assets. Examples never import each other, and
-//   the retired demos/ , shared/ , stories/ and numeric category directories are gone.
+//   examples/integrated/<name>/ and examples/modules/<name>/ are self-contained
+//   examples with their own page, entry, metadata and config. Examples never
+//   import each other, and the retired demos/ , shared/ , stories/ and numeric
+//   category directories are gone.
 import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
@@ -9,7 +10,9 @@ import { fileURLToPath } from "node:url";
 
 const examplesRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const integratedRoot = resolve(examplesRoot, "integrated");
+const modulesRoot = resolve(examplesRoot, "modules");
 const REQUIRED_FILES = ["index.html", "main.ts", "example.json", "tsconfig.json", "vite.config.ts"];
+const MODULE_REQUIRED_FILES = ["index.html", "main.ts", "example.json", "tsconfig.json", "vite.config.ts"];
 const REQUIRED_FIELDS = ["id", "title", "description", "tags"];
 const FORBIDDEN_DIRECTORIES = ["demos", "shared", "stories", ".storybook"];
 const failures = [];
@@ -86,9 +89,35 @@ for (const name of exampleNames) {
   }
 }
 
+const moduleNames = (await directories(modulesRoot)).map((directory) => relative(modulesRoot, directory));
+for (const name of moduleNames) {
+  const directory = resolve(modulesRoot, name);
+  for (const file of MODULE_REQUIRED_FILES) {
+    if (!existsSync(resolve(directory, file))) fail(`examples/modules/${name}: missing ${file}`);
+  }
+  const metadataPath = resolve(directory, "example.json");
+  if (existsSync(metadataPath)) {
+    let metadata;
+    try {
+      metadata = JSON.parse(await readFile(metadataPath, "utf8"));
+    } catch (error) {
+      fail(`examples/modules/${name}/example.json: ${error.message}`);
+      continue;
+    }
+    for (const field of REQUIRED_FIELDS) {
+      if (!(field in metadata)) fail(`examples/modules/${name}/example.json: missing '${field}'`);
+    }
+    if (metadata.id !== name) {
+      fail(`examples/modules/${name}/example.json: id '${metadata.id}' must match the directory name`);
+    }
+  }
+}
+
 if (failures.length) {
   console.error(`examples check failed (${failures.length}):`);
   for (const message of failures) console.error(`  - ${message}`);
   process.exit(1);
 }
-console.log(`examples check passed: ${exampleNames.length} self-contained examples (${exampleNames.join(", ")})`);
+console.log(
+  `examples check passed: ${exampleNames.length} integrated + ${moduleNames.length} module examples (${[...exampleNames, ...moduleNames.map((name) => `modules/${name}`)].join(", ")})`
+);

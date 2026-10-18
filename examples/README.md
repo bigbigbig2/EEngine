@@ -4,6 +4,9 @@
 
 ```text
 examples/
+  modules/
+    hello-cube/                           index.html + main.ts + scene.ts + vite.config.ts
+    sky-atmosphere/                       index.html + main.ts + scene.ts + vite.config.ts
   integrated/
     bistro-texture-compression/            index.html + main.ts + example.json + tsconfig.json + vite.config.ts
     dungeon-warkarma-texture-compression/  同结构，资源在示例自己的 assets/ 下
@@ -21,6 +24,9 @@ examples/
 | `integrated/bistro-texture-compression` | Bistro Exterior + authored materials + BC texture product；默认 Cooked，`?mode=raw` 走浏览器 Raw cook | `yarn demo:bistro` | 5174 |
 | `integrated/dungeon-warkarma-texture-compression` | Dungeon Warkarma 离线 cook 几何与 BC 贴图；控件与渲染默认值与 Bistro 示例一致 | `yarn demo:dungeon` | 5176 |
 | `integrated/surface-cache-gi-lab` | 程序化连通房间与 SCGI 近场残差调试实验屋，不依赖外部模型 | `yarn demo:scgi` | 5173 |
+| `modules/hello-cube` | 最小 GeometryProduct + Virtual Geometry 场景；薄地台、立方体、单个平行光和轨道控制 | `yarn demo:hello-cube` | 5177 |
+| `modules/hello-hdr-gltf` | Venice Mask glTF + Venice Sunset authored HDR IBL / 可见背景，含运行时输出控制 | `yarn demo:hello-hdr-gltf` | 5178 |
+| `modules/sky-atmosphere` | Mesa Commons 程序化户外场景；Physical Sky + VSM + FSR3 时域抗锯齿 | `yarn demo:sky` | 5175 |
 
 每个示例目录里的 `example.json` 只描述该示例本身（`id`/`title`/`description`/`tags`），不再有数字分类或全局排序字段。
 
@@ -30,18 +36,22 @@ examples/
 Set-Location examples
 yarn install
 
-yarn dev                 # 5173，一个 dev server 提供全部三个示例
+yarn dev                 # 5173，一个 dev server 提供全部示例
 yarn demo:bistro         # 5174，只启动 Bistro 示例
 yarn demo:dungeon        # 5176，只启动 Dungeon 示例
 yarn demo:scgi           # 5173，只启动 SCGI 实验屋
+yarn demo:hello-cube     # 5177，只启动 Hello Cube 模块
+yarn demo:hello-hdr-gltf # 5178，只启动 HDR + glTF 模块
 ```
 
-`yarn dev` 下三个页面的地址：
+`yarn dev` 下各示例页面的地址：
 
 ```text
 http://localhost:5173/integrated/bistro-texture-compression/index.html
 http://localhost:5173/integrated/dungeon-warkarma-texture-compression/index.html
 http://localhost:5173/integrated/surface-cache-gi-lab/index.html
+http://localhost:5173/modules/hello-cube/index.html
+http://localhost:5173/modules/sky-atmosphere/index.html
 ```
 
 单示例命令用 `--port` 覆盖端口即可（`yarn demo:bistro -- --port 5180`）。每个示例的 `vite.config.ts` 都是自包含的：自己的 `root`、端口、COOP/COEP 头、`fs.allow`、资源插件和构建入口，不读取其他示例的配置。
@@ -51,13 +61,16 @@ http://localhost:5173/integrated/surface-cache-gi-lab/index.html
 ```powershell
 yarn check:examples # 结构契约：必需文件、example.json 字段、无兄弟示例依赖、无 demos/shared/数字目录
 yarn typecheck      # 全库 typecheck
-yarn typecheck:scgi # 单个示例 typecheck（bistro / dungeon / scgi）
+yarn typecheck:scgi # 单个综合示例 typecheck
+yarn typecheck:sky  # 单个模块示例 typecheck
 yarn test           # 示例 helper 的定向测试
-yarn build          # typecheck + check + 三个示例一起构建到 examples-static/
-yarn build:dungeon  # 单个示例构建（同样输出到 examples-static/）
+yarn build          # typecheck + check + integrated/modules 示例一起构建到 examples-static/
+yarn build:dungeon  # 单个综合示例构建
+yarn build:hello-cube # 单个基础模块构建
+yarn build:sky      # 单个模块示例构建
 ```
 
-`build:*` 输出统一写在 `examples-static/integrated/<name>/`，该目录与其他构建产物一样不入库。
+`build:*` 输出写在 `examples-static/integrated/<name>/` 或 `examples-static/modules/<name>/`，该目录与其他构建产物一样不入库。
 
 ## 资源归属
 

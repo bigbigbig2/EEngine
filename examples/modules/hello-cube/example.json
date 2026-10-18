@@ -1,0 +1,6 @@
+{
+  "id": "hello-cube",
+  "title": "Hello Cube",
+  "description": "A minimal Product-backed scene with a ground slab, one cube, one authored directional light and orbit controls.",
+  "tags": ["module", "basics", "geometry-product", "virtual-geometry", "webgpu"]
+}

@@ -298,6 +298,25 @@ export class GpuRadiometryPass {
     this.resetPending = true;
   }
 
+  setFixedExposure(value: number): void {
+    if (this.autoExposure) {
+      throw new Error("Runtime fixed exposure is unavailable while automatic exposure is enabled");
+    }
+    if (this.prepared || this.destroyed) {
+      throw new Error("Cannot change fixed exposure during a prepared frame or after destruction");
+    }
+    if (!Number.isFinite(value) || value < 1e-6 || value > 64) {
+      throw new RangeError("GPU radiometry fixed exposure must be in [1e-6, 64]");
+    }
+    const luminance = this.settings.keyValue / value;
+    this.initialState.set([value, luminance, luminance, Math.log2(luminance), Math.log2(luminance)]);
+    for (const buffer of this.buffers) {
+      this.device.queue.writeBuffer(buffer, 0, this.initialState);
+    }
+    this.historyValid = false;
+    this.resetPending = false;
+  }
+
   private frameSettings(width: number, height: number): ArrayBuffer {
     const values = new Float32Array(EXPOSURE_SETTINGS_BYTES / 4);
     const words = new Uint32Array(values.buffer);
