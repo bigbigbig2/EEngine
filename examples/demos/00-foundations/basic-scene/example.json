@@ -1,8 +1,0 @@
-{
-  "id": "basic-scene",
-  "title": "Basic Scene",
-  "category": "00-foundations",
-  "order": 10,
-  "description": "A minimal OEngine baseline with one static unlit cube, orbit camera controls, and all optional rendering effects disabled.",
-  "tags": ["foundations", "renderer", "scene", "baseline"]
-}

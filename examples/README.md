@@ -1,54 +1,70 @@
-# OEngine Example Library V2
+# OEngine Example Library
 
-这里是面向 Renderer 开发的独立示例库。每个 `demos/**/example.json` 对应一个独立 HTML 页面；Storybook 只从 metadata 生成目录，并用 iframe 打开同一份 Vite runtime。
+`examples/` 本身就是示例根目录。每个功能模块是一个独立示例，各自持有自己的页面、入口、配置和资源；示例之间不互相依赖，也不共享公共目录。
 
-当前包含五条独立运行的示例：
+```text
+examples/
+  integrated/
+    bistro-texture-compression/            index.html + main.ts + example.json + tsconfig.json + vite.config.ts
+    dungeon-warkarma-texture-compression/  同结构，资源在示例自己的 assets/ 下
+    surface-cache-gi-lab/                  同结构，纯程序化场景，不挂载任何外部模型
+  assets/                                 引擎与 validation 共用的测试资源（不属于任何单个示例）
+  scripts/check-examples.mjs              示例结构检查
+  tests/                                  示例自有 helper 的定向测试
+  package.json  tsconfig.json  vite.config.ts  README.md
+```
 
-- `00-foundations/basic-scene`：最小生产 Renderer 场景。
-- `14-integrated/rendering-lab`：只有导入的 Dungeon 模型，保留 PBR、环境光、太阳和完整效果。
-- `14-integrated/rendering-lab-basic`：独立 Web Worker Cook 虚拟几何基线；同一 Dungeon 模型走 Visibility → Sparse Material Resolve → PBR Direct + IBL → HDR，关闭后处理效果，支持 Meshlet ID 对照和折叠式调试面板。
-- `14-integrated/rendering-lab-large`：加载 `assets/oengine/large.glb`，保留 PBR、环境光、太阳和完整效果。
-- `14-integrated/rendering-lab-large-basic`：加载同一大型模型，使用 Unlit，默认关闭效果。
+## 当前示例
 
-其余分类仍只保留空目录。
+| 示例 | 内容 | 独立命令 | 端口 |
+| --- | --- | --- | --- |
+| `integrated/bistro-texture-compression` | Bistro Exterior + authored materials + BC texture product；默认 Cooked，`?mode=raw` 走浏览器 Raw cook | `yarn demo:bistro` | 5174 |
+| `integrated/dungeon-warkarma-texture-compression` | Dungeon Warkarma 离线 cook 几何与 BC 贴图；控件与渲染默认值与 Bistro 示例一致 | `yarn demo:dungeon` | 5176 |
+| `integrated/surface-cache-gi-lab` | 程序化连通房间与 SCGI 近场残差调试实验屋，不依赖外部模型 | `yarn demo:scgi` | 5173 |
 
-## 直接运行示例
+每个示例目录里的 `example.json` 只描述该示例本身（`id`/`title`/`description`/`tags`），不再有数字分类或全局排序字段。
+
+## 运行
 
 ```powershell
 Set-Location examples
 yarn install
-yarn dev
+
+yarn dev                 # 5173，一个 dev server 提供全部三个示例
+yarn demo:bistro         # 5174，只启动 Bistro 示例
+yarn demo:dungeon        # 5176，只启动 Dungeon 示例
+yarn demo:scgi           # 5173，只启动 SCGI 实验屋
 ```
 
-打开 <http://localhost:5173/demos/00-foundations/basic-scene/>。
+`yarn dev` 下三个页面的地址：
 
-综合场景位于 <http://localhost:5173/demos/14-integrated/rendering-lab/>。
+```text
+http://localhost:5173/integrated/bistro-texture-compression/index.html
+http://localhost:5173/integrated/dungeon-warkarma-texture-compression/index.html
+http://localhost:5173/integrated/surface-cache-gi-lab/index.html
+```
 
-Basic 对照位于 <http://localhost:5173/demos/14-integrated/rendering-lab-basic/>。
+单示例命令用 `--port` 覆盖端口即可（`yarn demo:bistro -- --port 5180`）。每个示例的 `vite.config.ts` 都是自包含的：自己的 `root`、端口、COOP/COEP 头、`fs.allow`、资源插件和构建入口，不读取其他示例的配置。
 
-大型模型的 Full 与 Basic 对照分别位于 <http://localhost:5173/demos/14-integrated/rendering-lab-large/> 和 <http://localhost:5173/demos/14-integrated/rendering-lab-large-basic/>。
-
-两个 Rendering Lab 页面共用右侧性能实验面板。点击“重置视角”，设置预热和记录秒数，再点击“开始采样”；采样期间锁定相机和功能开关，等待 GPU readback 完成后显示固定记录的 P50/P95。GPU 表列出全部 Pass 和阶段，Sparse 区列出有效可见像素、队列记录、间接工作组、总 invocation 放大、输出字节核算及异常计数。未采集指标显示不可用，融合 kernel 内的重建/采样/BRDF 不单独计时。
-
-在一个页面完成记录后点击“保存为对照”，到另一页面完成记录后点击“读取已保存对照”。“导出 JSON”保留逐帧原始数据、配置、相机、adapter/capability、GPU diagnostics 和 graph/memory 信息；也可以导入导出的文件比较。请分别运行两个页面，并核对面板中的分辨率、DPR、视角、采样配置和条件差异。功能开关可用于实验，但两页面的默认差值包含材质、光照与后续效果的共同成本。
-
-聚合逻辑的定向测试：`yarn test:performance-panel`（Node 24，直接读取 TypeScript）。
-
-## 运行 Storybook Catalog
+## 检查与构建
 
 ```powershell
-yarn storybook
+yarn check:examples # 结构契约：必需文件、example.json 字段、无兄弟示例依赖、无 demos/shared/数字目录
+yarn typecheck      # 全库 typecheck
+yarn typecheck:scgi # 单个示例 typecheck（bistro / dungeon / scgi）
+yarn test           # 示例 helper 的定向测试
+yarn build          # typecheck + check + 三个示例一起构建到 examples-static/
+yarn build:dungeon  # 单个示例构建（同样输出到 examples-static/）
 ```
 
-该命令同时启动 Vite（5173）和 Storybook（6006），Storybook 本身不创建 Renderer 或 WebGPU 资源。
+`build:*` 输出统一写在 `examples-static/integrated/<name>/`，该目录与其他构建产物一样不入库。
 
-## 静态检查与构建
+## 资源归属
 
-```powershell
-yarn typecheck
-yarn build
-```
+- 示例私有资源放在示例自己的 `assets/`（例如 Dungeon 的 `cooked/` 与 `playground-cooked/`），由该示例的 Vite 插件挂载，dev 与构建都由示例自己负责。
+- 需要外部大模型时，示例用 dev-only 路由从 `.local/` 只读挂载（例如 Bistro 的 `/assets/local-bistro/...`），模型不复制进仓库、也不进构建产物。
+- `examples/assets/` 只保留引擎 oracle 测试与 validation 仍要读取的共享 fixture（Dungeon 源模型、HDRI 及其 license/source 说明）；它不是示例之间的共享代码目录，示例不得依赖其他示例的目录。
 
-`yarn build` 分别输出 `examples-static/` 和 `storybook-static/`。生成的 Story 位于 `stories/generated/`，不要手工编辑。
+## 定位
 
-Example Library 不是 Browser Validation Runner 或 Formal Benchmark。页面可运行、typecheck 或静态构建通过，都不能单独作为 Renderer 正确性或性能证据。
+Example Library 是开发与观察入口，不是 Browser Validation Runner，也不是正式 benchmark。页面可运行、typecheck 或静态构建通过，都不能单独作为 Renderer 正确性或性能证据。

@@ -46,7 +46,7 @@ test("authored consumer topology has no legacy V2 call sites", async () => {
   // validation/ 在迁移后把 case、lab 与共享 harness 分到三个目录；只扫 validation/src
   // 会让这条 topology 审计静默少查大部分验证代码。
   const roots = [
-    resolve(root, "../examples/demos"),
+    resolve(root, "../examples/integrated"),
     resolve(root, "../validation/cases"),
     resolve(root, "../validation/labs"),
     resolve(root, "../validation/harness"),

@@ -12,7 +12,7 @@ verifies:
     - OEngine/src/render/environment/PhysicalSkyIblResources.ts
     - OEngine/tests/contract/physical-sky-cache.test.mjs
     - OEngine/tests/oracle/physical-sky-motion-gpu.mjs
-    - examples/demos/14-integrated/dungeon-warkarma-texture-compression/frame-pacing.ts
+    - examples/integrated/dungeon-warkarma-texture-compression/frame-pacing.ts
     - examples/tests/dungeon-frame-pacing.test.mjs
     - validation/tools/run-dungeon-camera-motion.mjs
     - OEngine/src/render/surface
@@ -96,10 +96,10 @@ verifies:
     - OEngine/tests/oracle/product-attribute-decode-gpu.mjs
     - OEngine/tests/oracle/surface-workgroup-cost-gpu.mjs
     - OEngine/tests/oracle/fixtures/surface-eight-slot-cache.mjs
-    - examples/demos/14-integrated/shared/cooked-scene.ts
+    - examples/integrated/dungeon-warkarma-texture-compression/cooked-scene.ts
     - validation/tools/run-dungeon-performance.mjs
     - validation/tools/dungeon-gpu-audit.mjs
-    - examples/demos/14-integrated/dungeon-warkarma-texture-compression/main.ts
+    - examples/integrated/dungeon-warkarma-texture-compression/main.ts
     - docs/VALIDATION.md
 ---
 

@@ -20,7 +20,7 @@ verifies:
     - OEngine/src/shaders/vsm_allocate_pages.ts
     - OEngine/tools/cook-offline-scene.mjs
     - OEngine/tests
-    - examples/demos/14-integrated
+    - examples/integrated
     - tools/gpu-oracle.mjs
     - tools/gpu-oracle/registry.mjs
 ---

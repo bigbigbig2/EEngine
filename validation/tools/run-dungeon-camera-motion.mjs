@@ -17,7 +17,7 @@ const option = (name, fallback) => {
   return args[index + 1];
 };
 const root = resolve(import.meta.dirname, "../..");
-const demo = "demos/14-integrated/dungeon-warkarma-texture-compression";
+const demo = "integrated/dungeon-warkarma-texture-compression";
 const dist = resolve(root, option("dist", `examples/${demo}/dist`));
 const out = resolve(root, option("out", ".local/camera-motion-20261012/interactive"));
 const ticks = Number(option("ticks", "240"));

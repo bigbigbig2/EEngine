@@ -18,7 +18,7 @@ verifies:
     - OEngine/src/render/pipeline/RendererCore.ts
     - OEngine/src/render/program/FrameProgramLowering.ts
     - OEngine/src/render/HierarchicalZBuffer.ts
-    - examples/demos/14-integrated/shared/cooked-scene.ts
+    - examples/integrated/dungeon-warkarma-texture-compression/cooked-scene.ts
     - docs/porting/next-renderer.md
 ---
 

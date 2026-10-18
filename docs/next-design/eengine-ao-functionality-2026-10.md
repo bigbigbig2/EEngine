@@ -28,7 +28,7 @@ verifies:
     - OEngine/tests/contract/ambient-occlusion-settings.test.mjs
     - OEngine/tests/oracle/ao-functionality-gpu.mjs
     - OEngine/tests/oracle/native-surface-production-gpu.mjs
-    - examples/demos/14-integrated/dungeon-warkarma-texture-compression/main.ts
+    - examples/integrated/dungeon-warkarma-texture-compression/main.ts
     - tools/gpu-oracle/registry.mjs
 ---
 

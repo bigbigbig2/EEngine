@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DungeonFramePacing } from "../demos/14-integrated/dungeon-warkarma-texture-compression/frame-pacing.ts";
-import { createTextureQualityReader } from "../demos/14-integrated/dungeon-warkarma-texture-compression/texture-quality.ts";
+import { DungeonFramePacing } from "../integrated/dungeon-warkarma-texture-compression/frame-pacing.ts";
+import { createTextureQualityReader } from "../integrated/dungeon-warkarma-texture-compression/texture-quality.ts";
 
 function harness(mode) {
   const interactions = [],
@@ -113,14 +113,13 @@ test("interactive completion only retries a deferred RAF; repeated or stale wake
 test("quality reads immutable published samples once, invalidates on publication and release", () => {
   let reads = 0;
   const texture = {
-    texture_product: {
-      metadata: {
-        schemaVersion: 3,
-        semantic: "base-color-srgb",
-        storageWidth: 4,
-        storageHeight: 4,
-        planes: [{ format: "bc7-rgba-unorm-srgb", mips: [0, 1, 2] }]
-      }
+    texture_product: { identity: "base-color-product" },
+    texture_metadata: {
+      schemaVersion: 3,
+      semantic: "base-color-srgb",
+      storageWidth: 4,
+      storageHeight: 4,
+      planes: [{ format: "bc7-rgba-unorm-srgb", mips: [0, 1, 2] }]
     }
   };
   const program = {

@@ -1,0 +1,6 @@
+{
+  "id": "dungeon-warkarma-texture-compression",
+  "title": "Dungeon Warkarma · Texture Compression",
+  "description": "Dungeon Warkarma with locally owned offline geometry and BC texture products; the same controls and rendering defaults as the Bistro example.",
+  "tags": ["gltf", "offline-cook", "texture-compression", "texture-quality", "frame-pacing"]
+}

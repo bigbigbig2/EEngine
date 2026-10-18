@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { dungeonResourceBudget, DUNGEON_4GB_RESOURCE_BUDGET } from "../demos/14-integrated/dungeon-warkarma-texture-compression/resource-budget.ts";
+import { dungeonResourceBudget, DUNGEON_4GB_RESOURCE_BUDGET } from "../integrated/dungeon-warkarma-texture-compression/resource-budget.ts";
 
 test("explicit 4GB target partitions a 2GB API envelope and preserves metadata", () => {
   const plan = dungeonResourceBudget(null);

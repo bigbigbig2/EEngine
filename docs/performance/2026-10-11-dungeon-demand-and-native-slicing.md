@@ -10,8 +10,8 @@ verifies:
     - OEngine/src/shaders/native_surface.ts
     - OEngine/src/shaders/vsm_receiver_demand.ts
     - OEngine/src/render/vsm/VsmReceiverDemandPass.ts
-    - examples/demos/14-integrated/dungeon-warkarma-texture-compression/main.ts
-    - examples/demos/14-integrated/dungeon-warkarma-texture-compression/vite.config.ts
+    - examples/integrated/dungeon-warkarma-texture-compression/main.ts
+    - examples/integrated/dungeon-warkarma-texture-compression/vite.config.ts
     - validation/tools/run-dungeon-performance.mjs
     - validation/tools/dungeon-gpu-audit.mjs
     - validation/tools/vsm-receiver-statistics.mjs

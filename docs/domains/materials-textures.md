@@ -26,7 +26,7 @@ verifies:
     - OEngine/src/gpu/NativeMaterialPhysicalBanks.ts
     - OEngine/src/material/CanonicalMaterial.ts
     - OEngine/src/assets/AssetLoadBatch.ts
-    - examples/demos/14-integrated/shared/cooked-scene.ts
+    - examples/integrated/dungeon-warkarma-texture-compression/cooked-scene.ts
 ---
 
 # Materials And Textures

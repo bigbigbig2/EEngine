@@ -6,10 +6,10 @@ verifies:
     - OEngine/src/camera/OrbitControls.ts
     - OEngine/src/render/FrameCoordinator.ts
     - OEngine/src/render/pipeline/RendererCore.ts
-    - examples/demos/14-integrated/dungeon-warkarma-texture-compression/main.ts
-    - examples/demos/14-integrated/dungeon-warkarma-texture-compression/index.html
-    - examples/demos/14-integrated/dungeon-warkarma-texture-compression/frame-pacing.ts
-    - examples/demos/14-integrated/dungeon-warkarma-texture-compression/texture-quality.ts
+    - examples/integrated/dungeon-warkarma-texture-compression/main.ts
+    - examples/integrated/dungeon-warkarma-texture-compression/index.html
+    - examples/integrated/dungeon-warkarma-texture-compression/frame-pacing.ts
+    - examples/integrated/dungeon-warkarma-texture-compression/texture-quality.ts
     - OEngine/tests/unit/orbit-controls.test.mjs
     - OEngine/tests/contract/renderer-submission-count.test.mjs
     - examples/tests/dungeon-frame-pacing.test.mjs

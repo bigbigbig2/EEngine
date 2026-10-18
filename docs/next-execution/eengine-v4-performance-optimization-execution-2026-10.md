@@ -21,7 +21,7 @@ verifies:
     - OEngine/tests/oracle
     - validation/tools/run-dungeon-performance.mjs
     - validation/tools/dungeon-gpu-audit.mjs
-    - examples/demos/14-integrated/dungeon-warkarma-texture-compression
+    - examples/integrated/dungeon-warkarma-texture-compression
     - examples/tests/dungeon-resource-budget.test.mjs
     - tools/gpu-oracle/registry.mjs
 ---

@@ -229,7 +229,7 @@ try {
   const { TraceMap, originalPositionFor } = require("@jridgewell/trace-mapping");
   const assetsDir = resolve(
     import.meta.dirname,
-    "../../examples/demos/14-integrated/dungeon-warkarma-texture-compression/dist/assets"
+    "../../examples/integrated/dungeon-warkarma-texture-compression/dist/assets"
   );
   const maps = new Map(),
     nodes = new Map(profile.nodes.map((n) => [n.id, n])),

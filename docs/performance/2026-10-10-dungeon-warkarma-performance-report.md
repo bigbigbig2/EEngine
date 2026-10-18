@@ -3,8 +3,8 @@ id: performance/dungeon-warkarma-2026-10-10
 state: current
 verifies:
   files:
-    - examples/demos/14-integrated/dungeon-warkarma-texture-compression/main.ts
-    - examples/demos/14-integrated/shared/cooked-scene.ts
+    - examples/integrated/dungeon-warkarma-texture-compression/main.ts
+    - examples/integrated/dungeon-warkarma-texture-compression/cooked-scene.ts
     - OEngine/src/gpu/GraphicsContext.ts
     - OEngine/src/shaders/native_surface.ts
     - OEngine/src/shaders/vsm_receiver_demand.ts

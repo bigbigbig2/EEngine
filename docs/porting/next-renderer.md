@@ -101,8 +101,8 @@ verifies:
     - OEngine/tools/oengine-asset-core/include/oengine_asset/SurfaceMetadata.h
     - OEngine/tests/contract/range-offline-cook.test.mjs
     - docs/porting/nyx-function-map.json
-    - examples/demos/14-integrated/bistro-texture-compression/sun-calendar.ts
-    - examples/demos/14-integrated/bistro-texture-compression/main.ts
+    - examples/integrated/bistro-texture-compression/sun-calendar.ts
+    - examples/integrated/bistro-texture-compression/main.ts
     - examples/tests/sun-calendar.test.mjs
 ---
 # EEngine Next：开源迁移来源与采用边界

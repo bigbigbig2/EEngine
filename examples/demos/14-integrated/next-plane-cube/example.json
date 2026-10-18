@@ -1,8 +1,0 @@
-{
-  "id": "next-plane-cube",
-  "title": "Next Plane + Cube",
-  "category": "14-integrated",
-  "order": 16,
-  "description": "Plane and cube for staged A-D checks: default uses simplified unlit Surface; ?realGeometry enables reconstruction, ?lit adds direct light, and ?lit&ao adds environment AO.",
-  "tags": ["integrated", "webgpu", "geometry", "a-d"]
-}

@@ -17,7 +17,7 @@ verifies:
     - OEngine/src/render/pipeline/RendererCore.ts
     - OEngine/src/shaders/virtual_geometry_product.ts
     - OEngine/src/shaders/geometry_source_decode.ts
-    - examples/demos/14-integrated/shared/cooked-scene.ts
+    - examples/integrated/dungeon-warkarma-texture-compression/cooked-scene.ts
     - validation/tools/run-geometry-startup.mjs
     - OEngine/tests/contract/geometry-compact-capacity.test.mjs
     - OEngine/tests/oracle/native-surface-production-gpu.mjs

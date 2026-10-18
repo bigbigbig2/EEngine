@@ -3,7 +3,11 @@
 Source: historical OEngine Rendering Lab asset snapshot
 Revision: OEngine `be6cd34d3b1ca7704f9c7e33af31ebc91c47ca60`
 Recovered At: 2026-09-13
-Used By: `demos/14-integrated/rendering-lab`
+Used By: `OEngine/tests/oracle/web-cook-wasm-artifact.test.mjs`, `OEngine/tests/oracle/texture-renderer-gpu.mjs`,
+`validation/labs/virtual-product-observer`, `validation/vite.config.ts` and
+`examples/integrated/dungeon-warkarma-texture-compression` (local copy in that example's `assets/`).
+The historical `demos/14-integrated/rendering-lab*` examples and `next-renderer-showcase`
+were removed from the example library on 2026-10-18.
 
 ## `dungeon_warkarma.glb`
 

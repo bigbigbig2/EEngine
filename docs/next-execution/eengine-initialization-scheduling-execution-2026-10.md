@@ -13,12 +13,12 @@ verifies:
     - OEngine/src/gpu/TextureResidency.ts
     - OEngine/src/render/SceneRefinement.ts
     - OEngine/src/gpu/GpuNativeMaterialScene.ts
-    - examples/demos/14-integrated/shared/cooked-scene.ts
+    - examples/integrated/bistro-texture-compression/cooked-scene.ts
     - OEngine/src/render/ShadowGeometryWork.ts
     - OEngine/src/render/vsm
     - OEngine/src/render/pipeline/RendererCore.ts
     - OEngine/src/render/program/FrameProgramLowering.ts
-    - examples/demos/14-integrated/bistro-texture-compression
+    - examples/integrated/bistro-texture-compression
     - OEngine/tests/contract
     - OEngine/tests/oracle
 ---

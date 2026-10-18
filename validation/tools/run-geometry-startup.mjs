@@ -23,7 +23,7 @@ const repetitions = Number(option("repetitions", "3"));
 const timeoutMs = Number(option("timeout", "180000"));
 await mkdir(out, { recursive: true });
 const sourcePaths = execFileSync("git", [
-  "ls-files", "OEngine/src", "examples/demos/14-integrated", "examples/vite.config.ts",
+  "ls-files", "OEngine/src", "examples/integrated/14-integrated", "examples/vite.config.ts",
 ], { cwd: root, encoding: "utf8" }).trim().split(/\r?\n/).sort();
 sourcePaths.push("validation/tools/run-geometry-startup.mjs");
 const sourceHash = createHash("sha256");
@@ -92,7 +92,7 @@ if (!args.includes("--skip-build")) {
       sourcemap: false,
       rollupOptions: {
         input: Object.values(names).map(name =>
-          resolve(root, `examples/demos/14-integrated/${name}/index.html`)),
+          resolve(root, `examples/integrated/14-integrated/${name}/index.html`)),
       },
     },
   });
@@ -210,7 +210,7 @@ try {
         const save = () => writeFile(filename, JSON.stringify(row, null, 2));
         try {
           const query = scene === "dungeon" ? "?cookedBase=/assets/local-dungeon/cooked/" : "";
-          await page.goto(`${origin}/demos/14-integrated/${names[scene]}/index.html${query}`,
+          await page.goto(`${origin}/integrated/${names[scene]}/index.html${query}`,
             { waitUntil: "domcontentloaded", timeout: 60000 });
           const until = Date.now() + timeoutMs;
           let closeView = false;

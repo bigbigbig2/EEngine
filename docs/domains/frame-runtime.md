@@ -27,7 +27,7 @@ verifies:
     - OEngine/src/shaders/native_temporal_amd.ts
     - OEngine/src/render/passes/fsr3/Fsr3UpscalerRuntime.ts
     - OEngine/src/render/environment/PhysicalSkyIblResources.ts
-    - examples/demos/14-integrated/dungeon-warkarma-texture-compression/frame-pacing.ts
+    - examples/integrated/dungeon-warkarma-texture-compression/frame-pacing.ts
     - OEngine/src/render/program/FrameProgram.ts
     - OEngine/src/render/RendererConfig.ts
     - OEngine/src/render/ao/AmbientOcclusionSettings.ts

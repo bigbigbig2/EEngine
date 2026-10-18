@@ -41,7 +41,7 @@ verifies:
     - OEngine/src/render/DynamicResolutionScaling.ts
     - OEngine/src/render/FrameCoordinator.ts
     - OEngine/src/debug/RenderDebugView.ts
-    - examples/demos/14-integrated/dungeon-warkarma-texture-compression/resource-budget.ts
+    - examples/integrated/dungeon-warkarma-texture-compression/resource-budget.ts
     - tools/gpu-oracle/registry.mjs
     - OEngine/src/render/program/FrameProgramBindings.ts
     - OEngine/src/render/HierarchicalZBuffer.ts

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Surface Cache GI Lab | EEngine</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main id="app" class="viewport" data-ready="false">
+      <canvas id="viewport" width="1920" height="1080" aria-label="Surface Cache GI 实验场景"></canvas>
+      <div id="status" role="status" aria-live="polite">初始化 WebGPU 与程序化场景…</div>
+      <div class="sr-only" aria-hidden="true">
+        <span id="view-label">SCGI 实验场景</span>
+        <span id="signal-label">FINAL APPEARANCE</span>
+        <span id="purpose"></span>
+      </div>
+    </main>
+
+    <aside id="debug-panel" aria-label="Surface Cache GI 调试面板">
+      <header class="panel-header">
+        <div>
+          <h1>Surface Cache GI</h1>
+          <span>Rendering Lab / SCGI</span>
+        </div>
+        <button
+          id="toggle-panel"
+          class="icon-button"
+          type="button"
+          title="收起调试面板"
+          aria-label="收起调试面板"
+          aria-expanded="true"
+          aria-controls="panel-body"
+        >×</button>
+      </header>
+
+      <div id="panel-body">
+        <div class="panel-overview">
+          <div class="mode">
+            <strong>SCGI 实验场景</strong>
+            <span id="dirty">已应用</span>
+          </div>
+          <nav aria-label="SCGI 场景操作">
+            <button id="run" class="text-button" type="button" disabled>暂停</button>
+            <button id="step" class="text-button" type="button" disabled>单步</button>
+            <button id="warm" class="text-button" type="button" disabled>累积</button>
+            <button id="fullscreen" class="icon-button" type="button" title="全屏" aria-label="全屏" disabled>↗</button>
+            <button id="capture" class="icon-button" type="button" title="截图" aria-label="截图" disabled>↓</button>
+          </nav>
+        </div>
+
+        <div class="quick-stats" id="metrics" aria-label="SCGI 资源与时间状态"></div>
+
+        <div class="diagnostic-controls">
+          <details class="section" open>
+            <summary>Surface Cache GI</summary>
+            <div class="section-body">
+              <p class="note">这里集中放置 SCGI 实验参数、缓存工作集、Gather、输出重建、诊断和截图。修改参数后点击“应用参数”。</p>
+              <fieldset id="controls" disabled></fieldset>
+              <div class="applybar">
+                <button id="apply" class="text-button primary" type="button" disabled>应用参数</button>
+                <button id="reset" class="text-button" type="button" disabled>清空 GI / 历史</button>
+              </div>
+              <details id="diagnostics-section" class="subsection">
+                <summary>详细资源 / 最近采样 / 限制</summary>
+                <pre id="diagnostics">等待首帧</pre>
+              </details>
+              <section id="captures" aria-label="SCGI 截图结果"></section>
+              <p class="notice">
+                局部点光源主画面阴影尚未完整接入，默认关闭。SCGI query 阴影与主画面直射阴影需分开观察；低采样噪声和缓存缺覆盖请通过调试信号确认。
+              </p>
+              <p class="note">本页面用于 Surface Cache GI 调试与验收准备，不代表完整 SCGI 整体验收或正式性能认证。</p>
+            </div>
+          </details>
+        </div>
+      </div>
+    </aside>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

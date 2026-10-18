@@ -5,7 +5,7 @@ import {
   calendarSunDirection,
   formatSunDay,
   formatSunTime
-} from "../demos/14-integrated/bistro-texture-compression/sun-calendar.ts";
+} from "../integrated/bistro-texture-compression/sun-calendar.ts";
 
 const parameters = { dayOfYear: 172, timeOfDay: 10, latitude: 35, longitude: 0 };
 

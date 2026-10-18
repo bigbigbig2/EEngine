@@ -20,7 +20,7 @@ for (const value of [width, height, samples, warmup]) if (!Number.isSafeInteger(
 if (motions.some(motion => !["static", "slow", "fast"].includes(motion))) throw new Error("Invalid motion");
 await mkdir(out, { recursive: true });
 const fingerprint = {};
-const paths = execFileSync("rg", ["--files", "OEngine/src", "validation/labs/bistro-cost-map", "examples/demos/14-integrated/bistro-texture-compression"], { cwd: root, encoding: "utf8" }).trim().split(/\r?\n/).filter(path => /\.(ts|mjs|html|css)$/.test(path));
+const paths = execFileSync("rg", ["--files", "OEngine/src", "validation/labs/bistro-cost-map", "examples/integrated/bistro-texture-compression"], { cwd: root, encoding: "utf8" }).trim().split(/\r?\n/).filter(path => /\.(ts|mjs|html|css)$/.test(path));
 for (const path of paths) fingerprint[path.replaceAll("\\", "/")] = createHash("sha256").update(await readFile(resolve(root, path))).digest("hex");
 const report = { revision: execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(),
   startedAt: new Date().toISOString(), width, height, samples, warmup, browser: null, captures: [], sensors: [], errors: [], fingerprint };
@@ -40,7 +40,7 @@ try {
   const page = await context.newPage();
   page.on("pageerror", error => report.errors.push(String(error)));
   page.on("console", event => { if (event.type() === "error") report.errors.push(event.text()); });
-  await page.goto(`${server.resolvedUrls.local[0]}demos/14-integrated/bistro-texture-compression/`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${server.resolvedUrls.local[0]}integrated/bistro-texture-compression/`, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => {
     const report = window.bistroDemo?.report();
     return !!report && (report.failure || report.load.fullQualityMs !== null);

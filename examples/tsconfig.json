@@ -4,7 +4,6 @@
     "useDefineForClassFields": true,
     "module": "ESNext",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "jsx": "react-jsx",
     "types": ["vite/client", "@webgpu/types"],
     "skipLibCheck": true,
     "moduleResolution": "Bundler",
@@ -12,10 +11,5 @@
     "strict": true,
     "noEmit": true
   },
-  "include": [
-    ".storybook/**/*.ts",
-    ".storybook/**/*.tsx",
-    "demos/**/*.ts",
-    "stories/**/*"
-  ]
+  "include": ["integrated/**/*.ts"]
 }

@@ -3,9 +3,9 @@ id: eengine-v4-performance-optimization-2026-10
 state: history
 verifies:
   files:
-    - examples/demos/14-integrated/dungeon-warkarma-texture-compression/main.ts
-    - examples/demos/14-integrated/dungeon-warkarma-texture-compression/resource-budget.ts
-    - examples/demos/14-integrated/shared/cooked-scene.ts
+    - examples/integrated/dungeon-warkarma-texture-compression/main.ts
+    - examples/integrated/dungeon-warkarma-texture-compression/resource-budget.ts
+    - examples/integrated/dungeon-warkarma-texture-compression/cooked-scene.ts
     - OEngine/src/gpu/GeometryProductGpuBudget.ts
     - OEngine/src/gpu/GeometryProductMultiRuntime.ts
     - validation/tools/dungeon-gpu-audit.mjs

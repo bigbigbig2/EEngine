@@ -1,0 +1,6 @@
+{
+  "id": "bistro-texture-compression",
+  "title": "Bistro Exterior · Texture Compression",
+  "description": "Bistro Exterior with authored materials and BC texture products; Cooked by default, ?mode=raw selects the browser Raw cook.",
+  "tags": ["gltf", "offline-cook", "texture-compression", "vsm", "gtao", "ssr", "fsr3"]
+}

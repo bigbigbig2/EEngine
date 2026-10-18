@@ -32,8 +32,8 @@ verifies:
     - OEngine/src/shaders/virtual_geometry_work.ts
     - OEngine/src/shaders/vsm_depth_bounds.ts
     - OEngine/src/shaders/vsm_caster_invalidation.ts
-    - examples/demos/14-integrated/shared/cooked-scene.ts
-    - examples/demos/14-integrated/bistro-texture-compression/main.ts
+    - examples/integrated/bistro-texture-compression/cooked-scene.ts
+    - examples/integrated/bistro-texture-compression/main.ts
 ---
 
 # 初始化调度：并行准备、帧事务发布与 VSM 有界更新

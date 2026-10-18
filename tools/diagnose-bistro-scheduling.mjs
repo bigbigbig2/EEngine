@@ -61,7 +61,7 @@ try {
       );
     }
   }
-  await page.route("**/demos/14-integrated/bistro-texture-compression/main.ts*", async (route) => {
+  await page.route("**/integrated/bistro-texture-compression/main.ts*", async (route) => {
     const response = await route.fetch(),
       source = await response.text();
     const needle = "Object.assign(window, { bistroDemo: { report, release } });";
@@ -136,7 +136,7 @@ try {
     );
   }
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await page.goto("http://127.0.0.1:5174/demos/14-integrated/bistro-texture-compression/?mode=cooked");
+  await page.goto("http://127.0.0.1:5174/integrated/bistro-texture-compression/?mode=cooked");
   await page.waitForFunction(
     () =>
       window.bistroDemo &&

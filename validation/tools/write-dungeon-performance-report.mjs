@@ -135,8 +135,8 @@ id: performance/dungeon-warkarma-2026-10-10
 state: current
 verifies:
   files:
-    - examples/demos/14-integrated/dungeon-warkarma-texture-compression/main.ts
-    - examples/demos/14-integrated/dungeon-warkarma-texture-compression/cooked-scene.ts
+    - examples/integrated/dungeon-warkarma-texture-compression/main.ts
+    - examples/integrated/dungeon-warkarma-texture-compression/cooked-scene.ts
     - OEngine/src/gpu/GraphicsContext.ts
     - OEngine/src/shaders/native_surface.ts
     - OEngine/src/shaders/vsm_receiver_demand.ts
@@ -146,7 +146,7 @@ verifies:
 
 # Dungeon Warkarma 近景性能诊断（2026-10-10）
 
-对象：\`examples/demos/14-integrated/dungeon-warkarma-texture-compression\`。结论依据当前工作区的真实源码、独立 Chrome / WebGPU 测量、GPU timestamp、CPU sampling profile、Windows 进程内存与 NVIDIA 遥测。这里是一次诊断报告，未做生产渲染算法优化，也不代表正式 R4 性能验收。
+对象：\`examples/integrated/dungeon-warkarma-texture-compression\`。结论依据当前工作区的真实源码、独立 Chrome / WebGPU 测量、GPU timestamp、CPU sampling profile、Windows 进程内存与 NVIDIA 遥测。这里是一次诊断报告，未做生产渲染算法优化，也不代表正式 R4 性能验收。
 
 ## 1. 可以直接指导下一步的结论
 
@@ -317,7 +317,7 @@ ${table(
 
 反馈路径存在对象解包、字段校验、字符串Map key、去重、排序，随后同一包再处理residency touch：${source("OEngine/src/gpu/GeometryPageDemandAbiV1.ts", 233)}、${source("OEngine/src/gpu/GeometryPageStreamingRuntime.ts", 260)}、${source("OEngine/src/gpu/GeometryPageStreamingRuntime.ts", 398)}。稳态几何无上传、pending0时该工作仍持续。应研究数据导向解包/去重和驻留用量反馈频率，但不能删除eviction正确性必需的usage反馈。
 
-示例 snapshot 会对runtime全部材质调用materialTextureLeaves，而这个helper调用compileCanonicalMaterial，再进入compileAppearanceGraph：${source("examples/demos/14-integrated/dungeon-warkarma-texture-compression/main.ts", 156)}、${source("OEngine/src/assets/PcMaterialTextures.ts", 49)}。它来自面板刷新及测试report轮询，并不是每帧重新创建GPU管线。应按实际材质/发布revision复用统计结果，减少重复图编译，先优化低风险诊断成本。
+示例 snapshot 会对runtime全部材质调用materialTextureLeaves，而这个helper调用compileCanonicalMaterial，再进入compileAppearanceGraph：${source("examples/integrated/dungeon-warkarma-texture-compression/main.ts", 156)}、${source("OEngine/src/assets/PcMaterialTextures.ts", 49)}。它来自面板刷新及测试report轮询，并不是每帧重新创建GPU管线。应按实际材质/发布revision复用统计结果，减少重复图编译，先优化低风险诊断成本。
 
 默认重复240帧窗口的API observer记录560次createBindGroup，合计同步host10.625ms，约2.33次/提交帧；没有createShaderModule/createComputePipeline/createRenderPipeline。已有descriptor/cache代码仍花CPU，但不能无证据地再加通用cache。观察器也有开销；该host时间只是API调用时长，非完整驱动工作。
 
@@ -329,7 +329,7 @@ ${table(["资源 / 指标", "MiB", "含义"], memoryRows)}
 
 本次所有纹理格式都完成字节核算；早期工具漏了rgba32uint，raw仍保留null，analysis从尺寸/format重建63.28MiB，原始数据未改写。API账本追踪显式create/destroy，nominal texture bytes未加driver alignment，自动GC、后端lazy allocation、swapchain和pipeline内存也不在其中。修正后的512MiB复测每个未destroy资源的WeakRef均alive，没有账本中已GC但未destroy的资源。因此资源规格账本与Windows专用显存差值不能自动当泄漏。
 
-默认几何resident slots占306.00MiB（1207pages，包括381pinned），累计真实上传仅28.97MiB，未evict/reload，slot内有效载荷约9.47%。1536MiB bank容量的slot占用约19.92%，真实上传约1.89%。这是小几何Product与固定page容量/packing的放大问题，不能把306MiB误称全部有效几何数据。源码page/profile容量与metadata分配 ${source("OEngine/src/gpu/GeometryProductResidencyProfile.ts", 7)}、${source("OEngine/src/gpu/GeometryProductMultiRuntime.ts", 252)}；示例显式128MiBmetadata ${source("examples/demos/14-integrated/dungeon-warkarma-texture-compression/cooked-scene.ts", 149)}。
+默认几何resident slots占306.00MiB（1207pages，包括381pinned），累计真实上传仅28.97MiB，未evict/reload，slot内有效载荷约9.47%。1536MiB bank容量的slot占用约19.92%，真实上传约1.89%。这是小几何Product与固定page容量/packing的放大问题，不能把306MiB误称全部有效几何数据。源码page/profile容量与metadata分配 ${source("OEngine/src/gpu/GeometryProductResidencyProfile.ts", 7)}、${source("OEngine/src/gpu/GeometryProductMultiRuntime.ts", 252)}；示例显式128MiBmetadata ${source("examples/integrated/dungeon-warkarma-texture-compression/cooked-scene.ts", 149)}。
 
 修正格式核算后的资源账本首次可用前观测峰值2350.04MiB，整个默认测试生命周期峰值2423.45MiB（含开关/reset事务时重叠资源）；512MiB复测相应峰值1326.04/1399.45MiB。它们不是driver VRAM峰值。主基线所有OS采样的working set峰值1988MiB、private commit峰值4249MiB；该6秒采样峰值只是观察到的下界，不保证捕获短暂上传/事务峰值。
 
@@ -391,7 +391,7 @@ ${table(
 
 初次可用前ResourceTiming有462项、encodedBodySize约143.50MiB；启动涉及大量小range请求，单纯源GLB的8.03MB不是实际runtime下载量。主基线观察到31个long task、累计2417ms、最长199ms，证实加载有明显主线程长任务。异步digest CPUprofile的self与promise计时含原生处理/复制，不等同hashworker纯CPU时间。
 
-示例纹理Product用串行for/await读取与校验 ${source("examples/demos/14-integrated/dungeon-warkarma-texture-compression/cooked-scene.ts", 98)}；可研究有界并发与tail-first，但要控制峰值内存。fullQuality只检查texture minimum mip0；cooked-scene.settled实际上是空async函数 ${source("examples/demos/14-integrated/dungeon-warkarma-texture-compression/cooked-scene.ts", 223)}，不意味着所有几何streaming完成。近景稳态捕获另确认pending0、没有最近页面变化、uploaded plateau；本报告不会把firstUseful≈fullQuality解释成完整几何已加载。
+示例纹理Product用串行for/await读取与校验 ${source("examples/integrated/dungeon-warkarma-texture-compression/cooked-scene.ts", 98)}；可研究有界并发与tail-first，但要控制峰值内存。fullQuality只检查texture minimum mip0；cooked-scene.settled实际上是空async函数 ${source("examples/integrated/dungeon-warkarma-texture-compression/cooked-scene.ts", 223)}，不意味着所有几何streaming完成。近景稳态捕获另确认pending0、没有最近页面变化、uploaded plateau；本报告不会把firstUseful≈fullQuality解释成完整几何已加载。
 
 ## 9. 优化顺序与验收方式
 

@@ -20,7 +20,7 @@ function option(name, fallback) {
   return value;
 }
 const root = resolve(import.meta.dirname, "../..");
-const demo = "examples/demos/14-integrated/dungeon-warkarma-texture-compression";
+const demo = "examples/integrated/dungeon-warkarma-texture-compression";
 const out = resolve(root, option("out", ".local/validation/dungeon-performance-2026-10-10"));
 const frames = Number(option("frames", "240"));
 const nativeCostSlice = option("native-slice", null);
@@ -461,7 +461,7 @@ try {
   scenario = "cold-load";
   const loadStart = Date.now();
   const urlObject = new URL(
-    `${origin}/demos/14-integrated/dungeon-warkarma-texture-compression/index.html?performanceCapture=1`,
+    `${origin}/integrated/dungeon-warkarma-texture-compression/index.html?performanceCapture=1`,
   );
   if (report.options.geometryMiB !== null)
     urlObject.searchParams.set("geometryMiB", report.options.geometryMiB);
