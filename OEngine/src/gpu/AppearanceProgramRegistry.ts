@@ -60,10 +60,11 @@ export class AppearanceProgramRegistry {
     private readonly device: GPUDevice,
     budget: AppearanceProgramBudget = {
       maxPrograms: 128,
-      // Native families compile asynchronously in the driver. A four-job
-      // frontend queue serialized Bistro's nine real families into three waves.
-      // Keep admission finite (at most 8 MiB source), without extra GPU owners.
-      maxConcurrentCompiles: 16,
+      // Native families compile asynchronously in the driver. Keep the
+      // frontend at four jobs so a large material publication cannot create a
+      // driver-side compiler working set proportional to the whole scene.
+      // Runtime rendering is unaffected after the publication is ready.
+      maxConcurrentCompiles: 4,
       maxSourceBytes: 512 * 1024,
     },
   ) {

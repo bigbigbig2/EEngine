@@ -1282,7 +1282,11 @@ export class SurfaceV4 {
         }
       }
       pass.end();
-      if (frame.scgi?.gather != null) {
+      if (
+        frame.scgi?.gather != null &&
+        frame.scgi.gather.updateTransport &&
+        !(frame.scgi.gather.settings.gatherFreeze && frame.scgi.gather.previousValid)
+      ) {
         const input = frame.scgi;
         // Complete the owning window before the next window overwrites its
         // shared directory. Gather owns the compact destination and its fence.

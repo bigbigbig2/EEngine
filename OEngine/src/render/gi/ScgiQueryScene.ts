@@ -23,6 +23,20 @@ import type { GeometryPageStreamingRuntimeV1 } from "../../gpu/GeometryPageStrea
 import { geometryQueryCut, type GeometryQueryCut } from "../../gpu/GeometryQueryCut.js";
 import { GeometryQueryWorkingSet } from "../../gpu/GeometryQueryWorkingSet.js";
 
+/** Keep the shared BVH shader bounded for scenes made of many small assets.
+ * Larger Products are split into complete physical shards; this does not
+ * reduce query coverage or change the admitted primitive ceiling. */
+export const SCGI_QUERY_BUILD_MAX_PRIMITIVES = 4096;
+
+function scgiQueryBuildCapacity(maximumShard: number, primitiveCapacity: number): number {
+  let capacity = Math.min(Math.max(1, maximumShard), primitiveCapacity, SCGI_QUERY_BUILD_MAX_PRIMITIVES);
+  let classCapacity = 1;
+  while (classCapacity < capacity) {
+    classCapacity *= 2;
+  }
+  return classCapacity;
+}
+
 export interface ScgiQuerySceneProfile {
   readonly deviceEpoch: number;
   readonly originEpoch: number;
@@ -61,7 +75,7 @@ export class ScgiQueryScene {
   readonly arenas: ScgiQueryArena[] = [];
   readonly materials: GpuQueryMaterialPublication;
   readonly sourceInstances: GeometryQueryInstanceSnapshot;
-  readonly blasPlan: ScgiBvhPlan;
+  blasPlan: ScgiBvhPlan;
   private readonly geometryLeases: GeometryQueryGeometryLease[] = [];
   private readonly buffers: GPUBuffer[] = [];
   private readonly handles: ResourceHandle[] = [];
@@ -76,6 +90,7 @@ export class ScgiQueryScene {
   private state: "preparing" | "ready" | "encoded" | "submitted" | "poisoned" | "destroyed" = "preparing";
   private bytes = 0;
   private blasScratch!: GPUBuffer;
+  private blasBuildHierarchy!: GPUBuffer;
   private poisonSettlement: Promise<unknown> | null = null;
   private poisonCause: unknown;
   private coverage: GeometryQueryCoverage | null = null;
@@ -195,6 +210,22 @@ export class ScgiQueryScene {
       for (const lease of owner.geometryLeases) {
         owner.bytes += lease.metadataByteLength;
       }
+      // The shared build shader only needs to admit the largest physical
+      // shard in this publication. Keeping the user-facing capacity as a
+      // shard ceiling is correct, but compiling that worst case for every
+      // tiny Product would create a needlessly huge driver workload.
+      let largestShard = 1;
+      for (const lease of owner.geometryLeases) {
+        for (const segment of lease.segments) {
+          for (const asset of segment.queryAssets) {
+            largestShard = Math.max(largestShard, Math.min(profile.primitiveCapacity, asset.primitiveCount));
+          }
+        }
+      }
+      owner.blasPlan = planScgiBvh(
+        device.limits,
+        scgiQueryBuildCapacity(largestShard, profile.primitiveCapacity),
+      );
       owner.assertBudget();
       owner.assertBudget(
         48 +
@@ -251,6 +282,13 @@ export class ScgiQueryScene {
         owner.blasPlan.scratch.bytes,
         GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
       );
+      // Build at the shared batch layout, then publish only each chunk's live
+      // hierarchy. The admission ceiling is not a per-asset persistent size.
+      owner.blasBuildHierarchy = owner.allocate(
+        "SCGI/query BLAS build hierarchy",
+        owner.blasPlan.hierarchy.bytes,
+        GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+      );
       for (const plan of [owner.blasPlan]) {
         owner.assertBudget(ScgiBvhBuild.allocationBytes(device, plan));
         const builder = await ScgiBvhBuild.create(device, plan, profile.subgroup, accounting);
@@ -265,12 +303,13 @@ export class ScgiQueryScene {
         for (const segment of lease.segments) {
           for (let asset = 0; asset < segment.queryAssets.length; asset++) {
             const range = segment.queryAssets[asset]!;
-            for (let offset = 0; offset < range.primitiveCount; offset += profile.primitiveCapacity) {
-              const count = Math.min(profile.primitiveCapacity, range.primitiveCount - offset);
-              owner.assertBudget(owner.blasPlan.hierarchy.bytes + count * 48 + 64);
+            for (let offset = 0; offset < range.primitiveCount; offset += owner.blasPlan.primitiveCapacity) {
+              const count = Math.min(owner.blasPlan.primitiveCapacity, range.primitiveCount - offset);
+              const publishedPlan = planScgiBvh(device.limits, count);
+              owner.assertBudget(publishedPlan.hierarchy.bytes + count * 48 + 64);
               const acquired = ScgiQueryBlas.acquire(
                 device,
-                owner.blasPlan,
+                publishedPlan,
                 lease,
                 lease.segments.indexOf(segment),
                 asset,
@@ -334,7 +373,6 @@ export class ScgiQueryScene {
         const arena = await ScgiQueryArena.create(
           device,
           pending,
-          owner!.blasPlan,
           owner!.sourceInstances,
           transforms,
           owner!.materialPublication,
@@ -358,7 +396,7 @@ export class ScgiQueryScene {
       };
       for (const geometry of owner.geometries) {
         const added =
-          Math.ceil(owner.blasPlan.hierarchy.bytes / alignment) * alignment +
+          Math.ceil(geometry.entry.buffer.size / alignment) * alignment +
           Math.ceil(geometry.entry.triangles.size / alignment) * alignment +
           alignment;
         if (arenaBytes + added > limit) {
@@ -600,7 +638,18 @@ export class ScgiQueryScene {
     for (const blas of this.staticBlas) {
       if (blas.build) {
         blas.geometry.encodeBounds(command);
-        this.builders[0]!.encode(command, blas.entry.buffer, this.blasScratch, blas.count);
+        this.builders[0]!.encode(command, this.blasBuildHierarchy, this.blasScratch, blas.count);
+        for (const name of ["header", "nodes", "links", "references"] as const) {
+          const source = this.blasPlan.hierarchy.ranges[name]!;
+          const destination = blas.entry.plan.hierarchy.ranges[name]!;
+          command.copyBufferToBuffer(
+            this.blasBuildHierarchy,
+            source.offset,
+            blas.entry.buffer,
+            destination.offset,
+            destination.bytes,
+          );
+        }
         blas.entry.observeBuild(command);
       }
     }

@@ -56,6 +56,10 @@ export function encodeScgiNativeWindow(
   const requestOffset = residualOffset + residualBytes;
   const preparationOffset = requestOffset + (input.gather == null ? 0 : fieldWidth * fieldHeight * 8);
   const preparationBytes = input.gather == null ? 0 : fieldWidth * fieldHeight * 48;
+  const prepareSource =
+    input.gather != null &&
+    input.gather.updateTransport &&
+    !(input.gather.settings.gatherFreeze && input.gather.previousValid);
   if (preparationOffset + preparationBytes > lighting.nativeBuffer.size) {
     throw new RangeError("SCGI window does not fit its admitted complete directory");
   }
@@ -100,11 +104,11 @@ export function encodeScgiNativeWindow(
     requestOffset / 4,
     preparationOffset / 4,
     fieldWidth * fieldHeight,
-    Number(input.gather != null),
+    Number(prepareSource),
   ]);
   ranges[19] = Number(input.publication.activeWorld === null || input.lightingChanged === true);
   command.writeBuffer(lighting.ranges, 0, ranges.buffer, 0, ranges.byteLength);
-  if (preparationBytes !== 0) {
+  if (prepareSource && preparationBytes !== 0) {
     command.clearBuffer(lighting.nativeBuffer, preparationOffset, preparationBytes);
   }
   if (plan.remapped) {
@@ -192,13 +196,15 @@ export function encodeScgiNativeWindow(
       );
     }
     if (input.gather != null) {
-      command.copyBufferToBuffer(
-        input.gather.owner.work,
-        (input.gather.owner.plan.work.requests + ((firstY + row) * halfWidth + firstX) * 2) * 4,
-        lighting.nativeBuffer,
-        requestOffset + row * fieldWidth * 8,
-        fieldWidth * 8,
-      );
+      if (prepareSource) {
+        command.copyBufferToBuffer(
+          input.gather.owner.work,
+          (input.gather.owner.plan.work.requests + ((firstY + row) * halfWidth + firstX) * 2) * 4,
+          lighting.nativeBuffer,
+          requestOffset + row * fieldWidth * 8,
+          fieldWidth * 8,
+        );
+      }
       let index = (firstY + row) * halfWidth + firstX;
       let remaining = fieldWidth;
       let destination = residualOffset + row * fieldWidth * 32;

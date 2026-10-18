@@ -100,10 +100,8 @@ export class ScgiAnchors {
           compute: { module, entryPoint: "main" }
         });
       });
-    const [anchor, seed] = await Promise.all([
-      compile("SCGI/anchors", scgiAnchorWgsl(plan, product)),
-      compile("SCGI/new-patch-seed", scgiSeedWgsl(plan))
-    ]);
+    const anchor = await compile("SCGI/anchors", scgiAnchorWgsl(plan, product));
+    const seed = await compile("SCGI/new-patch-seed", scgiSeedWgsl(plan));
     return new ScgiAnchors(device, plan, product, anchor, seed);
   }
 

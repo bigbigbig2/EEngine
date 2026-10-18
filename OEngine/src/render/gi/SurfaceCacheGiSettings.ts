@@ -28,6 +28,8 @@ export interface SurfaceCacheGiSettings {
   readonly gatherDirections: number;
   readonly gatherBatchRays: number;
   readonly gatherDistance: number;
+  /** Number of submitted frames between expensive Gather transport updates. */
+  readonly gatherUpdatePeriod: number;
   readonly gatherFreeze: boolean;
   readonly debug: "off" | "irradiance" | "confidence" | "world-only" | "residual" | "gather-confidence" | "gather-source" | "appearance-world-only";
 }
@@ -58,6 +60,7 @@ export const SURFACE_CACHE_GI_DEFAULTS: SurfaceCacheGiSettings = Object.freeze({
   gatherDirections: 64,
   gatherBatchRays: 4096,
   gatherDistance: 3,
+  gatherUpdatePeriod: 1,
   gatherFreeze: false,
   debug: "off",
 });
@@ -106,6 +109,7 @@ export function surfaceCacheGiSettings(
     "gatherTile",
     "gatherDirections",
     "gatherBatchRays",
+    "gatherUpdatePeriod",
   ] as const) {
     if (!Number.isSafeInteger(value[key]) || value[key] < 1 || value[key] > 0xfffffffd) {
       throw new RangeError(`SCGI ${key} must be a positive bounded integer`);
@@ -120,6 +124,7 @@ export function surfaceCacheGiSettings(
     value.voxelSize <= 0 ||
     value.gatherTile < 4 || value.gatherTile % 2 !== 0 || value.gatherDirections > 256 ||
     value.gatherBatchRays < value.gatherDirections ||
+    value.gatherUpdatePeriod > 16 ||
     !Number.isFinite(Math.fround(value.gatherDistance)) || value.gatherDistance <= 0 ||
     !["off", "irradiance", "confidence", "world-only", "residual", "gather-confidence", "gather-source", "appearance-world-only"].includes(value.debug)
   ) {

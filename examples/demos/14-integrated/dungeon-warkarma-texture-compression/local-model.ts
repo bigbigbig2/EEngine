@@ -8,6 +8,13 @@ const assetRoute = "/demos/14-integrated/dungeon-warkarma-texture-compression/as
 /** The dungeon owns its assets in both development and static builds. */
 export function dungeonLocalModel(examplesRoot: string): Plugin {
   const root = resolve(examplesRoot, "demos/14-integrated/dungeon-warkarma-texture-compression/assets");
+  // SCGI-10 validation may point at a generated cooked package under .local.
+  // Keep that package outside the repository and mount it read-only only for
+  // the development server; it is never emitted by a production build.
+  const externalScgiRoot = process.env.EENGINE_SCGI10_COOKED_ROOT
+    ? resolve(process.env.EENGINE_SCGI10_COOKED_ROOT)
+    : undefined;
+  const externalPrefix = "scgi10-dungeon-cooked/";
   return {
     name: "dungeon-local-model",
     configureServer(server) {
@@ -16,13 +23,19 @@ export function dungeonLocalModel(examplesRoot: string): Plugin {
         if (!url.startsWith(assetRoute) || (request.method !== "GET" && request.method !== "HEAD"))
           return next();
         let source: string;
+        let servingRoot = root;
+        let relativeUrl = url.slice(assetRoute.length);
+        if (externalScgiRoot !== undefined && relativeUrl.startsWith(externalPrefix)) {
+          servingRoot = externalScgiRoot;
+          relativeUrl = relativeUrl.slice(externalPrefix.length);
+        }
         try {
-          source = resolve(root, decodeURIComponent(url.slice(assetRoute.length)));
+          source = resolve(servingRoot, decodeURIComponent(relativeUrl));
         } catch {
           response.writeHead(400).end();
           return;
         }
-        const path = relative(root, source);
+        const path = relative(servingRoot, source);
         if (path.startsWith("..") || path.includes(":")) {
           response.writeHead(403).end();
           return;

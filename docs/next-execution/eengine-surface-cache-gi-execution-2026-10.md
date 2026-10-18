@@ -19,7 +19,7 @@ verifies:
 
 唯一详细设计为[SCGI设计](../next-design/eengine-surface-cache-gi-2026-10.md)。需求输入为[母稿](../reviews/EEngine_Surface_Cache_GI_WebGPU_Mother_Design_2026-10-17.md)；设计§17逐项映射母稿，设计§1列明勘误。本文件是细单元状态与实施结果唯一记录，workstream和粗执行不复制细状态。
 
-**当前状态：SCGI-R1/R2/R3 已完成实现与局部验证，默认1080p实验屋接通；SCGI-10 尚未完成，不能认定整个模块完成或成本已经合格。** 原始失败基线为 `2f276576`（2026-10-18），文档批准提交为 `b69b346e`，R1/R2代码提交为`4d65b4f2`/`b92bc907`；实施与成本见§8.4/8.5/8.6。下一单元为 **SCGI-10**，本轮停在 R3 完成边界。旧实施记录见§7，保留当时结果与失败，不逐项重开未受影响的cache/滤波/事务机制，也不把旧通过当成新架构验证。skin/morph随共享动画延期，4GB不作复杂大场景承诺。当前示例和本轮最高验收尺寸为 **1920×1080、internalScale=1**；不新增1440p/4K要求，不靠缩场景或降方向数关单。
+**当前状态：SCGI-R1/R2/R3 已完成实现与局部验证，SCGI-10 已进入首次成本与画质收敛，但尚未完成，不能认定整个模块完成或成本已经合格。** 原始失败基线为 `2f276576`（2026-10-18），文档批准提交为 `b69b346e`，R1/R2代码提交为`4d65b4f2`/`b92bc907`；实施与成本见§8.4/8.5/8.6/8.7。当前先处理默认工作集、Gather时间复用和world-only基线，再进行动态/峰值/长窗口验收。旧实施记录见§7，保留当时结果与失败，不逐项重开未受影响的cache/滤波/事务机制，也不把旧通过当成新架构验证。skin/morph随共享动画延期，4GB不作复杂大场景承诺。当前示例和本轮最高验收尺寸为 **1920×1080、internalScale=1**；不新增1440p/4K要求，不靠缩场景或降方向数关单。
 
 ## 1. 完整范围、依赖与生产切换
 
@@ -37,7 +37,7 @@ verifies:
 | SCGI-R1 | 共享求交arena、scene TLAS、完整query执行与全部直接consumer切换 | 已有2/5/8/9事实 | 已完成，实施、验证与成本限制见§8.4 |
 | SCGI-R2 | estimator样本扁平批处理、紧凑shadow与确定性reduce | R1 | 已完成，实施、验证与批量成本限制见§8.5 |
 | SCGI-R3 | Gather先需求后Native共享源、合格visibility复用与补缺 | R1、R2稳定边界 | 已完成，实施、局部验证及新增存储成本见§8.6 |
-| SCGI-10 | 全场景、故障、资源峰值、成本与文档闭合 | R1、R2、R3 | 待实施 |
+| SCGI-10 | 全场景、故障、资源峰值、成本与文档闭合 | R1、R2、R3 | 进行中，见§8.7 |
 
 SCGI-2与3算法依赖可独立准备，但遵守本仓库不使用子agent、GPU验证串行的要求。单元内允许代码暂时不可运行；稳定边界不能有两套production GI。SCGI-1～7构建完整新闭包并用真实算法fixture验证，**SCGI-8之前不把部分实现打开为默认生产功能**。既有renderer保持当前行为；测试fixture不是生产fallback。
 
@@ -1076,3 +1076,15 @@ VSM helper每invocation重置资格，只有实际fine/coarse查询通过且rece
 
 **后续示例参数调整（用户授权，2026-10-18）。** 公开实验屋Sun/sky改与Bistro默认一致：2026日历day44/time13/latitude35/longitude0、太阳2.2×[1.474,1.8504,1.91198]、sky3、fixed exposure5、All lighting/aerial开启；复用Bistro sun-calendar计算。增加光照分量、日历/手动太阳、曝光诊断、Renderer与VSM调试面板及收起按钮。GI质量/采样和1080p/internal1不变，但光照与曝光条件已变，不能与本节旧条件数据直接比较。`typecheck:scgi`与`build:scgi`通过；真实1080p页面核对默认physical snapshot、收起/展开及depth debug切换通过，无page/GPU错误，截图已检查。该检查仅为demo接线，不是SCGI-10或GI收敛验收。
 **来源与关闭边界。** 固定FidelityFX/Brixelizer参考不变；request-first exact Native共享、8B lookup/48B preparation、窗口drain与VSM资格是Local integration，非AMD整套port。R3所有生产route已原子切换并通过必要直接语义/生命周期检查，关闭本单元。代码和文档位于master工作区；本次未自动提交，未启动SCGI-10。后者集中完成公开实验屋收敛与动态画质、开放门边VSM误差、组合故障/退休峰值和稳定成本检查；本节不替代最终资格。
+
+
+### 8.7 SCGI-10：首次成本收敛与 Gather 时间复用（进行中，2026-10-18）
+
+**问题定位。** 公开实验屋在 1920×1080/internal1、39 instances/1324 triangles 下，Gather 全开时 SCGI currentOwned 约 361.5 MiB，Gather owner 约 103.8 MiB，probe rays 上界 230400、source shadow rays 上界 460800、最大 Gather dispatch 136；一次 coarse 采样约 80 ms。world-only 对照为约 257.2 MiB SCGI currentOwned，GPU 短样本约 49 ms；默认 lookup taps 从16降到8后的 stage 复测约44.6 ms。两者都只是单次诊断样本，不能升级为 P50/P95 或稳定性能资格，但证明 Gather 不应作为默认性能基线。
+
+**已实施的结构调整。** `SurfaceCacheGiSettings.gatherUpdatePeriod` 控制昂贵 Gather transport 更新周期。上一已提交历史仍每帧做 reproject/interpolate；source/probe/shadow/project 只在周期帧执行，光照、几何和 history invalidation 会强制下一帧更新。实验屋 Gather 默认周期为 4，核心默认值为 1 以保持既有 API 语义；Gather 本身改为面板可选增强，world GI 成为默认验收路径。周期 4 真实页面同场景命令声明从约 375 dispatch/96 clear 降到约 241 dispatch/66 clear；画面与周期 1 截图无明显结构差异。GPU oracle `scgi-gather` 在 period=1 兼容路径通过，周期 4 真实 1080p 页面无 page/GPU 错误。
+
+**边界。** 这不是 SCGI-10 完成声明，也不是把 Gather 成本从物理模型中删除。动态光照、场景变更和 camera/history invalidation 仍强制 transport 更新；周期 4 只摊还静态或稳定帧的 source/probe/shadow 工作。后续 SCGI-10 继续检查 world cache 本身的全屏固定成本、长窗口 P50/P95、动态切换残差、峰值资源和近场质量；未获整链性能或 AAA 画质资格。
+
+**完整场景构建峰值修复（2026-10-18，仍待整链验收）。** 完整 Dungeon 的首次运行曾把 Chrome GPU 进程推到约 11 GiB，不能作为可接受的 SCGI-10 行为。离线 shader 统计显示 BVH WGSL 本身约 33 KiB，主要风险是 pipeline 创建并发和按最坏容量构建。当前实现已将 query geometry pipeline 按 device/plan 复用，将共享 BVH builder 限制为最大4096 primitive的size class并把大asset拆成完整shard，将BVH/TLAS owner pipeline改为串行编译；材质 Appearance program 默认并发编译从16降为4，运行期渲染路径不变。Estimator在异步准备完成前不再打开SCGI transaction，并增加`currentPlan`只读规划产品；Dungeon cooked包通过`EENGINE_SCGI10_COOKED_ROOT`外部只读挂载，避免生成资产进入Git工作树。`typecheck`、`build:test`、Dungeon typecheck、`scgi-query`和`scgi-production`在小型真实GPU输入上通过；为避免再次触发设备内存压力，完整 Dungeon 本轮未重启，SCGI-10仍未关闭，下一步必须在独立受控进程中取得资源峰值和稳定帧证据。
+受控 Dungeon 重试使用独立进程保护器，保护线为3 GiB；浏览器在生成有效页面 report 前达到约3.28 GiB并被保护器终止，故本次结果分类为`environment/driver peak before report`，不是渲染通过或失败画质证据。无保护器的裸跑禁止继续。

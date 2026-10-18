@@ -120,18 +120,14 @@ export class ScgiCache {
           compute: { module, entryPoint }
         })
       );
-    const pipelines = Object.fromEntries(
-      await Promise.all(
-        ENTRIES.map(async (entry) => [
-          entry,
-          await compile(
-            module,
-            entry,
-            entry === "begin" || entry === "quotas" ? argsPipelineLayout : pipelineLayout
-          )
-        ])
-      )
-    ) as Record<(typeof ENTRIES)[number], GPUComputePipeline>;
+    const pipelines = {} as Record<(typeof ENTRIES)[number], GPUComputePipeline>;
+    for (const entry of ENTRIES) {
+      pipelines[entry] = await compile(
+        module,
+        entry,
+        entry === "begin" || entry === "quotas" ? argsPipelineLayout : pipelineLayout
+      );
+    }
     const scans = new Map<string, Scan>();
     const ranges = plan.scratch.ranges;
     for (const [name, capacity] of scgiCacheScanDomains(

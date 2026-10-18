@@ -86,7 +86,6 @@ export class ScgiQueryArena {
   static async create(
     device: GPUDevice,
     geometries: readonly ScgiQueryArenaGeometry[],
-    blasPlan: ScgiBvhPlan,
     source: GeometryQueryInstanceSnapshot,
     transforms: GeometryQueryTransforms,
     materials: GpuNativeMaterialPublication,
@@ -123,7 +122,7 @@ export class ScgiQueryArena {
     const payloads: number[] = [];
     for (const item of sorted) {
       offsets.push(bytes);
-      bytes = scgiAlign(bytes + blasPlan.hierarchy.bytes, alignment);
+      bytes = scgiAlign(bytes + item.entry.buffer.size, alignment);
       payloads.push(bytes);
       bytes = scgiAlign(bytes + item.entry.triangles.size, alignment);
     }
@@ -172,8 +171,8 @@ export class ScgiQueryArena {
           0,
           0,
           offsets[i]! / 4,
-          blasPlan.hierarchy.ranges.nodes!.offset / 4,
-          blasPlan.hierarchy.ranges.links!.offset / 4,
+          item.entry.plan.hierarchy.ranges.nodes!.offset / 4,
+          item.entry.plan.hierarchy.ranges.links!.offset / 4,
           payloads[i]! / 4,
           item.primitiveOffset,
           segments.indexOf(item.segment),
@@ -237,15 +236,16 @@ export class ScgiQueryArena {
       }));
       const layout = cache.layouts.obtainBindGroupLayout({ entries });
       const code = scgiArenaInstancesWgsl(plan);
-      const pipelines = await Promise.all(
-        ["classify", "offsets", "scatter"].map((entryPoint) =>
-          cache.prepare({
+      const pipelines: GPUComputePipeline[] = [];
+      for (const entryPoint of ["classify", "offsets", "scatter"]) {
+        pipelines.push(
+          await cache.prepare({
             label: `SCGI/scene instances ${entryPoint}`,
             layout: { bindGroupLayouts: [{ entries }] },
             compute: { module: { code }, entryPoint },
           }),
-        ),
-      );
+        );
+      }
       const compatible =
         previous !== undefined &&
         previous.geometries.length === sorted.length &&

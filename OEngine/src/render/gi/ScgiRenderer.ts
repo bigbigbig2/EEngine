@@ -326,11 +326,16 @@ export class ScgiRenderer {
       !this.estimator.refresh(estimatorInput)
     ) {
       this.retireEstimator();
-      // Same configured plan is used by every producer; no independent GI arena.
-      const transaction = this.runtime.prepare(command, { scene: sceneEpoch, view: input.viewEpoch })!;
+      // Prepare all asynchronous estimator state before opening the frame
+      // transaction. A failed pipeline/query owner must never leave a pending
+      // transaction that reaches the submit boundary without an encode.
+      const plan = this.runtime.currentPlan;
+      if (plan === null) {
+        throw new Error("SCGI runtime has no configured allocation plan");
+      }
       this.estimator = await ScgiEstimator.create(
         command.device,
-        transaction.workset.plan,
+        plan,
         {
           hemisphereSamples: settings.hemisphereSamples,
           connectionSamples: settings.connectionSamples,
@@ -346,14 +351,19 @@ export class ScgiRenderer {
         assertPreparing();
       }
       this.estimatorKey = estimatorKey;
-      return this.frame(input, transaction, query, camera);
     }
-    return this.frame(
-      input,
-      this.runtime.prepare(command, { scene: sceneEpoch, view: input.viewEpoch })!,
-      query,
-      camera,
-    );
+    const transaction = this.runtime.prepare(command, { scene: sceneEpoch, view: input.viewEpoch });
+    if (transaction === null) {
+      throw new Error("SCGI runtime did not provide a transaction for the existing estimator");
+    }
+    try {
+      return await this.frame(input, transaction, query, camera);
+    } catch (error) {
+      if (transaction.state === "prepared") {
+        transaction.aborted(error);
+      }
+      throw error;
+    }
   }
 
   private async frame(

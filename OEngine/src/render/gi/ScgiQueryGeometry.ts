@@ -13,6 +13,10 @@ import { GEOMETRY_QUERY_DIRECTORY_HEADER_BYTES } from "../../gpu/GeometryQueryDi
 /** An immutable asset/shard binding. Its source geometry owner retains pages;
  * this binding borrows them and owns only 64B of immutable scalar settings. */
 export class ScgiQueryGeometry {
+  private static readonly pipelines = new WeakMap<
+    GPUDevice,
+    Map<string, Promise<GPUComputePipeline>>
+  >();
   private destroyed = false;
 
   private constructor(
@@ -54,17 +58,28 @@ export class ScgiQueryGeometry {
     ) {
       throw new RangeError("Query asset requires a complete live geometry lease and representable shard");
     }
-    const module = device.createShaderModule({
-      label: "SCGI/shared Product triangle bounds",
-      code: scgiQueryGeometryWgsl(plan, triangles !== undefined),
-    });
-    const pipeline = await PipelineCompilationQueue.forDevice(device).run(() =>
-      device.createComputePipelineAsync({
+    const pipelineKey = `${plan.primitiveCapacity}/${triangles !== undefined ? 1 : 0}`;
+    let devicePipelines = this.pipelines.get(device);
+    if (devicePipelines === undefined) {
+      devicePipelines = new Map();
+      this.pipelines.set(device, devicePipelines);
+    }
+    let pipelinePromise = devicePipelines.get(pipelineKey);
+    if (pipelinePromise === undefined) {
+      const module = device.createShaderModule({
         label: "SCGI/shared Product triangle bounds",
-        layout: "auto",
-        compute: { module, entryPoint: "bounds" },
-      }),
-    );
+        code: scgiQueryGeometryWgsl(plan, triangles !== undefined),
+      });
+      pipelinePromise = PipelineCompilationQueue.forDevice(device).run(() =>
+        device.createComputePipelineAsync({
+          label: "SCGI/shared Product triangle bounds",
+          layout: "auto",
+          compute: { module, entryPoint: "bounds" },
+        }),
+      );
+      devicePipelines.set(pipelineKey, pipelinePromise);
+    }
+    const pipeline = await pipelinePromise;
     if (!lease.valid) {
       throw new Error("Query geometry lease retired during pipeline compilation");
     }

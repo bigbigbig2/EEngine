@@ -52,7 +52,7 @@ npm --prefix examples run demo:scgi
 
 天空/光照针对室内 GI 重新标定：手动太阳高度18°、方位−55°，Direct sun intensity 0.6，Sky energy 0.2，Fixed exposure 8，Lighting view=All，Aerial perspective关闭。主相机朝向桌面、红绿墙与暗室；太阳从西窗照入。保留 Bistro 的日历计算和全部调试控制，强度不再照搬室外场景。固定曝光只控制显示，没有 GI 增益或额外补光。新条件不能与R1～R3当作同条件性能比较。
 
-默认 GI 工作集为0.25m基础 cell、24³×3级、8192 patches、8192 receiver requests、256 updates、16 hemisphere samples、16 lookup taps及4096 estimator batch；Gather保持12px tile/16方向。细网格减少曲面碰撞和大块插值，增加请求预算缩短1080p覆盖等待，同时增加了更新和内存成本，不宣称免费提质或提速。输出仍为1920×1080/internal1，比较默认累积64帧；冷启动、换相机和遮挡变化后仍需继续累积。
+默认 GI 工作集为0.25m基础 cell、24³×3级、8192 patches、8192 receiver requests、256 updates、16 hemisphere samples、8 lookup taps及4096 estimator batch；默认先运行 world GI，近场 Gather作为面板可选增强，开启时为12px tile/16方向、transport每4帧更新。细网格减少曲面碰撞和大块插值，增加请求预算缩短1080p覆盖等待，同时增加了更新和内存成本，不宣称免费提质或提速。输出仍为1920×1080/internal1，比较默认累积64帧；冷启动、换相机和遮挡变化后仍需继续累积。
 
 右侧可收起的调试面板增加Sun/sky（日历与手动方向、能量、光照分量、航空透视）、Renderer视图、曝光模式/直方图percentile/一次性诊断以及VSM可见度/页状态/clip、filter/bias/coverage和rebuild/reset。与原参数一样，编辑后点“应用参数”；曝光策略变化会重建Renderer，单次曝光读回仅在点击时发生。GI调试、Renderer debug与VSM debug独立；检查某一个信号时关闭其余调试覆盖。AO/SSR调试需要开启对应效果才能观察有效信号。
 
@@ -91,7 +91,7 @@ R3 后 diffuse source 调试图只展示实际请求且完成的源；紫色表�
 
 关闭 GI 时，没有可消费的 GI 调试产品；关闭 Gather 后，Gather 调试不能证明存在近场修正。不要把黑色当作正确遮挡的充分证据，须结合 confidence 和工作集判断。cache age、query unknown 等额外 GPU 可视化尚未新增，本示例没有以假的数值代替它们。
 
-面板提供 world cache、请求容量、更新数、半球样本、连接与光源样本、多跳、过滤 taps、Gather 距离、tile、方向数、执行 batch、query 预算及 AO / SSSR / Bloom / temporal / jitter / VSM 控制。`batchRays` 和 `gatherBatchRays` 是执行批大小，不是“每像素发多少 ray”的画质设置。
+面板提供 world cache、请求容量、更新数、半球样本、连接与光源样本、多跳、过滤 taps、Gather 开关、Gather 更新周期、距离、tile、方向数、执行 batch、query 预算及 AO / SSSR / Bloom / temporal / jitter / VSM 控制。`batchRays` 和 `gatherBatchRays` 是执行批大小，不是“每像素发多少 ray”的画质设置。Gather 默认关闭；它是 near-field 质量增强档，不是 world GI 正确性的前置。
 
 当前 demo 的 Gather batch 为 65536，使完整 1080p 工作集不被极小批次拆成大量 query 命令。R2 将 Estimator 改为扁平的 patch×sample 工作，默认 batch 因此改为 1024：128 个更新×8 个半球样本可合入一个物理窗口，256 个重连接样本另一个窗口。128 是旧逐 sample 调度的配置，不再是合理的批量基线；扩大执行窗口没有减少更新数、样本或 query 完整性。`?batch=128` 可显式比较小批次成本；`?timing=stage` 开启有限阶段时间戳，默认保留 coarse 整帧采样。
 

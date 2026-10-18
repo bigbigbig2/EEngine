@@ -996,6 +996,37 @@ export async function runScgiGatherGpuOracle() {
     "previous residual must reach Native next-frame directory",
   );
   const renderer = lab.renderer;
+  // Periodic reuse is a distinct production path: a successful period=1
+  // reference cannot validate stale request suppression or committed roles.
+  renderer.setSurfaceCacheGiSettings({ gatherUpdatePeriod: 4 });
+  let reused = 0;
+  let updated = 0;
+  for (let i = 0; i < 8; i++) {
+    const previous = lab.frame.scgi.gather;
+    const beforeProbes = new Uint8Array(await readBuffer(renderer.device, previous.candidate));
+    const beforeWork = new Uint8Array(await readBuffer(renderer.device, previous.owner.work));
+    await lab.tick();
+    const frame = lab.frame.scgi.gather;
+    if (frame.updateTransport) {
+      updated++;
+      continue;
+    }
+    reused++;
+    assert.ok(frame.previousValid, "period reuse requires committed valid history");
+    assert.deepEqual(new Uint8Array(await readBuffer(renderer.device, frame.candidate)), beforeProbes,
+      "reuse must not integrate the same signed observation again");
+    assert.deepEqual(new Uint8Array(await readBuffer(renderer.device, frame.owner.work)), beforeWork,
+      "Native must not drain stale source requests into work on reuse frames");
+  }
+  assert.ok(reused > 0 && updated > 0, "period4 executes both transport and reuse");
+  lab.camera.transform.position.x += 0.1;
+  lab.camera.update();
+  await lab.tick();
+  assert.equal(lab.frame.scgi.gather.updateTransport, true, "ordinary camera motion refreshes screen probes");
+  lab.camera.transform.position.x -= 0.1;
+  lab.camera.update();
+  await lab.tick();
+  renderer.setSurfaceCacheGiSettings({ gatherUpdatePeriod: 1 });
   const noFeedbackOwner = lab.frame.scgi.gather.owner;
   const normalEncode = noFeedbackOwner.encode.bind(noFeedbackOwner);
   let feedbackCopies;
@@ -1087,7 +1118,9 @@ export async function runScgiGatherGpuOracle() {
   await lab.tick();
   assert.deepEqual([...lab.frame.scgi.publication.halfExtent], [81, 61]);
   lab.light.intensity = 4;
+  renderer.setSurfaceCacheGiSettings({ gatherUpdatePeriod: 16 });
   await lab.tick();
+  assert.equal(lab.frame.scgi.gather.updateTransport, true, "light changes bypass the periodic schedule");
   assert.equal(
     lab.frame.scgi.gather.previousValid,
     false,
@@ -1097,6 +1130,7 @@ export async function runScgiGatherGpuOracle() {
   lab.movingEmitter.transform_local.position.x *= -1;
   lab.movingEmitter.updateMatrices();
   await lab.tick();
+  assert.equal(lab.frame.scgi.gather.updateTransport, true, "geometry changes bypass the periodic schedule");
   assert.equal(lab.frame.scgi.gather.previousValid, false, "moving emitter rejects old source epoch");
   await lab.recover();
   await lab.tick();
@@ -1112,6 +1146,7 @@ export async function runScgiGatherGpuOracle() {
     math,
     projection,
     interpolation,
+    periodic: { reused, updated, ordinaryMotion: true, invalidation: true, staleRequestsSuppressed: true },
     source,
     exactPreparation,
     reference,

@@ -62,15 +62,19 @@ const LAB_GI: SurfaceCacheGiSettings = surfaceCacheGiSettings({
   connectionSamples: 2,
   lightSamples: 32,
   batchRays: 4096,
-  lookupTaps: 16,
+  lookupTaps: 8,
   maximumLights: 32,
   primitiveCapacity: 4096,
   queryMaximumBytes: 64 * 1024 ** 2,
-  gather: true,
+  // World GI is the default acceptance path. Gather remains a complete,
+  // explicitly enabled near-field enhancement because it adds a second
+  // screen-probe/source/shadow workload at 1080p.
+  gather: false,
   gatherTile: 12,
   gatherDirections: 16,
   gatherBatchRays: 65536,
-  gatherDistance: 3
+  gatherDistance: 3,
+  gatherUpdatePeriod: 4
 });
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
@@ -438,7 +442,7 @@ function buildControls(): void {
 
   const gather = group(
     "04 · 近场残差 / 调试信号",
-    "Gather 读取上一已提交帧的残差。冻结仅冻结 Gather 更新，world GI 仍更新；不是全局 freeze。方向数改变采样量，batch 只改变执行切分。",
+    "Gather 是可选的近场增强，默认关闭以保持 world GI 基线。开启后读取上一已提交帧的残差；冻结仅冻结 Gather 更新，world GI 仍更新。transport 更新周期控制昂贵 source/probe/shadow 重算频率，方向数改变采样量，batch 只改变执行切分。",
     true
   );
   toggle(gather, gi, "gather", "开启近场 Gather");
@@ -447,6 +451,7 @@ function buildControls(): void {
   number(gather, gi, "gatherDirections", "方向 / probe", 1, 256);
   number(gather, gi, "gatherDistance", "近场距离 (m)", 0.25, 8, 0.25);
   number(gather, gi, "gatherBatchRays", "Gather batch 容量", 256, 65536, 256);
+  number(gather, gi, "gatherUpdatePeriod", "Gather transport 更新周期", 1, 16);
   select(gather, gi, "debug", "显示信号", debugModes, true);
 
   const display = group(

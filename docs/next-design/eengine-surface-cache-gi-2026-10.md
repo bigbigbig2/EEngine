@@ -131,6 +131,8 @@ GI disabled 时不创建 cache/query/field，也不多绑定一套全屏产品�
 
 ### 4.1 Product 的版本化扩展
 
+**AS持久容量与构建容量分开。** `primitiveCapacity`是单批构建上限，不得让每个小asset永久预留同样大小的BLAS。`ScgiQueryScene`共享一份上限大小build scratch与build hierarchy，完成每个chunk后按其实际count的`planScgiBvh(count)`分别copy header、有效nodes、links、references到不可变`ScgiQueryBlas`。packed arena按各entry真实bytes排列，descriptor保存该entry的node/link offsets。没有增加第二套几何或shader遍历；静态复用仍只接纳submitted且未poisoned entry，候选与暂存随原command/fence退休。额外成本是一份build hierarchy和每个新BLAS四次有序copy；删除的是每asset的上限空洞及arena中的同份空洞。header计数、root、node引用均保留，禁止只复制root或截断实际primitive。共享builder使用有限size class（当前最大4096），超过class的Product切成完整连续shard；size class只限制物理构建批次，不减少query coverage。BVH/TLAS pipeline按owner串行编译，避免冷启动把驱动编译工作集乘以并发PSO数。
+
 目标 `GeometryProductQuerySectionV2` 是 Product descriptor 的扩展 section 名称，不是独立长期库。顶层版本变更需同时更新 offline/web cook、序列化、provider、validator、runtime admission、测试资产与重建缓存 key；不向 V1 数据尾部偷塞字段。旧资产通过既有 cook 流程重生成或明确拒绝，不能在渲染 hot path 临时偷偷重建第二套 mesh。
 
 Query section 必须含：section version/recipe hash；asset→query cluster root；cluster bounds/error/child ranges；leaf 的 page/group/meshlet/local triangle references；material/primitive remap；decode format；最低覆盖 cut/page list；topology/deformation revision；coverage-critical 标记与误差类别。使用 Product ID+revision 和完整 page identity 校验，不截断为 material hash。
@@ -371,7 +373,7 @@ filter物理顺序为qualify→integrate→spatial→post→publish→各segment
 
 A2 post状态word69为0=无history、1=seed、2=post history；spatial/post/radius/taps/normal/plane配置变化或owner重建显式reset，host配置只在submitted推进。stale/new cohort在清dirty前记录reset-this-frame位。seed置信为原field置信×0.25，count0，首真实cohort替换seed；A2随304B patch一起defrag，A1每帧重建。
 
-空间与lookup使用双边plane、normal、距离、map generation及同instance/Product前8word身份；允许跨普通primitive/material边界，保守拒绝不同实例，跨对象连续面的接缝仍需画质验收。cascade在外侧两cell用smoothstep向相容粗层过渡，缺粗层保持细层。screen保留中心权重0.1、tangent位置jitter与独立维度cosSpread=0.9均匀cone方向jitter；中心缺失仍可用rank0邻域。实际使用slot在4K control scratch中原子归并，再由touch统一写lastAccess，避免并发世界读写。
+空间与lookup使用mean tangent plane、normal、距离、map generation及同instance/Product前8word身份；plane测试为`abs(dot(delta,(nReceiver+nPatch)/2)) <= max(patchPlaneError,distanceLimit×planeScale)`，保留原normal/距离阈值。允许跨普通primitive/material边界，拒绝不同实例；跨帧seed仍保留严格完整身份与双plane检查。screen中心权重0.1，其余用固定低差异tangent disk，不再每帧随机改变重建支持或随机扰动接收法线；transport样本仍随提交序号推进。每位置最多三组grid-plane地址、每组九个相邻oct方向分箱；oct方形边界须折回对应边，不能clamp导致南极方向断缝。候选必须先通过anchor实例身份再返回，不能先返回其他实例再在外层丢弃、遮住后续合法支持。cascade外侧两cell用smoothstep向相容粗层过渡，缺粗层保持细层；中心缺失仍可用rank0邻域。实际使用slot在control scratch中原子归并，再由touch统一写lastAccess，避免并发世界读写。曲面覆盖与条带仍需真实场景验收，局部数学通过不能代替该项。
 
 filter要求`estimateComplete && cacheComplete`，完整encode后标`filteredComplete/fieldComplete`，不是GPU成功证书。fault使整field invalid。无私有submit/readback/full-res irradiance texture，Native正式consumer仍在SCGI-8接通。
 
@@ -471,6 +473,8 @@ CPU commit不逐patch遍历，也不等待GPU读回“所有patch成功”。GPU
 ## 13. Screen Radiance Gather：本模块完整近场增强
 
 选择**稀疏screen probes + 可见性验证 + 相同方向的world预测残差**，参考FidelityFX Brixelizer GI的spawn/reproject/fill/project/interpolate阶段。保留其screen probe调度/重投影/方向积分思路，**不移植其SDF world scene、brick radiance cache或specular GI**；世界visibility依本模块query scene。源代码采用范围明确列在source map，不称整套Brixelizer移植。Horizon/visibility-bitmask方案保留为比较：更适合接触高频，但容易与AO重复，故本次不另建第二套horizon GI。
+
+`gatherUpdatePeriod`为1…16的显式时间采样质量选项，核心默认1。周期仅跳过source/probe/shadow/project transport；每帧仍重投影上一已提交residual、复制已提交probe并interpolate，不能重复积累同一观测。相机VP变化、lighting/geometry/history失效及source诊断均强制刷新；有效freeze优先保留旧probe。camera快照、role、transport/reuse计数只在完整post编码且submitted后推进，abort不推进。跳过transport时Native关闭source-preparation flag、不copy请求、不clear preparation、不drain旧source队列；residual目录仍正常写入。该选项不减少单次更新的方向数、几何、PDF或source资格，动态持续变化时可能每帧全量执行；不得按1/period直接宣称实测加速。
 
 采用 **先查询需求→Native 共享求值→补缺→残差**。pre-Native 对本帧 probe 方向发 geometry-closest query，完成 world closest 后进行 screen identity、双 plane、距离/法线与 epoch 验证，将合法 hit 映射到 half-anchor 的 exact `sourcePixel`。GPU bitset 去重并产生唯一 source request；不先给整片 half-screen 求材质和阴影，再发现大多数源无人消费。所有请求在主 Native 前已知，不能为本帧 GPU count 增加 readback/submit。
 

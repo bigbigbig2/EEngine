@@ -5,10 +5,7 @@ import {
   packScgiRecord,
   packScgiCoefficients
 } from "../../.test-dist/render/gi/ScgiAbi.js";
-import {
-  planScgiNativeDescriptors,
-  planScgiQueryDescriptors
-} from "../../.test-dist/render/gi/ScgiCapacity.js";
+import { planScgiNativeDescriptors } from "../../.test-dist/render/gi/ScgiCapacity.js";
 import { assertScgiCompoundFact, bindScgiPublication } from "../../.test-dist/render/gi/ScgiPublication.js";
 import {
   FrameGraph,
@@ -202,16 +199,10 @@ ${assignments.join("\n")}
                 device.createPipelineLayout({ bindGroupLayouts });
                 check(plan.addedGiBindings === 0, "Native GI adds no bindings");
               }
-    const query = planScgiQueryDescriptors(
-      device.limits,
-      [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }],
-      []
-    );
-    check(query.counts.storage === 15, "query tail inventory");
-    device.createPipelineLayout({
-      bindGroupLayouts: query.groups.map((entries) => device.createBindGroupLayout({ entries }))
-    });
-    results.push("64 actual Native route layouts with saturated material textures; 15-SSBO query tail");
+    // R2 retired the synthetic query-tail planner. Actual traversal layouts,
+    // material bins and their descriptor limits are exercised by scgi-query
+    // and scgi-production; do not recreate that retired ABI in this test.
+    results.push("64 actual Native route layouts with saturated material textures");
 
     const runtime = createRuntime(1);
     await runtime.configure({ ...demand, enabled: false }, scgiProfile);

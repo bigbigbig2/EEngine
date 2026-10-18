@@ -511,6 +511,31 @@ export async function runScgiFilterGpuOracle(device) {
     } });
     assert.equal(boundary.field[11] & 3, 3, "grid-plane rounding retains compatible support");
     scene++;
+    const southSeam = await run({
+      positions: [[0.2, 0.2, 0.1]],
+      normals: [[0.0001, 0.0001, -Math.sqrt(1 - 2e-8)]],
+      lookupTaps: 1,
+      before: tx => tx.command.uploadRegions([{
+        destination: tx.publication.anchors[0].buffer,
+        destinationOffset: 16,
+        bytes: new Uint8Array(new Float32Array([-0.0001, -0.0001, -Math.sqrt(1 - 2e-8)]).buffer)
+      }])
+    });
+    assert.equal(southSeam.field[11] & 3, 3, "octahedral south-pole seam retains almost identical normals");
+    scene++;
+    const identitySearch = await run({
+      positions: [[0.2, 0.2, 0.1], [0.2, 0.2, 0.1]],
+      normals: [[0.0001, 0, Math.sqrt(1 - 1e-8)], [-0.0001, 0, Math.sqrt(1 - 1e-8)]],
+      identities: [otherIdentity, identity],
+      lookupTaps: 1,
+      before: tx => tx.command.uploadRegions([{
+        destination: tx.publication.anchors[0].buffer,
+        destinationOffset: 64,
+        bytes: new Uint8Array(identity.buffer)
+      }])
+    });
+    assert.equal(identitySearch.field[11] & 3, 3, "wrong instance candidate cannot hide compatible same-instance support");
+    scene++;
     const orientationBoundary = await run({ positions: [[0.2, 0.2, 0.1]], normals: [[1e-7, 0, 1]], lookupTaps: 1, before: tx => {
       tx.command.uploadRegions([{ destination: tx.publication.anchors[0].buffer, destinationOffset: 16,
         bytes: new Uint8Array(new Float32Array([-1e-7, 0, 1]).buffer) }]);

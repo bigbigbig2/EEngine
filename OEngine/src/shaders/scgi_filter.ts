@@ -158,7 +158,7 @@ fn compatible(at: u32, p: vec3f, n: vec3f, distance: f32) -> bool {
   // Testing each endpoint plane independently punches holes on curved meshes.
   return dot(n, normal) >= settings.normal_cosine && abs(dot(delta, (n+normal)*0.5)) <= plane && length(delta) <= distance;
 }
-fn find_from(position: vec3f, guide: vec3f, normal: vec3f, reference: u32, rank0: bool, first: u32) -> u32 {
+fn find_from(position: vec3f, guide: vec3f, normal: vec3f, reference: u32, rank0: bool, first: u32, anchor_index: u32) -> u32 {
   for (var c = first; c<${plan.profile.cascades}u; c++) {
     let scale = wf(27u+c*4u);
     if (!(scale>0.0)) {
@@ -189,9 +189,16 @@ fn find_from(position: vec3f, guide: vec3f, normal: vec3f, reference: u32, rank0
       // Search adjacent bins, accepting only the actual normal/plane tests.
       for (var orientation_tap = 0u; orientation_tap < 9u; orientation_tap++) {
         let step = (orientation_tap+4u)%9u;
-        let selected_bin = primary_bin+vec2i(i32(step%3u)-1, i32(step/3u)-1);
-        if (any(selected_bin < vec2i(0)) || any(selected_bin > vec2i(3))) {
-          continue;
+        var selected_bin = primary_bin+vec2i(i32(step%3u)-1, i32(step/3u)-1);
+        // The octahedral square folds at its edges. Adjacent south-facing
+        // normals can occupy opposite corners; clamping loses that support.
+        if (selected_bin.x < 0 || selected_bin.x > 3) {
+          selected_bin.x = select(-1-selected_bin.x, 7-selected_bin.x, selected_bin.x > 3);
+          selected_bin.y = 3-selected_bin.y;
+        }
+        if (selected_bin.y < 0 || selected_bin.y > 3) {
+          selected_bin.y = select(-1-selected_bin.y, 7-selected_bin.y, selected_bin.y > 3);
+          selected_bin.x = 3-selected_bin.x;
         }
         let cell = (c*${plan.profile.resolution ** 3}u+u32((xyz.x*r+xyz.y)*r+xyz.z))*16u+u32(selected_bin.y*4+selected_bin.x);
         let slot = world[MAP+cell*2u];
@@ -205,6 +212,15 @@ fn find_from(position: vec3f, guide: vec3f, normal: vec3f, reference: u32, rank0
         if (reference != 0xffffffffu && !related(reference, at)) {
           continue;
         }
+        if (anchor_index != 0xffffffffu) {
+          var matching = true;
+          for (var i = 0u; i < 8u; i++) {
+            matching = matching && world[at+8u+i] == anchors[anchor_index].identity[i];
+          }
+          if (!matching) {
+            continue;
+          }
+        }
         return slot;
       }
     }
@@ -212,7 +228,7 @@ fn find_from(position: vec3f, guide: vec3f, normal: vec3f, reference: u32, rank0
   return 0xffffffffu;
 }
 fn find(position: vec3f, guide: vec3f, normal: vec3f, reference: u32, rank0: bool) -> u32 {
-  return find_from(position, guide, normal, reference, rank0, 0u);
+  return find_from(position, guide, normal, reference, rank0, 0u, 0xffffffffu);
 }
 // Fade a fine cascade into a compatible coarse one over its outer two cells.
 // Missing coarse support keeps fine weight1; no missing-data darkening.
@@ -357,7 +373,7 @@ fn coarse_weight(position: vec3f, slot: u32) -> f32 {
   if (settings.spatial != 0u) {
     let center_blend = coarse_weight(vec(at), slot);
     if (center_blend>0.0) {
-      let coarse = find_from(vec(at), vec(at), normal, at, false, cascade+1u);
+      let coarse = find_from(vec(at), vec(at), normal, at, false, cascade+1u, 0xffffffffu);
       if (coarse != 0xffffffffu) {
         for (var i = 0u; i<12u; i++) {
           result[i] = interpolate(result[i], wf(PATCH+coarse*76u+40u+i), center_blend);
@@ -374,7 +390,7 @@ fn coarse_weight(position: vec3f, slot: u32) -> f32 {
       let blend = coarse_weight(position, other);
       var coarse = 0xffffffffu;
       if (blend>0.0) {
-        coarse = find_from(position, vec(at), normal, at, false, world[PATCH+other*76u+21u]+1u);
+        coarse = find_from(position, vec(at), normal, at, false, world[PATCH+other*76u+21u]+1u, 0xffffffffu);
       }
       for (var level = 0u; level<2u; level++) {
         let selected = select(other, coarse, level == 1u);
@@ -474,7 +490,7 @@ fn coarse_weight(position: vec3f, slot: u32) -> f32 {
   }
   let position = vec3f(anchor.positionValid[0], anchor.positionValid[1], anchor.positionValid[2]);
   let normal = vec3f(anchor.normal[0], anchor.normal[1], anchor.normal[2]);
-  let center = find(position, position, normal, 0xffffffffu, true);
+  let center = find_from(position, position, normal, 0xffffffffu, true, 0u, index);
   var at = 0xffffffffu;
   var cascade = ${plan.profile.cascades - 1}u;
   if (center != 0xffffffffu) {
@@ -511,7 +527,7 @@ fn coarse_weight(position: vec3f, slot: u32) -> f32 {
       // world support rather than independent per-pixel random tap choices.
       sample_position = position+offset;
       sample_normal = normal;
-      slot = find(sample_position, position, sample_normal, at, true);
+      slot = find_from(sample_position, position, sample_normal, at, true, 0u, index);
       tap_weight = max(0.0, 1.0-length(jitter)*0.70710678);
     }
     if (slot == 0xffffffffu || (scratch[VALID+slot]&1u) == 0u) {
@@ -527,7 +543,7 @@ fn coarse_weight(position: vec3f, slot: u32) -> f32 {
     let blend = coarse_weight(sample_position, slot);
     var coarse = 0xffffffffu;
     if (blend>0.0) {
-      coarse = find_from(sample_position, position, sample_normal, PATCH+slot*76u, true, world[PATCH+slot*76u+21u]+1u);
+      coarse = find_from(sample_position, position, sample_normal, PATCH+slot*76u, true, world[PATCH+slot*76u+21u]+1u, index);
     }
     for (var level = 0u; level<2u; level++) {
       let selected = select(slot, coarse, level == 1u);

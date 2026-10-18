@@ -537,6 +537,17 @@ export async function runScgiQueryGpuOracle(device) {
     ]);
     scenes.push(multi);
     assert.equal(multi.geometries.length, 2, "complete multi-Product geometry publication");
+    const sharedShardCapacity = Math.max(...multi.geometries.map((geometry) => geometry.primitiveCount));
+    assert.ok(
+      multi.blasPlan.primitiveCapacity >= sharedShardCapacity && multi.blasPlan.primitiveCapacity <= 4096,
+      "shared build ceiling follows the largest admitted shard within the bounded size class",
+    );
+    for (const geometry of multi.geometries) {
+      assert.equal(geometry.entry.plan.primitiveCapacity, geometry.primitiveCount,
+        "persistent BLAS capacity follows its chunk, not the shared build ceiling");
+      assert.ok(geometry.entry.buffer.size <= multi.blasPlan.hierarchy.bytes,
+        "persistent BLAS capacity stays within the shared build ceiling");
+    }
     for (const arena of multi.arenas) arena.destroy();
     multi.arenas.length = 0;
     for (const geometry of multi.geometries) {
@@ -544,7 +555,6 @@ export async function runScgiQueryGpuOracle(device) {
         await ScgiQueryArena.create(
           device,
           [geometry],
-          multi.blasPlan,
           multi.sourceInstances,
           multi.transforms,
           multi.materialPublication,

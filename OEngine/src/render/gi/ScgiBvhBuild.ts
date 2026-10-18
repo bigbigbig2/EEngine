@@ -135,24 +135,27 @@ export class ScgiBvhBuild {
         layout: { bindGroupLayouts: [descriptor] },
         compute: { module, entryPoint },
       });
-    const buildPipelines = Object.fromEntries(
-      await Promise.all(
-        ENTRIES.map(async (entry) => [entry, await compile(buildModule, entry, buildDescriptor)]),
-      ),
-    ) as Record<(typeof ENTRIES)[number], GPUComputePipeline>;
-    const radixPipelines = (await Promise.all([
-      compile(radixModule, "histogram", radixDescriptor),
-      compile(radixModule, "scatter", radixDescriptor),
-    ])) as [GPUComputePipeline, GPUComputePipeline];
+    // Compile this owner serially. A complete Product can still contain many
+    // shards, but all of them share these pipelines; concurrent driver PSO
+    // creation creates a large transient compiler working set for no runtime
+    // benefit.
+    const buildPipelines = {} as Record<(typeof ENTRIES)[number], GPUComputePipeline>;
+    for (const entry of ENTRIES) {
+      buildPipelines[entry] = await compile(buildModule, entry, buildDescriptor);
+    }
+    const radixPipelines = [
+      await compile(radixModule, "histogram", radixDescriptor),
+      await compile(radixModule, "scatter", radixDescriptor),
+    ] as [GPUComputePipeline, GPUComputePipeline];
     const treeletPipeline = await compile(treeletModule, "restructure", buildDescriptor);
     const scans: Array<readonly [GPUComputePipeline, GPUComputePipeline]> = [];
     for (let level = 0; level < plan.scanCounts.length; level++) {
       const module = { label: `SCGI/BVH/scan/${level}`, code: scgiBvhScanWgsl(plan, level) };
       scans.push(
-        (await Promise.all([
-          compile(module, "scan_up", scanDescriptor),
-          compile(module, "scan_down", scanDescriptor),
-        ])) as [GPUComputePipeline, GPUComputePipeline],
+        [
+          await compile(module, "scan_up", scanDescriptor),
+          await compile(module, "scan_down", scanDescriptor),
+        ] as [GPUComputePipeline, GPUComputePipeline],
       );
     }
     // One encoded build uses fewer than 512 fixed parameter slots. Writes are command

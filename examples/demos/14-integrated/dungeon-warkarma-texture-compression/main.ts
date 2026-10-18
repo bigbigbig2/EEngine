@@ -10,6 +10,7 @@ import {
   type PhysicalLightingDiagnostic,
   resolveWebCookRuntimeProfile,
   Scene,
+  SURFACE_CACHE_GI_PRESETS,
   webCookCatalogSceneFraming,
   type MultiProductSceneHandles,
   type WebCookRuntimeAsset,
@@ -301,7 +302,7 @@ function snapshot() {
       fullQualityMs,
       providerComplete: settled,
       initialization: cooked?.initialization ?? null,
-      rendererInitialization: renderer?.initializationEvidence(scene) ?? null,
+      rendererInitialization: renderer?.device ? renderer.initializationEvidence(scene) : null,
       fullGeometrySettled: renderer?.sceneRefinementEvidence(scene)?.phase === "view-settled",
       refinement: renderer?.sceneRefinementEvidence(scene) ?? null,
       glbReadMs: null,
@@ -399,7 +400,8 @@ function snapshot() {
       authoredLights: 0,
       authoredHdr: false,
       ssr: renderer?.screenSpaceReflectionsSettings ?? null,
-      screenSpaceGi: "NOT WIRED IN CURRENT FRAME PROGRAM",
+      surfaceCacheGi: renderer?.surfaceCacheGiSettings ?? null,
+      surfaceCacheGiEvidence: renderer?.surfaceCacheGiEvidence() ?? null,
       stages: renderer?.mainFrameGraphEvidence()?.program.stages ?? [],
       camera: {
         position: [camera.transform.position.x, camera.transform.position.y, camera.transform.position.z],
@@ -707,7 +709,9 @@ async function start(): Promise<void> {
     autoExposure,
     fixedExposure,
     exposure: exposureSettings,
-    renderScale: 0.667
+    surfaceCacheGi: query.get("gi") === "quality" ? SURFACE_CACHE_GI_PRESETS.quality :
+      query.get("gi") === "1" ? SURFACE_CACHE_GI_PRESETS.balanced : { enabled: false },
+    renderScale: query.has("gi") ? 1 : 0.667
   });
   await renderer.initialize({ context });
   if (closing) return;

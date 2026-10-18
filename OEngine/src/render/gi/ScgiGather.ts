@@ -42,6 +42,7 @@ export interface ScgiGatherFrame {
   readonly view: GPUViewContext;
   readonly settings: SurfaceCacheGiSettings;
   readonly camera: readonly [number, number, number];
+  readonly updateTransport: boolean;
 }
 
 /** Optional screen signal inside SCGI. Only successful submission advances its
@@ -78,6 +79,9 @@ export class ScgiGather {
   private debugPipeline!: GPUComputePipeline;
   private role = 0;
   private valid = false;
+  private readonly committedViewProjection = new Float32Array(16);
+  private transportFrames = 0;
+  private reusedFrames = 0;
   private destroyed = false;
   private poisoned = false;
   private inFlight = 0;
@@ -361,6 +365,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         probeBatches * (3 + this.allocation.screen.length + (this.closest?.cost.totalDispatches ?? 0)),
       sourceBatches,
       probeBatches,
+      submittedTransportFrames: this.transportFrames,
+      submittedReuseFrames: this.reusedFrames,
       note: "GPU request/count bounded; Native drain adds one dispatch per physical window; not GPU time",
     };
   }
@@ -377,6 +383,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       throw new Error("SCGI gather requires one live preparation per frame command");
     }
     this.prepared.add(command);
+    const publication = transaction.publication;
+    const viewProjection = view.camera.view_projection_matrix;
+    let cameraChanged = !this.valid;
+    for (let i = 0; i < 16; i++) {
+      cameraChanged ||= viewProjection[i] !== this.committedViewProjection[i];
+    }
+    // Candidate state is captured before encoding. A later camera edit or an
+    // aborted command must never advance the submitted reuse boundary.
+    const candidateViewProjection = new Float32Array(viewProjection);
     const candidate = this.history[1 - this.role]!;
     const frame = {
       owner: this,
@@ -391,6 +406,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       settings,
       camera,
       previousValid: previousValid && this.valid,
+      updateTransport:
+        !(previousValid && this.valid) ||
+        cameraChanged ||
+        settings.debug === "gather-source" ||
+        settings.gatherUpdatePeriod <= 1 ||
+        publication.sampleSerial % settings.gatherUpdatePeriod === 0,
     };
     this.inFlight++;
     command.observeSubmission({
@@ -398,6 +419,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         if (this.postEncoded.has(transaction)) {
           this.role = 1 - this.role;
           this.valid = true;
+          this.committedViewProjection.set(candidateViewProjection);
+          if (frame.updateTransport && !(frame.settings.gatherFreeze && frame.previousValid)) {
+            this.transportFrames++;
+          } else {
+            this.reusedFrames++;
+          }
         }
         void fence.then(
           () => {
@@ -563,7 +590,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     if (this.postEncoded.has(frame.transaction) || !publication.filteredComplete) {
       throw new Error("SCGI gather requires one post-Surface encoding after world publication");
     }
-    if (frame.settings.gatherFreeze && frame.previousValid) {
+    if ((!frame.updateTransport || frame.settings.gatherFreeze) && frame.previousValid) {
       command.copyBufferToBuffer(frame.previous, 0, frame.candidate, 0, this.plan.probeBytes);
       for (let segment = 0; segment < publication.anchors.length; segment++) {
         this.dispatch(
@@ -629,6 +656,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
   encodeRequests(frame: ScgiGatherFrame): void {
     const { command, publication } = frame.transaction;
+    if (!frame.updateTransport && frame.previousValid) {
+      return;
+    }
     command.clearBuffer(this.work);
     this.dispatch(frame, "clear_source", 0, this.plan.halfWidth * this.plan.halfHeight);
     if (frame.settings.gatherFreeze && frame.previousValid) {

@@ -326,7 +326,7 @@ function snapshot() {
       fullQualityMs,
       providerComplete: settled,
       initialization: cooked?.initialization ?? null,
-      rendererInitialization: renderer?.initializationEvidence(scene) ?? null,
+      rendererInitialization: renderer?.device ? renderer.initializationEvidence(scene) : null,
       fullGeometrySettled: renderer?.sceneRefinementEvidence(scene)?.phase === "view-settled",
       refinement: renderer?.sceneRefinementEvidence(scene) ?? null,
       glbReadMs: null,
@@ -414,6 +414,7 @@ function snapshot() {
       authoredHdr: false,
       ssr: renderer?.screenSpaceReflectionsSettings ?? null,
       surfaceCacheGi: renderer?.surfaceCacheGiSettings ?? null,
+      surfaceCacheGiEvidence: renderer?.surfaceCacheGiEvidence() ?? null,
       stages: renderer?.mainFrameGraphEvidence()?.program.stages ?? [],
       camera: {
         position: [camera.transform.position.x, camera.transform.position.y, camera.transform.position.z],

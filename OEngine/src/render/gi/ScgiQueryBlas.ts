@@ -31,6 +31,7 @@ export class ScgiQueryBlas {
   private constructor(
     readonly buffer: GPUBuffer,
     readonly triangles: GPUBuffer,
+    readonly plan: ScgiBvhPlan,
     private readonly cut: BlasCut,
     private readonly key: string,
     private readonly accounting?: ResourceAccounting,
@@ -107,7 +108,7 @@ export class ScgiQueryBlas {
       buffer.destroy();
       throw error;
     }
-    const entry = new ScgiQueryBlas(buffer, triangles, cut, key, accounting);
+    const entry = new ScgiQueryBlas(buffer, triangles, plan, cut, key, accounting);
     cut.liveEntries++;
     // A concurrently prepared candidate may build separately. Only a submitted
     // entry replaces this index; that does not change any retained old entry.

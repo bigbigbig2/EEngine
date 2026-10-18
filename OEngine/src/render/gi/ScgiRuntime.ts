@@ -156,6 +156,14 @@ export class ScgiRuntime {
     return this.#lastFailure;
   }
 
+  /** The configured allocation plan is available for asynchronous owner
+   * preparation before a frame transaction is opened. It is a read-only
+   * planning product; publication roles still advance only through prepare/
+   * encode/commit. */
+  get currentPlan(): ScgiAllocationPlan | null {
+    return (this.#configured ?? this.#active)?.plan ?? null;
+  }
+
   /** Allocation failures leave active and its history unchanged. Error scopes
    * settle before a replacement can be prepared or published. */
   async configure(demand: ScgiDemand, profile: ScgiAllocationProfile): Promise<ScgiAllocationPlan | null> {
