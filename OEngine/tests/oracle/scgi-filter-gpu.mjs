@@ -504,6 +504,28 @@ export async function runScgiFilterGpuOracle(device) {
     assert.ok(remote.patches[0].confidence < nearbyOnly.patches[0].confidence,
       "global geometry revision decays receiver outside local bounds");
     assert.equal(remote.patches[0].count, nearbyOnly.patches[0].count);
+    scene++;
+    const boundary = await run({ positions: [[0.2, 0.2, 1e-7]], lookupTaps: 1, before: tx => {
+      tx.command.uploadRegions([{ destination: tx.publication.anchors[0].buffer, destinationOffset: 8,
+        bytes: new Uint8Array(new Float32Array([-1e-7]).buffer) }]);
+    } });
+    assert.equal(boundary.field[11] & 3, 3, "grid-plane rounding retains compatible support");
+    scene++;
+    const orientationBoundary = await run({ positions: [[0.2, 0.2, 0.1]], normals: [[1e-7, 0, 1]], lookupTaps: 1, before: tx => {
+      tx.command.uploadRegions([{ destination: tx.publication.anchors[0].buffer, destinationOffset: 16,
+        bytes: new Uint8Array(new Float32Array([-1e-7, 0, 1]).buffer) }]);
+    } });
+    assert.equal(orientationBoundary.field[11] & 3, 3, "octahedral bin rounding retains compatible support");
+    scene++;
+    const curved = await run({ positions: [[0.2, 0.2, 0.1]], lookupTaps: 1, before: tx => {
+      tx.command.uploadRegions([
+        { destination: tx.publication.anchors[0].buffer, destinationOffset: 0,
+          bytes: new Uint8Array(new Float32Array([0.3, 0.2, 0.09]).buffer) },
+        { destination: tx.publication.anchors[0].buffer, destinationOffset: 16,
+          bytes: new Uint8Array(new Float32Array([0.1980198, 0, 0.980198]).buffer) }
+      ]);
+    } });
+    assert.equal(curved.field[11] & 3, 3, "mean tangent plane supports a smooth curved surface chord");
     // Cache compaction moves the actual A2 history together with its identity;
     // the filter must consume it at the destination rather than its old slot.
     scene++;

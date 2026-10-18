@@ -111,7 +111,10 @@ export class ScgiFilter {
       maximumMapProbes:
         (this.plan.profile.patches * (settings.spatial ? settings.spatialTaps * 2 + 1 : 0) +
           this.plan.halfPixels * (2 * settings.lookupTaps + 3)) *
-        this.plan.profile.cascades
+        this.plan.profile.cascades * 27,
+      // Up to three grid-plane candidates and nine orientation bins. Normal,
+      // plane, generation and instance tests still qualify every accepted tap.
+      maximumAddressCandidatesPerCascade: 27
     };
   }
 

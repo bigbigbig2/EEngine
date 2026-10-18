@@ -50,7 +50,9 @@ npm --prefix examples run demo:scgi
 
 默认点光源为零，日光走 Physical Environment / VSM。发光实验不附带点光源，不用额外环境补光掩盖 GI 误差。金属球是 specular 对照物，不是 diffuse GI 接收面。
 
-天空/光照默认值与 `bistro-texture-compression` 对齐：日历太阳开启，2026 年第 44 天（2 月 13 日）13:00，纬度35°/经度0°，Direct sun intensity 2.2，Sky energy 3，Fixed exposure 5，Lighting view=All，Aerial perspective开启。太阳方向直接复用Bistro的Astronomy Engine计算与North-Up-East坐标约定，线性太阳辐照度基值为[1.474,1.8504,1.91198]。这次改变了实验基准光照，不能把新画面/耗时直接与R1～R3旧默认采样当同条件比较；GI采样/容量和1920×1080/internal1保持原默认。
+天空/光照针对室内 GI 重新标定：手动太阳高度18°、方位−55°，Direct sun intensity 0.6，Sky energy 0.2，Fixed exposure 8，Lighting view=All，Aerial perspective关闭。主相机朝向桌面、红绿墙与暗室；太阳从西窗照入。保留 Bistro 的日历计算和全部调试控制，强度不再照搬室外场景。固定曝光只控制显示，没有 GI 增益或额外补光。新条件不能与R1～R3当作同条件性能比较。
+
+默认 GI 工作集为0.25m基础 cell、24³×3级、8192 patches、8192 receiver requests、256 updates、16 hemisphere samples、16 lookup taps及4096 estimator batch；Gather保持12px tile/16方向。细网格减少曲面碰撞和大块插值，增加请求预算缩短1080p覆盖等待，同时增加了更新和内存成本，不宣称免费提质或提速。输出仍为1920×1080/internal1，比较默认累积64帧；冷启动、换相机和遮挡变化后仍需继续累积。
 
 右侧可收起的调试面板增加Sun/sky（日历与手动方向、能量、光照分量、航空透视）、Renderer视图、曝光模式/直方图percentile/一次性诊断以及VSM可见度/页状态/clip、filter/bias/coverage和rebuild/reset。与原参数一样，编辑后点“应用参数”；曝光策略变化会重建Renderer，单次曝光读回仅在点击时发生。GI调试、Renderer debug与VSM debug独立；检查某一个信号时关闭其余调试覆盖。AO/SSR调试需要开启对应效果才能观察有效信号。
 
@@ -68,7 +70,7 @@ R3 后 diffuse source 调试图只展示实际请求且完成的源；紫色表�
 - **累积指定帧**：固定当前动作 tick 累积，不偷偷播放动画。渲染结束后暂停。
 - **清空 GI / 历史**：先通过正常关闭效果的已提交帧退休 GI owner，再恢复设置和清空画面 / 曝光历史。重新累积从恢复后的帧开始。不直接清零内部 GPU buffer。
 - **冻结 Gather 历史**：仅控制现有 `gatherFreeze`，world GI 仍更新。不是全局 GI 冻结。
-- **修改固定曝光**：现有 Renderer 的曝光配置不可变，因此等待队列完成、销毁原 Renderer，再上传同一个 CPU GeometryProduct。该操作会重置历史，界面明确显示重建状态。
+- **修改固定曝光**：现有 Renderer 的曝光配置不可变，因此等待队列完成、销毁原 Renderer，重新 cook 当前场景并上传新 Product provider。单次 provider 被消费、退休后不能重用。该操作会重置历史，界面明确显示重建状态。
 
 切换尺寸、表示、容量或效果可能重建 GPU 工作集并带来编译等待。资源或设备能力不足会显式报错，不静默降分辨率、截断场景或跳过像素。默认是完整软件 query 路径，交互速度取决于设备与设置。
 
@@ -116,7 +118,7 @@ JSON 包括：
 
 Owner 字节不是驱动总显存；ray / dispatch 数是编码理论上界，不是实际命中数。GPU command span 只显示实际完整时间戳采样；不可用时明确显示不可用。它不是 P50 / P95 或 FPS 资格。
 
-现有低样本 GI 的斑块、缺覆盖和自发光强源噪声会直接显示，示例没有通过额外补光、隐藏残差或换假图片消除它们。这些正是后续需要用该场景定位的问题。
+本次修复了重建查询在cell边界、oct方向分箱及曲面兼容性处的缺覆盖，并固定空间/lookup邻域，避免每帧重新抽邻域引入闪点。Transport仍正常更新，Gather仍开启。静态主视角高频散点明显减少，但曲面少数块状缺覆盖、细杆和地面条带仍可观察；不代表SCGI-10画质通过。动态变化与其他预设仍需完整验收。
 
 主画面的局部点光源阴影尚未完整接入，而 GI source 已有 query shadow；因此默认不使用点光源作为遮挡验收光源。当前场景是 static / rigid opaque；没有扩展 skin / morph、透明、复杂资产压力和跨设备资格。
 

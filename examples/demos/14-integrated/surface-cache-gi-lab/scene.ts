@@ -16,7 +16,7 @@ import { niFromGeometry } from "../../../../OEngine/src/geometry/niMeshlets.ts";
 type Triple = readonly [number, number, number];
 
 export const CAMERAS = {
-  main: { label: "01 主厅 → 暗室", eye: [-4.25, 1.65, 3.15], target: [0.4, 1.1, -1.15] },
+  main: { label: "01 主厅 → 彩色反弹 / 暗室", eye: [-4.25, 1.65, 3.15], target: [-2, 1.1, -1.7] },
   dark: { label: "02 暗室 → 门缝", eye: [4.25, 1.6, -3.25], target: [-1.7, 1.05, -0.5] },
   corridor: { label: "03 L 形走廊", eye: [0.7, 1.55, 3.35], target: [4.1, 1.15, 0.3] },
   emissive: { label: "04 自发光角落", eye: [4.65, 1.5, -1.4], target: [3.9, 1.1, -3.55] },
@@ -55,17 +55,17 @@ export const SCENE_DEFAULTS: Readonly<SceneParameters> = Object.freeze({
   blocker: 0,
   emitterX: 0,
   emission: 0,
-  sun: 2.2,
-  sunElevation: 28,
-  sunAzimuth: -100,
-  sunCalendar: true,
+  sun: 0.6,
+  sunElevation: 18,
+  sunAzimuth: -55,
+  sunCalendar: false,
   sunDay: 44,
   sunTime: 13,
   sunLatitude: 35,
   sunLongitude: 0,
-  sky: 3,
+  sky: 0.2,
   lightingView: "all",
-  aerial: true,
+  aerial: false,
   point: 0,
   coloredWalls: true,
   roughness: 0.85

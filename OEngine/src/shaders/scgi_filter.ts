@@ -125,14 +125,20 @@ fn tangent(n: vec3f) -> mat2x3f {
   let t = normalize(cross(a, n));
   return mat2x3f(t, cross(n, t));
 }
-fn bin(normal: vec3f) -> u32 {
+fn stencil(tap: u32, count: u32) -> vec2f {
+  // Cover every quadrant even at low tap counts. A fixed low-discrepancy disk
+  // avoids permanently missing a neighbor with one unlucky random stencil.
+  let radius = sqrt((f32(tap)+0.5)/f32(max(count, 1u)));
+  let angle = f32(tap)*2.399963229728653;
+  return vec2f(cos(angle), sin(angle))*radius;
+}
+fn bin_coordinate(normal: vec3f) -> vec2f {
   let n = normal/(abs(normal.x)+abs(normal.y)+abs(normal.z));
   var uv = n.xy;
   if (n.z<0.0) {
     uv = (vec2f(1.0)-abs(uv.yx))*select(vec2f(-1.0), vec2f(1.0), uv >= vec2f(0.0));
   }
-  let xy = min(vec2u((uv*0.5+0.5)*4.0), vec2u(3u));
-  return xy.y*4u+xy.x;
+  return clamp((uv*0.5+0.5)*4.0, vec2f(0.0), vec2f(3.99999));
 }
 fn related(at: u32, other: u32) -> bool {
   // Spatial taps can cross triangle/material boundaries of a continuous
@@ -148,7 +154,9 @@ fn compatible(at: u32, p: vec3f, n: vec3f, distance: f32) -> bool {
   let delta = vec(at)-p;
   let normal = vec(at+4u);
   let plane = max(wf(at+7u), distance*settings.plane_scale);
-  return dot(n, normal) >= settings.normal_cosine && abs(dot(delta, n)) <= plane && abs(dot(delta, normal)) <= plane && length(delta) <= distance;
+  // A chord on a smooth curved surface lies in the mean tangent plane.
+  // Testing each endpoint plane independently punches holes on curved meshes.
+  return dot(n, normal) >= settings.normal_cosine && abs(dot(delta, (n+normal)*0.5)) <= plane && length(delta) <= distance;
 }
 fn find_from(position: vec3f, guide: vec3f, normal: vec3f, reference: u32, rank0: bool, first: u32) -> u32 {
   for (var c = first; c<${plan.profile.cascades}u; c++) {
@@ -156,27 +164,50 @@ fn find_from(position: vec3f, guide: vec3f, normal: vec3f, reference: u32, rank0
     if (!(scale>0.0)) {
       continue;
     }
-    let coord = floor(position/scale);
     let origin = bitcast<vec3i>(vec3u(world[40u+c*4u], world[41u+c*4u], world[42u+c*4u]));
-    let rel = coord-vec3f(origin);
-    if (any(rel<vec3f(0.0)) || any(rel >= vec3f(${plan.profile.resolution}.0))) {
-      continue;
+    let center_coord = floor(position/scale);
+    // Reconstructed points on a grid plane can round into either cell. Probe
+    // both sides only at that boundary; keep the original plane/identity tests.
+    // This is addressing tolerance, not a wider surface acceptance threshold.
+    for (var side = 0u; side < 3u; side++) {
+      var coord = center_coord;
+      if (side != 0u) {
+        let sign = select(-1.0, 1.0, side == 1u);
+        coord = floor(position/scale + normal * (sign * 0.0001));
+        if (all(coord == center_coord)) {
+          continue;
+        }
+      }
+      let rel = coord-vec3f(origin);
+      if (any(rel<vec3f(0.0)) || any(rel >= vec3f(${plan.profile.resolution}.0))) {
+        continue;
+      }
+      let r = ${plan.profile.resolution};
+      let xyz = ((vec3i(coord)%vec3i(r))+vec3i(r))%vec3i(r);
+      let primary_bin = vec2i(bin_coordinate(normal));
+      // A curved receiver may have no patch in its exact orientation bin.
+      // Search adjacent bins, accepting only the actual normal/plane tests.
+      for (var orientation_tap = 0u; orientation_tap < 9u; orientation_tap++) {
+        let step = (orientation_tap+4u)%9u;
+        let selected_bin = primary_bin+vec2i(i32(step%3u)-1, i32(step/3u)-1);
+        if (any(selected_bin < vec2i(0)) || any(selected_bin > vec2i(3))) {
+          continue;
+        }
+        let cell = (c*${plan.profile.resolution ** 3}u+u32((xyz.x*r+xyz.y)*r+xyz.z))*16u+u32(selected_bin.y*4+selected_bin.x);
+        let slot = world[MAP+cell*2u];
+        if (!live(slot)) {
+          continue;
+        }
+        let at = PATCH+slot*76u;
+        if (world[at+23u] != world[MAP+cell*2u+1u] || !valid(at) || wf(at+35u) <= 0.0 || (rank0 && world[at+68u] != 0u) || !compatible(at, guide, normal, scale*max(1.0, settings.radius))) {
+          continue;
+        }
+        if (reference != 0xffffffffu && !related(reference, at)) {
+          continue;
+        }
+        return slot;
+      }
     }
-    let r = ${plan.profile.resolution};
-    let xyz = ((vec3i(coord)%vec3i(r))+vec3i(r))%vec3i(r);
-    let cell = (c*${plan.profile.resolution ** 3}u+u32((xyz.x*r+xyz.y)*r+xyz.z))*16u+bin(normal);
-    let slot = world[MAP+cell*2u];
-    if (!live(slot)) {
-      continue;
-    }
-    let at = PATCH+slot*76u;
-    if (world[at+23u] != world[MAP+cell*2u+1u] || !valid(at) || wf(at+35u) <= 0.0 || (rank0 && world[at+68u] != 0u) || !compatible(at, guide, normal, scale*max(1.0, settings.radius))) {
-      continue;
-    }
-    if (reference != 0xffffffffu && !related(reference, at)) {
-      continue;
-    }
-    return slot;
   }
   return 0xffffffffu;
 }
@@ -334,8 +365,7 @@ fn coarse_weight(position: vec3f, slot: u32) -> f32 {
       }
     }
     for (var tap = 0u; tap<settings.taps; tap++) {
-      let seed = hash(slot^hash(settings.frame)^hash(tap));
-      let jitter = vec2f(random(seed), random(seed^0x9e3779b9u))*2.0-1.0;
+      let jitter = stencil(tap, settings.taps);
       let position = vec(at)+(basis[0]*jitter.x+basis[1]*jitter.y)*scale*settings.radius;
       let other = find(position, vec(at), normal, at, false);
       if (other == 0xffffffffu || other == slot) {
@@ -473,18 +503,14 @@ fn coarse_weight(position: vec3f, slot: u32) -> f32 {
     var sample_position = position;
     var sample_normal = normal;
     if (tap != 0u) {
-      let seed = hash((index+settings.segment_first)^hash(settings.frame)^hash(tap));
-      let jitter = vec2f(random(seed), random(seed^0x85ebca6bu))*2.0-1.0;
+      // Reconstruction must not resample its support every frame. Transport
+      // samples still advance; this fixed screen stencil removes lookup noise.
+      let jitter = stencil(tap-1u, settings.lookup_taps);
       let offset = (basis[0]*jitter.x+basis[1]*jitter.y)*scale*settings.lookup_radius;
-      // Independent dimensions: correlating direction signs with position
-      // offsets creates holes at oct-bin and spatial-cell intersections.
-      let cosine = 1.0-0.1*random(seed^0xc2b2ae35u);
-      let sine = sqrt(max(0.0,1.0-cosine*cosine));
-      let azimuth = 6.283185307179586*random(seed^0x27d4eb2fu);
-      let jitter_normal = normal*cosine+
-        (basis[0]*cos(azimuth)+basis[1]*sin(azimuth))*sine;
+      // Keep a common stencil across receivers so interpolation varies with
+      // world support rather than independent per-pixel random tap choices.
       sample_position = position+offset;
-      sample_normal = jitter_normal;
+      sample_normal = normal;
       slot = find(sample_position, position, sample_normal, at, true);
       tap_weight = max(0.0, 1.0-length(jitter)*0.70710678);
     }

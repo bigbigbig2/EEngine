@@ -136,8 +136,7 @@ fn scgi_native_irradiance(normal: vec3f, pixel: vec2u) -> vec4f {
     let delta = position - scgi_receiver_position;
     let tolerance = max(0.002, depth * 0.002);
     if (dot(guide_normal, scgi_receiver_normal) < 0.9 ||
-        abs(dot(delta, guide_normal)) > tolerance ||
-        abs(dot(delta, scgi_receiver_normal)) > tolerance) {
+        abs(dot(delta, (guide_normal + scgi_receiver_normal) * 0.5)) > tolerance) {
       continue;
     }
     let axis = select(vec2f(1.0) - fraction, fraction, step != vec2i(0));

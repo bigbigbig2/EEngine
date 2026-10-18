@@ -51,17 +51,18 @@ orbit.maxDistance = 40;
 
 const LAB_GI: SurfaceCacheGiSettings = surfaceCacheGiSettings({
   enabled: true,
-  resolution: 8,
+  resolution: 24,
   cascades: 3,
-  patches: 4096,
-  updates: 128,
-  requests: 2048,
+  patches: 8192,
+  updates: 256,
+  requests: 8192,
   bounceRequests: 256,
-  voxelSize: 1,
-  hemisphereSamples: 8,
+  voxelSize: 0.25,
+  hemisphereSamples: 16,
   connectionSamples: 2,
   lightSamples: 32,
-  batchRays: 1024,
+  batchRays: 4096,
+  lookupTaps: 16,
   maximumLights: 32,
   primitiveCapacity: 4096,
   queryMaximumBytes: 64 * 1024 ** 2,
@@ -92,7 +93,7 @@ interface Presentation {
 const presentation: Presentation = {
   width: 1920,
   scale: 1,
-  exposure: 5,
+  exposure: 8,
   autoExposure: false,
   exposureLow: 0.6,
   exposureHigh: 0.95,
@@ -126,7 +127,7 @@ const experiment = {
   preset: "sun" as ExperimentName,
   camera: "main" as CameraName,
   animate: false,
-  frames: 16
+  frames: 64
 };
 let activeScene = { ...sceneParameters };
 let activeAnimate = false;
@@ -135,6 +136,8 @@ let effectiveScene: SceneParameters = { ...sceneParameters };
 let appliedPresentation = { ...presentation };
 let renderer: Renderer;
 let geometryProduct: Awaited<ReturnType<typeof cookSceneGeometryProductV1>>;
+let productUploaded = false;
+const cookerModule = createDefaultWebGeometryCookerModule();
 let disposed = false;
 let ready = false;
 let running = !new URLSearchParams(location.search).has("paused");
@@ -350,8 +353,8 @@ function buildControls(): void {
   number(scene, sceneParameters, "roughness", "白墙粗糙度", 0.05, 1, 0.05);
 
   const sky = group(
-    "Sun / sky · 与 Bistro 一致",
-    "2026 · local solar time；+X north / +Y up / +Z east。拖动后松开、点击应用参数生效；天空能量控制背景、环境照明和航空散射，太阳独立。",
+    "Sun / sky · 室内 GI 光照",
+    "默认使用朝向西窗的手动太阳和较弱天空，保留 Bistro 的日历与调试方式。2026 · local solar time；+X north / +Y up / +Z east。天空和太阳能量独立，编辑后点击应用参数。",
     true
   );
   toggle(sky, sceneParameters, "sunCalendar", "Date / time sun");
@@ -448,7 +451,7 @@ function buildControls(): void {
 
   const display = group(
     "05 · 输出 / 重建 / 干扰项",
-    "默认和最高输出为 1920×1080，internal scale 默认 1.0。不随窗口或 DPR 偷改分辨率；低尺寸只供手动调试。曝光是 Renderer 不可变配置，修改后将重建并重新上传同一 Product。"
+    "默认和最高输出为 1920×1080，internal scale 默认 1.0。不随窗口或 DPR 偷改分辨率；低尺寸只供手动调试。曝光是 Renderer 不可变配置，修改后将重建、重新 cook 并上传当前场景。"
   );
   select(
     display,
@@ -671,7 +674,13 @@ async function createRenderer(): Promise<void> {
       };
     }
   });
+  if (productUploaded) {
+    // Admission owns a single-use provider and retires its pages with the old
+    // Renderer. Rebuild from the authored scene, never reuse a consumed provider.
+    geometryProduct = await cookLabProduct();
+  }
   await renderer.uploadCookedSceneProduct(lab.scene, geometryProduct);
+  productUploaded = true;
   applyPresentation();
   appliedPresentation = { ...presentation };
 }
@@ -1122,14 +1131,18 @@ element("diagnostics").parentElement!.addEventListener("toggle", () => {
   if (ready) updateMetrics();
 });
 
-async function start(): Promise<void> {
-  message("程序化几何 cooking；无需下载模型…");
-  geometryProduct = await cookSceneGeometryProductV1(lab.scene, {
-    module: await createDefaultWebGeometryCookerModule(),
+async function cookLabProduct() {
+  return cookSceneGeometryProductV1(lab.scene, {
+    module: await cookerModule,
     producerId: "surface-cache-gi-lab",
     producerVersion: "1",
     maxDecodedProductBytes: 64 * 1024 ** 2
   });
+}
+
+async function start(): Promise<void> {
+  message("程序化几何 cooking；无需下载模型…");
+  geometryProduct = await cookLabProduct();
   message("初始化 Renderer / 上传 GeometryProduct…");
   await createRenderer();
   setCamera("main");
