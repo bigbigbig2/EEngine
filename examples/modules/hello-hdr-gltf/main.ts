@@ -1,14 +1,20 @@
 import {
+  buildVirtualGeometrySceneSourceV1,
+  load_oegpack_product,
   load_environment_map,
-  load_gltf,
+  parseOegPackSceneManifestV3,
   OrbitControls,
   PerspectiveCamera,
   ProjectionMappingType,
   Renderer,
-  Scene,
-  resolveWebCookRuntimeProfile,
-  createDefaultWebCookWorker
+  Scene
 } from "../../../OEngine/src/index.ts";
+import { openTextureProduct } from "../../../OEngine/src/assets/TextureProduct.ts";
+import { MATERIAL_TEXTURE_PROPERTIES } from "../../../OEngine/src/assets/PcMaterialTextures.ts";
+import { parseGltfMaterial } from "../../../OEngine/src/loaders/gltf/gltfMaterials.ts";
+import { textureFromGltf } from "../../../OEngine/src/loaders/gltf/gltfTextures.ts";
+import { ShadeImage } from "../../../OEngine/src/texture/ShadeImage.ts";
+import { ShadeTexture } from "../../../OEngine/src/texture/ShadeTexture.ts";
 
 const element = <T extends HTMLElement>(id: string): T => {
   const value = document.getElementById(id);
@@ -53,7 +59,7 @@ let disposed = false;
 let lastTime = performance.now();
 let lastFpsTime = lastTime;
 let submittedFrameAtSample = 0;
-let activeAsset: ReturnType<typeof load_gltf> | undefined;
+let activeAsset: Awaited<ReturnType<typeof load_oegpack_product>> | undefined;
 
 function setPhase(message: string): void {
   phase.textContent = message;
@@ -138,12 +144,6 @@ async function start(): Promise<void> {
   renderer.setToneMapping(toneMapping.value as "engine" | "neutral" | "aces" | "reinhard");
 
   resize();
-  // Product admission advances from the regular frame submission loop.
-  running = true;
-  lastTime = performance.now();
-  lastFpsTime = lastTime;
-  submittedFrameAtSample = renderer.frame_count;
-  requestAnimationFrame(frame);
 
   setPhase("解码 Venice Sunset HDR");
   scene.lights.environment = await load_environment_map(
@@ -151,49 +151,90 @@ async function start(): Promise<void> {
     ProjectionMappingType.Equirectangular
   );
 
-  setPhase("读取 Venice Mask glTF");
-  const profile = resolveWebCookRuntimeProfile("auto");
-  const worker = createDefaultWebCookWorker({
-    runtimeProfile: profile.selected,
-    maxWorkers: Math.max(1, Math.min(4, navigator.hardwareConcurrency || 1)),
-    maxCanonicalInputBytes: 64 * 1024 * 1024,
-    maxSourceWindowBytes: 64 * 1024 * 1024,
-    maxDecodedProductBytes: 128 * 1024 * 1024,
-    maxSessionSpillBytes: 512 * 1024 * 1024,
-    maxTrianglesPerProduct: 128 * 1024,
-    maxVerticesPerProduct: 512 * 1024,
-    maxDomainsPerProduct: 64
-  });
-  const asset = load_gltf("/modules/hello-hdr-gltf/assets/venice_mask.glb", {
-    worker,
-    runtimeProfile: profile.selected,
-    initialOutputPageCredits: 512,
-    maxBufferedPages: 512,
-    maxBufferedBytes: 128 * 1024 * 1024,
-    onSceneCatalogReady: () => setPhase("烘焙 GeometryProduct"),
-    onProgress: (progress) => {
-      setPhase(`Cook · ${progress.stage}`);
+  setPhase("打开离线 GeometryProduct / BC 纹理");
+  const base = "/modules/hello-hdr-gltf/assets/cooked/";
+  const manifestResponse = await fetch(`${base}scene.materials.json`);
+  if (!manifestResponse.ok) throw new Error(`无法读取预烘焙材质清单 (${manifestResponse.status})`);
+  const manifest = await manifestResponse.json();
+  const sceneResponse = await fetch(`${base}${manifest.geometryManifest}`);
+  if (!sceneResponse.ok) throw new Error(`无法读取预烘焙场景清单 (${sceneResponse.status})`);
+  const sceneBytes = await sceneResponse.arrayBuffer();
+  const sceneManifest = parseOegPackSceneManifestV3(sceneBytes);
+  const images = Array.from({ length: manifest.source.images }, () =>
+    ShadeImage.fromEncodedImage(new ArrayBuffer(0), "image/png")
+  );
+  const textures = manifest.gltf.textures.map((texture: any) =>
+    textureFromGltf(texture, images, manifest.gltf.samplers)
+  );
+  const materials = manifest.gltf.materials.map((material: any) => parseGltfMaterial(material, textures));
+  const products = new Map<string, Awaited<ReturnType<typeof openTextureProduct>>>();
+  await Promise.all(
+    manifest.products.map(async (product: { uri: string; identity: string }) => {
+      const response = await fetch(`${base}${product.uri}`);
+      if (!response.ok) throw new Error(`无法读取预烘焙纹理 ${product.uri} (${response.status})`);
+      products.set(product.identity, await openTextureProduct(await response.arrayBuffer()));
+    })
+  );
+  for (const [materialIndex, material] of materials.entries()) {
+    const bindings = manifest.bindings[materialIndex];
+    for (const property of MATERIAL_TEXTURE_PROPERTIES) {
+      const binding = bindings[property];
+      if (!binding) continue;
+      const identity = manifest.products.find((candidate: { uri: string; identity: string }) => candidate.uri === binding.uri)?.identity;
+      const product = identity ? products.get(identity) : undefined;
+      const sampler = textures[binding.textureIndex];
+      if (!product || !sampler) throw new Error(`预烘焙材质 ${materialIndex} 缺少 ${property} 纹理`);
+      const texture = ShadeTexture.fromProduct(product);
+      for (const name of ["minFilter", "magFilter", "mipmapFilter", "wrapS", "wrapT", "wrapR", "dimensions"] as const)
+        texture[name] = sampler[name];
+      material[property] = texture;
     }
-  });
+  }
+  const asset = await load_oegpack_product({
+    kind: "http-range",
+    url: `${base}${sceneManifest.packs[0]!.uri}`
+  }, { manifest: sceneBytes, verifyPageSha256: false });
   activeAsset = asset;
   setPhase("发布 Virtual Geometry");
-  const publication = renderer.uploadWebCookedMultiProductScene(scene, asset, {
-    fitHeight: 0.065,
-    fitBase: [0, 0, 0],
-    multiProductMetadataBytes: 64 * 1024 * 1024,
+  const mask = asset.pack.vertexFormats.reduce((value, format) => value | format.attributeMask, 0);
+  const profile = {
+    hasAuthoredVertexColor: (mask & (1 << 5)) !== 0,
+    hasUv0: (mask & (1 << 3)) !== 0,
+    hasUv1: (mask & (1 << 4)) !== 0,
+    hasUv2: false,
+    hasNormal: (mask & (1 << 1)) !== 0,
+    hasTangent: (mask & (1 << 2)) !== 0
+  };
+  const residency = await renderer.uploadProductScene(scene, asset, ({ descriptor }) => {
+    const profiles = Array.from({ length: descriptor.assetRecords.byteLength / 128 }, () => profile);
+    const instances = sceneManifest.instances.map((instance, index) => ({
+      assetIndex: sceneManifest.assets[instance.asset]!.assetRecordIndex,
+      materialIndex: manifest.instanceMaterials[index] ?? 0,
+      transform: instance.transform,
+      flags: instance.flags
+    }));
+    return buildVirtualGeometrySceneSourceV1(descriptor, profiles, instances, materials, {
+      fitHeight: 0.065,
+      fitBase: [0, 0, 0]
+    });
+  }, {
     residency: {
       requestedProfile: "HighEnd",
       configuredCapacityBytes: 128 * 1024 * 1024,
       configuredBankBytes: 32 * 1024 * 1024
     }
   });
-  void publication.then(
-    () => {
-      setPhase("就绪 · 拖动旋转，滚轮缩放");
-      sceneState.textContent = "Venice Mask · Venice Sunset HDR";
-    },
+  void residency.settled().then(
+    () => undefined,
     fail
   );
+  running = true;
+  lastTime = performance.now();
+  lastFpsTime = lastTime;
+  submittedFrameAtSample = renderer.frame_count;
+  requestAnimationFrame(frame);
+  setPhase("就绪 · 拖动旋转，滚轮缩放");
+  sceneState.textContent = "Venice Mask · Venice Sunset HDR";
 }
 
 panelToggle.addEventListener("click", () => {
@@ -211,7 +252,7 @@ window.addEventListener("pagehide", () => {
   disposed = true;
   running = false;
   orbit.dispose();
-  activeAsset?.dispose();
+  activeAsset?.release();
   renderer?.destroy();
 }, { once: true });
 

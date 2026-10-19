@@ -1,0 +1,441 @@
+{
+  "schema": "oengine-offline-scene-materials-v1",
+  "source": {
+    "path": "examples/modules/hello-hdr-gltf/assets/venice_mask.glb",
+    "bytes": 13289560,
+    "sha256": "fe5873882034b3071fab964d72b58f8184b8a86f8b20dc539dfb8da75f0227be",
+    "triangles": 295600,
+    "meshes": 5,
+    "primitives": 5,
+    "materials": 5,
+    "textures": 15,
+    "images": 15
+  },
+  "geometryManifest": "scene.oescene",
+  "geometryManifestHash": "08124169c326c611dc8e260b5457acbf91f6d69ddd2a8a053328cdc71fffe83b",
+  "gltf": {
+    "materials": [
+      {
+        "name": "lambert4",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorTexture": {
+            "index": 0
+          },
+          "metallicRoughnessTexture": {
+            "index": 2
+          }
+        },
+        "normalTexture": {
+          "index": 1
+        }
+      },
+      {
+        "name": "lambert3",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorTexture": {
+            "index": 3
+          },
+          "metallicRoughnessTexture": {
+            "index": 5
+          }
+        },
+        "normalTexture": {
+          "index": 4
+        }
+      },
+      {
+        "name": "lambert2",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorTexture": {
+            "index": 6
+          },
+          "metallicRoughnessTexture": {
+            "index": 8
+          }
+        },
+        "normalTexture": {
+          "index": 7
+        }
+      },
+      {
+        "name": "lambert1",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorTexture": {
+            "index": 9
+          },
+          "metallicRoughnessTexture": {
+            "index": 11
+          }
+        },
+        "normalTexture": {
+          "index": 10
+        }
+      },
+      {
+        "name": "lambert5",
+        "doubleSided": true,
+        "pbrMetallicRoughness": {
+          "baseColorTexture": {
+            "index": 12
+          },
+          "metallicRoughnessTexture": {
+            "index": 14
+          }
+        },
+        "normalTexture": {
+          "index": 13
+        }
+      }
+    ],
+    "textures": [
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 0
+          }
+        },
+        "source": 0
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 2
+          }
+        },
+        "source": 2
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 1
+          }
+        },
+        "source": 1
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 3
+          }
+        },
+        "source": 3
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 5
+          }
+        },
+        "source": 5
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 4
+          }
+        },
+        "source": 4
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 6
+          }
+        },
+        "source": 6
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 8
+          }
+        },
+        "source": 8
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 7
+          }
+        },
+        "source": 7
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 9
+          }
+        },
+        "source": 9
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 11
+          }
+        },
+        "source": 11
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 10
+          }
+        },
+        "source": 10
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 12
+          }
+        },
+        "source": 12
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 14
+          }
+        },
+        "source": 14
+      },
+      {
+        "sampler": 0,
+        "extensions": {
+          "EXT_texture_webp": {
+            "source": 13
+          }
+        },
+        "source": 13
+      }
+    ],
+    "samplers": [
+      {
+        "magFilter": 9729,
+        "minFilter": 9987,
+        "wrapS": 10497,
+        "wrapT": 10497
+      }
+    ]
+  },
+  "bindings": [
+    {
+      "texture_albedo": {
+        "textureIndex": 0,
+        "uri": "textures/1dc3ed3a301987b31d9cdd737a960f14a682f10c9f643ed84894fb8ca87b8ddc.textureproduct"
+      },
+      "texture_normal": {
+        "textureIndex": 1,
+        "uri": "textures/e6ba8dfbac2c1c7365fb2ad08204b891605918de63b0ac168573552744170e49.textureproduct"
+      },
+      "texture_orm": {
+        "textureIndex": 2,
+        "uri": "textures/1d26d17ea15db6a4cfcc4fd5b8d84aa34642ce1102c63744e08451ba5cbcaeb4.textureproduct"
+      }
+    },
+    {
+      "texture_albedo": {
+        "textureIndex": 3,
+        "uri": "textures/cf4288e5b6289fcd7dced14bc8081e6ba8c59862bd6b1159fe0569135f4bb452.textureproduct"
+      },
+      "texture_normal": {
+        "textureIndex": 4,
+        "uri": "textures/a01654b7eaaec805a9b788f909746474d6194dbc47a9822a55e8bc958cffdb82.textureproduct"
+      },
+      "texture_orm": {
+        "textureIndex": 5,
+        "uri": "textures/b14277abc968ad936a22bd466db58644703765cae94570ab817b7412aa3f1c87.textureproduct"
+      }
+    },
+    {
+      "texture_albedo": {
+        "textureIndex": 6,
+        "uri": "textures/b96ba64996532a903eb73c8afaba85daad6dc583427a3820c52681adca4c02cf.textureproduct"
+      },
+      "texture_normal": {
+        "textureIndex": 7,
+        "uri": "textures/db658662d9aabc9facddb28534f3997473ed69e824714ec6356fa5dc7375b901.textureproduct"
+      },
+      "texture_orm": {
+        "textureIndex": 8,
+        "uri": "textures/5915fbd660362b7a1a0f42c95de7524fe85de64f911b6984bc0ed892314e1d2d.textureproduct"
+      }
+    },
+    {
+      "texture_albedo": {
+        "textureIndex": 9,
+        "uri": "textures/79ea05a765c813cb3e6febdb87dd59f1fe7701caca2943f4018a78938b5a472c.textureproduct"
+      },
+      "texture_normal": {
+        "textureIndex": 10,
+        "uri": "textures/fe4775c1336aa3ea2bc6da10a754872c01a8de22e135617aee91b88ed5dbabcd.textureproduct"
+      },
+      "texture_orm": {
+        "textureIndex": 11,
+        "uri": "textures/daccd571ec8a6c4a9dca764dd8588546217937e9e6be9a0b04783f2860d9fb1e.textureproduct"
+      }
+    },
+    {
+      "texture_albedo": {
+        "textureIndex": 12,
+        "uri": "textures/b456df50a8a29f115dee490cabeb815f1950a458a05988640691edaaf4b27495.textureproduct"
+      },
+      "texture_normal": {
+        "textureIndex": 13,
+        "uri": "textures/12eaa0d09fb45b62682568cbdecfb29176f4dc3931154c7e896034b2af95377e.textureproduct"
+      },
+      "texture_orm": {
+        "textureIndex": 14,
+        "uri": "textures/27f9a188a2ec7466e58c50088fb1ed83d1b1fc4468cd85de3e3ee9fcfdaf4395.textureproduct"
+      }
+    }
+  ],
+  "instanceMaterials": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "instanceProfiles": [
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": true
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": true
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": true
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": true
+    },
+    {
+      "hasAuthoredVertexColor": false,
+      "hasUv0": true,
+      "hasUv1": false,
+      "hasUv2": false,
+      "hasNormal": true,
+      "hasTangent": true
+    }
+  ],
+  "products": [
+    {
+      "uri": "textures/1dc3ed3a301987b31d9cdd737a960f14a682f10c9f643ed84894fb8ca87b8ddc.textureproduct",
+      "identity": "1043e449efe8e27b2a54c9122c1eb97d92947d93faece21491655f8b9e853e93"
+    },
+    {
+      "uri": "textures/e6ba8dfbac2c1c7365fb2ad08204b891605918de63b0ac168573552744170e49.textureproduct",
+      "identity": "2eeba86800701baf225ffd9b5c4b5b5f5886f62ef7db65c36ec6127ae0fa06a6"
+    },
+    {
+      "uri": "textures/1d26d17ea15db6a4cfcc4fd5b8d84aa34642ce1102c63744e08451ba5cbcaeb4.textureproduct",
+      "identity": "885abd072fb401d3396a660100fee1fd5885dc1e13d7efe83bfb76383905646a"
+    },
+    {
+      "uri": "textures/cf4288e5b6289fcd7dced14bc8081e6ba8c59862bd6b1159fe0569135f4bb452.textureproduct",
+      "identity": "6882325f7c64b95277ed699dbd5636d988dec709de547ef6138aefcf3b673e06"
+    },
+    {
+      "uri": "textures/a01654b7eaaec805a9b788f909746474d6194dbc47a9822a55e8bc958cffdb82.textureproduct",
+      "identity": "bb2dedd2140bb6aefb15be76cf7b9f5935b6e998f3f9f1f18e999ecf662dab22"
+    },
+    {
+      "uri": "textures/b14277abc968ad936a22bd466db58644703765cae94570ab817b7412aa3f1c87.textureproduct",
+      "identity": "5a82c15aa2691d4dac4f12e15346f09c4e749fae1a16bfa5ca9bedb4753df6c9"
+    },
+    {
+      "uri": "textures/b96ba64996532a903eb73c8afaba85daad6dc583427a3820c52681adca4c02cf.textureproduct",
+      "identity": "8c57ef16ec0b6296a41949a42462727c97e2d2be49d8d20ab146620bf0ea439c"
+    },
+    {
+      "uri": "textures/db658662d9aabc9facddb28534f3997473ed69e824714ec6356fa5dc7375b901.textureproduct",
+      "identity": "ce0eba994bfcb969316a849d86fdfcd22b9fb15a76be284e961435545867b0a2"
+    },
+    {
+      "uri": "textures/5915fbd660362b7a1a0f42c95de7524fe85de64f911b6984bc0ed892314e1d2d.textureproduct",
+      "identity": "15ebdeddc295450d9f0a3cf69be0ec0fcc9ef8bf637130ac0adb1cd301cc2795"
+    },
+    {
+      "uri": "textures/79ea05a765c813cb3e6febdb87dd59f1fe7701caca2943f4018a78938b5a472c.textureproduct",
+      "identity": "c13fdfa3a60fc7def2ab01dbe2f12a07543a5e33909a39ad81e37ae53283859f"
+    },
+    {
+      "uri": "textures/fe4775c1336aa3ea2bc6da10a754872c01a8de22e135617aee91b88ed5dbabcd.textureproduct",
+      "identity": "c76225e6c2cc625d78dd6f9ac418ad2517b3652c1d39919eb08710d92b9e88dd"
+    },
+    {
+      "uri": "textures/daccd571ec8a6c4a9dca764dd8588546217937e9e6be9a0b04783f2860d9fb1e.textureproduct",
+      "identity": "edf4d433dcd6aa5d6a2cef67e7a5ca493e25c624e1e4c892ada9fb59ad51456b"
+    },
+    {
+      "uri": "textures/b456df50a8a29f115dee490cabeb815f1950a458a05988640691edaaf4b27495.textureproduct",
+      "identity": "6b40a46094a701660fba7cbd023784eef0313cc5538c88b5bb885c373e32eff2"
+    },
+    {
+      "uri": "textures/12eaa0d09fb45b62682568cbdecfb29176f4dc3931154c7e896034b2af95377e.textureproduct",
+      "identity": "f3c4fe1cc6eff36ff338ae5110c7bf4e6132cd6a35c7f67c185c7dad18386989"
+    },
+    {
+      "uri": "textures/27f9a188a2ec7466e58c50088fb1ed83d1b1fc4468cd85de3e3ee9fcfdaf4395.textureproduct",
+      "identity": "d71e0f862541d85af97519ec596159423ab85b118e13fd2725cd8c84a5c136fb"
+    }
+  ],
+  "evidence": {
+    "products": 15,
+    "bc7": 15,
+    "bc4": 0,
+    "r8": 0,
+    "packageBytes": 21092132,
+    "payloadBytes": 20971920,
+    "totalEncodeMs": 505404.42350000003,
+    "wallMs": 4514.914500000001,
+    "pngDecoder": "pngjs 7.0.0, straight RGBA, no gamma adjustment",
+    "webpDecoder": "sharp 0.34.5, straight RGBA, no resize or gamma adjustment",
+    "runtimeDecode": 0,
+    "runtimeEncode": 0,
+    "runtimeTranscode": 0,
+    "runtimeMipGeneration": 0,
+    "runtimeCodecWorkers": 0,
+    "runtimeGeometryCook": 0
+  }
+}

@@ -16,7 +16,7 @@ export default defineConfig({
     fs: { allow: [examplesRoot, resolve(examplesRoot, "../OEngine")] }
   },
   build: {
-    outDir: resolve(examplesRoot, "examples-static/modules/hello-hdr-gltf"),
+    outDir: resolve(examplesRoot, "examples-static"),
     emptyOutDir: true,
     rollupOptions: { input: fileURLToPath(new URL("./index.html", import.meta.url)) }
   }

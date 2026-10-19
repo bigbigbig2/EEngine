@@ -1,0 +1,156 @@
+{
+  "imageIndex": 9,
+  "encodedHash": "f32c07b628f7043c841fdb790bc7984359e3d1c56c48712c2b703e96ea42d71d",
+  "binaryHash": "17b5e4d412a82ad638371f9356a69530208d9e15a4b1b99dc8219d82522d9b38",
+  "identity": "c13fdfa3a60fc7def2ab01dbe2f12a07543a5e33909a39ad81e37ae53283859f",
+  "metadata": {
+    "schemaVersion": 3,
+    "sourceWidth": 1024,
+    "sourceHeight": 1024,
+    "storageWidth": 1024,
+    "storageHeight": 1024,
+    "sourceUri": "sha256:fe5873882034b3071fab964d72b58f8184b8a86f8b20dc539dfb8da75f0227be/image/9",
+    "sourceHash": "a7b722f6d2988dc8bd000993c20f517d45597e23f8305a7c90cd8c8e84152ff9",
+    "sourceBytes": 126586,
+    "semantic": "base-color-srgb",
+    "channel": 0,
+    "exactAlpha": false,
+    "uvScaleBias": [
+      1,
+      1,
+      0,
+      0
+    ],
+    "recipe": {
+      "encoder": "basis-universal-direct-bc",
+      "revision": "99f52d63aa6799cbdaecfe977111dc5ec3b31d47",
+      "binaryHash": "17b5e4d412a82ad638371f9356a69530208d9e15a4b1b99dc8219d82522d9b38",
+      "quality": "bc7e-scalar-6-bc4-hq",
+      "filter": "linear"
+    },
+    "planes": [
+      {
+        "role": "color",
+        "format": "bc7-rgba-unorm-srgb",
+        "mips": [
+          {
+            "level": 0,
+            "width": 1024,
+            "height": 1024,
+            "physicalWidth": 1024,
+            "physicalHeight": 1024,
+            "byteLength": 1048576,
+            "chunkId": "color-mip-0",
+            "hash": "025ec0343168714ebf2a90fcc10316e182f91bca013f72dfe0c6773b9016c502"
+          },
+          {
+            "level": 1,
+            "width": 512,
+            "height": 512,
+            "physicalWidth": 512,
+            "physicalHeight": 512,
+            "byteLength": 262144,
+            "chunkId": "color-mip-1",
+            "hash": "7cd1922213763a605e7ef2c5cb04e29c542739565a6e0db370a5d12e94f271fd"
+          },
+          {
+            "level": 2,
+            "width": 256,
+            "height": 256,
+            "physicalWidth": 256,
+            "physicalHeight": 256,
+            "byteLength": 65536,
+            "chunkId": "color-mip-2",
+            "hash": "ee22970429c2aa731c0ccd08a40d34a4bbea647f29650c0e2106376996f62c01"
+          },
+          {
+            "level": 3,
+            "width": 128,
+            "height": 128,
+            "physicalWidth": 128,
+            "physicalHeight": 128,
+            "byteLength": 16384,
+            "chunkId": "color-mip-3",
+            "hash": "9495b00290f34ca811c40371efaf736c8fbfb466a580e5a9f70ebee0d7a2b9bf"
+          },
+          {
+            "level": 4,
+            "width": 64,
+            "height": 64,
+            "physicalWidth": 64,
+            "physicalHeight": 64,
+            "byteLength": 4096,
+            "chunkId": "color-mip-4",
+            "hash": "fed9ac38f64262e6a3c7f185dc030a9cd067750d404265b36d7324977ff49bff"
+          },
+          {
+            "level": 5,
+            "width": 32,
+            "height": 32,
+            "physicalWidth": 32,
+            "physicalHeight": 32,
+            "byteLength": 1024,
+            "chunkId": "color-mip-5",
+            "hash": "b5e84cf99a50e9e38f4cca84b368dbe5f5ddcede468a78d22bd1bf78887a0344"
+          },
+          {
+            "level": 6,
+            "width": 16,
+            "height": 16,
+            "physicalWidth": 16,
+            "physicalHeight": 16,
+            "byteLength": 256,
+            "chunkId": "color-mip-6",
+            "hash": "5b5470ee245cced5882a22d217e414dd67a27a31a4bad9c21c108a260fba1d82"
+          },
+          {
+            "level": 7,
+            "width": 8,
+            "height": 8,
+            "physicalWidth": 8,
+            "physicalHeight": 8,
+            "byteLength": 64,
+            "chunkId": "color-mip-7",
+            "hash": "a09001df2c200991a0a8f500bd60ca168e10313cdafcbed1e989fce2fb1b8989"
+          },
+          {
+            "level": 8,
+            "width": 4,
+            "height": 4,
+            "physicalWidth": 4,
+            "physicalHeight": 4,
+            "byteLength": 16,
+            "chunkId": "color-mip-8",
+            "hash": "28deed93d5c14542125f08fd3975a521848728803f068145f208e6282ed0f53c"
+          },
+          {
+            "level": 9,
+            "width": 2,
+            "height": 2,
+            "physicalWidth": 4,
+            "physicalHeight": 4,
+            "byteLength": 16,
+            "chunkId": "color-mip-9",
+            "hash": "a9db283b273525408c3d0b43685ae26b14f09b89a9058461a8ecc96387ee4c4d"
+          },
+          {
+            "level": 10,
+            "width": 1,
+            "height": 1,
+            "physicalWidth": 4,
+            "physicalHeight": 4,
+            "byteLength": 16,
+            "chunkId": "color-mip-10",
+            "hash": "b8af33b7f103bb449a6481ef76a5244594b12708b550e0dc24a18aab4b2c1eda"
+          }
+        ]
+      }
+    ]
+  },
+  "payloadBytes": 1398128,
+  "packageBytes": 1406180,
+  "decodeMs": 72.48670000000001,
+  "prepareMs": 985.4788000000005,
+  "encodeMs": 15871.056400000009,
+  "wallMs": 16963.901599999997
+}

@@ -477,6 +477,7 @@ const INPUT_CONTRACTS: Readonly<
     "display-color": { domain: "output-full", value: "tone-mapped display color" },
   },
   "reconstructed-color": {
+    "authored-sky-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
     "opaque-reflected-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
     "aerial-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
     "surface-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
