@@ -104,6 +104,8 @@ verifies:
     - examples/integrated/bistro-texture-compression/sun-calendar.ts
     - examples/integrated/bistro-texture-compression/main.ts
     - examples/tests/sun-calendar.test.mjs
+    - docs/next-design/eengine-v4-vt-transport-transcode-2026-10.md
+    - docs/next-execution/eengine-v4-vt-transport-transcode-execution-2026-10.md
 ---
 # EEngine Next：开源迁移来源与采用边界
 
@@ -1824,3 +1826,14 @@ SCGI-8（2026-10-17）：`ScgiRenderer`、`ScgiLightingWindow`、`ScgiNativeWind
 R2实施前核读[pbrt-v4](https://github.com/mmp/pbrt-v4/tree/b4ce9687e6c695f5582997c61b0c66cf064bdb4a)，固定revision `b4ce9687e6c695f5582997c61b0c66cf064bdb4a`、Apache-2.0；具体`src/pbrt/wavefront/workitems.h::RaySamples/PixelSampleState/ShadowRayWorkItem`和`integrator.cpp::WavefrontPathIntegrator::Render`的finite queue reset→closest→material→shadow/样本state。作为 **Reference**：本地`ScgiEstimator`/layout与`scgi_estimator`按固定样本身份、独占path radiance、compact shadow、确定性reduce重组既有积分，不复制CUDA/OptiX、SOA模板、场景/film或C++队列，也不声称完整pbrt移植。稳定light page/slot CDF、WebGPU跨dispatch同步/indirect、固定pool与cohort、同publication事务均为 **Local integration**。真实GPU窗口独立性、独立积分与公开1080p消费见执行§8.5；这些结果不提升pbrt adoption。Unity仍是UCL Reference，未复制/逐行翻译。R1既有Adapt与TinyBVH Reference范围不变。
 
 R3实施复核固定FidelityFX 1.1.4同revision的`FfxBrixelizerGISpawnScreenProbes`、`FfxBrixelizerGIFillScreenProbes`及project/interpolate阶段，维持 **Reference**。`ScgiGatherWork`/`ScgiNativeWindow`/`scgi_gather_source`/`scgi_native`和Native/FrameProgram接线属于 **Local/Original integration**：GPU exact source请求、Native本次求值共享、窗口drain、VSM invocation资格与补ray不是AMD源码的逐行移植。本地固定N/PDF/Gram/signed residual及世界隔离不变。真实GPU exact 2×2/material/VT/满绑定/缺页和公开1080p消费见执行§8.6，不提升整个Brixelizer或第三方SDK adoption。
+
+## VT 无损传输压缩研究（2026-10-20）
+
+目标与执行只读 [VT 传输设计](../next-design/eengine-v4-vt-transport-transcode-2026-10.md)及[执行文档](../next-execution/eengine-v4-vt-transport-transcode-execution-2026-10.md)。本轮只有源码研究与独立资产字节检查，没有生产修改、浏览器 WASM 或新 GPU 消费证据，不提升来源采用身份。
+
+| 固定来源与许可 | 核读的真实入口及物理行为 | 本地目标映射与当前边界 |
+| --- | --- | --- |
+| [Basis 内的 Zstd](https://github.com/BinomialLLC/basis_universal/tree/99f52d63aa6799cbdaecfe977111dc5ec3b31d47/zstd)，revision `99f52d63aa6799cbdaecfe977111dc5ec3b31d47`，版本宏 1.5.7；选择 `zstd/LICENSE` 的 BSD 许可 | `zstd.h` 的长度/边界/上下文合同；`zstddeclib.c::ZSTD_getFrameHeader/ZSTD_findFrameCompressedSize/ZSTD_initStaticDCtx/ZSTD_decompressDCtx` 及其帧解码/多帧循环。上游允许多帧、skippable 和可选内容长度，不能直接当作受限单页协议 | **已研究、目标复用，尚未采用。** 原版解压算法完整编成独立轻量 WASM；本地包装限制单帧、无字典、已知原生长度、窗口、校验和与固定输出容量，接入现有 `TiledTextureTransport`/Cooked Worker。不是接入整个 Basis 编码器或 libktx，不改上游熵解码/LZ 重建算法 |
+| [Ludicon/spark.js](https://github.com/Ludicon/spark.js/tree/b9ea643a08cb9eef3a9ddc64564089bdd6fd0daf)，revision `b9ea643a08cb9eef3a9ddc64564089bdd6fd0daf`；JS 为 MIT，WGSL 另受 Spark EULA | `src/spark.js::encodeTexture/#loadPipeline`；`spark_bc7_rgb.wgsl`、`spark_bc7_rgba.wgsl`、`spark_bc4_r.wgsl` 的输入、块写入和入口。16×8 工作组、逐 invocation 编块；144 页的 BC7/BC4 输出 pitch 分别为 768/512 B；公开 JS 私有 submit、复制默认 layer 0 | **仅参考，本模块不采用。** GPU 图片重编码增加 RGBA 展开/上传、编码工作和质量闭包；本轮选择最终 BC 的无损传输压缩，不复制 proprietary shader，也不以许可阻止学习研究。既有大纹理探索与 DEFER 记录不提升成 144 页生产资格 |
+
+Local / Reuse：继续复用 `TiledTextureCook.#region` 的原始 BC 内区块与必要边界条带、现有目录/范围/shard 认证、Cooked Worker 池/信用/独占租约/缓存，以及唯一 `VirtualTextureResidency` 上传事务。schema 2、两种长度、受限帧包装与统计是本地工程；不改变现有 VT 的 LibVT/Wicked/Intel 来源范围。独立 Node Zstd 对本地 8,525 个 ORM BC7 页的往返检查只证明该样本字节无损和压缩空间，不证明浏览器生产采用或端到端提速。
