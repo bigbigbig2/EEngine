@@ -25,7 +25,7 @@ verifies:
 
 日期：2026-10-20。唯一目标依据：[设计](../next-design/eengine-extreme-web-asset-compression-2026-10.md)。设计最初核对源码为`5f3f4153`，准备提交为`1f856ea0`，E0/E1提交为`eddb8669`；后续施工状态只读§12，不把初始快照当当前源码事实。
 
-**用户已授权实施E2；2026-10-20按新节奏继续完成实现闭包。** P准备已提交为`1f856ea0`，E0/E1已提交为`eddb8669`，E2检查点为`510f4c55`；本轮续作尚未提交，实际结果见§12。E0–E4以连续实现、设计对照和最小正确性检查为主，全部场景cook/recook、部署与全路径测试统一放到最后E5。旧路径随替换直接删除，不为中间阶段可运行保留兼容；E2代码实现收口与最终集成资格分开。本次授权不自动跨入E3–E5，也不把旧U0的“完成/冻结”当作新计划状态。
+**用户已要求先提交E2，再实施E3；2026-10-20继续按新节奏推进。** P准备为`1f856ea0`，E0/E1为`eddb8669`，E2收口提交为`4ee234cf`；本轮E3结果见§12。E0–E4以连续实现、设计对照和最小正确性检查为主，全部场景cook/recook、部署与全路径测试统一放到最后E5。旧路径随替换直接删除，不为中间阶段可运行保留兼容；E2代码实现收口与最终集成资格分开。本次授权不自动跨入E4–E5，也不把旧U0的“完成/冻结”当作新计划状态。
 
 ## 1. 执行合同：连续实现，最后集中验证
 
@@ -69,7 +69,7 @@ verifies:
 | E0：上游依赖与移植基线准备 | 中 | 固定编码工具/许可、donor完整路径、产品/能力细节与构建身份；无生产切换 | 已实施；实际结果与许可交付边界见§12 |
 | E1：忠实内核与新产品准备闭包 | 大 | 新图片产品、语义Cooker、浏览器decode/lease、GPU recorder、有限内存，覆盖RGB/RGBA/BC5/BC4和mip | 隔离闭包已实现并验证；本地evaluation来源边界及结果见§12 |
 | E2：纹理全链原子切换 | **很大，主工作项** | 普通/VT、材质/coverage/query、统一准备/缓存、加载/部署代码直接切换、旧产品与依赖删除；不跑场景recook | 实现闭包及相关编译/最小检查完成；最终集成与许可边界见§12，停在E3 |
-| E3：离线极限码率与交付优化 | 大 | 实现双质量档有限搜索、最终GPU评价缓存、资产报告生成、VT cell布局与请求优化；不跑完整资产搜索/报告 | E2实现闭包后；待授权；仍只一个生产owner |
+| E3：离线极限码率与交付优化 | 大 | 实现双质量档有限搜索、最终GPU评价缓存、资产报告生成、VT cell布局与请求优化；不跑完整资产搜索/报告 | 实现与最小检查完成；完整资产搜索/质量/部署在E5，仍只一个生产owner |
 | E4：几何紧凑ABI与无损传输原子切换 | 很大，独立资产类别闭包 | F32-exact SoA、Zstd/raw、全部Cooker/reader/query/lifecycle代码同切并删旧ABI；不跑场景recook | 公共准备合同在E2已定；待授权 |
 | E5：最终集中cook、全路径集成与成本收口 | 大 | 统一全量cook/recook与manifest发布、新鲜build、全部直接路径/示例部署、组合生命周期/上界/质量及粗成本 | E2/E3/E4实现后；待授权；全路径验证唯一阶段 |
 
@@ -298,7 +298,7 @@ node tools/gpu-oracle.mjs --list
 
 本模块实现完成需要：新全套PBR/普通/VT产品与全部真实consumer已切换、旧依赖删除、合法来源/许可、质量档/边界/精确语义、容量与组合生命周期成立，成本如实报告。正式跨设备FPS/画质资格可按仓库节奏归最终集成，但已发现错误、漏工作与失控容量不能延期。
 
-当前用户已授权E2纹理全链原子切换，结束停在E3边界。以后用户授权某单元就完成该单元，授权整模块则按依赖连续推进；不自动启动其它效果、HDR/神经压缩或有损几何精度变更。
+当前用户已授权E3离线极限码率与交付优化，结束停在E4边界。以后用户授权某单元就完成该单元，授权整模块则按依赖连续推进；不自动启动其它效果、HDR/神经压缩或有损几何精度变更。
 
 ## 12. 本轮P准备记录与后续实施结果
 
@@ -306,7 +306,7 @@ node tools/gpu-oracle.mjs --list
 
 ### E2续作收口：2026-10-20新图片链与退休依赖
 
-**结论：E2实现闭包完成，停在待授权E3边界；不代表E5全路径通过，也不代表Spark生产分发许可或性能/质量资格已取得。** 本轮没有执行完整资产cook/recook、browser/GPU矩阵、整包部署或正式性能检查，旧失败/原始日志不改写。前两节施工检查点描述其当时事实，本节为本轮最新实施结果。
+**结论：E2已提交为`4ee234cf`，E3本轮实现与最小检查完成，停在E4边界；不代表E5全路径通过，也不代表Spark生产分发许可或性能/质量资格已取得。** 本轮没有执行完整资产cook/recook、browser/GPU矩阵、整包部署或正式性能检查，旧失败/原始日志不改写。前两节施工检查点描述其当时事实，本节为本轮最新实施结果。
 
 #### 唯一代码路径与职责
 
@@ -432,3 +432,23 @@ gltf-tex固定pin只有package/README MIT声明，无独立版权notice；本轮
 - decoder→upload独立data/color-rgb字节检查、常量恢复、BC5半球重建、provided非单位moment、完整1×1链、两个不同未提交图片逆序submit、needs-drain保留lease/abort重试、超容量拒绝、损坏源、source/session retirement和真实独立device destroy检查通过。最后CPU credit/GPU scratch归零；完整报告在`.local/extreme-web-asset/e1-gpu-f32-final.json`与`e1-gpu-f16-final.json`。
 - 原失败保留：首次donor输出诊断回读漏COPY_SRC（修oracle显式outputTexture，不改算法）；随后RGBA诊断把VideoFrame.copyTo透明RGB取整结果当ImageBitmap上传位相等oracle（原失败JSON保留，确认两种诊断转换舍入不一致后拆正确断言：alpha保持精确，独立恒定[255,0,0,128] straight RGB/alpha逐值检查，donor同输入BC仍逐字节比较）。不是放宽normal/ORM/coverage或BC对照容差；原`first/second/third`结果不改写为通过。初次TS错误为discard回调插入assign而非finish，修本地接线后新鲜编译通过。
 - 本轮没有重跑E0完整tooling-suites，原15/16旧fixture失败继续保留。没有运行正式整场景画质/FPS/压缩率/VT接缝或生产publication，归E2/E3/E5，不用隔离最小GPU结果代替。收口`docs-verify`为209 documents、0 finding、86 historical warnings；`git diff --check`通过。
+
+
+### E3：离线选优与交付闭包（2026-10-20）
+
+用户要求先提交再继续E3；E2已提交为`4ee234cf`。本节记录实现事实，不代表完整资产压缩率、最终画质或性能资格。
+
+- `tools/extreme-web-asset/search/optimize`接入唯一scene Cook入口。High Q80/speed4、Extreme Q50/speed4原配置为首候选；有限Q={95,90,85,80,75,70,60,50,40,30}×speed={4,2}，resident20、VT60（cell128/256/512），完整枚举而非二分。全部维度不劣于同路线donor且硬语义通过才参与选小；donor硬语义失败拒绝发布。不回旧BC网络路径、不降尺寸、不删mip。
+- `evaluation-host/gpu-evaluate/evaluation-input`在本地显式evaluation来源上，运行同一Worker解码、recorder、GPU mip/VT assembly和最终BC/R8 textureLoad；canonical losslessPNG取同recorder的pre-BC逻辑图。覆盖各mip、所有VT页和144²gutter；完整域逐32行读回落盘比对，不把AVIF解码指标当最终GPU指标。材质六方向探针复用原lighting BRDF；moment复用原appearance normal filter。该离线诊断有自己的submit/readback，runtime没有新增回读或frame submit。
+- 颜色调用实际FFmpeg libavfilter SSIM；固定32行窗口、极小窗口边缘扩展到8²并按原像素加权，明确不是整图全窗口SSIM。normal统计P50/P95/P99/最大夹角，moment统计XYZ和长度，data/scalar各通道最大误差；全像素/全部gutter的最大误差、六探针最大材质误差及exact字节均参与。局部包装/直方图不是伪称上游移植，也不冒称六方向探针等价全部材质/照明场景；完整画面归E5。
+- canonical、完整recipe/coverage/trace/module inventory、encoder二进制、argv生成器、target build、评价源码/FFmpeg二进制与版本、browser/device/features/limits共同绑定选优缓存。AVIF编码缓存另外绑定输入RGBA/尺寸/语义和去路径argv；缓存内容hash/长度先校验。GPU作业进程锁串行，异常退出锁需操作者核PID，不自动抢锁。候选工作目录只在`.local/extreme-web-asset/jobs`，最终仅拷贝选中产品并核hash；report按搜索/产品身份命名，scene receipt/manifest保存report SHA，再原子发布directory/manifest。
+- `delivery`复用runtime同一Range规划。显式trace报告冷页请求/fetched/过取/decoded/assembly；无trace明确用目录+resident必需段+最坏单页依赖作为有界稀疏代理，同时保留全部payload，不虚构视角或LRU命中。`EENGINE_IMAGE_DEMAND_TRACES`指向按scene纹理key映射的trace JSON，pages每项包含plane/mip/x/y/priority。它不是实际首屏/完成时间；这两项待E5实测。
+- `ImageTextureDelivery`已接统一准备链，不只是估算：最多256KiB、gap≤4096B、过取≤12.5%、同URI/object长度/urgency，仅合并本次已请求段，不等凑批。共享range与每item副本分别预收费；HTTP206/范围/长度/编码/流上界检查后，逐item仍由原Worker核SHA/AVIF。单对象仍按原有bounded fetch，不引入第二pool。
+- decoded邻域LRU≤8MiB（双backing收费）归既有准备owner，命中不重复占原ready credit；每consumer独立lease共享不可变backing，最后引用释放，source退休使所有引用立即失效。source registration身份隔离同recipe不同generation；压力先逐LRU释放冷引用，存在credit waiter时不新增缓存引用；闲置5秒过期，取消批次清本批cache，source/session关闭全部退休。失败批次不能整体释放其它并发consumer仍持有的credit。
+- 报告区分High/Extreme候选、donor/选中质量向量、编码墙时/缓存命中、目录/payload/exact/preview、trace fetched、module与总冷字节。`EENGINE_IMAGE_MODULE_INVENTORY`可提供实际部署的uri/sha256/fetchedBytes列表；未提供时module/总冷字节为null、显式未取得完整网络资格，不能填0。该模块税跨候选相同时不改变选优，但不得从最终成本报告遗漏；完整资产报告统一E5运行。
+
+**Cost Card：** decoded缓存新增0..8MiB已收费CPU backing，零任务稳态无GPU作业；LRU查找按≤16个请求owner，idle timer每秒仅在有缓存时存在。Range新增最多每batch16×256KiB×2共享保守buffer预算，再计原item input/decoder/ready预算；无新GPU常驻分配、原assembly/BC工作量按实际页不变。收益0/50/100%对应重复需求不命中/半命中/全命中时0/半数/全部相关fetch+decode减少，命中仍需原上传/assembly/BC；Range没有可合并段则不增加请求或等待。离线搜索最多20/60个产品与全部域GPU评价，编码cache可少做相同输入编码，离线磁盘结果由操作者管理，不混入runtime内存。完整break-even/实测成本留E5，不声称已经提速。
+
+**实际检查：** engine typecheck、build:test通过；`image-search.test.mjs`与`image-texture-preparation.test.mjs`共7项通过，覆盖有限非单调选优/坏结果拒绝、缓存环境与篡改/上界、Range urgency/过取/HTTP错误/取消、真实准备链pack一次Range供16-owner、decoded缓存不重复解码/收费与generation隔离、共享lease信用与source退休、原cancel/retry。串行`image-search-gpu.mjs`8×8颜色实际解码→完整mip→BC→材质/SSIM检查通过（这是评价器最小检查，不是20/60候选搜索）；receipt在`.local/extreme-web-asset/evaluator-smoke/receipt.json`。首次失败是评价器sRGB view继承了storage usage，已显式限定TEXTURE_BINDING后复跑通过；不改Spark算法或质量阈值。未跑完整资产Cook/recook、完整候选搜索、全部格式/GPU矩阵、部署、整场景质量/FPS与网络报告，统一E5；Spark生产分发许可仍未记录。
+
+E3收口：新增/修改MJS均经`node --check`；`docs-verify`为209 documents、0 finding、86 historical warnings，`git diff --check`通过。

@@ -1920,3 +1920,10 @@ Local / Adapt：`ImageTextureSource/Pages`→统一准备/lease→`ImageTextureP
 Retained / Adapt：libktx `4d6fc70eaf62ad0558e63e8d97eb9766118327a6`的只读`KtxRead.cpp`桥及原JS/WASM逐字节移至`codec/vendor/image-ktx`；source.json区分原构建recipe和新`build-image-ktx-import.mjs`，保留license树。Basis `99f52d63aa6799cbdaecfe977111dc5ec3b31d47`的`basisu_resampler.cpp/basisu_resample_filters.cpp`及既有`CanonicalResample.cpp`继续用于完整canonical mip，独立native入口`CanonicalResampleNative.cpp`只做文件IO，不含BC编码；小输入linear/sRGB/normal三组native/WASM逐字节比较，不冒称全部尺寸/CPU架构资格。
 
 Reference / Original：重新核对上文固定LibVT `464397d9e2c655f72ad59cd1166b14e29e1bad3a` MIT `renderVT.frag::mipmapLevel`的梯度/各向异性LOD和物理过滤边界。新的`image_texture_sampling.ts`为本地数学实现，不称LibVT移植：padded BC无法沿每层真实NPOT域直接硬件采样，故使用J·Jᵀ特征轴、最多8个主轴tap及逐逻辑层双线性/三线性；aligned走原硬件路径。不是复制上游Pmax/Pmin近似，也不承诺与driver各向异性核逐bit一致。代价明确为nearest一次load或最坏8×2×4=64次load，完整斜足迹/接缝/LOD与成本矩阵归E5，不能把有限小检查升级为最终画质/性能。
+
+
+### E3离线评价与交付来源映射
+
+- **Reference / External tool**：FFmpeg n8.1.2，tag object `1c2c67c0b9f7f66ab32c19dcf7f227bcd290aa4c`，peeled commit `38b88335f99e76ed89ff3c93f877fdefce736c13`，已读取真实 `libavfilter/vf_ssim.c::ssim_4x4xn_8bit/ssim_end1/ssim_endn_8bit` 与filter数据流。原文件LGPL-2.1-or-later；本机Gyan full binary启用GPL/version3，运行时记录完整binary SHA256及`-version`，不将该可执行文件或SSIM源码打入Web runtime。`metrics.mjs::nativeSsim`实际调用native filter，不是自己重写SSIM。32行窗口/极小窗口扩展/原像素权重是显式本地评价协议，不冒称原工具默认整图指标；更换binary则缓存失效。
+- **Retained / Adapt**：Spark/glTF-tex/libavif/libaom继续使用既有pin与许可边界；新增`gpu-evaluate`调用完整原recorder而不重实现BC。六照明探针直接拼接EEngine `lighting_brdf`与`appearance_normal_filter`原完整函数；包装与采样域是Local，不是全部材质画质证明。
+- **Local**：有限非单调候选枚举、donor-relative质量向量、immutable缓存/报告、HTTP Range合并、decoded邻域LRU和引用计数lease均为本地普通工程/生命周期代码，不包装为算法移植。Range≤256KiB/gap≤4096B/过取≤12.5%、LRU双backing≤8MiB与5秒idle为显式有界参数；不是引入新codec、第二pool或旧ABI桥。

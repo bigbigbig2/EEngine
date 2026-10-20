@@ -57,6 +57,12 @@ Residency evidence schema8报告实际mandatory上传和image encoder计数，Gr
 
 Environment/HDR/IBL及其GPUTextureManager/MipmapGenerator保持各自真实owner，不因材质纹理重构误删。Native材质publication、Visibility/VSM exact alpha、Surface/query沿现有消费者组合，不新增第二套材质系统。
 
+## 离线选优与有界交付
+
+唯一scene Cook入口现在调用有限High/Extreme搜索，最终GPU BC/R8及材质探针评价后选优，保留同路线donor；完整资产搜索在E5才运行。缓存绑定canonical/工具/argv/target/评价/browser/device，报告按身份发布并被scene manifest引用；部署module清单未知时网络总量明确为null，不当作零成本。
+
+统一准备owner对已请求的同urgency pack段合并Range（≤256KiB、gap≤4096B、过取≤12.5%），不等凑批；每item仍经过原Worker完整性检查。decoded图片邻域LRU双backing≤8MiB、idle5秒释放、压力逐LRU退引用，source/session退休所有consumer handle；不缓存全图/BC页，不新增第二准备pool。引用共享不重复收费，只有最后引用关闭backing，失败批次不得归还仍被其它consumer使用的credit。
+
 ## 来源与验证导航
 
 来源pin、license、具体函数与移植/本地glue差异见[来源账本](../porting/next-renderer.md#extreme-web-asset-compression-2026-10-20)。实际已运行与未运行结果只读[当前执行§12](../next-execution/eengine-extreme-web-asset-compression-execution-2026-10.md#12-本轮p准备记录与后续实施结果)；历史纹理/VT执行记录不约束当前owner或要求恢复旧ABI。当前设计见[极致资产压缩](../next-design/eengine-extreme-web-asset-compression-2026-10.md)，全局不变量见[V4母稿](../next-design/eengine-v4-native-shading-2026-10.md)。

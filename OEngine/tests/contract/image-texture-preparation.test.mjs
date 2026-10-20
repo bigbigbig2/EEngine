@@ -73,6 +73,16 @@ test("source open, exact 16-owner transfer, aggregate admission, failure/cancel/
       return;
     }
     requests++;
+    if (request.headers.range) {
+      const [, begin, end] = /^bytes=(\d+)-(\d+)$/.exec(request.headers.range);
+      const data = original.slice(Number(begin), Number(end) + 1);
+      response.writeHead(206, {
+        "content-length": data.length,
+        "content-range": `bytes ${begin}-${end}/${original.length}`
+      });
+      response.end(data);
+      return;
+    }
     if (delay) await new Promise((resolve) => setTimeout(resolve, 100));
     const data = original.slice();
     if (corrupt && request.url.endsWith(".bin")) data[0] ^= 255;
@@ -128,8 +138,16 @@ test("source open, exact 16-owner transfer, aggregate admission, failure/cancel/
     }
     const held = preparation.evidence().credit.used.ready;
     assert.equal(held, page.decodedBytes * 2);
+    const shared = lease[0].retain();
     lease[0].close();
     lease[0].close();
+    assert.equal(
+      preparation.evidence().credit.used.ready,
+      held,
+      "retained backing keeps its original ready charge"
+    );
+    assert.equal(shared.live, true);
+    shared.close();
     assert.equal(preparation.evidence().credit.used.ready, held - lease[0].item.decodedBytes * 2);
     for (const item of lease) item.close();
     assert.equal(preparation.evidence().credit.used.total, 0);
@@ -147,7 +165,11 @@ test("source open, exact 16-owner transfer, aggregate admission, failure/cancel/
     delay = false;
     const retry = await source.readPage(page);
     assert.equal(retry.length, 16);
+    const stale = retry[0].retain();
     source.close();
+    assert.equal(stale.live, false, "source retirement invalidates every retained handle");
+    assert.throws(() => stale.retain(), /released/);
+    stale.close();
     assert.equal(preparation.evidence().credit.used.total, 0);
     assert.equal(preparation.evidence().imageDirectoryBytes, 0);
     for (const item of retry)
@@ -163,11 +185,109 @@ test("source open, exact 16-owner transfer, aggregate admission, failure/cancel/
     source.close();
     assert.equal(preparation.evidence().sessions, 0);
     assert.equal(preparation.evidence().credit.used.total, 0);
+    const packed = structuredClone(directory);
+    const parts = [];
+    let offset = 0;
+    for (const item of packed.items) {
+      if (item.kind !== "exact") continue;
+      const bytes = payloads.get("/" + item.uri);
+      parts.push(bytes);
+      item.uri = "pack.bin";
+      item.offset = String(offset);
+      offset += bytes.length;
+    }
+    for (const item of packed.items) if (item.kind === "exact") item.objectBytes = String(offset);
+    payloads.set("/pack.bin", Buffer.concat(parts));
+    const packedBytes = writeImageTextureDirectory(packed);
+    payloads.set("/directory.json", packedBytes);
+    source = await ImageTextureSource.open(
+      url,
+      await imageTextureHash(packedBytes),
+      packedBytes.length,
+      undefined,
+      preparation
+    );
+    const before = requests;
+    const batch = await source.readPage(source.pages.page(1, 0, 0, 0));
+    assert.equal(
+      requests - before,
+      1,
+      "one bounded range supplies the complete requested exact neighborhood"
+    );
+    for (const lease of batch) lease.close();
+    source.close();
+    assert.equal(preparation.evidence().credit.used.total, 0);
     assert.ok(requests > 16);
   } finally {
     source?.close();
     preparation.dispose();
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("decoded neighborhood cache shares immutable handles and retires source generations", async () => {
+  const { directory } = await fixture();
+  let tasks = 0,
+    closed = 0;
+  class BitmapWorker {
+    postMessage(task) {
+      tasks++;
+      queueMicrotask(() =>
+        this.onmessage?.({
+          data: {
+            version: 4,
+            session: task.session,
+            epoch: task.epoch,
+            task: task.task,
+            sourceRevision: task.sourceRevision,
+            recipe: task.recipe,
+            itemId: task.item.id,
+            decoderMemoryBytes: 0,
+            ok: true,
+            representation: "decoded-image",
+            image: {
+              width: task.item.width,
+              height: task.item.height,
+              close() {
+                closed++;
+              }
+            },
+            encodedBytes: task.item.bytes,
+            ioMs: 0,
+            busyMs: 0
+          }
+        })
+      );
+    }
+    terminate() {}
+  }
+  const preparation = new CookedAssetPreparation({ maxWorkers: 1, createWorker: () => new BitmapWorker() });
+  const session = preparation.openSession();
+  const id = directory.items.find((item) => item.kind === "image").id;
+  try {
+    const first = await preparation.readImageItem(session, directory, id, "http://localhost/");
+    const held = preparation.evidence().credit.used.ready;
+    const sibling = first.retain();
+    first.close();
+    const hit = await preparation.readImageItem(session, directory, id, "http://localhost/");
+    assert.equal(tasks, 1);
+    assert.equal(preparation.evidence().credit.used.ready, held);
+    hit.close();
+    assert.ok(preparation.evidence().decodedImageCacheBytes > 0);
+    preparation.releaseImageDirectory(session, directory);
+    assert.equal(sibling.live, false);
+    assert.equal(closed, 1);
+    sibling.close();
+    assert.equal(preparation.evidence().credit.used.total, 0);
+    const fresh = await preparation.readImageItem(session, directory, id, "http://localhost/");
+    assert.equal(tasks, 2, "retired generation cannot reuse a prior cached receipt");
+    fresh.close();
+    preparation.closeSession(session);
+    assert.equal(closed, 2);
+    assert.equal(preparation.evidence().decodedImageCacheBytes, 0);
+    assert.equal(preparation.evidence().credit.used.total, 0);
+  } finally {
+    preparation.dispose();
   }
 });

@@ -36,13 +36,13 @@ currentSlice:
     Implement each complete closure and cut over every direct consumer in the
     same unit; immediately delete replaced contracts and dedicated dependencies.
     Temporary intermediate breakage is allowed, without legacy bridges or fallbacks.
-    The user has authorized E2, the complete atomic texture-chain cutover,
-    including ordinary/virtual consumers, loading/deployment code and retirement.
+    The user has authorized E3, offline bounded rate/quality search and delivery
+    optimization on the single image production chain after the E2 commit.
     Follow the user's revised cadence: E0-E4 use design/source review and only
     minimal relevant correctness checks. Do not retain legacy compatibility to
     keep intermediate examples runnable. Full asset cook/recook, deployment and
     full-path integration tests belong only to the final E5 unit.
-    Detailed unit results live in the execution authority. E3 onward requires
+    Detailed unit results live in the execution authority. E4 onward requires
     separate implementation authorization.
     Do not start other renderer modules.
 

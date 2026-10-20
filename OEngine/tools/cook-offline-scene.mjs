@@ -7,12 +7,13 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { verifyTestBuild } from "../../tools/test-build.mjs";
 import { resampleOfflineImage } from "./offline-image-resample.mjs";
-import { nativeCook } from "./extreme-web-asset/cook.mjs";
+import { optimizeImage } from "./extreme-web-asset/optimize.mjs";
+import { createOfflineEvaluator } from "./extreme-web-asset/evaluation-host.mjs";
 import { imageMipCount } from "../.test-dist/assets/ImageTextureProduct.js";
 import {
   MATERIAL_TEXTURE_PROPERTIES,
   materialTextureSemantic,
-  materialTextureLeaves,
+  materialTextureLeaves
 } from "../.test-dist/assets/PcMaterialTextures.js";
 import { parseGltfMaterial } from "../.test-dist/loaders/gltf/gltfMaterials.js";
 import { textureFromGltf } from "../.test-dist/loaders/gltf/gltfTextures.js";
@@ -40,7 +41,7 @@ const run = (command, args, onLine = () => {}) =>
     });
     child.once("error", reject);
     child.once("exit", (code) =>
-      code === 0 ? accept(stdout) : reject(new Error(`${command}: exit ${code}\n${stderr}`)),
+      code === 0 ? accept(stdout) : reject(new Error(`${command}: exit ${code}\n${stderr}`))
     );
   });
 const log = (value) => console.log(JSON.stringify({ time: new Date().toISOString(), ...value }));
@@ -78,10 +79,17 @@ async function textureTask(taskPath) {
   let semantic = task.options.semantic;
   if (semantic === "normal-xy") {
     for (let at = 2; at < base.rgba.length; at += 4) {
-      if (base.rgba[at] < 128) { semantic = "moment-xyz"; break; }
+      if (base.rgba[at] < 128) {
+        semantic = "moment-xyz";
+        break;
+      }
     }
   }
-  const provided = task.virtual || task.options.exactAlpha || semantic === "moment-xyz" || Math.max(base.width, base.height) > 2048;
+  const provided =
+    task.virtual ||
+    task.options.exactAlpha ||
+    semantic === "moment-xyz" ||
+    Math.max(base.width, base.height) > 2048;
   const inputs = [base];
   let canonicalToolHash;
   if (provided) {
@@ -90,8 +98,12 @@ async function textureTask(taskPath) {
     if (filterBuild.binaryHash !== hash(await readFile(executable))) {
       throw new Error("Offline canonical resampler build identity mismatch");
     }
-    canonicalToolHash = hash(JSON.stringify({ filterBuild,
-      wrapper: hash(await readFile(new URL("./offline-image-resample.mjs", import.meta.url))) }));
+    canonicalToolHash = hash(
+      JSON.stringify({
+        filterBuild,
+        wrapper: hash(await readFile(new URL("./offline-image-resample.mjs", import.meta.url)))
+      })
+    );
     for (let level = 1; level < imageMipCount(base.width, base.height); level++) {
       const previous = inputs.at(-1);
       inputs.push(resampleOfflineImage(executable, scratch, previous, color, semantic === "normal-xy"));
@@ -101,29 +113,52 @@ async function textureTask(taskPath) {
   if (provided && semantic === "normal-xy") {
     for (const input of inputs) {
       for (let i = 0; i < input.rgba.length; i += 4) {
-        const x = input.rgba[i] * 2 / 255 - 1;
-        const y = input.rgba[i + 1] * 2 / 255 - 1;
-        const z = input.rgba[i + 2] * 2 / 255 - 1;
+        const x = (input.rgba[i] * 2) / 255 - 1;
+        const y = (input.rgba[i + 1] * 2) / 255 - 1;
+        const z = (input.rgba[i + 2] * 2) / 255 - 1;
         const length = Math.hypot(x, y, z);
         if (z < 0 || length === 0) throw new Error("Normal XY cannot discard this hemisphere/direction");
-        input.rgba[i] = Math.round((x / length * 0.5 + 0.5) * 255);
-        input.rgba[i + 1] = Math.round((y / length * 0.5 + 0.5) * 255);
+        input.rgba[i] = Math.round(((x / length) * 0.5 + 0.5) * 255);
+        input.rgba[i + 1] = Math.round(((y / length) * 0.5 + 0.5) * 255);
         input.rgba[i + 2] = 0;
       }
     }
   }
-  const result = await nativeCook({
-    semantic, quality: "high", mode: task.virtual ? "virtual" : "resident",
-    mips: provided ? "provided" : "runtime", inputs,
-    addressU: task.options.addressU, addressV: task.options.addressV, canonicalToolHash,
-    ...(task.options.exactAlpha ? { exactCoverage: inputs } : {}), cellSize: 512
-  }, dirname(task.output));
+  const request = {
+    semantic,
+    quality: task.quality,
+    mode: task.virtual ? "virtual" : "resident",
+    mips: provided ? "provided" : "runtime",
+    inputs,
+    addressU: task.options.addressU,
+    addressV: task.options.addressV,
+    canonicalToolHash,
+    ...(task.options.exactAlpha ? { exactCoverage: inputs } : {}),
+    cellSize: 512
+  };
+  const evaluator = await createOfflineEvaluator({
+    moduleInventory: process.env.EENGINE_IMAGE_MODULE_INVENTORY
+      ? await json(resolve(process.env.EENGINE_IMAGE_MODULE_INVENTORY))
+      : null
+  });
+  let result;
+  try {
+    result = await optimizeImage(request, dirname(task.output), evaluator, { trace: task.trace ?? null });
+  } finally {
+    await evaluator.close();
+  }
   const identity = hash(result.bytes);
   await writeJson(task.output + ".receipt.json", {
-    imageIndex: task.imageIndex, encodedHash: hash(encoded), identity,
-    directory: result.directory, byteLength: result.bytes.length,
+    imageIndex: task.imageIndex,
+    encodedHash: hash(encoded),
+    identity,
+    directory: result.directory,
+    byteLength: result.bytes.length,
     payloadBytes: result.directory.items.reduce((sum, item) => sum + item.bytes, 0),
-    wallMs: performance.now() - started
+    wallMs: performance.now() - started,
+    searchIdentity: result.report.identity,
+    searchReport: result.reportName,
+    searchReportHash: hash(await readFile(join(dirname(task.output), result.reportName)))
   });
   log({ phase: "image", image: task.imageIndex, bytes: result.bytes.length });
 }
@@ -166,6 +201,9 @@ async function cookScene(input, output, workers, tiled = false) {
   const materials = document.materials.map((value) => parseGltfMaterial(value, textures));
   const textureIndices = new Map(textures.map((texture, index) => [texture, index]));
   const tasks = new Map();
+  const demandTraces = process.env.EENGINE_IMAGE_DEMAND_TRACES
+    ? await json(resolve(process.env.EENGINE_IMAGE_DEMAND_TRACES))
+    : {};
   const bindings = materials.map((material) => {
     const result = {};
     const live = new Set(materialTextureLeaves(material));
@@ -185,7 +223,7 @@ async function cookScene(input, output, workers, tiled = false) {
           (sample) => sample.binding.texture === texture && (sample.readMask & 8) !== 0
         ),
         addressU: ["clamp-to-edge", "repeat", "mirror-repeat"][texture.wrapS],
-        addressV: ["clamp-to-edge", "repeat", "mirror-repeat"][texture.wrapT],
+        addressV: ["clamp-to-edge", "repeat", "mirror-repeat"][texture.wrapT]
       };
       const key = hash(JSON.stringify([imageIndex, options]));
       const uri = `textures/${key}/directory.json`;
@@ -201,6 +239,8 @@ async function cookScene(input, output, workers, tiled = false) {
           // The canonical glTF graph reads alpha independently: RGB may be
           // virtual while its exact alpha plane remains fully resident.
           virtual: tiled,
+          quality: process.env.EENGINE_IMAGE_QUALITY ?? "high",
+          trace: demandTraces[key] ?? null
         });
       }
       result[property] = { textureIndex, uri };
@@ -243,7 +283,7 @@ async function cookScene(input, output, workers, tiled = false) {
       const child = geometry.nodes.length;
       geometry.nodes.push({
         mesh: meshIndex,
-        ...(node.extras === undefined ? {} : { extras: structuredClone(node.extras) }),
+        ...(node.extras === undefined ? {} : { extras: structuredClone(node.extras) })
       });
       (geometry.nodes[nodeIndex].children ??= []).push(child);
       instanceMaterials.push(primitive.material ?? 0);
@@ -253,7 +293,7 @@ async function cookScene(input, output, workers, tiled = false) {
         hasUv1: a.TEXCOORD_1 !== undefined,
         hasUv2: false,
         hasNormal: true,
-        hasTangent: a.TANGENT !== undefined,
+        hasTangent: a.TANGENT !== undefined
       });
     }
   }
@@ -264,10 +304,10 @@ async function cookScene(input, output, workers, tiled = false) {
       sourceHash,
       input: geometry,
       cooker: hash(
-        await readFile(resolve(root, "OEngine/tools/oengine-asset-core/build/oengine-asset-cooker.exe")),
+        await readFile(resolve(root, "OEngine/tools/oengine-asset-core/build/oengine-asset-cooker.exe"))
       ),
-      shardBytes: Number(process.env.OENGINE_OFFLINE_SHARD_BYTES ?? 64 * MiB),
-    }),
+      shardBytes: Number(process.env.OENGINE_OFFLINE_SHARD_BYTES ?? 64 * MiB)
+    })
   );
   let geometryReceipt;
   try {
@@ -290,8 +330,8 @@ async function cookScene(input, output, workers, tiled = false) {
         "--threads",
         String(workers),
         "--shard-bytes",
-        String(Number(process.env.OENGINE_OFFLINE_SHARD_BYTES ?? 64 * MiB)),
-      ],
+        String(Number(process.env.OENGINE_OFFLINE_SHARD_BYTES ?? 64 * MiB))
+      ]
     );
     geometryReceipt = { key: geometryKey, ...JSON.parse(stdout) };
     await writeJson(join(output, "geometry-cook.json"), geometryReceipt);
@@ -302,7 +342,7 @@ async function cookScene(input, output, workers, tiled = false) {
   for (const pack of scene.packs) {
     await run(resolve(root, "OEngine/tools/oengine-asset-core/build/oengine-asset-cooker.exe"), [
       "validate",
-      join(output, pack.uri),
+      join(output, pack.uri)
     ]);
   }
   log({ phase: "geometry", state: "ready", ...geometryReceipt });
@@ -335,16 +375,16 @@ async function cookScene(input, output, workers, tiled = false) {
           key,
           image: task.imageIndex,
           encodeMs: receipt.encodeMs,
-          wallMs: receipt.wallMs,
+          wallMs: receipt.wallMs
         });
         await writeJson(join(output, "cook-progress.json"), {
           phase: "textures",
           completed,
           total: list.length,
-          elapsedMs: performance.now() - started,
+          elapsedMs: performance.now() - started
         });
       }
-    }),
+    })
   );
   if (textureFailure) throw textureFailure;
   const receipts = await Promise.all([...tasks.values()].map((task) => json(task.output + ".receipt.json")));
@@ -353,9 +393,9 @@ async function cookScene(input, output, workers, tiled = false) {
       sum +
       mesh.primitives.reduce(
         (n, p) => n + document.accessors[p.indices ?? p.attributes.POSITION].count / 3,
-        0,
+        0
       ),
-    0,
+    0
   );
   const result = {
     schema: "oengine-image-scene-materials-v2",
@@ -369,7 +409,7 @@ async function cookScene(input, output, workers, tiled = false) {
       materials: materials.length,
       textures: document.textures.length,
       images: document.images.length,
-      cookedImages: cookedImages.size,
+      cookedImages: cookedImages.size
     },
     geometryManifest: "scene.oescene",
     geometryManifestHash: hash(await readFile(join(output, "scene.oescene"))),
@@ -379,13 +419,16 @@ async function cookScene(input, output, workers, tiled = false) {
     instanceProfiles,
     products: receipts.map((receipt, index) => ({
       uri: `textures/${list[index][0]}/directory.json`,
-      identity: receipt.identity, byteLength: receipt.byteLength
+      identity: receipt.identity,
+      byteLength: receipt.byteLength,
+      searchReport: `textures/${list[index][0]}/${receipt.searchReport}`,
+      searchReportHash: receipt.searchReportHash
     })),
     evidence: {
       products: receipts.length,
       directoryBytes: receipts.reduce((sum, value) => sum + value.byteLength, 0),
       payloadBytes: receipts.reduce((sum, value) => sum + value.payloadBytes, 0),
-      imageCodec: "native-avif-10bit-444-high",
+      imageCodec: `native-avif-10bit-444-${process.env.EENGINE_IMAGE_QUALITY ?? "high"}`,
       runtimeTextureEncoding: "Spark BC7/BC5/BC4, exact R8",
       runtimeMipGeneration: "GPU for runtime profile, canonical provided otherwise",
       wallMs: performance.now() - started
@@ -401,7 +444,7 @@ try {
   if (process.argv[2] === "--texture-task") await textureTask(resolve(process.argv[3]));
   else {
     const input = resolve(
-      process.argv[2] ?? resolve(root, ".local/models/BistroExterior_static_fixed_occlusion.glb"),
+      process.argv[2] ?? resolve(root, ".local/models/BistroExterior_static_fixed_occlusion.glb")
     );
     const output = resolve(process.argv[3] ?? resolve(root, ".local/models/bistro-cooked"));
     const workers = Number(process.argv[4] ?? 4);

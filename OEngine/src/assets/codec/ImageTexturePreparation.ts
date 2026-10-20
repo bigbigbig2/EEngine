@@ -73,15 +73,53 @@ export function imageLeaseSource(lease: ImageTextureLease): ImageTextureDirector
   return source;
 }
 
-/** Exclusive CPU ready backing. close is idempotent; a released lease cannot be recorded again. */
+/** Unique consumer handles share immutable CPU backing; closed handles cannot record again. */
 export class ImageTextureLease {
+  private readonly backing: { refs: number; retired: boolean; release(): void };
   private constructor(
     readonly directory: ImageTextureLeaseDirectory,
     readonly item: ImageTextureItem,
     readonly result: Extract<ImageTextureResult, { ok: true }>,
-    private readonly releaseCredit: () => void
+    releaseCredit: () => void,
+    backing?: { refs: number; retired: boolean; release(): void }
   ) {
+    this.backing = backing ?? {
+      refs: 1,
+      retired: false,
+      release: () => {
+        try {
+          if (result.representation === "decoded-image") {
+            result.image.close();
+          } else {
+            structuredClone(result.bytes, { transfer: [result.bytes] });
+          }
+        } finally {
+          releaseCredit();
+        }
+      }
+    };
     liveLeases.add(this);
+  }
+
+  /** Shared immutable decoded owner; each consumer still has a unique lease.
+   * Only the last reference closes the bitmap/bytes and returns its credit. */
+  retain(): ImageTextureLease {
+    assertImageTextureLease(this);
+    this.backing.refs++;
+    return new ImageTextureLease(this.directory, this.item, this.result, () => {}, this.backing);
+  }
+
+  get live(): boolean {
+    return liveLeases.has(this) && !this.backing.retired;
+  }
+
+  /** Source retirement invalidates all retained consumer references at once. */
+  retire(): void {
+    if (!this.backing.retired) {
+      this.backing.retired = true;
+      this.backing.release();
+    }
+    liveLeases.delete(this);
   }
 
   static import(
@@ -104,20 +142,15 @@ export class ImageTextureLease {
     if (!liveLeases.delete(this)) {
       return;
     }
-    try {
-      if (this.result.representation === "decoded-image") {
-        this.result.image.close();
-      } else {
-        structuredClone(this.result.bytes, { transfer: [this.result.bytes] });
-      }
-    } finally {
-      this.releaseCredit();
+    if (--this.backing.refs === 0 && !this.backing.retired) {
+      this.backing.retired = true;
+      this.backing.release();
     }
   }
 }
 
 export function assertImageTextureLease(lease: ImageTextureLease): void {
-  if (!liveLeases.has(lease)) {
+  if (!liveLeases.has(lease) || !lease.live) {
     throw new Error("Image texture ready lease was released or forged");
   }
 }
@@ -189,53 +222,53 @@ export async function prepareImageTextureTask(task: ImageTextureTask): Promise<I
       if (task.input.byteLength !== item.bytes) throw new Error("Local image item length mismatch");
       encoded = new Uint8Array(task.input);
     } else {
-    const headers =
-      offset === null ? undefined : { Range: `bytes=${offset}-${offset + BigInt(item.bytes) - 1n}` };
-    const url = new URL(item.uri, task.baseUrl);
-    if (!["http:", "https:"].includes(url.protocol)) {
-      throw new Error("Image item requires bounded HTTP transport");
-    }
-    const response = await fetch(url, { headers });
-    if (
-      response.status !== (offset === null ? 200 : 206) ||
-      (response.headers.get("content-encoding") ?? "identity") !== "identity" ||
-      (response.headers.has("content-length") &&
-        response.headers.get("content-length") !== String(item.bytes)) ||
-      (offset !== null &&
-        response.headers.get("content-range") !==
-          `bytes ${offset}-${offset + BigInt(item.bytes) - 1n}/${item.objectBytes}`)
-    ) {
-      await response.body?.cancel();
-      throw new Error("Image item transport range/length/encoding mismatch");
-    }
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error("Image item body is missing");
-    }
-    encoded = new Uint8Array(item.bytes);
-    let used = 0;
-    try {
-      while (true) {
-        const part = await reader.read();
-        if (part.done) {
-          break;
-        }
-        if (part.value.byteLength > encoded.length - used) {
-          throw new RangeError("Image item response exceeds reservation");
-        }
-        encoded.set(part.value, used);
-        used += part.value.byteLength;
+      const headers =
+        offset === null ? undefined : { Range: `bytes=${offset}-${offset + BigInt(item.bytes) - 1n}` };
+      const url = new URL(item.uri, task.baseUrl);
+      if (!["http:", "https:"].includes(url.protocol)) {
+        throw new Error("Image item requires bounded HTTP transport");
       }
-    } finally {
+      const response = await fetch(url, { headers });
+      if (
+        response.status !== (offset === null ? 200 : 206) ||
+        (response.headers.get("content-encoding") ?? "identity") !== "identity" ||
+        (response.headers.has("content-length") &&
+          response.headers.get("content-length") !== String(item.bytes)) ||
+        (offset !== null &&
+          response.headers.get("content-range") !==
+            `bytes ${offset}-${offset + BigInt(item.bytes) - 1n}/${item.objectBytes}`)
+      ) {
+        await response.body?.cancel();
+        throw new Error("Image item transport range/length/encoding mismatch");
+      }
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error("Image item body is missing");
+      }
+      encoded = new Uint8Array(item.bytes);
+      let used = 0;
       try {
-        await reader.cancel();
+        while (true) {
+          const part = await reader.read();
+          if (part.done) {
+            break;
+          }
+          if (part.value.byteLength > encoded.length - used) {
+            throw new RangeError("Image item response exceeds reservation");
+          }
+          encoded.set(part.value, used);
+          used += part.value.byteLength;
+        }
       } finally {
-        reader.releaseLock();
+        try {
+          await reader.cancel();
+        } finally {
+          reader.releaseLock();
+        }
       }
-    }
-    if (used !== item.bytes) {
-      throw new Error("Image item length mismatch");
-    }
+      if (used !== item.bytes) {
+        throw new Error("Image item length mismatch");
+      }
     }
     if ((await imageTextureHash(encoded)) !== item.sha256) {
       throw new Error("Image item length/SHA256 mismatch");

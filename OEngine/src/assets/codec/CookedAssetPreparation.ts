@@ -36,8 +36,11 @@ import {
 } from "./ImageTexturePreparation.js";
 import type { ImageTextureImportTask, ImageTextureImportResult } from "./ImageTextureImport.js";
 
+import { imageRanges, fetchImageRange } from "./ImageTextureDelivery.js";
+
 const MiB = 1024 * 1024;
 interface ImageDirectoryRegistration {
+  readonly cacheIdentity: number;
   readonly directory: ImageTextureDirectory;
   readonly controller: AbortController;
   readonly leases: Set<ImageTextureLease>;
@@ -59,6 +62,13 @@ export class CookedAssetPreparation {
   readonly #localImagePayloads = new Map<ImageTextureDirectory, ReadonlyMap<string, ArrayBuffer>>();
   #imageDirectoryBytes = 0;
   #localReplayBytes = 0;
+  readonly #decodedImages = new Map<
+    string,
+    { lease: ImageTextureLease; bytes: number; session: string; expires: number }
+  >();
+  #decodedImageTimer: ReturnType<typeof setTimeout> | undefined;
+  #decodedImageBytes = 0;
+  #decodedImageHits = 0;
   #task = 0;
   #disposed = false;
   readonly #sessions = new Map<string, AbortController>();
@@ -299,7 +309,26 @@ export class CookedAssetPreparation {
     }
     const ids = [...new Set(itemIds)];
     // Freeze the caller's complete generation before an asynchronous admission wait.
-    const snapshot = this.#registerImageDirectory(session, directory).directory;
+    const admitted = this.#registerImageDirectory(session, directory);
+    const snapshot = admitted.directory;
+    for (const id of ids) {
+      if (!Number.isSafeInteger(id) || id < 0 || !snapshot.items[id]) {
+        throw new RangeError("Image dependency ID is outside its directory");
+      }
+    }
+    // Cache identities belong to source registrations, not just identical recipes.
+    const keys = new Set(ids.map((id) => `${session}/${admitted.cacheIdentity}/${id}`));
+    const hits = new Map<number, ImageTextureLease>();
+    for (const id of ids) {
+      const cached = this.#decodedImages.get(`${session}/${admitted.cacheIdentity}/${id}`);
+      if (cached) {
+        cached.expires = performance.now() + 5000;
+        this.#decodedImages.delete(`${session}/${admitted.cacheIdentity}/${id}`);
+        this.#decodedImages.set(`${session}/${admitted.cacheIdentity}/${id}`, cached);
+        hits.set(id, cached.lease.retain());
+        this.#decodedImageHits++;
+      }
+    }
     const controller = new AbortController();
     const registration = this.#imageDirectories.get(session)!.get(directory)!;
     const combined = AbortSignal.any([
@@ -316,14 +345,53 @@ export class CookedAssetPreparation {
         throw new RangeError("Image dependency ID is outside its directory");
       }
       const item = snapshot.items[id]!;
+      if (hits.has(id)) continue;
       peak += imageTaskPeak(item);
       encoded += item.bytes;
       ready += item.decodedBytes * 2;
     }
-    const release = await this.#credit.acquire({ total: peak, encoded, ready }, priority, combined);
+    const ranges = imageRanges(
+      ids
+        .filter((id) => !hits.has(id) && !this.#localImagePayloads.has(directory))
+        .map((id) => ({ ...snapshot.items[id]!, priority }))
+    ).filter((range) => range.items.length > 1);
+    const rangeCharge = ranges.reduce((sum, range) => sum + range.fetchedBytes * 2, 0);
+    peak += rangeCharge;
+    encoded += rangeCharge;
+    const hitBytes = [...hits.values()].reduce((sum, lease) => sum + lease.item.decodedBytes * 2, 0);
+    if (peak + hitBytes > this.#credit.limits.total || ready + hitBytes > this.#credit.limits.ready) {
+      for (const lease of hits.values()) {
+        lease.close();
+      }
+      throw new RangeError("Cooked cached neighborhood exceeds its credit capacity");
+    }
+    // Keep LRU neighborhoods while credit permits. On pressure release cold
+    // cache references before waiting, so cached ready bytes cannot deadlock IO.
+    for (const [key, cached] of this.#decodedImages) {
+      const used = this.#credit.evidence().used;
+      if (
+        used.total + peak <= this.#credit.limits.total &&
+        used.encoded + encoded <= this.#credit.limits.encoded &&
+        used.ready + ready <= this.#credit.limits.ready
+      )
+        break;
+      if (!keys.has(key)) {
+        this.#decodedImages.delete(key);
+        this.#decodedImageBytes -= cached.bytes;
+        cached.lease.close();
+      }
+    }
+    let release;
+    try {
+      release = await this.#credit.acquire({ total: peak, encoded, ready }, priority, combined);
+    } catch (error) {
+      for (const lease of hits.values()) lease.close();
+      throw error;
+    }
     const charges = new Map<number, { total: number; encoded: number; ready: number }>();
     for (const id of ids) {
       const item = snapshot.items[id]!;
+      if (hits.has(id)) continue;
       charges.set(id, { total: imageTaskPeak(item), encoded: item.bytes, ready: item.decodedBytes * 2 });
     }
     const shrink = (id: number, remaining = { total: 0, encoded: 0, ready: 0 }) => {
@@ -334,18 +402,62 @@ export class CookedAssetPreparation {
       charges.set(id, remaining);
       release({ total: peak, encoded, ready });
     };
+    const rangeInputs = new Map<number, () => Promise<ArrayBuffer>>();
+    for (const range of ranges) {
+      let pending: Promise<Uint8Array<ArrayBuffer>> | undefined;
+      const fetchRange = () =>
+        (pending ??= (async () => {
+          const releaseIo = await this.#io.acquire({ total: 1, encoded: 0, ready: 0 }, priority, combined);
+          try {
+            const bytes = await fetchImageRange(range, baseUrl, combined);
+            this.#ranges++;
+            this.#encodedBytes += bytes.length;
+            const metrics = this.#sessionMetrics.get(session);
+            if (metrics) {
+              metrics.ranges++;
+              metrics.encodedBytes += bytes.length;
+            }
+            return bytes;
+          } finally {
+            releaseIo();
+          }
+        })());
+      for (const id of range.items) {
+        rangeInputs.set(id, async () => {
+          const bytes = await fetchRange();
+          const item = snapshot.items[id]!;
+          const offset = Number(BigInt(item.offset!) - BigInt(range.start));
+          return bytes.slice(offset, offset + item.bytes).buffer;
+        });
+      }
+    }
     const results = await Promise.allSettled(
       ids.map(async (id) => {
         try {
-          return await this.#readImageItem(session, directory, id, baseUrl, combined, priority, (remaining) =>
-            shrink(id, remaining)
+          const hit = hits.get(id);
+          if (hit) return hit;
+          return await this.#readImageItem(
+            session,
+            directory,
+            id,
+            baseUrl,
+            combined,
+            priority,
+            (remaining) => shrink(id, remaining),
+            rangeInputs.get(id)
           );
         } catch (error) {
+          if (!hits.has(id)) shrink(id);
           controller.abort(error);
           throw error;
         }
       })
     );
+    // All child tasks settled; shared range buffers can now retire.
+    rangeInputs.clear();
+    peak -= rangeCharge;
+    encoded -= rangeCharge;
+    release({ total: peak, encoded, ready });
     const failure = results.find((result) => result.status === "rejected");
     if (failure?.status === "rejected" || combined.aborted) {
       for (const result of results) {
@@ -353,7 +465,17 @@ export class CookedAssetPreparation {
           result.value.close();
         }
       }
-      release();
+      for (const id of ids) {
+        const key = `${session}/${admitted.cacheIdentity}/${id}`;
+        const cached = this.#decodedImages.get(key);
+        if (cached) {
+          this.#decodedImages.delete(key);
+          this.#decodedImageBytes -= cached.bytes;
+          cached.lease.close();
+        }
+      }
+      // Other batches may retain a decoded owner: only its last reference
+      // returns the original per-item ready charge.
       throw failure?.status === "rejected" ? failure.reason : combined.reason;
     }
     return Object.freeze(
@@ -390,6 +512,7 @@ export class CookedAssetPreparation {
       Object.freeze(snapshot);
       registerImageDirectorySnapshot(snapshot, directory);
       registration = {
+        cacheIdentity: ++this.#task,
         directory: snapshot,
         controller: new AbortController(),
         leases: new Set(),
@@ -409,7 +532,8 @@ export class CookedAssetPreparation {
     baseUrl: string,
     signal: AbortSignal,
     priority: 0 | 1 | 2,
-    release: (remaining?: { total: number; encoded: number; ready: number }) => void
+    release: (remaining?: { total: number; encoded: number; ready: number }) => void,
+    sharedInput?: () => Promise<ArrayBuffer>
   ): Promise<ImageTextureLease> {
     this.#assertSession(session, signal);
     const registration = this.#registerImageDirectory(session, directory);
@@ -420,6 +544,7 @@ export class CookedAssetPreparation {
       AbortSignal.timeout(30000)
     ]);
     const admittedDirectory = registered.directory;
+    const cacheKey = `${session}/${registered.cacheIdentity}/${itemId}`;
     let task = imageTextureTask(admittedDirectory, itemId, baseUrl, session, ++this.#task);
     const local = this.#localImagePayloads.get(directory)?.get(task.item.sha256);
     if (local) task = { ...task, input: local.slice(0) };
@@ -428,6 +553,7 @@ export class CookedAssetPreparation {
     let result: ImageTextureResult | undefined;
     let releaseIo: (() => void) | undefined;
     try {
+      if (sharedInput) task = { ...task, input: await sharedInput() };
       releaseIo = await this.#io.acquire({ total: 1, encoded: 0, ready: 0 }, priority, combined);
       result = await this.#pool.submit<ImageTextureTask, ImageTextureResult>({
         request: task,
@@ -463,6 +589,15 @@ export class CookedAssetPreparation {
       ) {
         throw new Error("Image texture receipt backing mismatch");
       }
+      this.#ioMs += result.ioMs;
+      this.#busyMs += result.busyMs;
+      if (!task.input) {
+        this.#ranges++;
+        this.#encodedBytes += task.item.bytes;
+        const metrics = this.#sessionMetrics.get(session)!;
+        metrics.ranges++;
+        metrics.encodedBytes += task.item.bytes;
+      }
       release({ total: ready, encoded: 0, ready });
       const leases = this.#imageLeases.get(session)!;
       const lease = ImageTextureLease.import(admittedDirectory, task.item, result, () => {
@@ -472,6 +607,34 @@ export class CookedAssetPreparation {
       });
       leases.add(lease);
       registered.leases.add(lease);
+      if (
+        task.plane.mode === "virtual" &&
+        task.item.kind === "image" &&
+        task.item.decodedBytes * 2 <= 8 * MiB &&
+        this.#credit.evidence().waiting === 0
+      ) {
+        const bytes = task.item.decodedBytes * 2;
+        for (const [key, prior] of this.#decodedImages) {
+          if (this.#decodedImageBytes + bytes <= 8 * MiB) break;
+          this.#decodedImages.delete(key);
+          this.#decodedImageBytes -= prior.bytes;
+          prior.lease.close();
+        }
+        const prior = this.#decodedImages.get(cacheKey);
+        if (prior) {
+          this.#decodedImages.delete(cacheKey);
+          this.#decodedImageBytes -= prior.bytes;
+          prior.lease.close();
+        }
+        this.#decodedImages.set(cacheKey, {
+          lease: lease.retain(),
+          bytes,
+          session,
+          expires: performance.now() + 5000
+        });
+        this.#decodedImageBytes += bytes;
+        this.#expireDecodedImages();
+      }
       return lease;
     } catch (error) {
       if (result) {
@@ -484,6 +647,26 @@ export class CookedAssetPreparation {
     }
   }
 
+  #expireDecodedImages(): void {
+    if (this.#decodedImageTimer !== undefined) {
+      return;
+    }
+    this.#decodedImageTimer = setTimeout(() => {
+      this.#decodedImageTimer = undefined;
+      const now = performance.now();
+      for (const [key, cached] of this.#decodedImages) {
+        if (cached.expires <= now) {
+          this.#decodedImages.delete(key);
+          this.#decodedImageBytes -= cached.bytes;
+          cached.lease.close();
+        }
+      }
+      if (this.#decodedImages.size > 0) {
+        this.#expireDecodedImages();
+      }
+    }, 1000);
+  }
+
   /** End this immutable source generation, including in-flight IO/ready objects, without
    * cancelling unrelated products. A later registration gets new task/lease identities. */
   releaseImageDirectory(session: string, directory: ImageTextureDirectory): void {
@@ -493,8 +676,15 @@ export class CookedAssetPreparation {
       return;
     }
     registered.controller.abort(new DOMException("Image source retired", "AbortError"));
+    for (const [key, cached] of this.#decodedImages) {
+      if (cached.session === session && key.startsWith(`${session}/${registered.cacheIdentity}/`)) {
+        this.#decodedImages.delete(key);
+        this.#decodedImageBytes -= cached.bytes;
+        cached.lease.close();
+      }
+    }
     for (const lease of registered.leases) {
-      lease.close();
+      lease.retire();
     }
     directories!.delete(directory);
     this.#imageDirectoryBytes -= registered.charge + registered.indexBytes;
@@ -514,14 +704,21 @@ export class CookedAssetPreparation {
   ): Promise<Extract<ImageTextureImportResult, { ok: true }> & { release(): void }> {
     const combined = this.#signal(session, signal);
     const peakBytes = input.mime === "image/ktx2" ? 384 * MiB : 256 * MiB;
-    const release = await this.#credit.acquire({ total: peakBytes, encoded: input.input.byteLength,
-      ready: 48 * MiB }, 0, combined);
+    const release = await this.#credit.acquire(
+      { total: peakBytes, encoded: input.input.byteLength, ready: 48 * MiB },
+      0,
+      combined
+    );
     let handedOff = false;
     try {
       const task: ImageTextureImportTask = { ...input, version: 5, session, task: ++this.#task };
       const result = await this.#pool.submit<ImageTextureImportTask, ImageTextureImportResult>({
-        request: task, transfer: [input.input], estimatedPeakBytes: peakBytes, priority: 0,
-        signal: combined, retireWorker: true
+        request: task,
+        transfer: [input.input],
+        estimatedPeakBytes: peakBytes,
+        priority: 0,
+        signal: combined,
+        retireWorker: true
       });
       this.#assertSession(session, combined);
       assertAssetWorkerResult(result);
@@ -539,15 +736,20 @@ export class CookedAssetPreparation {
     }
   }
 
-  registerLocalImagePayloads(session: string, directory: ImageTextureDirectory,
-    payloads: ReadonlyMap<string, ArrayBuffer>): void {
+  registerLocalImagePayloads(
+    session: string,
+    directory: ImageTextureDirectory,
+    payloads: ReadonlyMap<string, ArrayBuffer>
+  ): void {
     this.#registerImageDirectory(session, directory);
     for (const item of directory.items) {
-      if (payloads.get(item.sha256)?.byteLength !== item.bytes) throw new Error("Local replay payload domain mismatch");
+      if (payloads.get(item.sha256)?.byteLength !== item.bytes)
+        throw new Error("Local replay payload domain mismatch");
     }
     const bytes = [...payloads.values()].reduce((sum, value) => sum + value.byteLength, 0);
     if (this.#localImagePayloads.has(directory)) throw new Error("Local replay already registered");
-    if (this.#localReplayBytes + bytes > 64 * MiB) throw new RangeError("Local image replay capacity exceeded");
+    if (this.#localReplayBytes + bytes > 64 * MiB)
+      throw new RangeError("Local image replay capacity exceeded");
     this.#localReplayBytes += bytes;
     this.#localImagePayloads.set(directory, payloads);
   }
@@ -669,8 +871,9 @@ export class CookedAssetPreparation {
       credit: this.#credit.evidence(),
       imageDirectoryBytes: this.#imageDirectoryBytes,
       localImageReplayBytes: this.#localReplayBytes,
-      io: this.#io.evidence(),
-
+      decodedImageCacheBytes: this.#decodedImageBytes,
+      decodedImageCacheHits: this.#decodedImageHits,
+      io: this.#io.evidence()
     };
   }
 
@@ -682,6 +885,8 @@ export class CookedAssetPreparation {
     if (this.#disposed) return;
     this.#disposed = true;
     for (const session of this.#sessions.keys()) this.closeSession(session);
+    clearTimeout(this.#decodedImageTimer);
+    this.#decodedImageTimer = undefined;
     this.#pool.dispose();
   }
 

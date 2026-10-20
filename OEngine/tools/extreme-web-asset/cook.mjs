@@ -7,11 +7,16 @@ import { deflateSync } from "node:zlib";
 import { cookImageTexture } from "../../.test-dist/assets/codec/ImageTextureCook.js";
 import { validateImageAvif } from "../../.test-dist/assets/codec/ImageTextureAvif.js";
 import { nativeAvifArguments, qualityAnchors } from "./native-profiles.mjs";
+import { ImageSearchCache } from "./search-cache.mjs";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
-export async function nativeCook(request, output) {
+export async function nativeCook(
+  request,
+  output,
+  candidate = { quality: qualityAnchors[request.quality], speed: 4 }
+) {
   const build = JSON.parse(await readFile(join(root, ".local/extreme-web-asset/native-build.json"), "utf8"));
   const encoder = join(root, build.binaries["avifenc.exe"].path);
   if (hash(await readFile(encoder)) !== build.binaries["avifenc.exe"].sha256)
@@ -24,7 +29,8 @@ export async function nativeCook(request, output) {
         cooker: hash(
           await readFile(new URL("../../.test-dist/assets/codec/ImageTextureCook.js", import.meta.url))
         ),
-        nativeGlue: hash(await readFile(fileURLToPath(import.meta.url)))
+        nativeGlue: hash(await readFile(fileURLToPath(import.meta.url))),
+        candidate
       })
     )
   );
@@ -32,6 +38,10 @@ export async function nativeCook(request, output) {
   const working = join(output, `.work-${randomUUID()}`);
   await mkdir(working);
   const invocations = [];
+  const encodedCache = new ImageSearchCache(
+    join(root, ".local/extreme-web-asset/encoded-cache"),
+    8 * 1024 * 1024
+  );
   const result = await cookImageTexture(
     { ...request, toolHash },
     {
@@ -40,7 +50,27 @@ export async function nativeCook(request, output) {
         const png = join(working, `${key}.png`);
         const avif = join(working, `${key}.avif`);
         await writeFile(png, encodePng(input));
-        const args = [...nativeAvifArguments(semantic, qualityAnchors[quality]), "-j", "2", png, avif];
+        const args = [
+          ...nativeAvifArguments(semantic, candidate.quality, candidate.speed),
+          "-j",
+          "2",
+          png,
+          avif
+        ];
+        const cacheKey = encodedCache.key(toolHash, {
+          input: key,
+          width: input.width,
+          height: input.height,
+          argv: args.slice(0, -2),
+          semantic
+        });
+        const cached = await encodedCache.read(cacheKey);
+        if (cached) {
+          const bytes = new Uint8Array(Buffer.from(cached.bytes, "base64"));
+          if (hash(bytes) !== cached.hash) throw new Error("Encoded cache payload hash mismatch");
+          validateImageAvif(bytes, input, semantic);
+          return bytes;
+        }
         const run = spawnSync(encoder, args, { encoding: "utf8", windowsHide: true });
         invocations.push({
           argv: [encoder, ...args],
@@ -52,6 +82,10 @@ export async function nativeCook(request, output) {
         if (run.status !== 0) throw new Error(`Native AVIF failed: ${run.stderr}`);
         const bytes = new Uint8Array(await readFile(avif));
         validateImageAvif(bytes, { ...input }, semantic);
+        await encodedCache.write(cacheKey, {
+          hash: hash(bytes),
+          bytes: Buffer.from(bytes).toString("base64")
+        });
         return bytes;
       },
       async put(identity, bytes, kind) {
