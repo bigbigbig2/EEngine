@@ -253,7 +253,7 @@ async function assembleWasmGeometryProductRevisionV1(
     productScopeHash,
   );
   const descriptor: GeometryProductDescriptorV1 = Object.freeze({
-    schemaVersion: 2,
+    schemaVersion: 3,
     productId,
     revision: options.revision,
     ...(options.replaces === undefined

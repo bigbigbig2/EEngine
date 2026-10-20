@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import { attachTriangleQuerySection } from "../helpers/geometry-query-fixture.mjs";
-import { MemoryRangeReadablePackV3, openOegPackV3 } from "../../.test-dist/assets/OegPackV3.js";
+import { MemoryRangeReadablePackV4, openOegPackV4 } from "../../.test-dist/assets/OegPackV4.js";
 import {
   descriptorFromOegPack,
   OegPackProductRevisionSource,
@@ -27,8 +27,8 @@ function crc32(bytes) {
   return ~crc >>> 0;
 }
 
-/** Synthesizes a valid 2-bootstrap-page raw OEGPACK V3 archive in memory. */
-async function buildTwoPageOegPackV3() {
+/** Synthesizes a valid 2-bootstrap-page raw OEGPACK V4 archive in memory. */
+async function buildTwoPageOegPackV4() {
   const page0 = writeTriangleProductPage(new Uint8Array(262144));
   const page1 = writeTriangleProductPage(new Uint8Array(262144));
 
@@ -56,8 +56,8 @@ async function buildTwoPageOegPackV3() {
   const view = new DataView(pack.buffer);
   // Magic "OEGPACK\0"
   pack.set([79, 69, 71, 80, 65, 67, 75, 0], 0);
-  view.setUint32(8, 3, true); // major
-  view.setUint32(12, 1, true); // minor
+  view.setUint32(8, 4, true); // major
+  view.setUint32(12, 0, true); // minor
   view.setUint32(16, 0x01020304, true); // endian
   view.setUint32(20, headerSize, true);
   view.setUint32(24, 18, true); // pageShift
@@ -148,7 +148,7 @@ async function buildTwoPageOegPackV3() {
   view.setUint8(formatOffset + 7, 0xff);
   view.setUint8(formatOffset + 8, 0xff);
   view.setUint8(formatOffset + 9, 0xff);
-  view.setUint8(formatOffset + 10, 1); // Float32x3
+  view.setUint8(formatOffset + 10, 2); // Float32x3
 
   view.setBigUint64(208, BigInt(queryOffset), true);
   view.setBigUint64(216, BigInt(queryBytes), true);
@@ -168,10 +168,10 @@ async function buildTwoPageOegPackV3() {
   return pack;
 }
 
-test("OegPackV3 coalesced readPages merges contiguous bootstrap page reads and catches CRC32 corruption", async () => {
-  const packBytes = await buildTwoPageOegPackV3();
+test("OegPackV4 coalesced readPages merges contiguous bootstrap page reads and catches CRC32 corruption", async () => {
+  const packBytes = await buildTwoPageOegPackV4();
   const rangeCalls = [];
-  const inner = new MemoryRangeReadablePackV3(packBytes);
+  const inner = new MemoryRangeReadablePackV4(packBytes);
   const countingSource = {
     async read(byteOffset, byteLength) {
       rangeCalls.push({ byteOffset: Number(byteOffset), byteLength });
@@ -179,7 +179,7 @@ test("OegPackV3 coalesced readPages merges contiguous bootstrap page reads and c
     },
   };
 
-  const opened = await openOegPackV3(countingSource, { verifyPageSha256: false });
+  const opened = await openOegPackV4(countingSource, { verifyPageSha256: false });
   const readsBeforeActivation = rangeCalls.length;
 
   const deviceWrites = [];
@@ -208,7 +208,7 @@ test("OegPackV3 coalesced readPages merges contiguous bootstrap page reads and c
   // Corrupting a byte inside page 1 still fails CRC32 even when verifyPageSha256 is false
   const corrupted = packBytes.slice();
   corrupted[corrupted.byteLength - 64] ^= 0xff;
-  const openedCorrupted = await openOegPackV3(new MemoryRangeReadablePackV3(corrupted), {
+  const openedCorrupted = await openOegPackV4(new MemoryRangeReadablePackV4(corrupted), {
     verifyPageSha256: false,
   });
   await assert.rejects(openedCorrupted.readPages([0, 1]), /checksum/i);
@@ -269,8 +269,8 @@ test("canonical cache observes every sampler field captured by the appearance co
 });
 
 test("CRC-only pages declare their verification policy without inventing a decoded digest", async () => {
-  const bytes = await buildTwoPageOegPackV3();
-  const pack = await openOegPackV3(new MemoryRangeReadablePackV3(bytes), { verifyPageSha256: false });
+  const bytes = await buildTwoPageOegPackV4();
+  const pack = await openOegPackV4(new MemoryRangeReadablePackV4(bytes), { verifyPageSha256: false });
   const decoded = await pack.readPage(0);
   assert.equal(decoded.integrity, "encoded-crc32");
   assert.equal(decoded.decodedPageHash128, undefined);
@@ -313,7 +313,7 @@ test("dense multi-meshlet page uses compact shared payload without CPU attribute
   const triangleCount = 32;
   const strideBytes = 16;
   const headerBytes = 64;
-  const meshletHeadersBytes = meshletCount * 48;
+  const meshletHeadersBytes = meshletCount * 44;
   const triangleBytesPerMeshlet = triangleCount * 3;
   const vertexBytesPerMeshlet = vertexCount * strideBytes;
   const totalTriangleBytes = (meshletCount * triangleBytesPerMeshlet + 3) & ~3;
@@ -335,29 +335,29 @@ test("dense multi-meshlet page uses compact shared payload without CPU attribute
   pv.setUint32(60, payloadBytes, true);
 
   for (let m = 0; m < meshletCount; m++) {
-    const mh = headerBytes + m * 48;
-    pv.setUint16(mh, vertexCount, true);
-    pv.setUint16(mh + 2, triangleCount, true);
+    const mh = headerBytes + m * 44;
+    pv.setUint8(mh, vertexCount);
+    pv.setUint8(mh + 1, triangleCount);
     const vOff = vertexDataOffset + m * vertexBytesPerMeshlet;
     const tOff = triangleDataOffset + m * triangleBytesPerMeshlet;
     pv.setUint32(mh + 4, vOff, true);
     pv.setUint32(mh + 8, tOff, true);
     pv.setUint32(mh + 12, 0xffffffff, true); // refineGroupId
-    pv.setFloat32(mh + 36, (vertexCount - 1) * 0.25, true); // boundsMax.x
-    pv.setFloat32(mh + 40, m * 0.5, true); // boundsMax.y
-    pv.setFloat32(mh + 44, 1, true); // boundsMax.z
+    pv.setFloat32(mh + 32, (vertexCount - 1) * 0.25, true); // boundsMax.x
+    pv.setFloat32(mh + 36, m * 0.5, true); // boundsMax.y
+    pv.setFloat32(mh + 40, 1, true); // boundsMax.z
     for (let t = 0; t < triangleCount; t++) {
       pageBytes[tOff + t * 3] = 0;
       pageBytes[tOff + t * 3 + 1] = 1;
       pageBytes[tOff + t * 3 + 2] = 2;
     }
     for (let v = 0; v < vertexCount; v++) {
-      const va = vOff + v * strideBytes;
+      const va = vOff + v * 4;
       pv.setFloat32(va, v * 0.25, true);
-      pv.setFloat32(va + 4, m * 0.5, true);
-      pv.setFloat32(va + 8, 1.0, true);
-      pv.setInt16(va + 12, 0, true);
-      pv.setInt16(va + 14, 0, true);
+      pv.setFloat32(va + vertexCount * 4, m * 0.5, true);
+      pv.setFloat32(va + vertexCount * 8, 1.0, true);
+      pv.setInt16(va + vertexCount * 12, 0, true);
+      pv.setInt16(va + vertexCount * 12 + 2, 0, true);
     }
   }
 
@@ -399,7 +399,8 @@ test("dense multi-meshlet page uses compact shared payload without CPU attribute
   fv.setUint16(2, 3, true);
   fv.setUint8(4, 0);
   fv.setUint8(5, 12);
-  fv.setUint8(10, 1);
+  fv.setUint8(10, 2);
+  vertexFormats.fill(255, 6, 10);
 
   const descriptor = {
     schemaVersion: 2,

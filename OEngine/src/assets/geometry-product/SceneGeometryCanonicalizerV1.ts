@@ -24,7 +24,7 @@ import {
   type EmscriptenWebGeometryCookerModuleV1,
   type WebCanonicalGeometryDomainV1,
 } from "../web-cook/wasm/WebGeometryCookerAbi.js";
-import { createGeometryCookRecipeV3, type GeometryCookRecipeV3 } from "../GeometryCookRecipe.js";
+import { createGeometryCookRecipeV4, type GeometryCookRecipeV4 } from "../GeometryCookRecipe.js";
 import type { GeometryProductRevisionSourceV1, GeometryProductProviderV1 } from "./GeometryProductV1.js";
 import { decodeGeometryProductDescriptorBinaryV1 } from "./GeometryProductBinaryV1.js";
 import {
@@ -62,7 +62,7 @@ export interface SceneGeometryProductOptions {
   readonly module: EmscriptenWebGeometryCookerModuleV1;
   readonly producerId: string;
   readonly producerVersion: string;
-  readonly recipe?: Partial<GeometryCookRecipeV3>;
+  readonly recipe?: Partial<GeometryCookRecipeV4>;
   readonly maxDecodedProductBytes: number;
   readonly revision?: number;
   readonly replaces?: Readonly<{ productId: Uint8Array; revision: number }>;
@@ -159,7 +159,7 @@ export async function cookSceneGeometryProductV1(
   const sourceIdentityHash = new Uint8Array(
     await globalThis.crypto.subtle.digest("SHA-256", canonicalization.canonicalInput),
   );
-  const recipeInput = encodeWebGeometryCookRecipeV1(createGeometryCookRecipeV3(options.recipe));
+  const recipeInput = encodeWebGeometryCookRecipeV1(createGeometryCookRecipeV4(options.recipe));
   const revision = await cookWasmGeometryProductRevisionV1(
     options.module,
     canonicalization.canonicalInput,

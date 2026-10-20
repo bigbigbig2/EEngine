@@ -1,5 +1,5 @@
 import { attachTriangleQuerySection } from "./geometry-query-fixture.mjs";
-// A real V3 triangle page, shared by CPU and browser oracles. Transport hashes
+// A real V4 triangle page, shared by CPU and browser oracles. Transport hashes
 // are assigned by callers that exercise source integrity, not guessed here.
 export const TRIANGLE_PRODUCT_PAYLOAD_BYTES = 176;
 
@@ -12,16 +12,16 @@ export function writeTriangleProductPage(page) {
   view.setUint32(52, 112, true);
   view.setUint32(56, 116, true);
   view.setUint32(60, TRIANGLE_PRODUCT_PAYLOAD_BYTES, true);
-  view.setUint16(64, 3, true);
-  view.setUint16(66, 1, true);
+  view.setUint8(64, 3);
+  view.setUint8(65, 1);
   view.setUint32(68, 116, true);
   view.setUint32(72, 112, true);
   view.setUint32(76, 0xffffffff, true);
   for (const [axis, low, high] of [[0, -0.5, 0.5], [1, -0.5, 0.5], [2, 0, 0]]) {
     view.setFloat32(16 + axis * 4, low, true);
     view.setFloat32(28 + axis * 4, high, true);
-    view.setFloat32(88 + axis * 4, low, true);
-    view.setFloat32(100 + axis * 4, high, true);
+    view.setFloat32(84 + axis * 4, low, true);
+    view.setFloat32(96 + axis * 4, high, true);
   }
   page.set([0, 1, 2], 112);
   for (const [index, position] of [
@@ -30,7 +30,7 @@ export function writeTriangleProductPage(page) {
     [2, [0, 0.5, 0]],
   ]) {
     for (let axis = 0; axis < 3; axis++) {
-      view.setFloat32(116 + index * 16 + axis * 4, position[axis], true);
+      view.setFloat32(116 + (axis * 3 + index) * 4, position[axis], true);
     }
   }
   return page;
@@ -64,9 +64,10 @@ export function triangleProductFixture() {
   format.setUint16(0, 16, true);
   format.setUint16(2, 3, true);
   format.setUint8(5, 12);
-  format.setUint8(10, 1);
+  format.setUint8(10, 2);
+  vertexFormats.fill(255, 6, 10);
   const descriptor = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     productId: new Uint8Array(32).fill(2),
     revision: 0,
     producerKind: "web-runtime",
@@ -75,7 +76,7 @@ export function triangleProductFixture() {
     sourceIdentityKind: "session",
     sourceIdentityHash: new Uint8Array(32).fill(3),
     recipeHash: new Uint8Array(32).fill(4),
-    runtimeProfile: "oengine-vg-v2-v3-decoded-query3",
+    runtimeProfile: "oengine-vg-v3-soa4-query3",
     decodedPageBytes: 262144,
     assetRecords,
     rootNodeIds: new Uint32Array([0]),

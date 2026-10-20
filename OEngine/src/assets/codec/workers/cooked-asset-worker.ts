@@ -1,19 +1,22 @@
-import { decodeOegPackPageV3, HttpRangeReadablePackV3 } from "../../OegPackV3.js";
+import { geometryZstdMemoryBytes } from "../GeometryZstd.js";
+import { decodeOegPackPageV4, HttpRangeReadablePackV4 } from "../../OegPackV4.js";
 import { prepareProductResidentAttributes } from "../../geometry-product/GeometryProductResidentAttributes.js";
 import {
   validateGeometryProductQuerySection,
-  verifyGeometryProductQueryContent,
+  verifyGeometryProductQueryContent
 } from "../../geometry-product/GeometryProductQuerySection.js";
 import type {
   CookedAssetTask,
   CookedAssetResult,
-  CookedGeometryRegistration,
+  CookedGeometryRegistration
 } from "../CookedAssetProtocol.js";
 import { prepareImageTextureTask, type ImageTextureTask } from "../ImageTexturePreparation.js";
 import { importImageTexture, type ImageTextureImportTask } from "../ImageTextureImport.js";
 
 const scope = self as unknown as {
-  onmessage: (event: MessageEvent<CookedAssetTask | ImageTextureTask | ImageTextureImportTask | { forget: string }>) => void;
+  onmessage: (
+    event: MessageEvent<CookedAssetTask | ImageTextureTask | ImageTextureImportTask | { forget: string }>
+  ) => void;
   postMessage: (value: unknown, transfer: Transferable[]) => void;
 };
 const registrations = new Map<string, CookedGeometryRegistration>();
@@ -24,7 +27,10 @@ scope.onmessage = (event) => {
   }
   if (event.data.version === 5) {
     void importImageTexture(event.data).then((result) => {
-      scope.postMessage(result, result.ok ? [...result.payloads.values()] : []);
+      scope.postMessage(
+        { ...result, decoderMemoryBytes: geometryZstdMemoryBytes() },
+        result.ok ? [...result.payloads.values()] : []
+      );
     });
   } else if (event.data.version === 4) {
     void prepareImageTextureTask(event.data).then((result) => {
@@ -32,15 +38,26 @@ scope.onmessage = (event) => {
         ? [result.representation === "decoded-image" ? result.image : result.bytes]
         : [];
       try {
-        scope.postMessage({ ...result, decoderMemoryBytes: 0 }, transfer);
+        scope.postMessage({ ...result, decoderMemoryBytes: geometryZstdMemoryBytes() }, transfer);
       } catch (error) {
         if (result.ok && result.representation === "decoded-image") {
           result.image.close();
         }
-        scope.postMessage({ version: result.version, session: result.session, epoch: result.epoch,
-          task: result.task, sourceRevision: result.sourceRevision, recipe: result.recipe,
-          itemId: result.itemId, decoderMemoryBytes: 0,
-          ok: false, message: `Image receipt transfer failed: ${String(error)}` }, []);
+        scope.postMessage(
+          {
+            version: result.version,
+            session: result.session,
+            epoch: result.epoch,
+            task: result.task,
+            sourceRevision: result.sourceRevision,
+            recipe: result.recipe,
+            itemId: result.itemId,
+            decoderMemoryBytes: geometryZstdMemoryBytes(),
+            ok: false,
+            message: `Image receipt transfer failed: ${String(error)}`
+          },
+          []
+        );
       }
     });
   } else {
@@ -54,18 +71,18 @@ async function prepare(task: CookedAssetTask): Promise<void> {
     session: task.session,
     epoch: task.epoch,
     task: task.task,
-    decoderMemoryBytes: 0,
+    decoderMemoryBytes: 0
   };
   const transfer = new Set<ArrayBuffer>();
   let result: CookedAssetResult;
   try {
-    if (task.version !== 3) {
+    if (task.version !== 6) {
       throw new Error("Unsupported Cooked Worker protocol");
     }
     if (task.kind === "geometry") {
       if (task.registration) {
         await verifyGeometryProductQueryContent(
-          validateGeometryProductQuerySection(task.registration.descriptor),
+          validateGeometryProductQuerySection(task.registration.descriptor)
         );
         registrations.set(task.session, task.registration);
       }
@@ -73,7 +90,7 @@ async function prepare(task: CookedAssetTask): Promise<void> {
       if (!registration) {
         throw new Error("Cooked geometry descriptor is not registered");
       }
-      const source = new HttpRangeReadablePackV3(registration.url, registration.init);
+      const source = new HttpRangeReadablePackV4(registration.url, registration.init);
       const started = performance.now();
       const encoded = new Uint8Array(await source.read(task.span.offset, task.span.bytes));
       const ioMs = performance.now() - started;
@@ -88,13 +105,13 @@ async function prepare(task: CookedAssetTask): Promise<void> {
         if (offset < 0 || offset + entry.compressedBytes > encoded.byteLength) {
           throw new Error("Cooked span does not contain its full page domain");
         }
-        const decoded = await decodeOegPackPageV3(
+        const decoded = await decodeOegPackPageV4(
           pageId,
           encoded.subarray(offset, offset + entry.compressedBytes),
           entry,
           registration.groups,
           registration.formats,
-          registration.verifyPageSha256,
+          registration.verifyPageSha256
         );
         const bytes = decoded.bytes.buffer as ArrayBuffer;
         const prepared = prepareProductResidentAttributes(registration.descriptor, pageId, bytes);
@@ -106,7 +123,7 @@ async function prepare(task: CookedAssetTask): Promise<void> {
           bytes,
           integrity: decoded.integrity,
           decodedPageHash128: decoded.decodedPageHash128,
-          prepared,
+          prepared
         });
       }
       result = {
@@ -116,7 +133,7 @@ async function prepare(task: CookedAssetTask): Promise<void> {
         pages,
         encodedBytes: encoded.byteLength,
         ioMs,
-        busyMs: performance.now() - busyStart,
+        busyMs: performance.now() - busyStart
       };
     } else {
       throw new Error("Retired Cooked texture protocol; recook schema4 images");
@@ -125,5 +142,5 @@ async function prepare(task: CookedAssetTask): Promise<void> {
     result = { ...header, ok: false, message: error instanceof Error ? error.message : String(error) };
     transfer.clear();
   }
-  scope.postMessage({ ...result, decoderMemoryBytes: 0 }, [...transfer]);
+  scope.postMessage({ ...result, decoderMemoryBytes: geometryZstdMemoryBytes() }, [...transfer]);
 }

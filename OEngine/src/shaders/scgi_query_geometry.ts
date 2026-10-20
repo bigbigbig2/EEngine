@@ -262,7 +262,8 @@ fn query_triangle(index: u32) -> QueryTriangle {
       counts.y != product_heap[at + 3u] || stride == 0u ||
       (source_resident_address & 0x3fffffffu) < group_byte ||
       (source_resident_address & 0x3fffffffu) - group_byte > payload ||
-      counts.x > (payload - ((source_resident_address & 0x3fffffffu) - group_byte)) / stride) {
+      counts.x * stride + select(0u, (counts.x + 7u) / 8u, (source_format2 >> 24u) == 1u) >
+        payload - ((source_resident_address & 0x3fffffffu) - group_byte)) {
     return result;
   }
   let v0 = frame_triangle_corner(primitive, 0u);

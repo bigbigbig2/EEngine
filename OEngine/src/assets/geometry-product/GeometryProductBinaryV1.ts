@@ -1,10 +1,10 @@
 import {
-  OEGPACK_V3_ASSET_STRIDE,
-  OEGPACK_V3_GROUP_DIRECTORY_STRIDE,
-  OEGPACK_V3_HIERARCHY_STRIDE,
-  OEGPACK_V3_PAGE_BYTES,
-  OEGPACK_V3_VERTEX_FORMAT_STRIDE,
-} from "../GeometryAbiV3.js";
+  OEGPACK_V4_ASSET_STRIDE,
+  OEGPACK_V4_GROUP_DIRECTORY_STRIDE,
+  OEGPACK_V4_HIERARCHY_STRIDE,
+  OEGPACK_V4_PAGE_BYTES,
+  OEGPACK_V4_VERTEX_FORMAT_STRIDE,
+} from "../GeometryAbiV4.js";
 import {
   GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE,
   GEOMETRY_PRODUCT_RUNTIME_PROFILE,
@@ -15,10 +15,10 @@ import {
 } from "./GeometryProductV1.js";
 
 export const GEOMETRY_PRODUCT_BINARY_MAGIC_V1 = 0x5047454f;
-export const GEOMETRY_PRODUCT_BINARY_VERSION_V1 = 2;
+export const GEOMETRY_PRODUCT_BINARY_VERSION_V1 = 3;
 export const GEOMETRY_PRODUCT_BINARY_HEADER_BYTES_V1 = 272;
 
-const PROFILE_V1 = 3;
+const PROFILE_V1 = 4;
 const FLAG_REPLACES = 1;
 const SECTION_ALIGNMENT = 16;
 
@@ -49,13 +49,13 @@ export function encodeGeometryProductDescriptorBinaryV1(
   if (producerId.byteLength === 0 || producerVersion.byteLength === 0)
     throw new RangeError("Geometry Product producer strings must be non-empty");
   const sections: Section[] = [
-    section(descriptor.assetRecords, OEGPACK_V3_ASSET_STRIDE),
+    section(descriptor.assetRecords, OEGPACK_V4_ASSET_STRIDE),
     section(u32Bytes(descriptor.rootNodeIds), 4),
-    section(descriptor.hierarchyNodes, OEGPACK_V3_HIERARCHY_STRIDE),
-    section(descriptor.groupDirectory, OEGPACK_V3_GROUP_DIRECTORY_STRIDE),
+    section(descriptor.hierarchyNodes, OEGPACK_V4_HIERARCHY_STRIDE),
+    section(descriptor.groupDirectory, OEGPACK_V4_GROUP_DIRECTORY_STRIDE),
     section(descriptor.pageRecords, GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE),
     section(u32Bytes(descriptor.bootstrapPageIds), 4),
-    section(descriptor.vertexFormats, OEGPACK_V3_VERTEX_FORMAT_STRIDE),
+    section(descriptor.vertexFormats, OEGPACK_V4_VERTEX_FORMAT_STRIDE),
     section(u32Bytes(descriptor.activationPageIds), 4),
     section(producerId, 1),
     section(producerVersion, 1),
@@ -110,7 +110,7 @@ export function decodeGeometryProductDescriptorBinaryV1(buffer: ArrayBuffer): Ge
     throw new RangeError("Geometry Product descriptor binary header is unsupported");
   if (view.getUint32(12, true) !== bytes.byteLength)
     throw new RangeError("Geometry Product descriptor totalBytes is not canonical");
-  if (view.getUint32(16, true) !== PROFILE_V1 || view.getUint32(36, true) !== OEGPACK_V3_PAGE_BYTES)
+  if (view.getUint32(16, true) !== PROFILE_V1 || view.getUint32(36, true) !== OEGPACK_V4_PAGE_BYTES)
     throw new RangeError("Geometry Product descriptor profile is unsupported");
   const producerKind = decodeEnum(
     view.getUint32(20, true),
@@ -126,13 +126,13 @@ export function decodeGeometryProductDescriptorBinaryV1(buffer: ArrayBuffer): Ge
   if ((flags & ~FLAG_REPLACES) !== 0 || view.getUint32(124, true) !== 0)
     throw new RangeError("Geometry Product descriptor reserved fields are non-zero");
   const strides = [
-    OEGPACK_V3_ASSET_STRIDE,
+    OEGPACK_V4_ASSET_STRIDE,
     4,
-    OEGPACK_V3_HIERARCHY_STRIDE,
-    OEGPACK_V3_GROUP_DIRECTORY_STRIDE,
+    OEGPACK_V4_HIERARCHY_STRIDE,
+    OEGPACK_V4_GROUP_DIRECTORY_STRIDE,
     GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE,
     4,
-    OEGPACK_V3_VERTEX_FORMAT_STRIDE,
+    OEGPACK_V4_VERTEX_FORMAT_STRIDE,
     4,
     1,
     1,
@@ -173,7 +173,7 @@ export function decodeGeometryProductDescriptorBinaryV1(buffer: ArrayBuffer): Ge
   if (!hasReplacement && (view.getUint32(120, true) !== 0 || replacesBytes.some((value) => value !== 0)))
     throw new RangeError("Geometry Product empty replacement fields must be zero");
   const descriptor: GeometryProductDescriptorV1 = Object.freeze({
-    schemaVersion: 2,
+    schemaVersion: 3,
     productId: bytes.slice(128, 160),
     revision: view.getUint32(32, true),
     ...(hasReplacement
@@ -186,7 +186,7 @@ export function decodeGeometryProductDescriptorBinaryV1(buffer: ArrayBuffer): Ge
     sourceIdentityHash: bytes.slice(160, 192),
     recipeHash: bytes.slice(192, 224),
     runtimeProfile: GEOMETRY_PRODUCT_RUNTIME_PROFILE,
-    decodedPageBytes: OEGPACK_V3_PAGE_BYTES,
+    decodedPageBytes: OEGPACK_V4_PAGE_BYTES,
     assetRecords: sliceRange(bytes, ranges[0]!),
     rootNodeIds: u32Array(sliceRange(bytes, ranges[1]!)),
     hierarchyNodes: sliceRange(bytes, ranges[2]!),

@@ -27,15 +27,16 @@ require_nyx_sha256("MiniEngine/Model/Shaders/DAGCull.slang" "6534dd8794248d693ac
 require_nyx_sha256("MiniEngine/Model/Shaders/VBufferMesh.slang" "9f374a2437d5ab939ae4d98289c150097bdab17305191ff97abf3fd1d13c621d")
 require_nyx_sha256("MiniEngine/ThirdParty/meshoptimizer/simplifier.cpp" "131b2092e1acd5546d46fba5463c2a8027089565826ce75790c3e5bc45acf8b2")
 require_nyx_sha256("MiniEngine/ThirdParty/meshoptimizer/meshoptimizer.h" "a05dfed026d1dbeea6b38751ff22397e48a6706a4138e92a160ad57e33f7c0fd")
-require_nyx_sha256("MiniEngine/ThirdParty/lz4/lz4.c" "aba04f8c20e7f7396bed55e0ee041f762d9ee123e175d1b48cf8a9533a360074")
 require_nyx_sha256("MiniEngine/ThirdParty/cgltf/cgltf.h" "123d322d3eff8db5dc34a690131037a89972dff91793050caa48353a5911b4d7")
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/vendor/meshoptimizer/verify.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/vendor/zstd/verify.cmake")
 
 file(GLOB MESHOPTIMIZER_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/vendor/meshoptimizer/*.cpp")
 
 
+file(GLOB ZSTD_SOURCES CONFIGURE_DEPENDS "vendor/zstd/lib/common/*.c" "vendor/zstd/lib/compress/*.c" "vendor/zstd/lib/decompress/*.c")
 add_executable(oengine-asset-cooker
     cli/main.cpp
     src/Hash.cpp
@@ -46,15 +47,16 @@ add_executable(oengine-asset-cooker
     src/geometry/GeometryCooker.cpp
     src/product/DecodedGeometryProduct.cpp
     src/package/OegPackWriter.cpp
-    "${NYX_SOURCE_DIR}/MiniEngine/ThirdParty/lz4/lz4.c"
+    ${ZSTD_SOURCES}
     ${MESHOPTIMIZER_SOURCES})
 
 target_include_directories(oengine-asset-cooker PRIVATE
     include
     "${NYX_SOURCE_DIR}/MiniEngine/ThirdParty/cgltf"
-    "${NYX_SOURCE_DIR}/MiniEngine/ThirdParty/lz4"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vendor/zstd/lib"
     "${CMAKE_CURRENT_SOURCE_DIR}/vendor/meshoptimizer")
 
+target_compile_definitions(oengine-asset-cooker PRIVATE ZSTD_LEGACY_SUPPORT=0 ZSTD_DISABLE_ASM=1)
 if(MSVC)
     target_compile_options(oengine-asset-cooker PRIVATE /W4 /fp:precise)
 else()

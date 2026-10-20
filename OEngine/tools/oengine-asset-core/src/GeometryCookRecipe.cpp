@@ -8,10 +8,10 @@
 
 namespace oengine::asset {
 
-void ValidateRecipe(const GeometryCookRecipeV3& r) {
+void ValidateRecipe(const GeometryCookRecipeV4& r) {
     if (r.instanceSemantics != "cast-receive-explicit-v1") throw std::runtime_error("unsupported instance semantics; re-cook source");
     if (r.hierarchyAlgorithmVersion != "nyx-hierarchy-v4.1-conservative-spheres") throw std::runtime_error("unsupported hierarchy algorithm version");
-    if (r.vertexProfileVersion != "static-pbr-page-local-f32-lean-v7") throw std::runtime_error("Lean geometry requires the v7 vertex/publication profile");
+    if (r.vertexProfileVersion != "static-pbr-soa-f32-v8") throw std::runtime_error("Lean geometry requires the v8 SoA vertex/publication profile");
     if (r.meshletMaxVertices < 3u || r.meshletMaxVertices > 128u) throw std::runtime_error("meshletMaxVertices must be in [3,128]");
     if (r.meshletMinTriangles == 0u || r.meshletMinTriangles > r.meshletMaxTriangles) throw std::runtime_error("meshletMinTriangles must be in [1,max]");
     if (r.meshletMaxTriangles == 0u || r.meshletMaxTriangles > 128u) throw std::runtime_error("meshletMaxTriangles must be in [1,128]");
@@ -22,17 +22,17 @@ void ValidateRecipe(const GeometryCookRecipeV3& r) {
     if (!std::isfinite(r.minimumLodReduction) || r.minimumLodReduction < 0 || r.minimumLodReduction > 1) throw std::runtime_error("invalid minimum LOD reduction");
     if (!std::isfinite(r.attributeErrorScale) || r.attributeErrorScale < 1) throw std::runtime_error("invalid attribute error scale");
     if (!std::isfinite(r.lodErrorMergeFactor) || r.lodErrorMergeFactor < 1) throw std::runtime_error("invalid LOD merge factor");
-    if (r.hierarchyFanout != 8u) throw std::runtime_error("V3 hierarchy fanout must be 8");
-    if (r.pageShift != kGeometryPageShiftV3) throw std::runtime_error("V3 pageShift must be 18");
-    if (r.pagePackingAlgorithmVersion != "tier-locality-bounded-best-fit-16-v1") throw std::runtime_error("unsupported V3 page packing algorithm");
-    if (r.pageCodecPolicy != "lz4-or-raw") throw std::runtime_error("V3 codec policy must be lz4-or-raw");
-    if (r.positionQuantization != "float32-object-space") throw std::runtime_error("V3 position quantization must be float32-object-space");
+    if (r.hierarchyFanout != 8u) throw std::runtime_error("V4 hierarchy fanout must be 8");
+    if (r.pageShift != kGeometryPageShiftV4) throw std::runtime_error("V4 pageShift must be 18");
+    if (r.pagePackingAlgorithmVersion != "tier-locality-bounded-best-fit-16-v1") throw std::runtime_error("unsupported V4 page packing algorithm");
+    if (r.pageCodecPolicy != "zstd-9-15-19-or-raw") throw std::runtime_error("V4 codec policy must be zstd-9-15-19-or-raw");
+    if (r.positionQuantization != "float32-object-space") throw std::runtime_error("V4 position quantization must be float32-object-space");
     if (r.queryProfile != "shared-meshlet-source-remap-cut-v3") throw std::runtime_error("unsupported query profile");
     if (r.bootstrapBudgetPolicy != "scene-decoded-payload-hard-fail-v1") throw std::runtime_error("unsupported bootstrap budget policy");
     if (r.floatMode != "ieee754-nearest-no-fast-math") throw std::runtime_error("unsupported floatMode");
 }
 
-std::string CanonicalRecipeJson(const GeometryCookRecipeV3& r) {
+std::string CanonicalRecipeJson(const GeometryCookRecipeV4& r) {
     ValidateRecipe(r);
     std::ostringstream o;
     o << std::setprecision(9)
@@ -57,8 +57,7 @@ std::string CanonicalRecipeJson(const GeometryCookRecipeV3& r) {
       << "\",\"pagePackingAlgorithmVersion\":\"" << r.pagePackingAlgorithmVersion
       << "\",\"pageShift\":" << r.pageShift
       << ",\"positionQuantization\":\"" << r.positionQuantization
-      << "\",\"rawCodecThresholdBytes\":" << r.rawCodecThresholdBytes
-      << ",\"queryProfile\":\"" << r.queryProfile << "\""
+      << "\",\"queryProfile\":\"" << r.queryProfile << "\""
       << ",\"simplifyFailureRatio\":" << r.simplifyFailureRatio
       << ",\"simplifyPermissive\":" << (r.simplifyPermissive ? "true" : "false")
       << ",\"simplifyTargetRatio\":" << r.simplifyTargetRatio

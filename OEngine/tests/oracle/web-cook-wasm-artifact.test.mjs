@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import test from "node:test";
 
 const {
@@ -15,6 +16,22 @@ const {
 } = await import("../../.test-dist/assets/web-cook/wasm/WebGeometryCookerAbi.js");
 const Module = (await import("../../src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.mjs"))
   .default;
+
+test("portable and pthread artifacts bind ABI7 to their actual source/build hashes", async () => {
+  for (const profile of ["", "threads/"]) {
+    const base = new URL(`../../src/assets/web-cook/wasm/vendor/${profile}`, import.meta.url);
+    const receipt = JSON.parse(await readFile(new URL("source.json", base), "utf8"));
+    assert.equal(receipt.abiVersion, 7);
+    assert.equal(receipt.geometryMajor, 4);
+    for (const [name, expected] of Object.entries(receipt.hashes)) {
+      assert.equal(createHash("sha256").update(await readFile(new URL(name, base))).digest("hex"), expected);
+    }
+    for (const [name, expected] of Object.entries(receipt.inputs)) {
+      assert.equal(createHash("sha256").update(await readFile(new URL(`../../../${name}`, import.meta.url))).digest("hex"), expected,
+        `stale source receipt: ${name}`);
+    }
+  }
+});
 
 async function loadArtifact() {
   const wasm = await readFile(
@@ -67,8 +84,8 @@ test("actual cooker query metadata covers every shared meshlet and exact refinem
 });
 
 test("actual WASM lean Product keeps UV seams and two-sided geometry without continuity payload", async () => {
-  const { decodeGroupHeaderV3, decodeMeshletHeaderV3 } = await import(
-    "../../.test-dist/assets/GeometryAbiV3.js"
+  const { decodeGroupHeaderV4, decodeMeshletHeaderV4 } = await import(
+    "../../.test-dist/assets/GeometryAbiV4.js"
   );
   const xy = [
       [0, 0],
@@ -105,12 +122,12 @@ test("actual WASM lean Product keeps UV seams and two-sided geometry without con
         offset = view.getUint32(g * 16 + 4, true),
         length = view.getUint32(g * 16 + 8, true);
       const group = new DataView(page, offset, length),
-        header = decodeGroupHeaderV3(group);
+        header = decodeGroupHeaderV4(group);
       for (let m = 0; m < header.meshletCount; m++) {
-        const meshlet = decodeMeshletHeaderV3(group, header.meshletHeaderOffset + m * 48);
+        const meshlet = decodeMeshletHeaderV4(group, header.meshletHeaderOffset + m * 44);
         const end = Math.ceil((meshlet.triangleByteOffset + meshlet.triangleCount * 3) / 4) * 4;
         if (m + 1 < header.meshletCount) {
-          const next = decodeMeshletHeaderV3(group, header.meshletHeaderOffset + (m + 1) * 48);
+          const next = decodeMeshletHeaderV4(group, header.meshletHeaderOffset + (m + 1) * 44);
           assert.equal(next.triangleByteOffset, end);
         } else {
           assert.equal(header.vertexDataOffset, Math.ceil(end / 16) * 16);
@@ -126,8 +143,8 @@ test("actual WASM lean Product keeps UV seams and two-sided geometry without con
           const corners = [];
           for (let c = 0; c < 3; c++) {
             const local = group.getUint8(meshlet.triangleByteOffset + primitive * 3 + c);
-            const at = meshlet.vertexByteOffset + local * stride;
-            corners.push({ x: group.getFloat32(at, true), u: decodeFloat16(group.getUint16(at + uv, true)) });
+            const at = meshlet.vertexByteOffset + local * 4;
+            corners.push({ x: group.getFloat32(at, true), u: decodeFloat16(group.getUint16(at + uv * meshlet.vertexCount, true)) });
           }
           records.push(corners);
         }
@@ -231,8 +248,8 @@ function hardSeamBoxesCanonical() {
 }
 
 test("coarse LOD reduces real geometry while preserving corner attributes", async () => {
-  const { decodeGroupHeaderV3, decodeMeshletHeaderV3 } = await import(
-    "../../.test-dist/assets/GeometryAbiV3.js"
+  const { decodeGroupHeaderV4, decodeMeshletHeaderV4 } = await import(
+    "../../.test-dist/assets/GeometryAbiV4.js"
   );
   const module = await loadArtifact();
   const fixtures = [
@@ -313,7 +330,7 @@ test("coarse LOD reduces real geometry while preserving corner attributes", asyn
             directory.getUint32(g * 16 + 4, true),
             directory.getUint32(g * 16 + 8, true),
           );
-          const header = decodeGroupHeaderV3(group),
+          const header = decodeGroupHeaderV4(group),
             format = header.vertexFormatId * 16;
           const level = levels.get(header.lodLevel) ?? { triangles: 0, meshlets: 0 };
           level.meshlets += header.meshletCount;
@@ -322,20 +339,20 @@ test("coarse LOD reduces real geometry while preserving corner attributes", asyn
             positionOffset = formats.getUint8(format + 4),
             normalOffset = formats.getUint8(format + 5);
           for (let m = 0; m < header.meshletCount; m++) {
-            const meshlet = decodeMeshletHeaderV3(group, header.meshletHeaderOffset + m * 48);
+            const meshlet = decodeMeshletHeaderV4(group, header.meshletHeaderOffset + m * 44);
             level.triangles += meshlet.triangleCount;
             for (let t = 0; t < meshlet.triangleCount; t++) {
               const vertices = [0, 1, 2].map(
                 (c) =>
-                  meshlet.vertexByteOffset + group.getUint8(meshlet.triangleByteOffset + t * 3 + c) * stride,
+                  meshlet.vertexByteOffset + group.getUint8(meshlet.triangleByteOffset + t * 3 + c) * 4,
               );
               const p = vertices.map((at) =>
-                [0, 1, 2].map((axis) => group.getFloat32(at + positionOffset + axis * 4, true)),
+                [0, 1, 2].map((axis) => group.getFloat32(at + (positionOffset + axis * 4) * meshlet.vertexCount, true)),
               );
               const geometric = normalize(cross(subtract(p[1], p[0]), subtract(p[2], p[0])));
               for (const at of vertices) {
-                let x = Math.max(-1, group.getInt16(at + normalOffset, true) / 32767);
-                let y = Math.max(-1, group.getInt16(at + normalOffset + 2, true) / 32767);
+                let x = Math.max(-1, group.getInt16(at + normalOffset * meshlet.vertexCount, true) / 32767);
+                let y = Math.max(-1, group.getInt16(at + normalOffset * meshlet.vertexCount + 2, true) / 32767);
                 const z = 1 - Math.abs(x) - Math.abs(y);
                 if (z < 0) {
                   const oldX = x;
@@ -400,7 +417,7 @@ test("checked-in Web geometry artifact consumes independent canonical windows", 
 test("checked-in Web geometry artifact executes the Product ABI", async () => {
   const module = await loadArtifact();
   assert.equal(module._oengine_web_geometry_cook_abi_version(), WEB_GEOMETRY_COOKER_ABI_VERSION);
-  assert.equal(WEB_GEOMETRY_COOKER_ABI_VERSION, 6);
+  assert.equal(WEB_GEOMETRY_COOKER_ABI_VERSION, 7);
   const result = cookWebGeometryWasmV1(
     module,
     triangleCanonical(),

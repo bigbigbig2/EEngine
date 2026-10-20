@@ -1,4 +1,4 @@
-import { OEGPACK_V3_PAGE_BYTES } from "../GeometryAbiV3.js";
+import { OEGPACK_V4_PAGE_BYTES } from "../GeometryAbiV4.js";
 import { decodeGeometryProductPageRecordV1, type GeometryProductDescriptorV1 } from "./GeometryProductV1.js";
 
 /** Prefix length of the authenticated directory, preserving every group offset. */
@@ -18,15 +18,15 @@ export function geometryPagePayloadBytes(descriptor: GeometryProductDescriptorV1
       page !== pageId ||
       offset % 16 !== 0 ||
       bytes < 64 ||
-      bytes > OEGPACK_V3_PAGE_BYTES ||
-      offset > OEGPACK_V3_PAGE_BYTES - bytes
+      bytes > OEGPACK_V4_PAGE_BYTES ||
+      offset > OEGPACK_V4_PAGE_BYTES - bytes
     ) {
       throw new RangeError("Geometry directory page prefix is invalid");
     }
     end = Math.max(end, offset + bytes);
   }
   end = Math.ceil(end / 4) * 4;
-  if (end > OEGPACK_V3_PAGE_BYTES) {
+  if (end > OEGPACK_V4_PAGE_BYTES) {
     throw new RangeError("Geometry directory page prefix exceeds its logical page");
   }
   return end;

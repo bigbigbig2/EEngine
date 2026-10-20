@@ -1,13 +1,13 @@
 import {
-  hierarchyNodeChildCountV3,
-  hierarchyNodeChildStartV3,
-  hierarchyNodeGroupIdV3,
-  hierarchyNodeIsGroupV3,
-  hierarchyNodeMeshletCountV3,
-  OEGPACK_V3_ASSET_STRIDE,
-  OEGPACK_V3_GROUP_DIRECTORY_STRIDE,
-  OEGPACK_V3_HIERARCHY_STRIDE,
-} from "../GeometryAbiV3.js";
+  hierarchyNodeChildCountV4,
+  hierarchyNodeChildStartV4,
+  hierarchyNodeGroupIdV4,
+  hierarchyNodeIsGroupV4,
+  hierarchyNodeMeshletCountV4,
+  OEGPACK_V4_ASSET_STRIDE,
+  OEGPACK_V4_GROUP_DIRECTORY_STRIDE,
+  OEGPACK_V4_HIERARCHY_STRIDE,
+} from "../GeometryAbiV4.js";
 import { assertGeometryProductDescriptorV1, type GeometryProductDescriptorV1 } from "./GeometryProductV1.js";
 import { GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY } from "../../gpu/GpuVisibilityKeyAbi.js";
 import {
@@ -82,12 +82,12 @@ export function geometryProductWorkload(descriptor: GeometryProductDescriptorV1)
     descriptor.hierarchyNodes.byteLength,
   );
   const groupMeshletCounts = new Uint16Array(
-    descriptor.groupDirectory.byteLength / OEGPACK_V3_GROUP_DIRECTORY_STRIDE,
+    descriptor.groupDirectory.byteLength / OEGPACK_V4_GROUP_DIRECTORY_STRIDE,
   );
   const assets: GeometryProductAssetWorkload[] = [];
-  for (let asset = 0; asset < descriptor.assetRecords.byteLength / OEGPACK_V3_ASSET_STRIDE; asset++) {
-    const rootBegin = assetView.getUint32(asset * OEGPACK_V3_ASSET_STRIDE + 72, true);
-    const rootCount = assetView.getUint32(asset * OEGPACK_V3_ASSET_STRIDE + 76, true);
+  for (let asset = 0; asset < descriptor.assetRecords.byteLength / OEGPACK_V4_ASSET_STRIDE; asset++) {
+    const rootBegin = assetView.getUint32(asset * OEGPACK_V4_ASSET_STRIDE + 72, true);
+    const rootCount = assetView.getUint32(asset * OEGPACK_V4_ASSET_STRIDE + 76, true);
     const nodes: number[] = [];
     const depths: number[] = [];
     const widths: number[] = [];
@@ -103,22 +103,22 @@ export function geometryProductWorkload(descriptor: GeometryProductDescriptorV1)
       const depth = depths.pop()!;
       widths[depth] = (widths[depth] ?? 0) + 1;
       maxDepth = Math.max(maxDepth, depth);
-      const packed = nodeView.getUint32(node * OEGPACK_V3_HIERARCHY_STRIDE + 44, true);
-      if (hierarchyNodeIsGroupV3(packed)) {
-        const group = hierarchyNodeGroupIdV3(packed);
+      const packed = nodeView.getUint32(node * OEGPACK_V4_HIERARCHY_STRIDE + 44, true);
+      if (hierarchyNodeIsGroupV4(packed)) {
+        const group = hierarchyNodeGroupIdV4(packed);
         if (groups.has(group)) {
           throw new RangeError("Product hierarchy selects a group more than once");
         }
         groups.add(group);
-        const count = hierarchyNodeMeshletCountV3(packed);
+        const count = hierarchyNodeMeshletCountV4(packed);
         if (groupMeshletCounts[group] !== 0 && groupMeshletCounts[group] !== count) {
           throw new RangeError("Product hierarchy group meshlet counts disagree");
         }
         groupMeshletCounts[group] = count;
         meshlets = checkedGeometryWorkCount(meshlets + count, "Product asset meshlets");
       } else {
-        const begin = hierarchyNodeChildStartV3(packed);
-        const count = hierarchyNodeChildCountV3(packed);
+        const begin = hierarchyNodeChildStartV4(packed);
+        const count = hierarchyNodeChildCountV4(packed);
         for (let child = 0; child < count; child++) {
           nodes.push(begin + child);
           depths.push(depth + 1);

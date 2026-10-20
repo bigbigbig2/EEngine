@@ -69,7 +69,6 @@ verifies:
     - OEngine/tests/oracle/native-temporal-v2-gpu.mjs
     - tools/gpu-oracle/registry.mjs
     - OEngine/src/assets/AssetLoadBatch.ts
-    - OEngine/src/assets/OegPackV3.ts
     - OEngine/src/assets/geometry-product
     - OEngine/src/assets/web-cook/WebCookCoordinator.ts
     - OEngine/src/gpu/GeometryPageScheduler.ts

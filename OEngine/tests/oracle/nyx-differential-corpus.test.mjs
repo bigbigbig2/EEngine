@@ -17,15 +17,15 @@ const { canonicalizeGlbPrimitiveV1 } = await import(
   "../../.test-dist/assets/web-cook/gltf/GlbPrimitiveCanonicalizer.js"
 );
 const {
-  decodeGroupHeaderV3,
-  decodeMeshletHeaderV3,
-  decodeHierarchyNodeV3,
-  hierarchyNodeIsGroupV3,
-  hierarchyNodeChildStartV3,
-  hierarchyNodeChildCountV3,
-  hierarchyNodeGroupIdV3,
-} = await import("../../.test-dist/assets/GeometryAbiV3.js");
-const { MemoryRangeReadablePackV3, openOegPackV3 } = await import("../../.test-dist/assets/OegPackV3.js");
+  decodeGroupHeaderV4,
+  decodeMeshletHeaderV4,
+  decodeHierarchyNodeV4,
+  hierarchyNodeIsGroupV4,
+  hierarchyNodeChildStartV4,
+  hierarchyNodeChildCountV4,
+  hierarchyNodeGroupIdV4,
+} = await import("../../.test-dist/assets/GeometryAbiV4.js");
+const { MemoryRangeReadablePackV4, openOegPackV4 } = await import("../../.test-dist/assets/OegPackV4.js");
 const { descriptorFromOegPack } = await import("../../.test-dist/assets/geometry-product/index.js");
 
 const cooker = resolve("tools/oengine-asset-core/build/oengine-asset-cooker.exe");
@@ -216,8 +216,8 @@ async function cookWithNativeOffline(glb) {
   const files = await readdir(output);
   const packName = files.find((name) => name.endsWith(".oegpack"));
   assert.ok(packName, "native cooker must emit one .oegpack");
-  const pack = await openOegPackV3(
-    new MemoryRangeReadablePackV3(new Uint8Array(await readFile(join(output, packName)))),
+  const pack = await openOegPackV4(
+    new MemoryRangeReadablePackV4(new Uint8Array(await readFile(join(output, packName)))),
   );
   const descriptor = descriptorFromOegPack(pack);
   const pages = [];
@@ -255,19 +255,19 @@ function assertFinestGridCoverage(sections, pages, size) {
     const page = pages[groups.getUint32(group * 16, true)];
     const view = new DataView(page.buffer, page.byteOffset + groups.getUint32(group * 16 + 4, true),
       groups.getUint32(group * 16 + 8, true));
-    const header = decodeGroupHeaderV3(view);
+    const header = decodeGroupHeaderV4(view);
     if (header.lodLevel !== 0) continue;
     const format = header.vertexFormatId * 16;
     const stride = formats.getUint16(format, true), positionOffset = formats.getUint8(format + 4);
     for (let m = 0; m < header.meshletCount; m++) {
-      const meshlet = decodeMeshletHeaderV3(view, header.meshletHeaderOffset + m * 48);
+      const meshlet = decodeMeshletHeaderV4(view, header.meshletHeaderOffset + m * 44);
       for (let triangle = 0; triangle < meshlet.triangleCount; triangle++) {
         const corners = [];
         for (let corner = 0; corner < 3; corner++) {
           const local = view.getUint8(meshlet.triangleByteOffset + triangle * 3 + corner);
           assert.ok(local < meshlet.vertexCount, "finest source corner must be in range");
-          const at = meshlet.vertexByteOffset + local * stride + positionOffset;
-          corners.push([0, 4, 8].map((offset) => view.getFloat32(at + offset, true)));
+          const at = meshlet.vertexByteOffset + local * 4 + positionOffset * meshlet.vertexCount;
+          corners.push([0, 4, 8].map((offset) => view.getFloat32(at + offset * meshlet.vertexCount, true)));
         }
         const key = triangleKey(corners), remaining = expected.get(key) ?? 0;
         assert.ok(remaining > 0, "finest cut duplicated, changed or reversed a source triangle");
@@ -306,7 +306,7 @@ function summarize(sections, pages) {
     sections.hierarchyNodes.byteLength,
   );
   for (let node = 0; node < sections.hierarchyNodes.byteLength / 48; node++)
-    maxError = Math.max(maxError, decodeHierarchyNodeV3(hierarchy, node * 48).maxParentError);
+    maxError = Math.max(maxError, decodeHierarchyNodeV4(hierarchy, node * 48).maxParentError);
   const groupView = new DataView(
     sections.groupDirectory.buffer,
     sections.groupDirectory.byteOffset,
@@ -322,11 +322,11 @@ function summarize(sections, pages) {
       page && offset + payload <= page.byteLength,
       `group ${group} payload must be wholly contained in page ${pageId}`,
     );
-    const header = decodeGroupHeaderV3(new DataView(page.buffer, page.byteOffset + offset, payload));
+    const header = decodeGroupHeaderV4(new DataView(page.buffer, page.byteOffset + offset, payload));
     const items = [];
     for (let meshlet = 0; meshlet < header.meshletCount; meshlet++) {
-      const item = decodeMeshletHeaderV3(
-        new DataView(page.buffer, page.byteOffset + offset + header.meshletHeaderOffset + meshlet * 48, 48),
+      const item = decodeMeshletHeaderV4(
+        new DataView(page.buffer, page.byteOffset + offset + header.meshletHeaderOffset + meshlet * 44, 44),
       );
       maxMeshletVertices = Math.max(maxMeshletVertices, item.vertexCount);
       maxMeshletTriangles = Math.max(maxMeshletTriangles, item.triangleCount);
@@ -411,20 +411,20 @@ function assertHierarchyAndBootstrap(sections) {
   const pageCount = sections.pageRecords.byteLength / 32;
   const nodeBounds = [];
   for (let node = 0; node < hierarchyCount; node++) {
-    const decoded = decodeHierarchyNodeV3(hierarchyView, node * 48);
+    const decoded = decodeHierarchyNodeV4(hierarchyView, node * 48);
     nodeBounds.push(decoded);
     assert.ok(
       decoded.maxParentError >= 0 && Number.isFinite(decoded.maxParentError),
       `hierarchy node ${node} error must be finite`,
     );
-    if (hierarchyNodeIsGroupV3(decoded.packedNodeData)) {
+    if (hierarchyNodeIsGroupV4(decoded.packedNodeData)) {
       assert.ok(
-        hierarchyNodeGroupIdV3(decoded.packedNodeData) < groupCount,
+        hierarchyNodeGroupIdV4(decoded.packedNodeData) < groupCount,
         `hierarchy leaf ${node} points outside Group directory`,
       );
     } else {
-      const childCount = hierarchyNodeChildCountV3(decoded.packedNodeData);
-      const childStart = hierarchyNodeChildStartV3(decoded.packedNodeData);
+      const childCount = hierarchyNodeChildCountV4(decoded.packedNodeData);
+      const childStart = hierarchyNodeChildStartV4(decoded.packedNodeData);
       assert.ok(childCount > 0 && childCount <= 8, `hierarchy node ${node} child count must be 1..8`);
       assert.ok(
         childStart < hierarchyCount && childStart + childCount <= hierarchyCount,

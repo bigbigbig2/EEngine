@@ -19,12 +19,12 @@ export type {
 export {
   BEVY_MESHLET_REFERENCE_COMMIT,
   GEOMETRY_COOK_RECIPE_VERSION,
-  GEOMETRY_COOK_RECIPE_V3_VERSION,
+  GEOMETRY_COOK_RECIPE_V4_VERSION,
   MESHOPTIMIZER_COOKER_COMMIT,
   NYX_GEOMETRY_REFERENCE_COMMIT,
   createGeometryCookRecipe,
-  createGeometryCookRecipeV3,
-  geometryCookRecipeV3Key,
+  createGeometryCookRecipeV4,
+  geometryCookRecipeV4Key,
   geometryCookRecipeKey
 } from "./assets/GeometryCookRecipe.js";
 export type {
@@ -33,7 +33,7 @@ export type {
   GeometryFloatMode,
   GeometryCookRecipe,
   GeometryCookRecipeInput,
-  GeometryCookRecipeV3,
+  GeometryCookRecipeV4,
   GeometryVertexProfile,
   MissingAttributePolicy,
   NonManifoldPolicy
@@ -85,12 +85,12 @@ export type { ImageTextureDirectory, ImageTexturePlane, ImageTextureItem, ImageT
 export type { ImageKernelSource } from "./gpu/ImageTextureTranscoder.js";
 export { RuntimeAssetResidencyState } from "./assets/RuntimeAssetResidency.js";
 export {
-  HttpRangeReadablePackV3,
-  MemoryRangeReadablePackV3,
-  OegPackV3Error,
-  openOegPackV3
-} from "./assets/OegPackV3.js";
-export type { OegPackHeaderV3, OegPackV3, RangeReadablePackV3 } from "./assets/OegPackV3.js";
+  HttpRangeReadablePackV4,
+  MemoryRangeReadablePackV4,
+  OegPackV4Error,
+  openOegPackV4
+} from "./assets/OegPackV4.js";
+export type { OegPackHeaderV4, OegPackV4, RangeReadablePackV4 } from "./assets/OegPackV4.js";
 export { WebCookCoordinator } from "./assets/web-cook/WebCookCoordinator.js";
 export type {
   WebCookCoordinatorEvidence,
@@ -146,21 +146,21 @@ export { load_oegpack_product, OegPackProductAsset } from "./assets/geometry-pro
 export type {
   OegPackProductAssetEvidenceV1,
   OegPackProductAssetOptions,
-  OegPackProductSourceSelectionV3
+  OegPackProductSourceSelectionV4
 } from "./assets/geometry-product/OegPackProductAsset.js";
 export { createOegPackSceneSource } from "./assets/geometry-product/OegPackSceneSourceV1.js";
 export {
-  OEGPACK_SCENE_MANIFEST_SCHEMA_V3,
+  OEGPACK_SCENE_MANIFEST_SCHEMA_V4,
   OegPackSceneManifestError,
-  parseOegPackSceneManifestV3,
-  resolveOegPackScenePackUrlV3
-} from "./assets/geometry-product/OegPackSceneManifestV3.js";
+  parseOegPackSceneManifestV4,
+  resolveOegPackScenePackUrlV4
+} from "./assets/geometry-product/OegPackSceneManifestV4.js";
 export type {
-  OegPackSceneManifestAssetV3,
-  OegPackSceneManifestInstanceV3,
-  OegPackSceneManifestPackV3,
-  OegPackSceneManifestV3
-} from "./assets/geometry-product/OegPackSceneManifestV3.js";
+  OegPackSceneManifestAssetV4,
+  OegPackSceneManifestInstanceV4,
+  OegPackSceneManifestPackV4,
+  OegPackSceneManifestV4
+} from "./assets/geometry-product/OegPackSceneManifestV4.js";
 export {
   buildVirtualGeometrySceneSourceV1,
   mergeVirtualGeometryProductSceneSourcesV1

@@ -69,7 +69,7 @@ void ValidateDomain(const MaterialDomain& domain) {
 
 }  // namespace
 
-void GenerateCanonicalNormalsV3(MaterialDomain& domain) {
+void GenerateCanonicalNormalsV4(MaterialDomain& domain) {
     for (CanonicalVertex& vertex : domain.vertices) {
         vertex.normal[0] = vertex.normal[1] = vertex.normal[2] = 0.0f;
     }
@@ -109,7 +109,7 @@ void GenerateCanonicalNormalsV3(MaterialDomain& domain) {
     domain.attributeMask |= kAttributeNormal;
 }
 
-void FinalizeCanonicalGeometryAssetV3(CanonicalGeometryAsset& asset) {
+void FinalizeCanonicalGeometryAssetV4(CanonicalGeometryAsset& asset) {
     if (asset.domains.empty()) throw std::runtime_error("canonical geometry asset has no domains");
     float minimum[3] = {
         std::numeric_limits<float>::infinity(),

@@ -6,7 +6,7 @@ import {
   type GeometryProductRevisionSourceV1,
 } from "../geometry-product/GeometryProductV1.js";
 import type { WebCookEvent } from "./protocol/CookSessionProtocol.js";
-import { OEGPACK_V3_ASSET_STRIDE } from "../GeometryAbiV3.js";
+import { OEGPACK_V4_ASSET_STRIDE } from "../GeometryAbiV4.js";
 import type { WebCookProductTaskTraceEventV1 } from "./ProductTaskTrace.js";
 
 export interface WebCookProductProviderOptions {
@@ -120,7 +120,7 @@ export class WebCookProductProvider implements GeometryProductProviderV1 {
       const descriptor = decodeGeometryProductDescriptorBinaryV1(event.descriptor);
       const key = productKey(descriptor.productId, descriptor.revision);
       if (this.#sources.has(key)) throw new Error("Web Cook offered a duplicate Product revision");
-      const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V3_ASSET_STRIDE;
+      const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V4_ASSET_STRIDE;
       if (
         event.sceneAssetIndices !== undefined &&
         (event.sceneAssetIndices.length !== assetCount ||

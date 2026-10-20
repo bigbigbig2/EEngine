@@ -12,11 +12,11 @@ Owners: Web Runtime Cooker、Offline/OEGPACK adapter、geometry admission owner
 
 ## Version/Compatibility
 
-本规范定义 Producer 与 Geometry Runtime 之间的逻辑合同，不规定 Cooker 的源码、算法、线程模型、缓存容器或文件布局。V1 仅接受 runtime profile `oengine-vg-v1-v3-decoded`；新增 page、vertex 或 hierarchy 布局必须使用新的 profile id，并在 consumer 存在后更新本规范。
+本规范定义 Producer 与 Geometry Runtime 之间的逻辑合同，不规定 Cooker 的源码、算法、线程模型、缓存容器或文件布局。V1 仅接受 runtime profile `oengine-vg-v3-soa4-query3`；新增 page、vertex 或 hierarchy 布局必须使用新的 profile id，并在 consumer 存在后更新本规范。
 
-V1 profile 复用 [OEGPACK V3](./oegpack-v3.md) 的 decoded Group/Meshlet payload、AssetRecord、HierarchyNode、GroupDirectory 和 VertexFormat 布局，但不包含 OEGPACK header、compressed offset、codec、CRC 或文件 hash。OEGPACK 只是该 profile 的一个 source adapter。
+V1 profile 复用 [OEGPACK V4](./oegpack-v4.md) 的 decoded Group/Meshlet payload、AssetRecord、HierarchyNode、GroupDirectory 和 VertexFormat 布局，但不包含 OEGPACK header、compressed offset、codec、CRC 或文件 hash。OEGPACK 只是该 profile 的一个 source adapter。
 
-当前cook profile为 `static-pbr-page-local-f32-lean-v7`，WASM输入ABI4；recipe参与内容identity。Group flags只接受bits0–5，旧serialized continuity bits6/7必须拒绝并要求recook，不保兼容decoder。删除的是无runtime reader的64B/triangle尾部，cook内部seam/lineage/error/attribute质量数学仍保留；runtime Product schema/version不因去掉该可选尾部自动升版。实际原子producer/consumer切换与验证见[V4执行§8.4.1](../next-execution/eengine-v4-native-shading-execution-2026-10.md#841-g22-实施结果与停止边界2026-10-08)。
+当前cook profile为 `static-pbr-soa-f32-v8`，WASM输入ABI7；recipe参与内容identity。Group flags只接受bits0–5，旧serialized continuity bits6/7必须拒绝并要求recook，不保兼容decoder。删除的是无runtime reader的64B/triangle尾部，cook内部seam/lineage/error/attribute质量数学仍保留；当前Product schema3/binary3/profile4，旧schema2及交错页明确拒绝。实际原子producer/consumer切换与验证见[V4执行§8.4.1](../next-execution/eengine-v4-native-shading-execution-2026-10.md#841-g22-实施结果与停止边界2026-10-08)。
 
 本 spec 冻结字段、作用域、状态和校验语义。跨 Worker 的二进制 descriptor transport 使用下述 `GeometryProductDescriptorBinaryV1`；任何 producer 必须生成 canonical offsets，Runtime 必须拒绝 alias、越界、非零 reserved 和 trailing bytes。WASM mirror 与 golden oracle 仍是 candidate gate。
 
@@ -97,7 +97,7 @@ Scene publication 在分配资源前检查 u32、r32 winner 24-bit work-slot nam
 | `recipeHash` | canonical producer recipe 的 SHA-256 |
 | `sourceIdentityKind` | `content-sha256`、`strong-http-validator` 或 `session` |
 | `sourceIdentityHash` | 对应 identity 的 32-byte hash；`session` 值只在本次加载稳定 |
-| `runtimeProfile` | V1 固定为 `oengine-vg-v1-v3-decoded` |
+| `runtimeProfile` | V1 固定为 `oengine-vg-v3-soa4-query3` |
 
 同一 producer identity、source identity、recipe hash、runtime profile、product scope、ProductID 和 revision 必须得到 byte-identical descriptor、PageID 顺序、activation cut 与 decoded page hash。无法保证确定性的并行算法必须改变 producer version 或 identity，不能复用同一 cache key。`session` identity 不承诺跨加载复用 ProductID 或持久 cache，但同一 CookSession 的多个 Product partition 必须由 scope 隔离，同一 partition 的多个 revision 必须保持其 ProductID 语义稳定。
 
@@ -114,7 +114,7 @@ producerKind / producerId / producerVersion
 sourceIdentityKind: enum
 sourceIdentityHash: bytes[32]
 recipeHash: bytes[32]
-runtimeProfile = "oengine-vg-v1-v3-decoded"
+runtimeProfile = "oengine-vg-v3-soa4-query3"
 decodedPageBytes = 262144
 assetRecords: byte array, stride 128
 rootNodeIds: u32 array
@@ -144,15 +144,15 @@ activationPageIds: sorted unique u32 array
 
 #### Descriptor binary transport
 
-`GeometryProductDescriptorBinaryV1` 使用 little-endian、256-byte header，magic 为 ASCII `OEGP`（字节 `4f 45 47 50`）。所有 section 起点按 16 byte 对齐，section 之间的 padding 必须为 0；`totalBytes` 必须等于最后一个 section 对齐后的长度，不允许 trailing bytes。固定表 stride 沿用本 spec：Asset 128、root `u32` 4、Hierarchy 48、Group 16、Page 32、VertexFormat 16、activation/bootstrap PageID 4。字符串是非空 UTF-8 bytes、不带 NUL；`producerId` 解码后仍须满足 printable ASCII。
+`GeometryProductDescriptorBinaryV1` 使用 little-endian、272-byte header，magic 为 ASCII `OEGP`（字节 `4f 45 47 50`）。所有 section 起点按 16 byte 对齐，section 之间的 padding 必须为 0；`totalBytes` 必须等于最后一个 section 对齐后的长度，不允许 trailing bytes。固定表 stride 沿用本 spec：Asset 128、root `u32` 4、Hierarchy 48、Group 16、Page 32、VertexFormat 16、activation/bootstrap PageID 4。字符串是非空 UTF-8 bytes、不带 NUL；`producerId` 解码后仍须满足 printable ASCII。
 
 | Byte | 类型 | 字段 |
 | ---: | --- | --- |
 | 0 | `u32` | magic = `0x5047454f` |
-| 4 | `u32` | transport version = 1 |
+| 4 | `u32` | transport version = 3 |
 | 8 | `u32` | header bytes = 256 |
 | 12 | `u32` | total bytes |
-| 16 | `u32` | runtime profile；V1 = 1 |
+| 16 | `u32` | runtime profile；SoA4 = 4 |
 | 20 | `u32` | producer kind；web-runtime = 1，offline-native = 2 |
 | 24 | `u32` | source identity kind；content-sha256 = 1，strong-http-validator = 2，session = 3 |
 | 28 | `u32` | flags；bit 0 = has replacement，bits 1..31 = 0 |
@@ -168,9 +168,9 @@ activationPageIds: sorted unique u32 array
 | 192..223 | `u8[32]` | recipe hash |
 | 224..255 | `u8[32]` | replaces ProductID；无 replacement 时必须全 0 |
 
-Canonical section 顺序固定为 `assetRecords -> rootNodeIds -> hierarchyNodes -> groupDirectory -> pageRecords -> bootstrapPageIds -> vertexFormats -> activationPageIds -> producerId -> producerVersion`；每段结束向 16 byte 对齐。count 乘 stride、offset 加 byte length 和最终总长度均须以防溢出的方式验证。Transport decode 后仍必须运行完整 `GeometryProductDescriptorV1` validator；binary validation 不能替代跨表/tree/activation 校验。
+Canonical section 顺序固定为 `assetRecords -> rootNodeIds -> hierarchyNodes -> groupDirectory -> pageRecords -> bootstrapPageIds -> vertexFormats -> activationPageIds -> producerId -> producerVersion -> querySection`；每段结束向 16 byte 对齐。count 乘 stride、offset 加 byte length 和最终总长度均须以防溢出的方式验证。Transport decode 后仍必须运行完整 `GeometryProductDescriptorV1` validator；binary validation 不能替代跨表/tree/activation 校验。
 
-descriptor 中的 V3-compatible table 必须通过 OEGPACK V3 的范围、树、Group、payload 和 vertex-format 不变量。Page record 的 Group range 必须连续、互不重叠并与 GroupDirectory 中的 PageID 一致。所有 PageID 都必须有且仅有一个 page record。AssetRecord 的 bootstrap range 引用 `bootstrapPageIds`；该表保留 per-asset range/order，元素必须合法且对应 asset 的可绘制 cut。
+descriptor 中的 V3-compatible table 必须通过 OEGPACK V4 的范围、树、Group、payload 和 vertex-format 不变量。Page record 的 Group range 必须连续、互不重叠并与 GroupDirectory 中的 PageID 一致。所有 PageID 都必须有且仅有一个 page record。AssetRecord 的 bootstrap range 引用 `bootstrapPageIds`；该表保留 per-asset range/order，元素必须合法且对应 asset 的可绘制 cut。
 
 `activationPageIds` 定义该 revision 可被 Runtime 激活所需的最小完整 cut：
 
@@ -301,3 +301,5 @@ recoverable refinement。只有完整 coverage 已经成立后的可选 replacem
 `sceneAssetIndices` 仍是 Product provider 到 Scene mapper 的只读元数据，不进入 Product 二进制 ABI。Web catalog 允许传递 glTF texture slot、UV transform、sampler、image URI/bufferView、mimeType 与 codec variant；image bytes 由 source owner 有界读取并在 mapper 阶段解码。Geometry Product 不保存 GPU texture handle，也不把未完成 image DAG 拼入 active revision。
 
 作者材质映射必须覆盖 base-color、metallic-roughness、normal、occlusion、emissive 及 `MASK` cutoff，并通过既有 `TextureResidency`/`TextureBindingSet` 完成原子 staging。Draco、`EXT_meshopt_compression`、skin、morph 等未支持 profile 必须拒绝；不能忽略 `extensionsRequired` 或静默回退 V2。Mode A 只表示网络/上传渐进，不作物理显存节省承诺。
+
+E4同切：querySection byteLength/offset位于header256/260，264..271为零；query为OGQ2 v3、160B header及80B cluster，source primitive/vertex remap不变。geometry准备协议6，图片准备4/冷导入5保持独立；Worker回执带真实0或4MiB decoder retained bytes。全部reader共用SoA4及缓存恢复的vertexCount，GPU publication/generation/银行增长/abort/fence所有权不变。

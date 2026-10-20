@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { open, readFile } from "node:fs/promises";
 import { resolve, dirname, relative, isAbsolute } from "node:path";
-import { openOegPackV3 } from "../.test-dist/assets/OegPackV3.js";
-import { parseOegPackSceneManifestV3 } from "../.test-dist/assets/geometry-product/OegPackSceneManifestV3.js";
+import { openOegPackV4 } from "../.test-dist/assets/OegPackV4.js";
+import { parseOegPackSceneManifestV4 } from "../.test-dist/assets/geometry-product/OegPackSceneManifestV4.js";
 import { readImageTextureDirectory, imageTextureHash } from "../.test-dist/assets/ImageTextureProduct.js";
 
 function localPath(base, uri) {
@@ -19,12 +19,12 @@ function localPath(base, uri) {
 
 const directory = resolve(process.argv[2] ?? ".local/models/bistro-cooked");
 const sceneBytes = await readFile(resolve(directory, "scene.oescene"));
-const scene = parseOegPackSceneManifestV3(sceneBytes);
+const scene = parseOegPackSceneManifestV4(sceneBytes);
 const packs = [];
 for (const reference of scene.packs) {
   const file = await open(localPath(directory, reference.uri), "r");
   try {
-    const pack = await openOegPackV3({
+    const pack = await openOegPackV4({
       async read(offset, length) {
         const bytes = new Uint8Array(length);
         let read = 0;

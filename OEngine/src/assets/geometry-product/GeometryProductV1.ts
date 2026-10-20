@@ -1,24 +1,25 @@
+import { decodeVertexFormatV4 } from "../GeometryAbiV4.js";
 import {
-  OEGPACK_V3_ASSET_STRIDE,
-  OEGPACK_V3_GROUP_DIRECTORY_STRIDE,
-  OEGPACK_V3_HIERARCHY_STRIDE,
-  OEGPACK_V3_INVALID_ID,
-  OEGPACK_V3_PAGE_BYTES,
-  OEGPACK_V3_VERTEX_FORMAT_STRIDE,
-  decodeHierarchyNodeV3,
-  hierarchyNodeChildCountV3,
-  hierarchyNodeChildStartV3,
-  hierarchyNodeGroupIdV3,
-  hierarchyNodeIsGroupV3,
-  hierarchyNodeMeshletCountV3,
-  type GeometryAssetRecordV3,
-  type GeometryGroupDirectoryV3,
-  type VertexFormatRecordV3,
-} from "../GeometryAbiV3.js";
+  OEGPACK_V4_ASSET_STRIDE,
+  OEGPACK_V4_GROUP_DIRECTORY_STRIDE,
+  OEGPACK_V4_HIERARCHY_STRIDE,
+  OEGPACK_V4_INVALID_ID,
+  OEGPACK_V4_PAGE_BYTES,
+  OEGPACK_V4_VERTEX_FORMAT_STRIDE,
+  decodeHierarchyNodeV4,
+  hierarchyNodeChildCountV4,
+  hierarchyNodeChildStartV4,
+  hierarchyNodeGroupIdV4,
+  hierarchyNodeIsGroupV4,
+  hierarchyNodeMeshletCountV4,
+  type GeometryAssetRecordV4,
+  type GeometryGroupDirectoryV4,
+  type VertexFormatRecordV4,
+} from "../GeometryAbiV4.js";
 import { validateGeometryProductQuerySection } from "./GeometryProductQuerySection.js";
 
-export const GEOMETRY_PRODUCT_SCHEMA_VERSION = 2;
-export const GEOMETRY_PRODUCT_RUNTIME_PROFILE = "oengine-vg-v2-v3-decoded-query3" as const;
+export const GEOMETRY_PRODUCT_SCHEMA_VERSION = 3;
+export const GEOMETRY_PRODUCT_RUNTIME_PROFILE = "oengine-vg-v3-soa4-query3" as const;
 export const GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE = 32;
 
 export type GeometryProductProducerKind = "web-runtime" | "offline-native";
@@ -30,7 +31,7 @@ export interface GeometryProductRevisionKeyV1 {
 }
 
 export interface GeometryProductDescriptorV1 {
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly productId: Uint8Array;
   readonly revision: number;
   readonly replaces?: GeometryProductRevisionKeyV1;
@@ -41,7 +42,7 @@ export interface GeometryProductDescriptorV1 {
   readonly sourceIdentityHash: Uint8Array;
   readonly recipeHash: Uint8Array;
   readonly runtimeProfile: typeof GEOMETRY_PRODUCT_RUNTIME_PROFILE;
-  readonly decodedPageBytes: typeof OEGPACK_V3_PAGE_BYTES;
+  readonly decodedPageBytes: typeof OEGPACK_V4_PAGE_BYTES;
   readonly assetRecords: Uint8Array;
   readonly rootNodeIds: Uint32Array;
   readonly hierarchyNodes: Uint8Array;
@@ -195,13 +196,13 @@ export function validateGeometryProductDescriptorV1(
       ...(index === undefined ? {} : { index }),
     });
   };
-  if (descriptor.schemaVersion !== 2) issue("version", "Geometry Product schemaVersion must be 2; recook source");
+  if (descriptor.schemaVersion !== 3) issue("version", "Geometry Product schemaVersion must be 3; recook source");
   if (descriptor.runtimeProfile !== GEOMETRY_PRODUCT_RUNTIME_PROFILE)
     issue("profile", "unsupported Geometry Product runtime profile");
   if (
     !Number.isInteger(descriptor.revision) ||
     descriptor.revision < 0 ||
-    descriptor.revision === OEGPACK_V3_INVALID_ID
+    descriptor.revision === OEGPACK_V4_INVALID_ID
   )
     issue("revision", "revision must be a valid u32");
   for (const [name, value] of [
@@ -219,23 +220,23 @@ export function validateGeometryProductDescriptorV1(
     issue("producer", "producerKind is invalid");
   if (!["content-sha256", "strong-http-validator", "session"].includes(descriptor.sourceIdentityKind))
     issue("source", "sourceIdentityKind is invalid");
-  if (descriptor.decodedPageBytes !== OEGPACK_V3_PAGE_BYTES)
+  if (descriptor.decodedPageBytes !== OEGPACK_V4_PAGE_BYTES)
     issue("page-size", "decodedPageBytes must be 256 KiB");
-  checkByteTable(descriptor.assetRecords, OEGPACK_V3_ASSET_STRIDE, "assetRecords", issue);
-  checkByteTable(descriptor.hierarchyNodes, OEGPACK_V3_HIERARCHY_STRIDE, "hierarchyNodes", issue);
-  checkByteTable(descriptor.groupDirectory, OEGPACK_V3_GROUP_DIRECTORY_STRIDE, "groupDirectory", issue);
+  checkByteTable(descriptor.assetRecords, OEGPACK_V4_ASSET_STRIDE, "assetRecords", issue);
+  checkByteTable(descriptor.hierarchyNodes, OEGPACK_V4_HIERARCHY_STRIDE, "hierarchyNodes", issue);
+  checkByteTable(descriptor.groupDirectory, OEGPACK_V4_GROUP_DIRECTORY_STRIDE, "groupDirectory", issue);
   checkByteTable(descriptor.pageRecords, GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE, "pageRecords", issue);
-  checkByteTable(descriptor.vertexFormats, OEGPACK_V3_VERTEX_FORMAT_STRIDE, "vertexFormats", issue);
-  if (descriptor.rootNodeIds.some((value) => value === OEGPACK_V3_INVALID_ID))
+  checkByteTable(descriptor.vertexFormats, OEGPACK_V4_VERTEX_FORMAT_STRIDE, "vertexFormats", issue);
+  if (descriptor.rootNodeIds.some((value) => value === OEGPACK_V4_INVALID_ID))
     issue("id", "rootNodeIds contains invalid id", "rootNodeIds");
-  if (descriptor.bootstrapPageIds.some((value) => value === OEGPACK_V3_INVALID_ID))
+  if (descriptor.bootstrapPageIds.some((value) => value === OEGPACK_V4_INVALID_ID))
     issue("id", "bootstrapPageIds contains invalid id", "bootstrapPageIds");
   if (!isStrictlyIncreasingUnique(descriptor.activationPageIds))
     issue("activation", "activationPageIds must be sorted and unique", "activationPageIds");
 
-  const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V3_ASSET_STRIDE;
-  const hierarchyCount = descriptor.hierarchyNodes.byteLength / OEGPACK_V3_HIERARCHY_STRIDE;
-  const groupCount = descriptor.groupDirectory.byteLength / OEGPACK_V3_GROUP_DIRECTORY_STRIDE;
+  const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V4_ASSET_STRIDE;
+  const hierarchyCount = descriptor.hierarchyNodes.byteLength / OEGPACK_V4_HIERARCHY_STRIDE;
+  const groupCount = descriptor.groupDirectory.byteLength / OEGPACK_V4_GROUP_DIRECTORY_STRIDE;
   const pageCount = descriptor.pageRecords.byteLength / GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE;
   const view = new DataView(
     descriptor.assetRecords.buffer,
@@ -265,22 +266,10 @@ export function validateGeometryProductDescriptorV1(
     descriptor.vertexFormats.byteLength,
   );
   for (let at = 0; at + 16 <= descriptor.vertexFormats.byteLength; at += 16) {
-    const stride = formatView.getUint16(at, true),
-      offset = formatView.getUint8(at + 4);
-    if (
-      formatView.getUint8(at + 10) !== 1 ||
-      (stride & 3) !== 0 ||
-      (offset & 3) !== 0 ||
-      offset + 12 > stride
-    ) {
-      issue(
-        "position-encoding",
-        "Product requires Float32x3 positions; recook obsolete U16 data",
-        "vertexFormats",
-        at / 16,
-      );
-    }
+    try { decodeVertexFormatV4(formatView, at); }
+    catch (error) { issue("vertex-format", String(error), "vertexFormats", at / 16); }
   }
+
   const bootstrap = new Set(descriptor.bootstrapPageIds);
   const pageGroups = new Map<number, number[]>();
   for (let group = 0; group < groupCount; group++) {
@@ -289,7 +278,7 @@ export function validateGeometryProductDescriptorV1(
     const offset = groupView.getUint32(group * 16 + 4, true),
       payload = groupView.getUint32(group * 16 + 8, true),
       flags = groupView.getUint32(group * 16 + 12, true);
-    if ((offset & 15) !== 0 || payload < 64 || offset + payload > OEGPACK_V3_PAGE_BYTES)
+    if ((offset & 15) !== 0 || payload < 64 || offset + payload > OEGPACK_V4_PAGE_BYTES)
       issue(
         "payload-range",
         `group ${group} payload is not aligned and wholly contained in its page`,
@@ -324,7 +313,7 @@ export function validateGeometryProductDescriptorV1(
       issue("page-groups", `page ${page} group range is not contiguous`, "pageRecords", page);
   }
   for (let asset = 0; asset < assetCount; asset++) {
-    const at = asset * OEGPACK_V3_ASSET_STRIDE;
+    const at = asset * OEGPACK_V4_ASSET_STRIDE;
     const rootBegin = view.getUint32(at + 72, true),
       rootCount = view.getUint32(at + 76, true);
     const hierarchyBegin = view.getUint32(at + 80, true),
@@ -361,14 +350,14 @@ export function validateGeometryProductDescriptorV1(
       }
       visitedNodes.add(node);
       const packed = hierarchyView.getUint32(node * 48 + 44, true);
-      if (hierarchyNodeIsGroupV3(packed)) {
-        const group = hierarchyNodeGroupIdV3(packed);
+      if (hierarchyNodeIsGroupV4(packed)) {
+        const group = hierarchyNodeGroupIdV4(packed);
         if (group < groupBegin || group >= groupBegin + groupSpan)
           issue("tree-group", `asset ${asset} leaf escapes group range`, "hierarchyNodes", node);
         else visitedGroups.add(group);
       } else {
-        const begin = hierarchyNodeChildStartV3(packed),
-          count = hierarchyNodeChildCountV3(packed);
+        const begin = hierarchyNodeChildStartV4(packed),
+          count = hierarchyNodeChildCountV4(packed);
         if (!count || count > 8 || begin < hierarchyBegin || begin + count > hierarchyBegin + hierarchySpan)
           issue("tree-child", `asset ${asset} child range is invalid`, "hierarchyNodes", node);
         else for (let child = 0; child < count; child++) stack.push(begin + child);
@@ -423,7 +412,7 @@ export function validateGeometryProductDescriptorV1(
     if (page >= pageCount)
       issue("activation-page", `activation page ${page} is outside page table`, "activationPageIds");
   for (let node = 0; node < hierarchyCount; node++) {
-    const decoded = decodeHierarchyNodeV3(hierarchyView, node * 48);
+    const decoded = decodeHierarchyNodeV4(hierarchyView, node * 48);
     if (
       ![...decoded.boundsSphere, ...decoded.bboxMin, ...decoded.bboxMax, decoded.maxParentError].every(
         Number.isFinite,
@@ -431,13 +420,13 @@ export function validateGeometryProductDescriptorV1(
     )
       issue("finite", `hierarchy node ${node} contains non-finite values`, "hierarchyNodes", node);
     const packed = decoded.packedNodeData;
-    if (hierarchyNodeIsGroupV3(packed)) {
-      if (hierarchyNodeGroupIdV3(packed) >= groupCount || hierarchyNodeMeshletCountV3(packed) < 1)
+    if (hierarchyNodeIsGroupV4(packed)) {
+      if (hierarchyNodeGroupIdV4(packed) >= groupCount || hierarchyNodeMeshletCountV4(packed) < 1)
         issue("tree-leaf", `hierarchy node ${node} references an invalid group`, "hierarchyNodes", node);
     } else if (
-      hierarchyNodeChildCountV3(packed) < 1 ||
-      hierarchyNodeChildCountV3(packed) > 8 ||
-      hierarchyNodeChildStartV3(packed) + hierarchyNodeChildCountV3(packed) > hierarchyCount
+      hierarchyNodeChildCountV4(packed) < 1 ||
+      hierarchyNodeChildCountV4(packed) > 8 ||
+      hierarchyNodeChildStartV4(packed) + hierarchyNodeChildCountV4(packed) > hierarchyCount
     )
       issue("tree-child", `hierarchy node ${node} has an invalid child range`, "hierarchyNodes", node);
   }
@@ -522,7 +511,7 @@ export function cloneGeometryProductDescriptorV1(
   });
 }
 
-export function encodeAssetRecordsV3(records: readonly GeometryAssetRecordV3[]): Uint8Array {
+export function encodeAssetRecordsV4(records: readonly GeometryAssetRecordV4[]): Uint8Array {
   const bytes = new Uint8Array(records.length * 128),
     view = new DataView(bytes.buffer);
   records.forEach((record, index) => {
@@ -549,7 +538,7 @@ export function encodeAssetRecordsV3(records: readonly GeometryAssetRecordV3[]):
   return bytes;
 }
 
-export function encodeGroupDirectoryV3(records: readonly GeometryGroupDirectoryV3[]): Uint8Array {
+export function encodeGroupDirectoryV4(records: readonly GeometryGroupDirectoryV4[]): Uint8Array {
   const bytes = new Uint8Array(records.length * 16),
     view = new DataView(bytes.buffer);
   records.forEach((record, index) => {
@@ -561,13 +550,14 @@ export function encodeGroupDirectoryV3(records: readonly GeometryGroupDirectoryV
   });
   return bytes;
 }
-export function encodeVertexFormatsV3(records: readonly VertexFormatRecordV3[]): Uint8Array {
+export function encodeVertexFormatsV4(records: readonly VertexFormatRecordV4[]): Uint8Array {
   const bytes = new Uint8Array(records.length * 16),
     view = new DataView(bytes.buffer);
   records.forEach((record, index) => {
     const at = index * 16;
     view.setUint8(at + 10, record.positionEncoding);
-    view.setUint16(at, record.strideBytes, true);
+    view.setUint8(at + 11, record.tangentSignEncoding);
+    view.setUint16(at, record.streamBytesPerVertex, true);
     view.setUint16(at + 2, record.attributeMask, true);
     [
       record.positionOffset,
@@ -605,9 +595,9 @@ function writeF32(view: DataView, at: number, values: readonly number[]): void {
 
 export function hierarchyNodesFromBytes(
   bytes: Uint8Array,
-): readonly ReturnType<typeof decodeHierarchyNodeV3>[] {
+): readonly ReturnType<typeof decodeHierarchyNodeV4>[] {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   return Object.freeze(
-    Array.from({ length: bytes.byteLength / 48 }, (_, index) => decodeHierarchyNodeV3(view, index * 48)),
+    Array.from({ length: bytes.byteLength / 48 }, (_, index) => decodeHierarchyNodeV4(view, index * 48)),
   );
 }

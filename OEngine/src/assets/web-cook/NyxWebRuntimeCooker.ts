@@ -1,4 +1,4 @@
-import { createGeometryCookRecipeV3, type GeometryCookRecipeV3 } from "../GeometryCookRecipe.js";
+import { createGeometryCookRecipeV4, type GeometryCookRecipeV4 } from "../GeometryCookRecipe.js";
 import {
   cookWasmGeometryProductRevisionV1,
   planWasmGeometryProductRevisionV1,
@@ -43,7 +43,7 @@ import type {
 } from "./ProductTaskTrace.js";
 
 export const NYX_WEB_RUNTIME_PRODUCER_ID = "oengine-nyx-web-runtime";
-export const NYX_WEB_RUNTIME_PRODUCER_VERSION = "nyx-b749346382b0-web-cooker-abi6-product-query3-scope";
+export const NYX_WEB_RUNTIME_PRODUCER_VERSION = "nyx-b749346382b0-web-cooker-abi7-soa4-product-query3-scope";
 /**
  * Producer version for plan-backed revisions.
  *
@@ -52,7 +52,7 @@ export const NYX_WEB_RUNTIME_PRODUCER_VERSION = "nyx-b749346382b0-web-cooker-abi
  * PENDING. Folding the phase into the version keeps the two phases from ever
  * claiming the same identity for different evidence.
  */
-export const NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION = "nyx-b749346382b0-web-cooker-abi6-plan-query3-scope";
+export const NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION = "nyx-b749346382b0-web-cooker-abi7-soa4-plan-query3-scope";
 export const WEB_COOK_DEFAULT_MAX_TRIANGLES_PER_PRODUCT = 128 * 1024;
 export const WEB_COOK_DEFAULT_MAX_VERTICES_PER_PRODUCT = 512 * 1024;
 export const WEB_COOK_DEFAULT_MAX_DOMAINS_PER_PRODUCT = 64;
@@ -62,10 +62,10 @@ export const WEB_COOK_DEFAULT_MAX_DOMAINS_PER_PRODUCT = 64;
  * recipe, so the first complete activation cut is resident sooner while the
  * richer revision converges in the background.
  */
-const DEFAULT_BOOTSTRAP_RECIPE: Partial<GeometryCookRecipeV3> = Object.freeze({ minimumLodReduction: 0.35 });
+const DEFAULT_BOOTSTRAP_RECIPE: Partial<GeometryCookRecipeV4> = Object.freeze({ minimumLodReduction: 0.35 });
 
 export interface NyxWebRuntimeCookerOptions {
-  readonly recipe?: Partial<GeometryCookRecipeV3>;
+  readonly recipe?: Partial<GeometryCookRecipeV4>;
   readonly maxCanonicalInputBytes: number;
   readonly maxSourceWindowBytes?: number;
   readonly maxDecodedProductBytes: number;
@@ -73,7 +73,7 @@ export interface NyxWebRuntimeCookerOptions {
   readonly maxVerticesPerProduct?: number;
   readonly maxDomainsPerProduct?: number;
   /** Coarse bootstrap recipe; the richer revision uses `recipe`. */
-  readonly bootstrapRecipe?: Partial<GeometryCookRecipeV3>;
+  readonly bootstrapRecipe?: Partial<GeometryCookRecipeV4>;
   /** Coalesced GLB range block budget (defaults to 1 MiB). */
   readonly rangeBlockBytes?: number;
   /** Maximum unused gap merged into one range block (defaults to 64 KiB). */
@@ -180,9 +180,9 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     )
       throw new RangeError("maxDecodedProductBytes must admit at least one page");
     this.#module = module;
-    this.#recipeInput = encodeWebGeometryCookRecipeV1(createGeometryCookRecipeV3(options.recipe));
+    this.#recipeInput = encodeWebGeometryCookRecipeV1(createGeometryCookRecipeV4(options.recipe));
     this.#bootstrapRecipeInput = encodeWebGeometryCookRecipeV1(
-      createGeometryCookRecipeV3({
+      createGeometryCookRecipeV4({
         ...(options.recipe ?? {}),
         ...DEFAULT_BOOTSTRAP_RECIPE,
         ...(options.bootstrapRecipe ?? {}),

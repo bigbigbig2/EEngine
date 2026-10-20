@@ -1,7 +1,7 @@
 import { NyxWebRuntimeCooker } from "./NyxWebRuntimeCooker.js";
 import { WebCookWorkerHost, type WebCookWorkerHostPort } from "./WebCookWorkerHost.js";
 import type { GlbRangeSourceOptions } from "../../loaders/gltf/streaming/GlbRangeSource.js";
-import type { GeometryCookRecipeV3 } from "../GeometryCookRecipe.js";
+import type { GeometryCookRecipeV4 } from "../GeometryCookRecipe.js";
 import type { EmscriptenWebGeometryCookerModuleV1 } from "./wasm/WebGeometryCookerAbi.js";
 import {
   createPreferredWebGeometryPageSpillStoreV1,
@@ -17,7 +17,7 @@ export interface WebCookWorkerEntryOptions {
   readonly port: WebCookWorkerHostPort;
   readonly moduleFactory: WebCookWorkerModuleFactory;
   readonly source?: GlbRangeSourceOptions;
-  readonly recipe?: Partial<GeometryCookRecipeV3>;
+  readonly recipe?: Partial<GeometryCookRecipeV4>;
   readonly maxCanonicalInputBytes: number;
   readonly maxSourceWindowBytes: number;
   readonly maxDecodedProductBytes: number;

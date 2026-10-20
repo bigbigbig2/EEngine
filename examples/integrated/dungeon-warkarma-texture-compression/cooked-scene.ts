@@ -6,7 +6,7 @@ import {
   load_oegpack_product,
   type OegPackProductAsset,
 } from "../../../OEngine/src/assets/geometry-product/OegPackProductAsset.ts";
-import { parseOegPackSceneManifestV3 } from "../../../OEngine/src/assets/geometry-product/OegPackSceneManifestV3.ts";
+import { parseOegPackSceneManifestV4 } from "../../../OEngine/src/assets/geometry-product/OegPackSceneManifestV4.ts";
 import {
   buildVirtualGeometrySceneSourceV1,
   mergeVirtualGeometryProductSceneSourcesV1,
@@ -103,7 +103,7 @@ export async function loadCookedScene(
   if ((await imageTextureHash(new Uint8Array(sceneBytes))) !== manifest.geometryManifestHash) {
     throw new Error("Offline geometry/material manifest identity mismatch");
   }
-  const geometryManifest = parseOegPackSceneManifestV3(sceneBytes);
+  const geometryManifest = parseOegPackSceneManifestV4(sceneBytes);
   if (
     geometryManifest.instances.length !== manifest.instanceMaterials.length ||
     manifest.instanceProfiles.length !== manifest.instanceMaterials.length ||

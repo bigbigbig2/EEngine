@@ -1,7 +1,7 @@
 /** Deterministic, device-independent inputs that affect cooked geometry bytes. */
 
 export const GEOMETRY_COOK_RECIPE_VERSION = 2;
-export const GEOMETRY_COOK_RECIPE_V3_VERSION = 3;
+export const GEOMETRY_COOK_RECIPE_V4_VERSION = 4;
 export const NYX_GEOMETRY_REFERENCE_COMMIT = "bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b";
 export const MESHOPTIMIZER_COOKER_COMMIT = "73583c335e541c139821d0de2bf5f12960a04941";
 export const BEVY_MESHLET_REFERENCE_COMMIT = "5f8270f2e049f90139a503d1e930070d926f9427";
@@ -14,9 +14,9 @@ export type GeometryHierarchyMode = "single-level" | "renderable";
 export type GeometryVertexProfile = "static-pbr-compact-v2" | "explicit-float32-fallback-v2";
 
 /** Runtime/debug mirror only; the native C++ recipe is production-authoritative. */
-export interface GeometryCookRecipeV3 {
+export interface GeometryCookRecipeV4 {
   readonly instanceSemantics: "cast-receive-explicit-v1";
-  readonly recipeVersion: 3;
+  readonly recipeVersion: 4;
   readonly meshoptimizerRevision: string;
   readonly hierarchyAlgorithmVersion: "nyx-hierarchy-v4.1-conservative-spheres";
   readonly meshletMaxVertices: number;
@@ -36,9 +36,8 @@ export interface GeometryCookRecipeV3 {
   readonly hierarchyFanout: 8;
   readonly pageShift: 18;
   readonly pagePackingAlgorithmVersion: "tier-locality-bounded-best-fit-16-v1";
-  readonly pageCodecPolicy: "lz4-or-raw";
-  readonly rawCodecThresholdBytes: number;
-  readonly vertexProfileVersion: "static-pbr-page-local-f32-lean-v7";
+  readonly pageCodecPolicy: "zstd-9-15-19-or-raw";
+  readonly vertexProfileVersion: "static-pbr-soa-f32-v8";
   readonly positionQuantization: "float32-object-space";
   readonly queryProfile: "shared-meshlet-source-remap-cut-v3";
   readonly bootstrapGeometryBudgetBytes: number;
@@ -47,10 +46,10 @@ export interface GeometryCookRecipeV3 {
   readonly floatMode: "ieee754-nearest-no-fast-math";
 }
 
-export function createGeometryCookRecipeV3(input: Partial<GeometryCookRecipeV3> = {}): GeometryCookRecipeV3 {
-  const recipe: GeometryCookRecipeV3 = {
+export function createGeometryCookRecipeV4(input: Partial<GeometryCookRecipeV4> = {}): GeometryCookRecipeV4 {
+  const recipe: GeometryCookRecipeV4 = {
     instanceSemantics: "cast-receive-explicit-v1",
-    recipeVersion: 3,
+    recipeVersion: 4,
     meshoptimizerRevision: "meshoptimizer-1.3-9e1f07b159d3",
     hierarchyAlgorithmVersion: "nyx-hierarchy-v4.1-conservative-spheres",
     meshletMaxVertices: 64,
@@ -70,9 +69,8 @@ export function createGeometryCookRecipeV3(input: Partial<GeometryCookRecipeV3> 
     hierarchyFanout: 8,
     pageShift: 18,
     pagePackingAlgorithmVersion: "tier-locality-bounded-best-fit-16-v1",
-    pageCodecPolicy: "lz4-or-raw",
-    rawCodecThresholdBytes: 256,
-    vertexProfileVersion: "static-pbr-page-local-f32-lean-v7",
+    pageCodecPolicy: "zstd-9-15-19-or-raw",
+    vertexProfileVersion: "static-pbr-soa-f32-v8",
     positionQuantization: "float32-object-space",
     queryProfile: "shared-meshlet-source-remap-cut-v3",
     bootstrapGeometryBudgetBytes: 64 * 1024 * 1024,
@@ -82,12 +80,12 @@ export function createGeometryCookRecipeV3(input: Partial<GeometryCookRecipeV3> 
     ...input,
   };
   if (
-    recipe.recipeVersion !== 3 ||
+    recipe.recipeVersion !== 4 ||
     recipe.instanceSemantics !== "cast-receive-explicit-v1" ||
-    recipe.vertexProfileVersion !== "static-pbr-page-local-f32-lean-v7" ||
+    recipe.vertexProfileVersion !== "static-pbr-soa-f32-v8" ||
     recipe.hierarchyAlgorithmVersion !== "nyx-hierarchy-v4.1-conservative-spheres"
   )
-    throw new RangeError("invalid GeometryCookRecipeV3 identity");
+    throw new RangeError("invalid GeometryCookRecipeV4 identity");
   assertIntegerInRange(recipe.meshletMaxVertices, 3, 128, "meshletMaxVertices");
   assertIntegerInRange(recipe.meshletMinTriangles, 1, recipe.meshletMaxTriangles, "meshletMinTriangles");
   assertIntegerInRange(recipe.meshletMaxTriangles, 1, 128, "meshletMaxTriangles");
@@ -104,12 +102,12 @@ export function createGeometryCookRecipeV3(input: Partial<GeometryCookRecipeV3> 
     recipe.hierarchyFanout !== 8 ||
     recipe.pageShift !== 18 ||
     recipe.pagePackingAlgorithmVersion !== "tier-locality-bounded-best-fit-16-v1" ||
-    recipe.pageCodecPolicy !== "lz4-or-raw" ||
+    recipe.pageCodecPolicy !== "zstd-9-15-19-or-raw" ||
     recipe.positionQuantization !== "float32-object-space" ||
     recipe.queryProfile !== "shared-meshlet-source-remap-cut-v3" ||
     recipe.bootstrapBudgetPolicy !== "scene-decoded-payload-hard-fail-v1"
   )
-    throw new RangeError("Geometry V3 ABI constants cannot be specialized per pack");
+    throw new RangeError("Geometry V4 ABI constants cannot be specialized per pack");
   assertFiniteInRange(
     recipe.simplifyUpdateFailureRatio,
     recipe.simplifyTargetRatio,
@@ -126,7 +124,7 @@ export function createGeometryCookRecipeV3(input: Partial<GeometryCookRecipeV3> 
   return Object.freeze(recipe);
 }
 
-export function geometryCookRecipeV3Key(recipe: GeometryCookRecipeV3): string {
+export function geometryCookRecipeV4Key(recipe: GeometryCookRecipeV4): string {
   return JSON.stringify({
     attributeErrorScale: canonicalRecipeF32(recipe.attributeErrorScale),
     bootstrapBudgetPolicy: recipe.bootstrapBudgetPolicy,
@@ -149,7 +147,6 @@ export function geometryCookRecipeV3Key(recipe: GeometryCookRecipeV3): string {
     pagePackingAlgorithmVersion: recipe.pagePackingAlgorithmVersion,
     pageShift: recipe.pageShift,
     positionQuantization: recipe.positionQuantization,
-    rawCodecThresholdBytes: recipe.rawCodecThresholdBytes,
     queryProfile: recipe.queryProfile,
     simplifyFailureRatio: canonicalRecipeF32(recipe.simplifyFailureRatio),
     simplifyPermissive: recipe.simplifyPermissive,

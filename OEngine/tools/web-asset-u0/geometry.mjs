@@ -3,8 +3,6 @@ import { join, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import assert from "node:assert/strict";
 import { root, out, hash, json } from "./common.mjs";
-import { openOegPackV3, MemoryRangeReadablePackV3 } from "../../.test-dist/assets/OegPackV3.js";
-import { decodeGroupHeaderV3, decodeMeshletHeaderV3 } from "../../.test-dist/assets/GeometryAbiV3.js";
 
 await mkdir(join(out, "geometry"), { recursive: true });
 const create = (await import(pathToFileURL(join(out, "geometry.mjs")))).default;
@@ -82,7 +80,7 @@ for (const scenePath of paths) {
   report.maxOldGroupBytes = 0; report.maxNewGroupBytes = 0;
   for (const entry of selected) {
     const path = join(dirname(scenePath), entry.uri), file = await readFile(path);
-    const pack = file.readUInt32LE(12) === 0 ? inspectV30(file) : await openOegPackV3(new MemoryRangeReadablePackV3(Uint8Array.from(file)));
+    const pack = inspectV30(file);
     report.packs.push({ path, bytes: file.length, sha256: hash(file), assets: pack.assets.length, pages: pack.pages.length });
     const pages = new Map();
     async function page(id) { if (!pages.has(id)) pages.set(id, (await pack.readPage(id)).bytes); return pages.get(id); }
@@ -94,13 +92,13 @@ for (const scenePath of paths) {
       const positions = new Map();
       for (let groupId = 0; groupId < pack.groups.length; groupId++) {
         const location = pack.groups[groupId], bytes = await page(location.pageId), view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), base = location.offsetInDecodedPage;
-        const group = decodeGroupHeaderV3(view, base), format = pack.vertexFormats[group.vertexFormatId];
+        const group = decodeHistoricalGroup(view, base), format = pack.vertexFormats[group.vertexFormatId];
         const groupData = { groupId, header: group, format, meshlets: [], base, bytes };
         groups.push(groupData);
         report.oldGroupBytes += group.payloadBytes;
         report.maxOldGroupBytes = Math.max(report.maxOldGroupBytes, group.payloadBytes);
         for (let m = 0; m < group.meshletCount; m++) {
-          const header = decodeMeshletHeaderV3(view, base + group.meshletHeaderOffset + m * 48);
+          const header = decodeHistoricalMeshlet(view, base + group.meshletHeaderOffset + m * 48);
           const id = meshlets.length; parent.push(id);
           const vertices = [], min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
           for (let v = 0; v < header.vertexCount; v++) {
@@ -256,3 +254,7 @@ await writeFile(join(out, "texture/boundary.zst"), (await compress(boundaryBytes
 await writeFile(join(out, "geometry-results.json"), JSON.stringify({ result, gpuCases, streamCases, boundary: { hash: hash(boundaryBytes), bytes: boundaryBytes.length },
   precision: "source-exact; union welded positions across material, assets and all LOD within each selected pack; compact eligibility is conservative, no lossy profile authorized", node: process.version }, null, 2) + "\n");
 wasm._free(boundsPointer);
+
+// Isolated historical U0 layout reader; never an E4 production decoder.
+function decodeHistoricalGroup(v, at) { return { meshletCount: v.getUint16(at+44,true), lodLevel:v.getUint8(at+46), vertexFormatId:v.getUint8(at+47), meshletHeaderOffset:v.getUint32(at+48,true), payloadBytes:v.getUint32(at+60,true) }; }
+function decodeHistoricalMeshlet(v, at) { return { vertexCount:v.getUint16(at,true), triangleCount:v.getUint16(at+2,true), vertexByteOffset:v.getUint32(at+4,true), triangleByteOffset:v.getUint32(at+8,true), refineGroupId:v.getUint32(at+12,true), materialId:v.getUint32(at+16,true) }; }

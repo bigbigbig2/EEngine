@@ -9,25 +9,25 @@
 
 namespace oengine::asset {
 
-struct WrittenPackV3 {
+struct WrittenPackV4 {
     std::string path;
     Hash256 packId{};
     std::vector<std::uint32_t> sourceAssetIndices;
 };
 
-struct WriteSceneResultV3 {
+struct WriteSceneResultV4 {
     std::string scenePath;
-    std::vector<WrittenPackV3> packs;
-    CookEvidenceV3 evidence;
+    std::vector<WrittenPackV4> packs;
+    CookEvidenceV4 evidence;
 };
 
-WriteSceneResultV3 CookAndWriteSceneV3(
+WriteSceneResultV4 CookAndWriteSceneV4(
     const std::string& inputPath,
     const std::string& outputDirectory,
-    const GeometryCookRecipeV3& recipe,
+    const GeometryCookRecipeV4& recipe,
     std::uint64_t targetShardBytes,
     std::uint32_t workerCount);
 
-void ValidateOegPackV3File(const std::string& path, bool verifyPagePayloads);
+void ValidateOegPackV4File(const std::string& path, bool verifyPagePayloads);
 
 }  // namespace oengine::asset

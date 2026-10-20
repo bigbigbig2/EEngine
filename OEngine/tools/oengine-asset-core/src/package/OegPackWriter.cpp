@@ -2,7 +2,7 @@
 #include "oengine_asset/DecodedGeometryProduct.h"
 #include "oengine_asset/OegPackCodec.h"
 
-#include "lz4.h"
+#include "oengine_asset/GeometryZstd.h"
 
 #include <algorithm>
 #include <chrono>
@@ -27,19 +27,19 @@ namespace {
 
 struct EncodedPage {
     std::vector<std::uint8_t> encoded;
-    GeometryPageDirectoryV3 directory{};
+    GeometryPageDirectoryV4 directory{};
 };
 
 /** Descriptor validation also runs with page decoding disabled. Metadata
  * hashes prove integrity, not that a cut covers the declared Product. */
 std::vector<std::uint32_t> ValidateQuerySection(
-    const std::uint8_t* bytes, std::size_t size, const OegPackHeaderV3& header,
-    const std::vector<GeometryAssetRecordV3>& assets,
-    const std::vector<GeometryHierarchyNodeV3>& hierarchy,
-    const std::vector<GeometryGroupDirectoryV3>& groups) {
+    const std::uint8_t* bytes, std::size_t size, const OegPackHeaderV4& header,
+    const std::vector<GeometryAssetRecordV4>& assets,
+    const std::vector<GeometryHierarchyNodeV4>& hierarchy,
+    const std::vector<GeometryGroupDirectoryV4>& groups) {
     const auto word = [&](std::size_t at) {
         std::uint32_t value;
-        DecodeRecordV3(bytes + at, &value);
+        DecodeRecordV4(bytes + at, &value);
         return value;
     };
     const auto require = [](bool valid, const char* reason) {
@@ -67,7 +67,7 @@ std::vector<std::uint32_t> ValidateQuerySection(
     require(cursor == size && counts[0] == assets.size(), "unowned bytes/assets");
     std::vector<std::uint32_t> groupCounts(groups.size(), 0u);
     for (const auto& node : hierarchy) {
-        if (IsGroupLeafV3(node.packedNodeData)) {
+        if (IsGroupLeafV4(node.packedNodeData)) {
             const auto group = (node.packedNodeData >> 1u) & 0x00ffffffu;
             require(group < groups.size(), "hierarchy group is invalid");
             groupCounts[group] = (node.packedNodeData >> 25u) + 1u;
@@ -258,7 +258,7 @@ void RequireLittleEndian() {
 template <typename T>
 void WriteRecord(std::vector<std::uint8_t>& bytes, std::uint64_t offset, const T& value) {
     if (offset + sizeof(T) > bytes.size()) throw std::runtime_error("record write exceeds pack allocation");
-    EncodeRecordV3(bytes.data() + offset, value);
+    EncodeRecordV4(bytes.data() + offset, value);
 }
 
 template <typename T>
@@ -266,7 +266,7 @@ void WriteRecords(std::vector<std::uint8_t>& bytes, std::uint64_t offset, const 
     if (!values.empty()) {
         const std::uint64_t size = values.size() * sizeof(T);
         if (offset + size > bytes.size()) throw std::runtime_error("record table exceeds pack allocation");
-        for (std::size_t index = 0u; index < values.size(); ++index) EncodeRecordV3(bytes.data() + offset + index * sizeof(T), values[index]);
+        for (std::size_t index = 0u; index < values.size(); ++index) EncodeRecordV4(bytes.data() + offset + index * sizeof(T), values[index]);
     }
 }
 
@@ -275,7 +275,7 @@ std::vector<T> ReadRecords(const std::vector<std::uint8_t>& bytes, std::uint64_t
     const std::uint64_t size = std::uint64_t(count) * sizeof(T);
     if (offset > bytes.size() || size > bytes.size() - offset) throw std::runtime_error("record table is outside file bounds");
     std::vector<T> output(count);
-    for (std::uint32_t index = 0u; index < count; ++index) DecodeRecordV3(bytes.data() + offset + std::uint64_t(index) * sizeof(T), &output[index]);
+    for (std::uint32_t index = 0u; index < count; ++index) DecodeRecordV4(bytes.data() + offset + std::uint64_t(index) * sizeof(T), &output[index]);
     return output;
 }
 
@@ -300,29 +300,19 @@ void WriteFile(const std::string& path, const std::vector<std::uint8_t>& bytes) 
 
 
 
-std::uint64_t AssetDecodedBytes(const CookedAssetV3& asset) {
+std::uint64_t AssetDecodedBytes(const CookedAssetV4& asset) {
     std::uint64_t bytes = 0u;
-    for (const SerializedGroupV3& group : asset.groups) bytes += group.bytes.size();
+    for (const SerializedGroupV4& group : asset.groups) bytes += group.bytes.size();
     return bytes;
 }
 
 void CompressPage(
     const DecodedGeometryPageV1& decoded, EncodedPage& page,
-    const GeometryCookRecipeV3& recipe) {
-    std::vector<char> lz4(static_cast<std::size_t>(LZ4_compressBound(int(kGeometryPageBytesV3))), char(0));
-    const int compressed = LZ4_compress_default(
-        reinterpret_cast<const char*>(decoded.bytes.data()), lz4.data(),
-        int(kGeometryPageBytesV3), int(lz4.size()));
-    if (compressed <= 0) throw std::runtime_error("LZ4 compression failed");
-    if (std::uint32_t(compressed) >= kGeometryPageBytesV3 - recipe.rawCodecThresholdBytes) {
-        page.encoded = decoded.bytes;
-        page.directory.codec = kPageCodecRaw256K;
-    } else {
-        page.encoded.assign(reinterpret_cast<const std::uint8_t*>(lz4.data()), reinterpret_cast<const std::uint8_t*>(lz4.data()) + compressed);
-        page.directory.codec = kPageCodecLz4Block;
-    }
+    const GeometryCookRecipeV4&) {
+    page.encoded = EncodeGeometryZstd(decoded.bytes);
+    page.directory.codec = page.encoded.size() < decoded.bytes.size() ? kPageCodecZstdFrame : kPageCodecRaw256K;
     page.directory.compressedBytes = std::uint32_t(page.encoded.size());
-    page.directory.decodedBytes = kGeometryPageBytesV3;
+    page.directory.decodedBytes = kGeometryPageBytesV4;
     page.directory.firstGroup = decoded.firstGroup;
     page.directory.groupCount = decoded.groupCount;
     std::copy(
@@ -332,10 +322,10 @@ void CompressPage(
     page.directory.flags = decoded.bootstrap ? kGroupBootstrap : 0u;
 }
 
-WrittenPackV3 WritePack(
-    const std::string& outputDirectory, std::vector<CookedAssetV3> assets,
-    const std::vector<std::uint32_t>& sourceIndices, const GeometryCookRecipeV3& recipe,
-    std::uint32_t workerCount, CookEvidenceV3& evidence, std::vector<double>& pageFills) {
+WrittenPackV4 WritePack(
+    const std::string& outputDirectory, std::vector<CookedAssetV4> assets,
+    const std::vector<std::uint32_t>& sourceIndices, const GeometryCookRecipeV4& recipe,
+    std::uint32_t workerCount, CookEvidenceV4& evidence, std::vector<double>& pageFills) {
     DecodedGeometryProductV1 product = AssembleDecodedGeometryProductV1(std::move(assets));
     std::vector<EncodedPage> encodedPages(product.pages.size());
     const std::size_t concurrency = std::max<std::size_t>(1u, workerCount);
@@ -351,24 +341,24 @@ WrittenPackV3 WritePack(
         for (auto& task : compression) task.get();
     }
 
-    OegPackHeaderV3 header{};
-    std::copy(kOegPackMagicV3.begin(), kOegPackMagicV3.end(), header.magic);
-    header.formatMajor = kOegPackFormatMajorV3; header.formatMinor = kOegPackFormatMinorV3;
-    header.endianMarker = kOegPackEndianMarker; header.headerBytes = kOegPackHeaderBytesV3;
-    header.pageShift = kGeometryPageShiftV3; header.pageBytes = kGeometryPageBytesV3;
-    header.defaultCodec = kPageCodecLz4Block;
+    OegPackHeaderV4 header{};
+    std::copy(kOegPackMagicV4.begin(), kOegPackMagicV4.end(), header.magic);
+    header.formatMajor = kOegPackFormatMajorV4; header.formatMinor = kOegPackFormatMinorV4;
+    header.endianMarker = kOegPackEndianMarker; header.headerBytes = kOegPackHeaderBytesV4;
+    header.pageShift = kGeometryPageShiftV4; header.pageBytes = kGeometryPageBytesV4;
+    header.defaultCodec = kPageCodecZstdFrame;
     header.assetCount = std::uint32_t(product.assets.size()); header.rootNodeIndexCount = std::uint32_t(product.roots.size());
     header.hierarchyNodeCount = std::uint32_t(product.hierarchy.size()); header.groupCount = std::uint32_t(product.groups.size());
     header.pageCount = std::uint32_t(product.pages.size()); header.vertexFormatCount = std::uint32_t(product.formats.size());
     header.bootstrapPageCount = std::uint32_t(product.bootstrapPages.size());
     std::uint64_t cursor = sizeof(header);
-    header.assetDirectoryOffset = cursor; cursor = AlignUp64(cursor + product.assets.size() * sizeof(GeometryAssetRecordV3), 16u);
+    header.assetDirectoryOffset = cursor; cursor = AlignUp64(cursor + product.assets.size() * sizeof(GeometryAssetRecordV4), 16u);
     header.rootNodeIndexOffset = cursor; cursor = AlignUp64(cursor + product.roots.size() * sizeof(std::uint32_t), 16u);
-    header.hierarchyOffset = cursor; cursor = AlignUp64(cursor + product.hierarchy.size() * sizeof(GeometryHierarchyNodeV3), 16u);
-    header.groupDirectoryOffset = cursor; cursor = AlignUp64(cursor + product.groups.size() * sizeof(GeometryGroupDirectoryV3), 16u);
-    header.pageDirectoryOffset = cursor; cursor = AlignUp64(cursor + encodedPages.size() * sizeof(GeometryPageDirectoryV3), 16u);
+    header.hierarchyOffset = cursor; cursor = AlignUp64(cursor + product.hierarchy.size() * sizeof(GeometryHierarchyNodeV4), 16u);
+    header.groupDirectoryOffset = cursor; cursor = AlignUp64(cursor + product.groups.size() * sizeof(GeometryGroupDirectoryV4), 16u);
+    header.pageDirectoryOffset = cursor; cursor = AlignUp64(cursor + encodedPages.size() * sizeof(GeometryPageDirectoryV4), 16u);
     header.bootstrapPageOffset = cursor; cursor = AlignUp64(cursor + product.bootstrapPages.size() * sizeof(std::uint32_t), 16u);
-    header.vertexFormatOffset = cursor; cursor = AlignUp64(cursor + product.formats.size() * sizeof(VertexFormatRecordV3), 16u);
+    header.vertexFormatOffset = cursor; cursor = AlignUp64(cursor + product.formats.size() * sizeof(VertexFormatRecordV4), 16u);
     header.querySectionOffset = cursor; header.querySectionBytes = product.querySection.size();
     cursor = AlignUp64(cursor + header.querySectionBytes, 256u);
     header.pageBlobOffset = cursor;
@@ -379,7 +369,7 @@ WrittenPackV3 WritePack(
     header.fileBytes = cursor;
     const Hash256 recipeHash = Sha256(CanonicalRecipeJson(recipe));
     std::copy(recipeHash.begin(), recipeHash.end(), header.recipeHash);
-    std::vector<GeometryPageDirectoryV3> pageDirectories;
+    std::vector<GeometryPageDirectoryV4> pageDirectories;
     for (const EncodedPage& page : encodedPages) pageDirectories.push_back(page.directory);
     std::vector<std::uint8_t> bytes(std::size_t(header.fileBytes), 0u);
     WriteRecord(bytes, 0u, header);
@@ -398,16 +388,16 @@ WrittenPackV3 WritePack(
     const std::string id = Hex(packHash);
     const std::string path = JoinPath(outputDirectory, "geometry-" + id.substr(0u, 20u) + ".oegpack");
     WriteFile(path, bytes);
-    ValidateOegPackV3File(path, true);
+    ValidateOegPackV4File(path, true);
 
-    evidence.pageCount += product.pages.size(); evidence.decodedPageBytes += product.pages.size() * std::uint64_t(kGeometryPageBytesV3);
+    evidence.pageCount += product.pages.size(); evidence.decodedPageBytes += product.pages.size() * std::uint64_t(kGeometryPageBytesV4);
     for (std::size_t pageIndex = 0u; pageIndex < product.pages.size(); ++pageIndex) {
         const DecodedGeometryPageV1& page = product.pages[pageIndex];
-        evidence.compressedPageBytes += encodedPages[pageIndex].encoded.size(); evidence.wastedPaddingBytes += kGeometryPageBytesV3 - page.usedBytes;
+        evidence.compressedPageBytes += encodedPages[pageIndex].encoded.size(); evidence.wastedPaddingBytes += kGeometryPageBytesV4 - page.usedBytes;
         if (page.bootstrap) { ++evidence.bootstrapPageCount; evidence.bootstrapGeometryBytes += page.usedBytes; }
-        pageFills.push_back(double(page.usedBytes) / double(kGeometryPageBytesV3));
+        pageFills.push_back(double(page.usedBytes) / double(kGeometryPageBytesV4));
     }
-    WrittenPackV3 written; written.path = path; written.packId = packHash; written.sourceAssetIndices = sourceIndices;
+    WrittenPackV4 written; written.path = path; written.packId = packHash; written.sourceAssetIndices = sourceIndices;
     return written;
 }
 
@@ -421,14 +411,14 @@ std::string JsonEscape(const std::string& text) {
 }
 
 void WriteSceneManifest(
-    const std::string& path, const ImportedSceneV3& imported,
-    const std::vector<CookedAssetV3>& cooked, const std::vector<WrittenPackV3>& packs) {
+    const std::string& path, const ImportedSceneV4& imported,
+    const std::vector<CookedAssetV4>& cooked, const std::vector<WrittenPackV4>& packs) {
     struct Location { std::uint32_t pack = 0u; std::uint32_t record = 0u; };
     std::vector<Location> locations(cooked.size());
     for (std::uint32_t packIndex = 0; packIndex < packs.size(); ++packIndex) for (std::uint32_t record = 0; record < packs[packIndex].sourceAssetIndices.size(); ++record) locations[packs[packIndex].sourceAssetIndices[record]] = {packIndex, record};
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
     if (!output) throw std::runtime_error("cannot create scene manifest");
-    output << std::setprecision(9) << "{\n  \"schema\": \"oengine-scene-v3\",\n  \"instanceSemantics\": \"cast-receive-explicit-v1\",\n  \"packs\": [\n";
+    output << std::setprecision(9) << "{\n  \"schema\": \"oengine-scene-v4\",\n  \"instanceSemantics\": \"cast-receive-explicit-v1\",\n  \"packs\": [\n";
     for (std::size_t i = 0; i < packs.size(); ++i) {
         output << "    {\"packId\":\"" << Hex(packs[i].packId) << "\",\"uri\":\"" << JsonEscape(FileName(packs[i].path)) << "\"}" << (i + 1u == packs.size() ? "\n" : ",\n");
     }
@@ -438,7 +428,7 @@ void WriteSceneManifest(
     }
     output << "  ],\n  \"instances\": [\n";
     for (std::size_t i = 0; i < imported.instances.size(); ++i) {
-        const SceneInstanceV3& instance = imported.instances[i];
+        const SceneInstanceV4& instance = imported.instances[i];
         output << "    {\"asset\":" << instance.assetIndex << ",\"materialBindingTable\":0,\"flags\":" << instance.flags << ",\"transform\":[";
         for (std::size_t m = 0; m < 16u; ++m) output << (m ? "," : "") << instance.worldTransform[m];
         output << "]}" << (i + 1u == imported.instances.size() ? "\n" : ",\n");
@@ -449,33 +439,33 @@ void WriteSceneManifest(
 
 }  // namespace
 
-WriteSceneResultV3 CookAndWriteSceneV3(
+WriteSceneResultV4 CookAndWriteSceneV4(
     const std::string& inputPath, const std::string& outputDirectory,
-    const GeometryCookRecipeV3& recipe, std::uint64_t targetShardBytes,
+    const GeometryCookRecipeV4& recipe, std::uint64_t targetShardBytes,
     std::uint32_t workerCount) {
     RequireLittleEndian(); ValidateRecipe(recipe);
     const auto started = std::chrono::steady_clock::now();
     CreateDirectories(outputDirectory);
     std::cerr << "phase=import\n";
-    ImportedSceneV3 imported = ImportGltfCanonical(inputPath);
+    ImportedSceneV4 imported = ImportGltfCanonical(inputPath);
     std::cerr << "phase=hierarchy assets=" << imported.assets.size() << "\n";
     const std::uint64_t sourceBytes = FileSize(inputPath);
-    std::vector<CookedAssetV3> cooked(imported.assets.size());
-    std::vector<CookEvidenceV3> assetEvidence(imported.assets.size());
+    std::vector<CookedAssetV4> cooked(imported.assets.size());
+    std::vector<CookEvidenceV4> assetEvidence(imported.assets.size());
     const std::uint32_t concurrency = std::max(1u, workerCount);
     for (std::size_t begin = 0; begin < imported.assets.size(); begin += concurrency) {
         std::vector<std::future<void>> tasks;
         for (std::size_t index = begin; index < std::min(imported.assets.size(), begin + concurrency); ++index) {
-            tasks.push_back(std::async(std::launch::async, [&, index]() { cooked[index] = CookGeometryAssetV3(imported.assets[index], recipe, assetEvidence[index]); }));
+            tasks.push_back(std::async(std::launch::async, [&, index]() { cooked[index] = CookGeometryAssetV4(imported.assets[index], recipe, assetEvidence[index]); }));
         }
         for (auto& task : tasks) task.get();
     }
-    WriteSceneResultV3 result;
+    WriteSceneResultV4 result;
     result.evidence.sourceBytes = sourceBytes;
-    for (const CookEvidenceV3& item : assetEvidence) AddEvidence(result.evidence, item);
+    for (const CookEvidenceV4& item : assetEvidence) AddEvidence(result.evidence, item);
     for (const CanonicalGeometryAsset& asset : imported.assets) for (const MaterialDomain& domain : asset.domains) result.evidence.uniqueGeometryBytes += domain.vertices.size() * sizeof(CanonicalVertex) + domain.indices.size() * sizeof(std::uint32_t);
     std::uint64_t bootstrapPayloadBytes = 0u;
-    for (const CookedAssetV3& asset : cooked) for (const SerializedGroupV3& group : asset.groups) if (group.flags & kGroupBootstrap) bootstrapPayloadBytes += group.bytes.size();
+    for (const CookedAssetV4& asset : cooked) for (const SerializedGroupV4& group : asset.groups) if (group.flags & kGroupBootstrap) bootstrapPayloadBytes += group.bytes.size();
     if (bootstrapPayloadBytes > recipe.bootstrapGeometryBudgetBytes) throw std::runtime_error("scene bootstrap geometry budget exceeded");
 
     std::vector<std::vector<std::uint32_t>> shards;
@@ -489,7 +479,7 @@ WriteSceneResultV3 CookAndWriteSceneV3(
     std::vector<double> pageFills;
     for (const std::vector<std::uint32_t>& shard : shards) {
         std::cerr << "phase=pack assets=" << shard.size() << "\n";
-        std::vector<CookedAssetV3> assets;
+        std::vector<CookedAssetV4> assets;
         for (std::uint32_t index : shard) assets.push_back(cooked[index]);
         result.packs.push_back(WritePack(outputDirectory, std::move(assets), shard, recipe, concurrency, result.evidence, pageFills));
     }
@@ -509,19 +499,19 @@ WriteSceneResultV3 CookAndWriteSceneV3(
     return result;
 }
 
-void ValidateOegPackV3File(const std::string& path, bool verifyPages) {
+void ValidateOegPackV4File(const std::string& path, bool verifyPages) {
     RequireLittleEndian();
     std::vector<std::uint8_t> bytes = ReadFile(path);
-    if (bytes.size() < sizeof(OegPackHeaderV3)) throw std::runtime_error("pack is shorter than V3 header");
-    OegPackHeaderV3 header{}; DecodeRecordV3(bytes.data(), &header);
-    if (!std::equal(kOegPackMagicV3.begin(), kOegPackMagicV3.end(), header.magic)) throw std::runtime_error("invalid OEGPACK magic");
-    if (header.formatMajor != 3u || header.formatMinor != 1u) throw std::runtime_error("OEGPACK query geometry requires V3.1; recook source");
+    if (bytes.size() < sizeof(OegPackHeaderV4)) throw std::runtime_error("pack is shorter than V3 header");
+    OegPackHeaderV4 header{}; DecodeRecordV4(bytes.data(), &header);
+    if (!std::equal(kOegPackMagicV4.begin(), kOegPackMagicV4.end(), header.magic)) throw std::runtime_error("invalid OEGPACK magic");
+    if (header.formatMajor != 4u || header.formatMinor != 0u) throw std::runtime_error("OEGPACK query geometry requires V4.0; recook source");
     if (header.endianMarker != kOegPackEndianMarker || header.headerBytes != 256u) throw std::runtime_error("invalid endian/header contract");
-    if (header.pageShift != 18u || header.pageBytes != kGeometryPageBytesV3) throw std::runtime_error("invalid V3 page size contract");
-    if (header.flags != 0u || header.defaultCodec != kPageCodecLz4Block || header.reserved0 != 0u || std::any_of(std::begin(header.reserved), std::end(header.reserved), [](std::uint8_t value) { return value != 0u; })) throw std::runtime_error("header flags/default codec/reserved bytes are invalid");
+    if (header.pageShift != 18u || header.pageBytes != kGeometryPageBytesV4) throw std::runtime_error("invalid V3 page size contract");
+    if (header.flags != 0u || header.defaultCodec != kPageCodecZstdFrame || header.reserved0 != 0u || std::any_of(std::begin(header.reserved), std::end(header.reserved), [](std::uint8_t value) { return value != 0u; })) throw std::runtime_error("header flags/default codec/reserved bytes are invalid");
     if (header.fileBytes != bytes.size() || header.pageBlobOffset > bytes.size()) throw std::runtime_error("pack file size is inconsistent");
     if (header.pageBlobOffset % 256u != 0u) throw std::runtime_error("page blob is not 256-byte aligned");
-    std::uint64_t previousTableEnd = sizeof(OegPackHeaderV3);
+    std::uint64_t previousTableEnd = sizeof(OegPackHeaderV4);
     const auto validateTable = [&](std::uint64_t start, std::uint32_t count, std::uint64_t stride, std::uint64_t alignment, const char* name) {
         const std::uint64_t size = std::uint64_t(count) * stride;
         if (start % alignment != 0u || start < previousTableEnd || start > header.pageBlobOffset || size > header.pageBlobOffset - start) {
@@ -529,13 +519,13 @@ void ValidateOegPackV3File(const std::string& path, bool verifyPages) {
         }
         previousTableEnd = start + size;
     };
-    validateTable(header.assetDirectoryOffset, header.assetCount, sizeof(GeometryAssetRecordV3), 16u, "asset");
+    validateTable(header.assetDirectoryOffset, header.assetCount, sizeof(GeometryAssetRecordV4), 16u, "asset");
     validateTable(header.rootNodeIndexOffset, header.rootNodeIndexCount, sizeof(std::uint32_t), 16u, "root node");
-    validateTable(header.hierarchyOffset, header.hierarchyNodeCount, sizeof(GeometryHierarchyNodeV3), 16u, "hierarchy");
-    validateTable(header.groupDirectoryOffset, header.groupCount, sizeof(GeometryGroupDirectoryV3), 16u, "group");
-    validateTable(header.pageDirectoryOffset, header.pageCount, sizeof(GeometryPageDirectoryV3), 16u, "page");
+    validateTable(header.hierarchyOffset, header.hierarchyNodeCount, sizeof(GeometryHierarchyNodeV4), 16u, "hierarchy");
+    validateTable(header.groupDirectoryOffset, header.groupCount, sizeof(GeometryGroupDirectoryV4), 16u, "group");
+    validateTable(header.pageDirectoryOffset, header.pageCount, sizeof(GeometryPageDirectoryV4), 16u, "page");
     validateTable(header.bootstrapPageOffset, header.bootstrapPageCount, sizeof(std::uint32_t), 16u, "bootstrap");
-    validateTable(header.vertexFormatOffset, header.vertexFormatCount, sizeof(VertexFormatRecordV3), 16u, "vertex format");
+    validateTable(header.vertexFormatOffset, header.vertexFormatCount, sizeof(VertexFormatRecordV4), 16u, "vertex format");
     if (header.querySectionBytes < 128u || header.querySectionBytes >= kInvalidId)
         throw std::runtime_error("query section size is invalid");
     validateTable(header.querySectionOffset, std::uint32_t(header.querySectionBytes), 1u, 16u, "query section");
@@ -544,32 +534,29 @@ void ValidateOegPackV3File(const std::string& path, bool verifyPages) {
     std::fill(metadata.begin() + 176u, metadata.begin() + 208u, 0u);
     if (Sha256(metadata) != expectedPackHash) throw std::runtime_error("pack content hash mismatch");
 
-    const auto assets = ReadRecords<GeometryAssetRecordV3>(bytes, header.assetDirectoryOffset, header.assetCount);
+    const auto assets = ReadRecords<GeometryAssetRecordV4>(bytes, header.assetDirectoryOffset, header.assetCount);
     const auto roots = ReadRecords<std::uint32_t>(bytes, header.rootNodeIndexOffset, header.rootNodeIndexCount);
-    const auto hierarchy = ReadRecords<GeometryHierarchyNodeV3>(bytes, header.hierarchyOffset, header.hierarchyNodeCount);
-    const auto groups = ReadRecords<GeometryGroupDirectoryV3>(bytes, header.groupDirectoryOffset, header.groupCount);
-    const auto pages = ReadRecords<GeometryPageDirectoryV3>(bytes, header.pageDirectoryOffset, header.pageCount);
-    const auto formats = ReadRecords<VertexFormatRecordV3>(bytes, header.vertexFormatOffset, header.vertexFormatCount);
+    const auto hierarchy = ReadRecords<GeometryHierarchyNodeV4>(bytes, header.hierarchyOffset, header.hierarchyNodeCount);
+    const auto groups = ReadRecords<GeometryGroupDirectoryV4>(bytes, header.groupDirectoryOffset, header.groupCount);
+    const auto pages = ReadRecords<GeometryPageDirectoryV4>(bytes, header.pageDirectoryOffset, header.pageCount);
+    const auto formats = ReadRecords<VertexFormatRecordV4>(bytes, header.vertexFormatOffset, header.vertexFormatCount);
     const auto bootstrap = ReadRecords<std::uint32_t>(bytes, header.bootstrapPageOffset, header.bootstrapPageCount);
     if (assets.empty() || roots.empty() || hierarchy.empty() || groups.empty() || pages.empty() || formats.empty() || bootstrap.empty()) throw std::runtime_error("required resident metadata table is empty");
-    for (const GeometryAssetRecordV3& asset : assets) {
+    for (const GeometryAssetRecordV4& asset : assets) {
         if (asset.rootNodeBegin + asset.rootNodeCount > roots.size() || asset.hierarchyBegin + asset.hierarchyCount > hierarchy.size() || asset.groupBegin + asset.groupCount > groups.size() || asset.bootstrapPageBegin + asset.bootstrapPageCount > bootstrap.size()) throw std::runtime_error("asset metadata range is invalid");
         if (asset.rootNodeCount == 0u || asset.bootstrapPageCount == 0u) throw std::runtime_error("asset has no root/bootstrap cut");
         if (asset.flags != 0u || asset.reserved[0] != 0u || asset.reserved[1] != 0u) throw std::runtime_error("asset flags/reserved fields are invalid");
     }
-    constexpr std::uint16_t kKnownAttributes = kAttributePosition | kAttributeNormal | kAttributeTangent | kAttributeUv0 | kAttributeUv1 | kAttributeColor;
-    for (const VertexFormatRecordV3& format : formats) {
-        if ((format.attributeMask & (kAttributePosition | kAttributeNormal)) != (kAttributePosition | kAttributeNormal) || (format.attributeMask & ~kKnownAttributes) != 0u || format.strideBytes == 0u || format.positionEncoding != 1u || (format.positionOffset & 3u) != 0u || (format.strideBytes & 3u) != 0u || format.positionOffset + 12u > format.strideBytes || format.normalOffset + 4u > format.strideBytes || std::any_of(std::begin(format.reserved), std::end(format.reserved), [](std::uint8_t value) { return value != 0u; })) throw std::runtime_error("vertex format record is invalid");
-        const auto optionalRange = [&](std::uint8_t offset, std::uint32_t width) { return offset == 0xffu || std::uint32_t(offset) + width <= format.strideBytes; };
-        if (!optionalRange(format.tangentOffset, 6u) || !optionalRange(format.uv0Offset, 4u) || !optionalRange(format.uv1Offset, 4u) || !optionalRange(format.colorOffset, 4u)) throw std::runtime_error("vertex format optional attribute range is invalid");
+    for (const VertexFormatRecordV4& format : formats) {
+        if (!IsGeometryVertexFormatV4(format)) throw std::runtime_error("noncanonical SoA vertex format");
     }
     for (std::uint32_t root : roots) if (root >= hierarchy.size()) throw std::runtime_error("root node index is invalid");
-    for (const GeometryHierarchyNodeV3& node : hierarchy) {
+    for (const GeometryHierarchyNodeV4& node : hierarchy) {
         for (float value : node.boundsSphere) if (!std::isfinite(value)) throw std::runtime_error("hierarchy sphere is non-finite");
         for (float value : node.bboxMin) if (!std::isfinite(value)) throw std::runtime_error("hierarchy bboxMin is non-finite");
         for (float value : node.bboxMax) if (!std::isfinite(value)) throw std::runtime_error("hierarchy bboxMax is non-finite");
         if (!std::isfinite(node.maxParentError)) throw std::runtime_error("hierarchy error is non-finite");
-        if (IsGroupLeafV3(node.packedNodeData)) {
+        if (IsGroupLeafV4(node.packedNodeData)) {
             const std::uint32_t start = (node.packedNodeData >> 1u) & 0x00ffffffu;
             if (start >= groups.size()) throw std::runtime_error("hierarchy leaf group is invalid");
         } else {
@@ -578,7 +565,7 @@ void ValidateOegPackV3File(const std::string& path, bool verifyPages) {
             if (count == 0u || count > 8u || start + count > hierarchy.size()) throw std::runtime_error("hierarchy child range is invalid");
         }
     }
-    for (const GeometryAssetRecordV3& asset : assets) {
+    for (const GeometryAssetRecordV4& asset : assets) {
         const std::uint32_t nodeEnd = asset.hierarchyBegin + asset.hierarchyCount;
         const std::uint32_t groupEnd = asset.groupBegin + asset.groupCount;
         std::vector<std::uint8_t> reachedNodes(asset.hierarchyCount, 0u);
@@ -594,8 +581,8 @@ void ValidateOegPackV3File(const std::string& path, bool verifyPages) {
             std::uint8_t& reached = reachedNodes[nodeId - asset.hierarchyBegin];
             if (reached) continue;
             reached = 1u;
-            const GeometryHierarchyNodeV3& node = hierarchy[nodeId];
-            if (IsGroupLeafV3(node.packedNodeData)) {
+            const GeometryHierarchyNodeV4& node = hierarchy[nodeId];
+            if (IsGroupLeafV4(node.packedNodeData)) {
                 const std::uint32_t group = (node.packedNodeData >> 1u) & 0x00ffffffu;
                 if (group < asset.groupBegin || group >= groupEnd) throw std::runtime_error("asset hierarchy leaf escapes its group range");
                 reachedGroups[group - asset.groupBegin] = 1u;
@@ -613,34 +600,36 @@ void ValidateOegPackV3File(const std::string& path, bool verifyPages) {
         std::size_t(header.querySectionBytes), header, assets, hierarchy, groups);
     const auto queryWord = [&](std::size_t at) {
         std::uint32_t value;
-        DecodeRecordV3(bytes.data() + header.querySectionOffset + at, &value);
+        DecodeRecordV4(bytes.data() + header.querySectionOffset + at, &value);
         return value;
     };
     std::uint64_t previousEnd = header.pageBlobOffset;
     std::set<std::uint32_t> bootstrapSet(bootstrap.begin(), bootstrap.end());
     for (std::uint32_t id : bootstrap) if (id >= pages.size()) throw std::runtime_error("bootstrap page id is invalid");
-    std::vector<GroupHeaderV3> decodedGroups(groups.size());
+    std::vector<GroupHeaderV4> decodedGroups(groups.size());
     std::vector<std::uint8_t> decodedGroupPresent(groups.size(), 0u);
     struct RefineEdge { std::uint32_t coarseGroup; std::uint32_t fineGroup; };
     std::vector<RefineEdge> refineEdges;
     std::vector<std::pair<std::size_t, std::uint32_t>> queryRefinements;
     for (std::uint32_t pageId = 0u; pageId < pages.size(); ++pageId) {
-        const GeometryPageDirectoryV3& page = pages[pageId];
+        const GeometryPageDirectoryV4& page = pages[pageId];
         if ((page.flags & ~kGroupBootstrap) != 0u || page.reserved0 != 0u || page.reserved1 != 0u) throw std::runtime_error("page flags/reserved fields are invalid");
-        if (page.decodedBytes != kGeometryPageBytesV3 || page.compressedBytes == 0u) throw std::runtime_error("page size is invalid");
+        if (page.decodedBytes != kGeometryPageBytesV4 || (page.compressedBytes == 0u || page.compressedBytes > kGeometryPageBytesV4)) throw std::runtime_error("page size is invalid");
         if (page.compressedFileOffset < previousEnd || page.compressedFileOffset + page.compressedBytes > bytes.size()) throw std::runtime_error("compressed page ranges overlap or exceed file");
         previousEnd = page.compressedFileOffset + page.compressedBytes;
         if (page.firstGroup >= groups.size() || page.groupCount == 0u) throw std::runtime_error("page group summary is invalid");
         if (!verifyPages) continue;
         const std::uint8_t* encoded = bytes.data() + page.compressedFileOffset;
         if (Crc32(encoded, page.compressedBytes) != page.compressedChecksum) throw std::runtime_error("compressed page checksum mismatch");
-        std::vector<std::uint8_t> decoded(kGeometryPageBytesV3);
+        std::vector<std::uint8_t> decoded(kGeometryPageBytesV4);
         if (page.codec == kPageCodecRaw256K) {
-            if (page.compressedBytes != kGeometryPageBytesV3) throw std::runtime_error("raw page is not exactly 256 KiB");
+            if (page.compressedBytes != kGeometryPageBytesV4) throw std::runtime_error("raw page is not exactly 256 KiB");
             std::memcpy(decoded.data(), encoded, decoded.size());
-        } else if (page.codec == kPageCodecLz4Block) {
-            const int result = LZ4_decompress_safe(reinterpret_cast<const char*>(encoded), reinterpret_cast<char*>(decoded.data()), int(page.compressedBytes), int(decoded.size()));
-            if (result != int(decoded.size())) throw std::runtime_error("LZ4 page does not decode to exactly 256 KiB");
+        } else if (page.codec == kPageCodecZstdFrame) {
+            if (!IsGeometryZstdFrame(encoded, page.compressedBytes, decoded.size()))
+                throw std::runtime_error("Invalid bounded geometry Zstd frame");
+            const auto result = ZSTD_decompress(decoded.data(), decoded.size(), encoded, page.compressedBytes);
+            if (ZSTD_isError(result) || result != decoded.size()) throw std::runtime_error("Geometry Zstd decode failed");
         } else throw std::runtime_error("unsupported page codec");
         // Page identity is rolled up from the page's Group payloads and checked
         // once those payloads are located below; there is deliberately no
@@ -652,7 +641,7 @@ void ValidateOegPackV3File(const std::string& path, bool verifyPages) {
         std::vector<std::uint32_t> identityPayloadBytes;
         std::vector<Hash256> identityPayloadDigests;
         for (std::uint32_t groupId = 0u; groupId < groups.size(); ++groupId) {
-            const GeometryGroupDirectoryV3& directory = groups[groupId];
+            const GeometryGroupDirectoryV4& directory = groups[groupId];
             if (directory.pageId != pageId) continue;
             ++groupsOnPage;
             constexpr std::uint32_t kKnownGroupFlags = kGroupBootstrap | kGroupOpaque | kGroupMask | kGroupBlend | kGroupTwoSided | kGroupSimplificationFallback;
@@ -660,22 +649,22 @@ void ValidateOegPackV3File(const std::string& path, bool verifyPages) {
             minimumGroup = std::min(minimumGroup, groupId);
             pageContainsBootstrap = pageContainsBootstrap || (directory.flags & kGroupBootstrap) != 0u;
             if (directory.pageId != pageId || directory.offsetInDecodedPage % 16u != 0u || directory.offsetInDecodedPage + directory.payloadBytes > decoded.size()) throw std::runtime_error("group page mapping is invalid");
-            if (directory.payloadBytes < sizeof(GroupHeaderV3)) throw std::runtime_error("group payload is too small");
+            if (directory.payloadBytes < sizeof(GroupHeaderV4)) throw std::runtime_error("group payload is too small");
             identityGroupIds.push_back(groupId);
             identityPayloadBytes.push_back(directory.payloadBytes);
             identityPayloadDigests.push_back(Sha256(
                 decoded.data() + directory.offsetInDecodedPage, directory.payloadBytes));
-            GroupHeaderV3 group{}; DecodeRecordV3(decoded.data() + directory.offsetInDecodedPage, &group);
+            GroupHeaderV4 group{}; DecodeRecordV4(decoded.data() + directory.offsetInDecodedPage, &group);
             if (group.payloadBytes != directory.payloadBytes || group.meshletCount == 0u || group.meshletCount > 128u || group.vertexFormatId >= formats.size()) throw std::runtime_error("group header is invalid");
             for (float value : group.boundsSphere) if (!std::isfinite(value)) throw std::runtime_error("group sphere is non-finite");
             for (float value : group.bboxMin) if (!std::isfinite(value)) throw std::runtime_error("group bboxMin is non-finite");
             for (float value : group.bboxMax) if (!std::isfinite(value)) throw std::runtime_error("group bboxMax is non-finite");
             if (!std::isfinite(group.parentError)) throw std::runtime_error("group parent error is non-finite");
-            if (group.meshletHeaderOffset != 64u || group.meshletHeaderOffset + group.meshletCount * sizeof(MeshletHeaderV3) > group.triangleDataOffset || group.triangleDataOffset > group.vertexDataOffset || group.vertexDataOffset > group.payloadBytes) throw std::runtime_error("group section offsets are invalid");
+            if (group.meshletHeaderOffset != 64u || group.meshletHeaderOffset + group.meshletCount * sizeof(MeshletHeaderV4) > group.triangleDataOffset || group.triangleDataOffset > group.vertexDataOffset || group.vertexDataOffset > group.payloadBytes) throw std::runtime_error("group section offsets are invalid");
             decodedGroups[groupId] = group; decodedGroupPresent[groupId] = 1u;
             for (std::uint32_t meshletIndex = 0u; meshletIndex < group.meshletCount; ++meshletIndex) {
-                MeshletHeaderV3 meshlet{};
-                DecodeRecordV3(decoded.data() + directory.offsetInDecodedPage + group.meshletHeaderOffset + meshletIndex * sizeof(meshlet), &meshlet);
+                MeshletHeaderV4 meshlet{};
+                DecodeRecordV4(decoded.data() + directory.offsetInDecodedPage + group.meshletHeaderOffset + meshletIndex * sizeof(meshlet), &meshlet);
                 if (meshlet.vertexCount == 0u || meshlet.vertexCount > 128u || meshlet.triangleCount == 0u || meshlet.triangleCount > 128u) throw std::runtime_error("meshlet count exceeds V3 limits");
                 constexpr std::uint32_t kKnownMeshletFlags = kMeshletOpaque | kMeshletMask | kMeshletBlend | kMeshletTwoSided | kMeshletCastsShadow;
                 if ((meshlet.flags & ~kKnownMeshletFlags) != 0u) throw std::runtime_error("meshlet flags are invalid");
@@ -700,19 +689,18 @@ void ValidateOegPackV3File(const std::string& path, bool verifyPages) {
                     refineEdges.push_back({groupId, meshlet.refineGroupId});
                 }
                 const std::uint64_t triangleEnd = std::uint64_t(meshlet.triangleByteOffset) + meshlet.triangleCount * 3u;
-                const std::uint64_t vertexEnd = std::uint64_t(meshlet.vertexByteOffset) + std::uint64_t(meshlet.vertexCount) * formats[group.vertexFormatId].strideBytes;
+                const std::uint64_t vertexEnd = std::uint64_t(meshlet.vertexByteOffset) + GeometryVertexPayloadBytes(meshlet.vertexCount, formats[group.vertexFormatId]);
                 if (meshlet.triangleByteOffset < group.triangleDataOffset || triangleEnd > group.vertexDataOffset || meshlet.vertexByteOffset < group.vertexDataOffset || vertexEnd > group.payloadBytes) throw std::runtime_error("meshlet data offset is invalid");
                 const std::uint8_t* triangles = decoded.data() + directory.offsetInDecodedPage + meshlet.triangleByteOffset;
                 for (std::uint32_t i = 0; i < meshlet.triangleCount * 3u; ++i) if (triangles[i] >= meshlet.vertexCount) throw std::runtime_error("meshlet local triangle index is invalid");
                 for (std::uint32_t vertex = 0u; vertex < meshlet.vertexCount; ++vertex) {
-                    const auto& format = formats[group.vertexFormatId];
                     const auto at = directory.offsetInDecodedPage + meshlet.vertexByteOffset +
-                        std::size_t(vertex) * format.strideBytes + format.positionOffset;
+                        std::size_t(vertex) * 4u;
                     for (std::uint32_t axis = 0u; axis < 3u; ++axis) {
                         float position, queryLow, queryHigh;
                         const auto lowBits = queryWord(queryAt + 32u + axis * 4u);
                         const auto highBits = queryWord(queryAt + 44u + axis * 4u);
-                        std::memcpy(&position, decoded.data() + at + axis * 4u, sizeof(position));
+                        std::memcpy(&position, decoded.data() + at + axis * meshlet.vertexCount * 4u, sizeof(position));
                         std::memcpy(&queryLow, &lowBits, sizeof(queryLow));
                         std::memcpy(&queryHigh, &highBits, sizeof(queryHigh));
                         if (!std::isfinite(position) || position < meshlet.bboxMin[axis] ||
@@ -738,8 +726,8 @@ void ValidateOegPackV3File(const std::string& path, bool verifyPages) {
     if (verifyPages) {
         if (std::find(decodedGroupPresent.begin(), decodedGroupPresent.end(), 0u) != decodedGroupPresent.end()) throw std::runtime_error("a group payload was not decoded from any page");
         for (const RefineEdge& edge : refineEdges) {
-            const GroupHeaderV3& coarse = decodedGroups[edge.coarseGroup];
-            const GroupHeaderV3& fine = decodedGroups[edge.fineGroup];
+            const GroupHeaderV4& coarse = decodedGroups[edge.coarseGroup];
+            const GroupHeaderV4& fine = decodedGroups[edge.fineGroup];
             if (coarse.lodLevel <= fine.lodLevel) throw std::runtime_error("refinement LOD is not strictly finer");
             if (coarse.parentError + 1.0e-5f < fine.parentError) throw std::runtime_error("refinement parent error is not monotonic");
         }
@@ -759,7 +747,7 @@ void ValidateOegPackV3File(const std::string& path, bool verifyPages) {
             }
         }
     }
-    for (const GeometryAssetRecordV3& asset : assets) {
+    for (const GeometryAssetRecordV4& asset : assets) {
         std::set<std::uint32_t> assetBootstrap;
         for (std::uint32_t i = 0u; i < asset.bootstrapPageCount; ++i) {
             const std::uint32_t pageId = bootstrap[asset.bootstrapPageBegin + i];

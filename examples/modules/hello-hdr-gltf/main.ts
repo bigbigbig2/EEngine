@@ -3,7 +3,7 @@ import {
   buildVirtualGeometrySceneSourceV1,
   load_oegpack_product,
   load_environment_map,
-  parseOegPackSceneManifestV3,
+  parseOegPackSceneManifestV4,
   OrbitControls,
   PerspectiveCamera,
   ProjectionMappingType,
@@ -183,7 +183,7 @@ async function start(): Promise<void> {
   const sceneResponse = await fetch(`${base}${manifest.geometryManifest}`, { signal: loadAbort.signal });
   if (!sceneResponse.ok) throw new Error(`无法读取预烘焙场景清单 (${sceneResponse.status})`);
   const sceneBytes = await sceneResponse.arrayBuffer();
-  const sceneManifest = parseOegPackSceneManifestV3(sceneBytes);
+  const sceneManifest = parseOegPackSceneManifestV4(sceneBytes);
   const images = Array.from({ length: manifest.source.images }, () =>
     ShadeImage.fromEncodedImage(new ArrayBuffer(0), "image/png")
   );

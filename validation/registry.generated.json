@@ -79,9 +79,9 @@
       "buildTarget": "host",
       "caseKind": "component",
       "changedPaths": [
-        "validation/cases/oegpack-v3-component",
-        "OEngine/src/assets/GeometryAbiV3.ts",
-        "OEngine/src/shaders/oegpack_v3_decode.ts"
+        "validation/cases/oegpack-v4-component",
+        "OEngine/src/assets/GeometryAbiV4.ts",
+        "OEngine/src/shaders/oegpack_v4_decode.ts"
       ],
       "decision": "ADR-0016",
       "domain": "virtual-assets",
@@ -93,14 +93,14 @@
         }
       ],
       "harness": "gpu",
-      "id": "oegpack-v3-component",
+      "id": "oegpack-v4-component",
       "kind": "oracle",
       "lab": false,
       "level": "L3",
       "profile": "smoke",
-      "route": "/cases/oegpack-v3-component/index.html",
+      "route": "/cases/oegpack-v4-component/index.html",
       "timeoutMs": 60000,
-      "workloadId": "oegpack-v3-decode-v1"
+      "workloadId": "oegpack-v4-decode-v1"
     },
     {
       "artifacts": [
@@ -654,14 +654,14 @@
       "timestampRequired": true,
       "warmupFrames": 30
     },
-    "oegpack-v3-decode-v1": {
+    "oegpack-v4-decode-v1": {
       "cameraPath": "none",
       "deviceScaleFactor": 1,
       "features": [
         "core-features-and-limits",
-        "oegpack-v3-raw-storage-decode"
+        "oegpack-v4-raw-storage-decode"
       ],
-      "id": "oegpack-v3-decode-v1",
+      "id": "oegpack-v4-decode-v1",
       "independentRuns": 1,
       "quality": "adr-0016-a8-abi-decode-v1",
       "renderScale": 1,

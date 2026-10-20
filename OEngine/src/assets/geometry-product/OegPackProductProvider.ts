@@ -1,11 +1,11 @@
-import { OEGPACK_V3_PAGE_BYTES } from "../GeometryAbiV3.js";
-import { openOegPackV3, type OegPackDecodedPageV3, type OegPackV3 } from "../OegPackV3.js";
+import { OEGPACK_V4_PAGE_BYTES } from "../GeometryAbiV4.js";
+import { openOegPackV4, type OegPackDecodedPageV4, type OegPackV4 } from "../OegPackV4.js";
 import {
   assertGeometryProductDescriptorV1,
-  encodeAssetRecordsV3,
+  encodeAssetRecordsV4,
   encodeGeometryProductPageRecordsV1,
-  encodeGroupDirectoryV3,
-  encodeVertexFormatsV3,
+  encodeGroupDirectoryV4,
+  encodeVertexFormatsV4,
   GEOMETRY_PRODUCT_RUNTIME_PROFILE,
   markPageIntegrityPreverifiedV1,
   type GeometryProductDescriptorV1,
@@ -29,11 +29,11 @@ export interface OegPackPreparation {
 }
 
 export class OegPackProductProvider implements GeometryProductProviderV1 {
-  readonly #packPromise: Promise<OegPackV3>;
+  readonly #packPromise: Promise<OegPackV4>;
   #released = false;
 
   constructor(
-    pack: OegPackV3 | Promise<OegPackV3>,
+    pack: OegPackV4 | Promise<OegPackV4>,
     readonly preparation?: OegPackPreparation
   ) {
     this.#packPromise = Promise.resolve(pack);
@@ -56,7 +56,7 @@ export class OegPackProductProvider implements GeometryProductProviderV1 {
   }
 }
 
-export function descriptorFromOegPack(pack: OegPackV3): GeometryProductDescriptorV1 {
+export function descriptorFromOegPack(pack: OegPackV4): GeometryProductDescriptorV1 {
   const productId = fromHex(pack.header.packContentHash);
   const pageRecords = encodeGeometryProductPageRecordsV1(
     pack.pages.map((page) => ({
@@ -68,24 +68,24 @@ export function descriptorFromOegPack(pack: OegPackV3): GeometryProductDescripto
     })),
   );
   const descriptor: GeometryProductDescriptorV1 = Object.freeze({
-    schemaVersion: 2,
+    schemaVersion: 3,
     productId,
     revision: 0,
     producerKind: "offline-native",
-    producerId: "oengine-oegpack-v3",
-    producerVersion: "3.1-query3-adapter-v2",
+    producerId: "oengine-oegpack-v4",
+    producerVersion: "4.0-soa-query3",
     sourceIdentityKind: "content-sha256",
     sourceIdentityHash: productId.slice(),
     recipeHash: fromHex(pack.header.recipeHash),
     runtimeProfile: GEOMETRY_PRODUCT_RUNTIME_PROFILE,
-    decodedPageBytes: OEGPACK_V3_PAGE_BYTES,
-    assetRecords: encodeAssetRecordsV3(pack.assets),
+    decodedPageBytes: OEGPACK_V4_PAGE_BYTES,
+    assetRecords: encodeAssetRecordsV4(pack.assets),
     rootNodeIds: pack.rootNodeIndices.slice(),
     hierarchyNodes: pack.hierarchyBytes.slice(),
-    groupDirectory: encodeGroupDirectoryV3(pack.groups),
+    groupDirectory: encodeGroupDirectoryV4(pack.groups),
     pageRecords,
     bootstrapPageIds: pack.bootstrapPageIds.slice(),
-    vertexFormats: encodeVertexFormatsV3(pack.vertexFormats),
+    vertexFormats: encodeVertexFormatsV4(pack.vertexFormats),
     activationPageIds: Uint32Array.from([...new Set(pack.bootstrapPageIds)].sort((a, b) => a - b)),
     querySection: pack.querySection.slice(),
   });
@@ -95,15 +95,15 @@ export function descriptorFromOegPack(pack: OegPackV3): GeometryProductDescripto
 export class OegPackProductRevisionSource implements GeometryProductRevisionSourceV1 {
   #released = false;
   constructor(
-    readonly pack: OegPackV3,
+    readonly pack: OegPackV4,
     readonly descriptor: GeometryProductDescriptorV1,
     readonly prepared?: OegPackPreparedReader,
   ) {}
-  #toPageProduct(pageId: number, page: OegPackDecodedPageV3): GeometryPageProductV1 {
+  #toPageProduct(pageId: number, page: OegPackDecodedPageV4): GeometryPageProductV1 {
     const recordOffset = pageId * 32;
     const expectedHash = this.descriptor.pageRecords.slice(recordOffset, recordOffset + 16);
     const decoded = page.bytes;
-    if (decoded.byteLength !== OEGPACK_V3_PAGE_BYTES)
+    if (decoded.byteLength !== OEGPACK_V4_PAGE_BYTES)
       throw new Error("OEGPACK adapter returned a non-256 KiB page");
     // The pack's public decoded view must not alias a published Product page.
     const bytes = decoded.slice().buffer;

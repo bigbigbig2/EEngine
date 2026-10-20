@@ -1,0 +1,23 @@
+{
+  "meshletHeaderBytes": 44,
+  "meshlet": {
+    "vertexCount": 0,
+    "triangleCount": 1,
+    "flags": 2,
+    "vertexByteOffset": 4,
+    "triangleByteOffset": 8,
+    "refineGroupId": 12,
+    "materialId": 16,
+    "bboxMin": 20,
+    "bboxMax": 32
+  },
+  "vertex": {
+    "positionOffset": 0,
+    "normalOffset": 12,
+    "optionalStreamBegin": 16,
+    "optionalStreamWidth": 4,
+    "positionEncoding": 2,
+    "requiredMask": 3,
+    "knownMask": 63
+  }
+}

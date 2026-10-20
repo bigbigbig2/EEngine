@@ -1,12 +1,12 @@
-import { OegPackV3Error, openOegPackV3, type OegPackV3, type RangeReadablePackV3 } from "../OegPackV3.js";
-import { MemoryRangeReadablePackV3, HttpRangeReadablePackV3 } from "../OegPackV3.js";
+import { OegPackV4Error, openOegPackV4, type OegPackV4, type RangeReadablePackV4 } from "../OegPackV4.js";
+import { MemoryRangeReadablePackV4, HttpRangeReadablePackV4 } from "../OegPackV4.js";
 import type {
   GeometryProductDescriptorV1,
   GeometryProductProviderV1,
   GeometryProductRevisionSourceV1,
 } from "./GeometryProductV1.js";
 import { descriptorFromOegPack, OegPackProductProvider } from "./OegPackProductProvider.js";
-import { parseOegPackSceneManifestV3, type OegPackSceneManifestV3 } from "./OegPackSceneManifestV3.js";
+import { parseOegPackSceneManifestV4, type OegPackSceneManifestV4 } from "./OegPackSceneManifestV4.js";
 import { cookedAssetPreparation } from "../codec/CookedAssetPreparation.js";
 
 /**
@@ -16,7 +16,7 @@ import { cookedAssetPreparation } from "../codec/CookedAssetPreparation.js";
  * here and nowhere later: both produce a `GeometryProductProviderV1` that the
  * shared admission, residency, streaming and renderer path consumes.
  */
-export type OegPackProductSourceSelectionV3 =
+export type OegPackProductSourceSelectionV4 =
   | Readonly<{ kind: "http-range"; url: string; init?: Omit<RequestInit, "headers">; manifestUrl?: string }>
   | Readonly<{
       kind: "memory";
@@ -57,23 +57,23 @@ export interface OegPackProductAssetEvidenceV1 {
  * quality pack.
  */
 export class OegPackProductAsset implements GeometryProductProviderV1 {
-  readonly #pack: OegPackV3;
+  readonly #pack: OegPackV4;
   readonly #descriptor: GeometryProductDescriptorV1;
   readonly #provider: OegPackProductProvider;
   readonly #source: InstrumentedRangeSource;
   readonly #selectionKind: "http-range" | "memory";
-  readonly #manifest: OegPackSceneManifestV3 | undefined;
+  readonly #manifest: OegPackSceneManifestV4 | undefined;
   #state: "open" | "released" | "failed" = "open";
   #revisionsOffered = 0;
   #workerEvidence: () => { ranges?: number; encodedBytes?: number } = () => ({});
 
   private constructor(
-    pack: OegPackV3,
+    pack: OegPackV4,
     descriptor: GeometryProductDescriptorV1,
     source: InstrumentedRangeSource,
     selectionKind: "http-range" | "memory",
-    manifest: OegPackSceneManifestV3 | undefined,
-    selection: OegPackProductSourceSelectionV3,
+    manifest: OegPackSceneManifestV4 | undefined,
+    selection: OegPackProductSourceSelectionV4,
     verifyPageSha256: boolean
   ) {
     this.#pack = pack;
@@ -140,23 +140,23 @@ export class OegPackProductAsset implements GeometryProductProviderV1 {
   }
 
   static async open(
-    selection: OegPackProductSourceSelectionV3,
+    selection: OegPackProductSourceSelectionV4,
     options: OegPackProductAssetOptions = {}
   ): Promise<OegPackProductAsset> {
     throwIfAborted(options.signal);
     const { source, selectionKind, defaultManifestUrl } = createSelectionSource(selection);
-    let manifest: OegPackSceneManifestV3 | undefined;
+    let manifest: OegPackSceneManifestV4 | undefined;
     try {
-      const pack = await openOegPackV3(source, {
+      const pack = await openOegPackV4(source, {
         verifyPageSha256: options.verifyPageSha256,
         signal: options.signal
       });
       throwIfAborted(options.signal);
       const descriptor = descriptorFromOegPack(pack);
       const payload = options.manifest ?? ("manifest" in selection ? selection.manifest : undefined);
-      if (payload !== undefined) manifest = parseOegPackSceneManifestV3(payload);
+      if (payload !== undefined) manifest = parseOegPackSceneManifestV4(payload);
       else if (defaultManifestUrl !== undefined)
-        manifest = parseOegPackSceneManifestV3(await fetchManifest(defaultManifestUrl, options.signal));
+        manifest = parseOegPackSceneManifestV4(await fetchManifest(defaultManifestUrl, options.signal));
       return new OegPackProductAsset(
         pack,
         descriptor,
@@ -167,9 +167,9 @@ export class OegPackProductAsset implements GeometryProductProviderV1 {
         options.verifyPageSha256 !== false
       );
     } catch (error) {
-      throw error instanceof OegPackV3Error
+      throw error instanceof OegPackV4Error
         ? error
-        : new OegPackV3Error(
+        : new OegPackV4Error(
             `OEGPACK Offline Product source failed: ${error instanceof Error ? error.message : String(error)}`
           );
     }
@@ -178,13 +178,13 @@ export class OegPackProductAsset implements GeometryProductProviderV1 {
   get descriptor(): GeometryProductDescriptorV1 {
     return this.#descriptor;
   }
-  get manifest(): OegPackSceneManifestV3 | undefined {
+  get manifest(): OegPackSceneManifestV4 | undefined {
     return this.#manifest;
   }
-  get pack(): OegPackV3 {
+  get pack(): OegPackV4 {
     return this.#pack;
   }
-  get source(): RangeReadablePackV3 {
+  get source(): RangeReadablePackV4 {
     return this.#source;
   }
 
@@ -236,47 +236,47 @@ export class OegPackProductAsset implements GeometryProductProviderV1 {
  * distributed artifact, not a live cook session.
  */
 export function load_oegpack_product(
-  selection: OegPackProductSourceSelectionV3,
+  selection: OegPackProductSourceSelectionV4,
   options: OegPackProductAssetOptions = {},
 ): Promise<OegPackProductAsset> {
   return OegPackProductAsset.open(selection, options);
 }
 
-function createSelectionSource(selection: OegPackProductSourceSelectionV3): {
+function createSelectionSource(selection: OegPackProductSourceSelectionV4): {
   readonly source: InstrumentedRangeSource;
   readonly selectionKind: "http-range" | "memory";
   readonly defaultManifestUrl: string | undefined;
 } {
   if (!selection || typeof selection !== "object")
-    throw new OegPackV3Error("OEGPACK Product source selection must be an object");
+    throw new OegPackV4Error("OEGPACK Product source selection must be an object");
   if (selection.kind === "memory") {
     if (!(selection.bytes instanceof Uint8Array) && !(selection.bytes instanceof ArrayBuffer))
-      throw new OegPackV3Error("memory source selection requires bytes");
+      throw new OegPackV4Error("memory source selection requires bytes");
     return {
-      source: new InstrumentedRangeSource(new MemoryRangeReadablePackV3(selection.bytes)),
+      source: new InstrumentedRangeSource(new MemoryRangeReadablePackV4(selection.bytes)),
       selectionKind: "memory",
       defaultManifestUrl: undefined,
     };
   }
   if (selection.kind === "http-range") {
     if (typeof selection.url !== "string" || selection.url.length === 0)
-      throw new OegPackV3Error("HTTP range source selection requires a URL");
+      throw new OegPackV4Error("HTTP range source selection requires a URL");
     const manifestUrl =
       selection.manifestUrl ??
       new URL("scene.oescene", new URL(selection.url, globalThis.location?.href ?? "http://localhost/")).href;
     return {
-      source: new InstrumentedRangeSource(new HttpRangeReadablePackV3(selection.url, selection.init)),
+      source: new InstrumentedRangeSource(new HttpRangeReadablePackV4(selection.url, selection.init)),
       selectionKind: "http-range",
       defaultManifestUrl: manifestUrl,
     };
   }
-  throw new OegPackV3Error("unsupported OEGPACK Product source selection");
+  throw new OegPackV4Error("unsupported OEGPACK Product source selection");
 }
 
-class InstrumentedRangeSource implements RangeReadablePackV3 {
+class InstrumentedRangeSource implements RangeReadablePackV4 {
   reads = 0;
   readBytes = 0;
-  constructor(readonly inner: RangeReadablePackV3) {}
+  constructor(readonly inner: RangeReadablePackV4) {}
   async read(byteOffset: bigint, byteLength: number, signal?: AbortSignal): Promise<ArrayBuffer> {
     const bytes = await this.inner.read(byteOffset, byteLength, signal);
     this.reads++;
@@ -287,7 +287,7 @@ class InstrumentedRangeSource implements RangeReadablePackV3 {
 
 async function fetchManifest(url: string, signal?: AbortSignal): Promise<ArrayBuffer> {
   const response = await fetch(url, { signal, headers: { "Accept-Encoding": "identity" } });
-  if (!response.ok) throw new OegPackV3Error(`failed to fetch scene.oescene (${response.status})`);
+  if (!response.ok) throw new OegPackV4Error(`failed to fetch scene.oescene (${response.status})`);
   return response.arrayBuffer();
 }
 

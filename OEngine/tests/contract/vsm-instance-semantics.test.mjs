@@ -7,10 +7,10 @@ import {
   instanceShadowFlagsFromExtras,
   INSTANCE_SHADOW_SEMANTICS
 } from "../../.test-dist/core/InstanceShadowSemantics.js";
-import { parseOegPackSceneManifestV3 } from "../../.test-dist/assets/geometry-product/OegPackSceneManifestV3.js";
+import { parseOegPackSceneManifestV4 } from "../../.test-dist/assets/geometry-product/OegPackSceneManifestV4.js";
 import {
-  geometryCookRecipeV3Key,
-  createGeometryCookRecipeV3
+  geometryCookRecipeV4Key,
+  createGeometryCookRecipeV4
 } from "../../.test-dist/assets/GeometryCookRecipe.js";
 import { createHash } from "node:crypto";
 
@@ -60,14 +60,14 @@ test("fresh Native cook agrees with source semantics and refuses legacy manifest
     variants.map(instanceShadowFlagsFromExtras)
   );
   const recipeHash = createHash("sha256")
-    .update(geometryCookRecipeV3Key(createGeometryCookRecipeV3()))
+    .update(geometryCookRecipeV4Key(createGeometryCookRecipeV4()))
     .digest("hex");
   const pack = await readFile(resolve(directory, "cooked", manifest.packs[0].uri));
   assert.equal(pack.subarray(144, 176).toString("hex"), recipeHash);
-  parseOegPackSceneManifestV3(JSON.stringify(manifest));
+  parseOegPackSceneManifestV4(JSON.stringify(manifest));
   const legacy = { ...manifest };
   delete legacy.instanceSemantics;
-  assert.throws(() => parseOegPackSceneManifestV3(JSON.stringify(legacy)), /re-cook/);
+  assert.throws(() => parseOegPackSceneManifestV4(JSON.stringify(legacy)), /re-cook/);
   document.nodes[0].extras = { castShadow: 0 };
   await save();
   const invalid = run();

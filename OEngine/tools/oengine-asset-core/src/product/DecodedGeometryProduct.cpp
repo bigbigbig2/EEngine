@@ -50,7 +50,7 @@ std::array<std::uint8_t, 16> ComputeGeometryPageIdentityV1(
 namespace {
 
 struct PendingPage {
-    std::vector<std::uint8_t> decoded = std::vector<std::uint8_t>(kGeometryPageBytesV3, 0u);
+    std::vector<std::uint8_t> decoded = std::vector<std::uint8_t>(kGeometryPageBytesV4, 0u);
     std::vector<std::uint32_t> groups;
     /** Per-Group payload digest, parallel to `groups`, used for page identity. */
     std::vector<Hash256> groupDigests;
@@ -64,18 +64,18 @@ struct PendingPage {
  * contains every refinement leaf. No simplified hull is labelled exact. */
 std::vector<std::uint8_t> BuildQuerySection(
     const DecodedGeometryProductPlanV1& product,
-    const std::vector<SerializedGroupV3>& groups,
+    const std::vector<SerializedGroupV4>& groups,
     const Hash256& recipeHash) {
     constexpr std::uint32_t headerBytes = 160u;
     constexpr std::uint32_t assetStride = 32u;
     constexpr std::uint32_t clusterStride = 80u;
     std::vector<std::uint32_t> groupBegins(groups.size() + 1u, 0u);
     for (std::size_t group = 0u; group < groups.size(); ++group) {
-        GroupHeaderV3 header{};
-        DecodeRecordV3(groups[group].bytes.data(), &header);
+        GroupHeaderV4 header{};
+        DecodeRecordV4(groups[group].bytes.data(), &header);
         if (header.meshletCount == 0u || header.meshletCount > 128u ||
             std::uint64_t(header.meshletHeaderOffset) +
-                std::uint64_t(header.meshletCount) * sizeof(MeshletHeaderV3) > groups[group].bytes.size()) {
+                std::uint64_t(header.meshletCount) * sizeof(MeshletHeaderV4) > groups[group].bytes.size()) {
             throw std::runtime_error("query source has an invalid meshlet range");
         }
         const auto next = std::uint64_t(groupBegins[group]) + header.meshletCount;
@@ -102,12 +102,12 @@ std::vector<std::uint8_t> BuildQuerySection(
              groupId < asset.groupBegin + asset.groupCount; ++groupId) {
             const auto& source = groups[groupId];
             const auto& directory = product.groups[groupId];
-            GroupHeaderV3 header{};
-            DecodeRecordV3(source.bytes.data(), &header);
+            GroupHeaderV4 header{};
+            DecodeRecordV4(source.bytes.data(), &header);
             std::uint32_t sourcePrimitive = 0u, sourceVertex = 0u;
             for (std::uint32_t meshletId = 0u; meshletId < header.meshletCount; ++meshletId) {
-                MeshletHeaderV3 meshlet{};
-                DecodeRecordV3(source.bytes.data() + header.meshletHeaderOffset +
+                MeshletHeaderV4 meshlet{};
+                DecodeRecordV4(source.bytes.data() + header.meshletHeaderOffset +
                     meshletId * sizeof(meshlet), &meshlet);
                 const auto clusterId = groupBegins[groupId] + meshletId;
                 if (clusterId != clusters.size()) throw std::runtime_error("query asset group ranges overlap");
@@ -166,7 +166,7 @@ std::vector<std::uint8_t> BuildQuerySection(
             primitives.size() + vertices.size());
     if (total >= kInvalidId) throw std::runtime_error("query section exceeds u32 byte addressing");
     std::vector<std::uint8_t> bytes(std::size_t(total), 0u);
-    const auto put = [&](std::size_t at, std::uint32_t value) { EncodeRecordV3(bytes.data() + at, value); };
+    const auto put = [&](std::size_t at, std::uint32_t value) { EncodeRecordV4(bytes.data() + at, value); };
     put(0u, 0x3251474fu); // OGQ2
     put(4u, 3u); put(8u, headerBytes); put(12u, std::uint32_t(total));
     std::copy(recipeHash.begin(), recipeHash.end(), bytes.begin() + 16u);
@@ -198,34 +198,34 @@ std::uint64_t AlignUp64(std::uint64_t value, std::uint64_t alignment) {
 }
 
 void PatchAssetForProduct(
-    CookedAssetV3& asset, std::uint32_t groupBase, std::uint32_t nodeBase,
+    CookedAssetV4& asset, std::uint32_t groupBase, std::uint32_t nodeBase,
     const std::vector<std::uint8_t>& formatRemap) {
-    for (SerializedGroupV3& group : asset.groups) {
-        GroupHeaderV3 header{};
-        DecodeRecordV3(group.bytes.data(), &header);
+    for (SerializedGroupV4& group : asset.groups) {
+        GroupHeaderV4 header{};
+        DecodeRecordV4(group.bytes.data(), &header);
         if (header.vertexFormatId >= formatRemap.size()) {
             throw std::runtime_error("asset vertex format id is invalid");
         }
         header.vertexFormatId = formatRemap[header.vertexFormatId];
-        EncodeRecordV3(group.bytes.data(), header);
+        EncodeRecordV4(group.bytes.data(), header);
         for (std::uint32_t i = 0u; i < header.meshletCount; ++i) {
             std::uint8_t* address = group.bytes.data() +
-                header.meshletHeaderOffset + i * sizeof(MeshletHeaderV3);
-            MeshletHeaderV3 meshlet{};
-            DecodeRecordV3(address, &meshlet);
+                header.meshletHeaderOffset + i * sizeof(MeshletHeaderV4);
+            MeshletHeaderV4 meshlet{};
+            DecodeRecordV4(address, &meshlet);
             if (meshlet.refineGroupId != kInvalidId) meshlet.refineGroupId += groupBase;
-            EncodeRecordV3(address, meshlet);
+            EncodeRecordV4(address, meshlet);
         }
     }
-    for (GeometryHierarchyNodeV3& node : asset.hierarchy) {
-        if (IsGroupLeafV3(node.packedNodeData)) {
+    for (GeometryHierarchyNodeV4& node : asset.hierarchy) {
+        if (IsGroupLeafV4(node.packedNodeData)) {
             const std::uint32_t group = (node.packedNodeData >> 1u) & 0x00ffffffu;
             const std::uint32_t count = ((node.packedNodeData >> 25u) & 0x7fu) + 1u;
-            node.packedNodeData = PackGroupLeafV3(groupBase + group, count);
+            node.packedNodeData = PackGroupLeafV4(groupBase + group, count);
         } else {
             const std::uint32_t child = (node.packedNodeData >> 1u) & 0x07ffffffu;
             const std::uint32_t count = (node.packedNodeData >> 28u) & 0x0fu;
-            node.packedNodeData = PackInternalNodeV3(nodeBase + child, count);
+            node.packedNodeData = PackInternalNodeV4(nodeBase + child, count);
         }
     }
     for (std::uint32_t& root : asset.rootNodeIndices) root += nodeBase;
@@ -240,8 +240,8 @@ void PatchAssetForProduct(
  * only controls whether 256 KiB payload buffers are actually filled.
  */
 DecodedGeometryProductPlanV1 PackDecodedGeometryProductV1(
-    std::vector<CookedAssetV3> cooked,
-    std::vector<SerializedGroupV3>* retainedGroups,
+    std::vector<CookedAssetV4> cooked,
+    std::vector<SerializedGroupV4>* retainedGroups,
     bool materializePages) {
     if (cooked.empty()) throw std::runtime_error("decoded Geometry Product has no assets");
 
@@ -250,20 +250,20 @@ DecodedGeometryProductPlanV1 PackDecodedGeometryProductV1(
     for (const auto& asset : cooked) {
         if (asset.recipeHash != recipeHash) throw std::runtime_error("query Product mixes cook recipes");
     }
-    std::vector<SerializedGroupV3> serializedGroups;
+    std::vector<SerializedGroupV4> serializedGroups;
     std::vector<std::vector<std::uint32_t>> assetBootstrapPages(cooked.size());
     for (std::size_t assetIndex = 0u; assetIndex < cooked.size(); ++assetIndex) {
-        CookedAssetV3& asset = cooked[assetIndex];
+        CookedAssetV4& asset = cooked[assetIndex];
         if (asset.groups.empty() || asset.hierarchy.empty() || asset.rootNodeIndices.empty()) {
             throw std::runtime_error("decoded Geometry Product asset is incomplete");
         }
         const std::uint32_t groupBase = std::uint32_t(product.groups.size());
         const std::uint32_t nodeBase = std::uint32_t(product.hierarchy.size());
         std::vector<std::uint8_t> formatRemap;
-        for (const VertexFormatRecordV3& format : asset.vertexFormats) {
+        for (const VertexFormatRecordV4& format : asset.vertexFormats) {
             const auto found = std::find_if(
                 product.formats.begin(), product.formats.end(),
-                [&](const VertexFormatRecordV3& candidate) {
+                [&](const VertexFormatRecordV4& candidate) {
                     return std::memcmp(&candidate, &format, sizeof(format)) == 0;
                 });
             if (found == product.formats.end()) {
@@ -278,7 +278,7 @@ DecodedGeometryProductPlanV1 PackDecodedGeometryProductV1(
         }
         PatchAssetForProduct(asset, groupBase, nodeBase, formatRemap);
 
-        GeometryAssetRecordV3 record{};
+        GeometryAssetRecordV4 record{};
         std::copy(asset.assetId.begin(), asset.assetId.end(), record.assetId);
         std::copy(asset.boundsSphere, asset.boundsSphere + 4, record.boundsSphere);
         std::copy(asset.boundsMin, asset.boundsMin + 3, record.boundsMin);
@@ -309,7 +309,7 @@ DecodedGeometryProductPlanV1 PackDecodedGeometryProductV1(
     std::vector<PendingPage> pendingPages;
     constexpr std::size_t kBestFitCandidateWindow = 16u;
     for (std::uint32_t groupId = 0u; groupId < serializedGroups.size(); ++groupId) {
-        const SerializedGroupV3& group = serializedGroups[groupId];
+        const SerializedGroupV4& group = serializedGroups[groupId];
         const bool bootstrap = (group.flags & kGroupBootstrap) != 0u;
         std::size_t bestPage = pendingPages.size();
         std::uint32_t bestRemaining = std::numeric_limits<std::uint32_t>::max();
@@ -321,9 +321,9 @@ DecodedGeometryProductPlanV1 PackDecodedGeometryProductV1(
             if (candidate.bootstrap != bootstrap || candidate.lodLevel != group.lodLevel) continue;
             ++matchingCandidates;
             const std::uint32_t aligned = std::uint32_t(AlignUp64(candidate.usedBytes, 16u));
-            if (group.bytes.size() > kGeometryPageBytesV3 - aligned) continue;
+            if (group.bytes.size() > kGeometryPageBytesV4 - aligned) continue;
             const std::uint32_t remaining =
-                kGeometryPageBytesV3 - aligned - std::uint32_t(group.bytes.size());
+                kGeometryPageBytesV4 - aligned - std::uint32_t(group.bytes.size());
             if (remaining <= bestRemaining) {
                 bestRemaining = remaining;
                 bestPage = reverse;
@@ -337,13 +337,13 @@ DecodedGeometryProductPlanV1 PackDecodedGeometryProductV1(
         }
         PendingPage& page = pendingPages[bestPage];
         const std::uint32_t offset = std::uint32_t(AlignUp64(page.usedBytes, 16u));
-        if (offset + group.bytes.size() > kGeometryPageBytesV3) {
+        if (offset + group.bytes.size() > kGeometryPageBytesV4) {
             throw std::runtime_error("group does not fit in an empty decoded page");
         }
         if (materializePages) {
             std::copy(group.bytes.begin(), group.bytes.end(), page.decoded.begin() + offset);
         }
-        GeometryGroupDirectoryV3& directory = product.groups[groupId];
+        GeometryGroupDirectoryV4& directory = product.groups[groupId];
         directory.offsetInDecodedPage = offset;
         directory.payloadBytes = std::uint32_t(group.bytes.size());
         directory.flags = group.flags;
@@ -382,7 +382,7 @@ DecodedGeometryProductPlanV1 PackDecodedGeometryProductV1(
         product.pages.push_back(page);
         if (pending.bootstrap) {
             for (std::size_t assetIndex = 0u; assetIndex < product.assets.size(); ++assetIndex) {
-                const GeometryAssetRecordV3& asset = product.assets[assetIndex];
+                const GeometryAssetRecordV4& asset = product.assets[assetIndex];
                 const std::uint32_t assetLast = asset.groupBegin + asset.groupCount - 1u;
                 if (std::any_of(
                         pending.groups.begin(), pending.groups.end(),
@@ -396,7 +396,7 @@ DecodedGeometryProductPlanV1 PackDecodedGeometryProductV1(
     }
 
     for (std::size_t assetIndex = 0u; assetIndex < product.assets.size(); ++assetIndex) {
-        GeometryAssetRecordV3& asset = product.assets[assetIndex];
+        GeometryAssetRecordV4& asset = product.assets[assetIndex];
         asset.bootstrapPageBegin = std::uint32_t(product.bootstrapPages.size());
         asset.bootstrapPageCount = std::uint32_t(assetBootstrapPages[assetIndex].size());
         product.bootstrapPages.insert(
@@ -414,8 +414,8 @@ DecodedGeometryProductPlanV1 PackDecodedGeometryProductV1(
 }  // namespace
 
 DecodedGeometryProductPlanV1 PlanDecodedGeometryProductV1(
-    std::vector<CookedAssetV3> cooked,
-    std::vector<SerializedGroupV3>& retainedGroups) {
+    std::vector<CookedAssetV4> cooked,
+    std::vector<SerializedGroupV4>& retainedGroups) {
     DecodedGeometryProductPlanV1 plan = PackDecodedGeometryProductV1(
         std::move(cooked), &retainedGroups, /*materializePages=*/false);
     if (retainedGroups.size() != plan.groups.size()) {
@@ -426,7 +426,7 @@ DecodedGeometryProductPlanV1 PlanDecodedGeometryProductV1(
 
 DecodedGeometryPageV1 MaterializeDecodedGeometryPageV1(
     const DecodedGeometryProductPlanV1& plan,
-    const std::vector<SerializedGroupV3>& retainedGroups,
+    const std::vector<SerializedGroupV4>& retainedGroups,
     std::uint32_t pageId) {
     if (pageId >= plan.pages.size()) {
         throw std::runtime_error("decoded page index is out of range");
@@ -440,7 +440,7 @@ DecodedGeometryPageV1 MaterializeDecodedGeometryPageV1(
         throw std::runtime_error("planned decoded page references an unknown group");
     }
     DecodedGeometryPageV1 page;
-    page.bytes.assign(kGeometryPageBytesV3, 0u);
+    page.bytes.assign(kGeometryPageBytesV4, 0u);
     std::vector<std::uint32_t> identityGroupIds;
     std::vector<std::uint32_t> identityPayloadBytes;
     std::vector<Hash256> identityPayloadDigests;
@@ -448,11 +448,11 @@ DecodedGeometryPageV1 MaterializeDecodedGeometryPageV1(
     identityPayloadBytes.reserve(planned.groupCount);
     identityPayloadDigests.reserve(planned.groupCount);
     for (std::uint32_t groupId = planned.firstGroup; groupId <= lastGroup; ++groupId) {
-        const GeometryGroupDirectoryV3& directory = plan.groups[groupId];
+        const GeometryGroupDirectoryV4& directory = plan.groups[groupId];
         if (directory.pageId != pageId) {
             throw std::runtime_error("planned decoded page owns a non-contiguous group range");
         }
-        const SerializedGroupV3& group = retainedGroups[groupId];
+        const SerializedGroupV4& group = retainedGroups[groupId];
         if (group.bytes.size() != directory.payloadBytes) {
             throw std::runtime_error("retained Group payload bytes do not match the plan");
         }
@@ -480,8 +480,8 @@ DecodedGeometryPageV1 MaterializeDecodedGeometryPageV1(
 }
 
 DecodedGeometryProductV1 AssembleDecodedGeometryProductV1(
-    std::vector<CookedAssetV3> cooked) {
-    std::vector<SerializedGroupV3> retained;
+    std::vector<CookedAssetV4> cooked) {
+    std::vector<SerializedGroupV4> retained;
     DecodedGeometryProductPlanV1 plan = PackDecodedGeometryProductV1(
         std::move(cooked), &retained, /*materializePages=*/true);
     // Materialise every page before `plan` is consumed by the moves below:

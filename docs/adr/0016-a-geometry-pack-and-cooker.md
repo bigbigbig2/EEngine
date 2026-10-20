@@ -20,7 +20,7 @@ Native Offline Cooker 可以采用与 Web Cooker 不同的参数、packing、压
 
 算法实现不得脱离 Nyx 来源另起炉灶。Offline Cooker 至少逐项移植 `MeshletBuilder.cpp` 的 meshlet/Group/LOD/simplification/hierarchy/page 生产与 `ModelConvert.cpp` 的 scene/material 归属；凡采用 Nyx 的 streaming 或 GPU consumption 语义，必须对应移植 `GeometryStreaming.cpp/.h`、`DAGCull.slang` 和 `VBufferMesh.slang` 的函数/entry point。参数、任务编排和序列化可不同，但 seam/attribute lock、refine/error 传播、保守 bounds、合法 cut、page 独立性和 local primitive identity 等不变量不能删除。
 
-[OEGPACK V3 spec](../specs/oegpack-v3.md) 仅冻结文件容器及其 decoded profile。TypeScript reader 必须拒绝非法范围、reserved bits、hash、checksum、跨页 Group 和越界 payload。Web Runtime Cooker 不必生成 OEGPACK，也不得把“在浏览器中调用 CLI、等待完整 pack、再读回”作为主路线。
+[OEGPACK V3 spec](../specs/oegpack-v4.md) 仅冻结文件容器及其 decoded profile。TypeScript reader 必须拒绝非法范围、reserved bits、hash、checksum、跨页 Group 和越界 payload。Web Runtime Cooker 不必生成 OEGPACK，也不得把“在浏览器中调用 CLI、等待完整 pack、再读回”作为主路线。
 
 ## Consequences
 

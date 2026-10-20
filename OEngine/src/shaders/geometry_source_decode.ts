@@ -57,6 +57,7 @@ var<workgroup> source_format_word: u32;
 var<workgroup> source_format0: u32;
 var<workgroup> source_format1: u32;
 var<workgroup> source_format2: u32;
+var<workgroup> source_vertex_count: u32;
 fn frame_vertex_load_format(word: u32) {
   source_format_word = word;
   source_format0 = product_heap[word];
@@ -71,6 +72,7 @@ fn frame_vertex_load_resident(location: OEngineGeometryPageLookupV1,
   let meshlet = frame_vertex_meshlet_header(location, group, header, local_meshlet);
   if !header.valid || !meshlet.valid || header.vertex_format_id >= format_count ||
       (expected_format != 0xffffffffu && header.vertex_format_id != expected_format) { return vec2u(0u); }
+  source_vertex_count = meshlet.vertex_count;
   source_bank = location.bank_index;
   source_triangle_byte = location.byte_offset + group.offset_in_page + meshlet.triangle_byte_offset;
   source_resident_address = (location.bank_index << 30u) | (location.byte_offset + group.offset_in_page + meshlet.vertex_byte_offset);
@@ -92,23 +94,21 @@ fn frame_vertex_load_source(work: OEngineMeshletRasterWork) -> vec2u {
   return frame_vertex_load_product(asset, work.meshlet_slot >> 7u, work.meshlet_slot & 127u);
 }`}
 fn frame_vertex_position(vertex: u32) -> vec3f {
-  let stride = source_format0 & 0xffffu;
   let pos_offset = source_format1 & 0xffu;
   let bank = source_resident_address >> 30u;
-  let at = (source_resident_address & 0x3fffffffu) + vertex * stride + pos_offset;
+  let at = (source_resident_address & 0x3fffffffu) + vertex * 4u + pos_offset * source_vertex_count;
   return vec3f(
     bitcast<f32>(frame_vertex_u32(bank, at)),
-    bitcast<f32>(frame_vertex_u32(bank, at + 4u)),
-    bitcast<f32>(frame_vertex_u32(bank, at + 8u))
+    bitcast<f32>(frame_vertex_u32(bank, at + source_vertex_count * 4u)),
+    bitcast<f32>(frame_vertex_u32(bank, at + source_vertex_count * 8u))
   );
 }
 fn frame_vertex_normal(vertex: u32) -> vec4f {
   let format0 = source_format0;
   if (format0 & 0x20000u) == 0u { return vec4f(0.0, 0.0, 1.0, 0.0); }
-  let stride = format0 & 0xffffu;
   let norm_offset = (source_format1 >> 8u) & 0xffu;
   let bank = source_resident_address >> 30u;
-  let at = (source_resident_address & 0x3fffffffu) + vertex * stride + norm_offset;
+  let at = (source_resident_address & 0x3fffffffu) + vertex * 4u + norm_offset * source_vertex_count;
   return vec4f(frame_oct_decode(frame_vertex_u32(bank, at)), 0.0);
 }
 fn frame_vertex_tangent(vertex: u32) -> vec4f {
@@ -117,33 +117,41 @@ fn frame_vertex_tangent(vertex: u32) -> vec4f {
   let stride = format0 & 0xffffu;
   let tan_offset = (source_format1 >> 16u) & 0xffu;
   let bank = source_resident_address >> 30u;
-  let at = (source_resident_address & 0x3fffffffu) + vertex * stride + tan_offset;
+  let at = (source_resident_address & 0x3fffffffu) + vertex * 4u + tan_offset * source_vertex_count;
   let xyz = frame_oct_decode(frame_vertex_u32(bank, at));
-  let w = select(1.0, -1.0, frame_vertex_u16(bank, at + 4u) >= 32768u);
+  let encoding = source_format2 >> 24u;
+  let sign_base = (source_resident_address & 0x3fffffffu) +
+    source_vertex_count * (stride - select(0u, 2u, encoding == 2u));
+  var w = 1.0;
+  if encoding == 1u {
+    w = select(1.0, -1.0, ((frame_vertex_u8(bank, sign_base + vertex / 8u) >> (vertex & 7u)) & 1u) != 0u);
+  } else {
+    let bits = frame_vertex_u16(bank, sign_base + vertex * 2u);
+    let signed = bitcast<i32>(bits << 16u) >> 16u;
+    w = max(-1.0, f32(signed) / 32767.0);
+  }
   return vec4f(xyz, w);
 }
 fn frame_vertex_uv(vertex: u32, uvSet: u32) -> vec2f {
   let format0 = source_format0;
-  let stride = format0 & 0xffffu;
   let bank = source_resident_address >> 30u;
-  let vbase = (source_resident_address & 0x3fffffffu) + vertex * stride;
+  let vbase = (source_resident_address & 0x3fffffffu) + vertex * 4u;
   if uvSet == 0u && (format0 & 0x80000u) != 0u {
     let uv0_offset = (source_format1 >> 24u) & 0xffu;
-    return unpack2x16float(frame_vertex_u32(bank, vbase + uv0_offset));
+    return unpack2x16float(frame_vertex_u32(bank, vbase + uv0_offset * source_vertex_count));
   }
   if uvSet == 1u && (format0 & 0x100000u) != 0u {
     let uv1_offset = source_format2 & 0xffu;
-    return unpack2x16float(frame_vertex_u32(bank, vbase + uv1_offset));
+    return unpack2x16float(frame_vertex_u32(bank, vbase + uv1_offset * source_vertex_count));
   }
   return vec2f(0.0);
 }
 fn frame_vertex_color(vertex: u32) -> vec4f {
   let format0 = source_format0;
   if (format0 & 0x200000u) == 0u { return vec4f(1.0); }
-  let stride = format0 & 0xffffu;
   let color_offset = (source_format2 >> 8u) & 0xffu;
   let bank = source_resident_address >> 30u;
-  let at = (source_resident_address & 0x3fffffffu) + vertex * stride + color_offset;
+  let at = (source_resident_address & 0x3fffffffu) + vertex * 4u + color_offset * source_vertex_count;
   return vec4f(
     f32(frame_vertex_u8(bank, at)) * (1.0 / 255.0),
     f32(frame_vertex_u8(bank, at + 1u)) * (1.0 / 255.0),

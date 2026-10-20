@@ -41,19 +41,19 @@ struct CanonicalGeometryAsset {
     std::vector<MaterialDomain> domains;
 };
 
-struct SceneInstanceV3 {
+struct SceneInstanceV4 {
     std::uint32_t assetIndex = 0u;
     std::array<float, 16> worldTransform{};
     // Instance ABI, distinct from meshlet material classification bits.
     std::uint32_t flags = (1u << 1u) | (1u << 2u);
 };
 
-struct ImportedSceneV3 {
+struct ImportedSceneV4 {
     std::vector<CanonicalGeometryAsset> assets;
-    std::vector<SceneInstanceV3> instances;
+    std::vector<SceneInstanceV4> instances;
 };
 
-struct CookEvidenceV3 {
+struct CookEvidenceV4 {
     std::uint64_t sourceBytes = 0u;
     std::uint64_t uniqueGeometryBytes = 0u;
     std::uint64_t leafMeshlets = 0u;
@@ -79,7 +79,7 @@ struct CookEvidenceV3 {
 };
 
 /** Merges per-asset cook evidence; shared by the Native writer and the WASM ABI. */
-inline void AddEvidence(CookEvidenceV3& target, const CookEvidenceV3& source) {
+inline void AddEvidence(CookEvidenceV4& target, const CookEvidenceV4& source) {
     target.sourceBytes += source.sourceBytes;
     target.uniqueGeometryBytes += source.uniqueGeometryBytes;
     target.leafMeshlets += source.leafMeshlets; target.parentMeshlets += source.parentMeshlets;
@@ -94,7 +94,7 @@ inline void AddEvidence(CookEvidenceV3& target, const CookEvidenceV3& source) {
     target.peakWorkingBytes = std::max(target.peakWorkingBytes, source.peakWorkingBytes);
 }
 
-struct SerializedGroupV3 {
+struct SerializedGroupV4 {
     std::vector<std::uint8_t> bytes;
     std::uint32_t flags = 0u;
     std::uint8_t lodLevel = 0u;
@@ -104,7 +104,7 @@ struct SerializedGroupV3 {
     std::vector<std::uint32_t> sourceVertexIds;
 };
 
-struct CookedAssetV3 {
+struct CookedAssetV4 {
     Hash256 assetId{};
     Hash256 recipeHash{};
     float boundsSphere[4]{};
@@ -114,15 +114,15 @@ struct CookedAssetV3 {
     std::uint32_t leafMeshletCount = 0u;
     std::uint32_t totalMeshletCount = 0u;
     std::vector<std::uint32_t> rootNodeIndices;
-    std::vector<GeometryHierarchyNodeV3> hierarchy;
-    std::vector<SerializedGroupV3> groups;
-    std::vector<VertexFormatRecordV3> vertexFormats;
+    std::vector<GeometryHierarchyNodeV4> hierarchy;
+    std::vector<SerializedGroupV4> groups;
+    std::vector<VertexFormatRecordV4> vertexFormats;
 };
 
-ImportedSceneV3 ImportGltfCanonical(const std::string& path);
-CookedAssetV3 CookGeometryAssetV3(
+ImportedSceneV4 ImportGltfCanonical(const std::string& path);
+CookedAssetV4 CookGeometryAssetV4(
     const CanonicalGeometryAsset& source,
-    const GeometryCookRecipeV3& recipe,
-    CookEvidenceV3& evidence);
+    const GeometryCookRecipeV4& recipe,
+    CookEvidenceV4& evidence);
 
 }  // namespace oengine::asset

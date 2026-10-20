@@ -1,4 +1,5 @@
-import { OEGPACK_V3_PAGE_BYTES } from "../assets/GeometryAbiV3.js";
+import { GEOMETRY_LAYOUT_V4 as L } from "../assets/GeometryLayoutV4.generated.js";
+import { OEGPACK_V4_PAGE_BYTES, OEGPACK_V4_MESHLET_HEADER_BYTES } from "../assets/GeometryAbiV4.js";
 import { GEOMETRY_PRODUCT_GPU_WGSL_V1 } from "../gpu/GeometryProductGpuAbiV1.js";
 
 /**
@@ -12,9 +13,9 @@ import { GEOMETRY_PRODUCT_GPU_WGSL_V1 } from "../gpu/GeometryProductGpuAbiV1.js"
 export const VIRTUAL_GEOMETRY_PRODUCT_WGSL = /* wgsl */ `
 ${GEOMETRY_PRODUCT_GPU_WGSL_V1}
 
-const OENGINE_VIRTUAL_GEOMETRY_PAGE_BYTES_V1: u32 = ${OEGPACK_V3_PAGE_BYTES}u;
+const OENGINE_VIRTUAL_GEOMETRY_PAGE_BYTES_V1: u32 = ${OEGPACK_V4_PAGE_BYTES}u;
 const OENGINE_VIRTUAL_GEOMETRY_GROUP_HEADER_BYTES_V1: u32 = 64u;
-const OENGINE_VIRTUAL_GEOMETRY_MESHLET_HEADER_BYTES_V1: u32 = 48u;
+const OENGINE_VIRTUAL_GEOMETRY_MESHLET_HEADER_BYTES_V1: u32 = ${OEGPACK_V4_MESHLET_HEADER_BYTES}u;
 const OENGINE_VIRTUAL_GEOMETRY_GROUP_FLAGS_MASK_V1: u32 = 0xffu;
 
 struct OEngineVirtualHierarchyNodeV1 {
@@ -247,21 +248,21 @@ fn oengine_virtual_meshlet_header_v1(
     header.meshlet_header_offset + local_meshlet *
       OENGINE_VIRTUAL_GEOMETRY_MESHLET_HEADER_BYTES_V1;
   let at = byte_at >> 2u;
-  if (at > arrayLength(bank) || arrayLength(bank) - at < 12u) {
+  if (at > arrayLength(bank) || arrayLength(bank) - at < ${L.meshletHeaderBytes / 4}u) {
     return oengine_virtual_invalid_meshlet_header_v1();
   }
   let counts = (*bank)[at];
-  let vertex_count = counts & 0xffffu;
-  let triangle_count = counts >> 16u;
-  let vertex_offset = (*bank)[at + 1u];
-  let triangle_offset = (*bank)[at + 2u];
+  let vertex_count = counts & 0xffu;
+  let triangle_count = (counts >> 8u) & 0xffu;
+  let vertex_offset = (*bank)[at + ${L.meshlet.vertexByteOffset / 4}u];
+  let triangle_offset = (*bank)[at + ${L.meshlet.triangleByteOffset / 4}u];
   let bounds_min = vec3f(
-    bitcast<f32>((*bank)[at + 6u]), bitcast<f32>((*bank)[at + 7u]),
-    bitcast<f32>((*bank)[at + 8u])
+    bitcast<f32>((*bank)[at + ${L.meshlet.bboxMin / 4}u]), bitcast<f32>((*bank)[at + ${L.meshlet.bboxMin / 4 + 1}u]),
+    bitcast<f32>((*bank)[at + ${L.meshlet.bboxMin / 4 + 2}u])
   );
   let bounds_max = vec3f(
-    bitcast<f32>((*bank)[at + 9u]), bitcast<f32>((*bank)[at + 10u]),
-    bitcast<f32>((*bank)[at + 11u])
+    bitcast<f32>((*bank)[at + ${L.meshlet.bboxMax / 4}u]), bitcast<f32>((*bank)[at + ${L.meshlet.bboxMax / 4 + 1}u]),
+    bitcast<f32>((*bank)[at + ${L.meshlet.bboxMax / 4 + 2}u])
   );
   let valid = vertex_count > 0u && vertex_count <= 128u &&
     triangle_count > 0u && triangle_count <= 128u &&
@@ -276,7 +277,7 @@ fn oengine_virtual_meshlet_header_v1(
     all(bounds_min <= bounds_max);
   return OEngineVirtualMeshletHeaderV1(
     valid, vertex_count, triangle_count, vertex_offset, triangle_offset,
-    (*bank)[at + 3u], (*bank)[at + 4u], (*bank)[at + 5u],
+    (*bank)[at + ${L.meshlet.refineGroupId / 4}u], (*bank)[at + ${L.meshlet.materialId / 4}u], counts >> 16u,
     bounds_min, bounds_max
   );
 }

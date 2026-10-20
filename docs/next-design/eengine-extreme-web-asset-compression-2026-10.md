@@ -10,8 +10,8 @@ verifies:
     - OEngine/src/assets/ImageTextureSource.ts
     - OEngine/src/assets/ImageTexturePages.ts
     - OEngine/src/assets/codec
-    - OEngine/src/assets/GeometryAbiV3.ts
-    - OEngine/src/assets/OegPackV3.ts
+    - OEngine/src/assets/GeometryAbiV4.ts
+    - OEngine/src/assets/OegPackV4.ts
     - OEngine/src/assets/geometry-product
     - OEngine/src/gpu/TextureResidency.ts
     - OEngine/src/gpu/VirtualTextureResidency.ts
@@ -245,6 +245,8 @@ cache 只保留有界 encoded 源和正在复用的 decoded 依赖；不保留�
 本轮默认继续 source-exact：position F32×3、已有 normal oct16×2、UV half2/颜色等既有合法格式；tangent 方向与 sign 分离，只有原有handedness表示精确±1才用bit，其它既有合法值保留原SNORM16等精度档，不能为压紧新布局拒绝旧合同的合法输入。header/offset/padding按真实流压紧，CPU/WGSL共享ABI事实源，最终consumer直接读紧凑字节，不创建全展开position/vertex副本。
 
 网络采用新 page 的 Zstd 独立单 frame、无字典；Cook 对 level9/15/19 有界比较并选最小合法结果，不省字节则写新合同 raw 段。decoded≤256 KiB，frame/window/encoded 上界受检；不是把巨大任意 Zstd 流交 runtime。离线 level 高不代表自动增加同数量级 runtime 工作；实际浏览器延迟和内存仍记录。
+
+E4具体合同为OEGPACK4.0/scene-v4、Product schema3/binary3/profile4、Web ABI7及geometry准备协议6。44B meshlet header、component F32 SoA、optional4B streams，精确sign位流仅对所有canonical/coarse W=±1成立；否则2B SNORM16。页仍恰好256KiB，独立Zstd frame必须有checksum/已知content size、window≤256KiB且无串联/尾字节。布局JSON生成C++/TS常量，WGSL消费同一常量。Worker固定4MiB堆，从默认400MiB共享temporary预算预留最多16MiB，余下至少384MiB容纳原KTX冷输入；手动预算不足明确拒绝，不虚报RSS上界。
 
 现有 meshoptimizer/Nyx 的 LOD、meshlet、weld、source/corner/remap 规则继续复用。旧八组 semantic meshopt 样本不足以否定算法家族，但也不要求为了“采用更多库”额外叠加一个无净收益的 runtime 子流。主线确定为新 resident SoA+Zstd/raw；meshopt 继续承担其已存在的几何生产工作。
 

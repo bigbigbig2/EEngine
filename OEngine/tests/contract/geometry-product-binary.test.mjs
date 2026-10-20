@@ -49,7 +49,8 @@ function fixture() {
   fv.setUint16(0, 16, true);
   fv.setUint16(2, 3, true);
   fv.setUint8(5, 12);
-  fv.setUint8(10, 1);
+  fv.setUint8(10, 2);
+  formats.fill(255, 6, 10);
   return attachTriangleQuerySection({
     schemaVersion: 2,
     productId: new Uint8Array(32).fill(2),
@@ -79,6 +80,14 @@ test("Geometry Product descriptor binary V1 has canonical deterministic bytes an
     encoded = binary.encodeGeometryProductDescriptorBinaryV1(descriptor),
     decoded = binary.decodeGeometryProductDescriptorBinaryV1(encoded);
   assert.equal(encoded.byteLength % 16, 0);
+  const header = new DataView(encoded);
+  assert.equal(header.getUint32(4, true), 3);
+  assert.equal(header.getUint32(8, true), 272);
+  assert.equal(header.getUint32(16, true), 4);
+  assert.equal(header.getUint32(256, true), descriptor.querySection.byteLength);
+  assert.equal(decoded.schemaVersion, 3);
+  assert.equal(decoded.vertexFormats[10], 2);
+  assert.deepEqual([...decoded.vertexFormats.subarray(6, 10)], [255, 255, 255, 255]);
   assert.equal(new DataView(encoded).getUint32(0, true), binary.GEOMETRY_PRODUCT_BINARY_MAGIC_V1);
   assert.equal(decoded.producerId, descriptor.producerId);
   assert.equal(decoded.producerVersion, descriptor.producerVersion);
@@ -91,7 +100,7 @@ test("Geometry Product descriptor binary V1 has canonical deterministic bytes an
   );
   assert.equal(
     createHash("sha256").update(new Uint8Array(encoded)).digest("hex"),
-    "352c2110de35f4987b8bef68fde5609d03a509400034bee3bd11d195adaf66a4",
+    "5010e880d85fa02333d3cf113ddc97d26a72ec9efc426e869e2f07a225905c0f",
   );
 });
 

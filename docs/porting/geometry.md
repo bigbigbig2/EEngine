@@ -6,22 +6,30 @@ verifies:
 ---
 # Geometry
 
+## 2026-10-21 E4当前布局与传输
+
+- 当前唯一owner为SoA4/OEGPACK4；以下Nyx早期快照/验证叙述是来源沿革，不证明新major通过GPU或规模资格。meshoptimizer现有pinned1.3与LOD/锁/remap算法保持，旧交错页和LZ4生产reader/CLI已删除；U0仅隔离读取历史fixture，不作为生产fallback。
+- Adopt（CPU codec）：facebook/zstd tag v1.5.7，revision `f8745da6ff1ad1e7bab384bd1f9d742439278e99`，BSD-3-Clause选项。完整`lib/common`、`lib/compress`、`lib/decompress`，所有donor文件SHA在`vendor/zstd/source.json`，保留LICENSE/COPYING。无自制熵编码或删算法步骤。
+- Function map：`ZSTD_CCtx_reset/setParameter/compress2`→`GeometryZstd.h::EncodeGeometryZstd`→native OegPackWriter；比较9/15/19、checksum、content size、window18及raw最小候选。`getFrameHeader/findFrameCompressedSize/initStaticDCtx/decompressDCtx`→`GeometryZstdDecoder.c`→`GeometryZstd.ts`→统一Cooked Worker；固定4MiB WASM heap、256KiB静态context workspace、严格frame边界。Native validator用同一frame合同及完整decoder。
+- Adapt（布局/平台）：Local JSON生成C++/TS ABI，44B MeshletHeader、F32 component SoA及sign尾流；WGSL直接从原bank/目录读取，Surface缓存补恢复vertexCount，query保持source/corner/remap。不是声称Nyx本身采用该压缩布局。生产无额外frame submit/readback/query顶点副本，保留现有growth/publication/fence owner。
+- Build identity：native build/source.json（本地），portable/pthread vendor/source.json，decoder vendor/source.json均记录源码、实际编译器/参数与产物hash；旧reports不提升adoption。E4最小native/WASM/TS byte检查见当前执行计划；新GPU consumer/全场景质量与成本在E5，不宣称Performance Improved或全路径验证完成。
+
 ## S6 consumer mapping (2026-09-19)
 
 S6 changes only production ownership and entry topology; it does not replace or shorten the Nyx geometry stages. `load_gltf()` now reaches the Web Product Runtime, while `GeometryAssetPackage`/`GeometryCooker` symbols that remain in the tree are explicitly internal oracle/ABI/test consumers. The public entry audit and the browser replacement/device-loss cases prove the Product publication and recovery consumers; they do not claim that every retained oracle module is a production route or that the original DX12 byte layout is reproduced.
 
 ## GEO-NYX-OEG3 · Nyx Native Geometry Cooker / Runtime Page ABI
 
-- Local owner/source: `OEngine/tools/oengine-asset-core/`、`OEngine/src/assets/GeometryAbiV3.ts`、`OEngine/src/assets/OegPackV3.ts`、`OEngine/src/assets/geometry-product/OegPackProductAsset.ts`、`OEngine/src/assets/geometry-product/OegPackSceneManifestV3.ts`、`OEngine/src/gpu/VirtualGeometryResidency.ts`、`OEngine/src/shaders/oegpack_v3_decode.ts`。
+- Local owner/source: `OEngine/tools/oengine-asset-core/`、`OEngine/src/assets/GeometryAbiV4.ts`、`OEngine/src/assets/OegPackV4.ts`、`OEngine/src/assets/geometry-product/OegPackProductAsset.ts`、`OEngine/src/assets/geometry-product/OegPackSceneManifestV4.ts`、`OEngine/src/gpu/VirtualGeometryResidency.ts`、`OEngine/src/shaders/oegpack_v4_decode.ts`。
 - Upstream: 用户提供的仓库外本地只读 Nyx 源码；声明身份 `moonlovelj/Nyx@bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b`。本次实现未从网络获取源码。
 - Verified source identity: `MeshletBuilder.cpp` SHA-256 `b749346382b0f9a1574f0c0566a2860bff2acfbc6521df6f153a42653c81e84a`；`ModelConvert.cpp` `8bdf016e0f36e70f0c1aa46d679ab0e1b4f57ea30e0748a6549675620cc8a059`；`MeshletStructs.h` `1edfaa25d2e12067b98d93599142b110e2509be96471fa09a00b029484ef9b23`；`DAGCull.slang` `6534dd8794248d693acd07488653a625df3b4fac11117f96537a43857dcfee7e`。CMake 与 `tools/build-native-cooker.mjs` 在每次构建前都强制复核这些 hash。
 - Upstream source: `MiniEngine/Model/MeshletBuilder.cpp`、`MiniEngine/Model/ModelConvert.cpp`、`MiniEngine/Model/MeshletStructs.h`、`MiniEngine/Model/Shaders/DAGCull.slang`，以及本地 bundled `cgltf`、`meshoptimizer`、`lz4`。
 - License: Nyx/MiniEngine MIT（Microsoft）；meshoptimizer MIT（Arseny Kapoulkine）；cgltf MIT（Johannes Kuhlmann）；LZ4 BSD-2-Clause（Yann Collet）。完整文本见 `OEngine/tools/oengine-asset-core/THIRD_PARTY_NOTICES.md`。
 - Adoption: 可追溯局部移植。直接编译本地 Nyx bundled meshoptimizer 0.25、cgltf 和 LZ4；Group/DAG/Hierarchy/Page 算法按 Nyx 不变量移植到 OEngine 独立 V3 ABI，不把 Nyx runtime 作为 OEngine 运行时依赖。
 - Retained invariants: material-domain 边界；position-remap topology；同 LOD `partitionClusters`；跨 Group seam lock；`simplifyWithAttributes` 与带显式标志的 sloppy fallback；coarse meshlet `refineGroupId`；propagated parent error；每 LOD BVH8 加 top BVH；coarse/bootstrap 优先；固定 256 KiB decoded page；LZ4/raw 独立页；常驻 metadata；page-local vertex/index payload。
-- OEngine/WebGPU differences: 48 B hierarchy、64 B GroupHeader、48 B MeshletHeader 和 16 B GroupDirectory 是 OEngine `OEGPACK V3.0` 的显式 little-endian ABI；disk offset 使用 u64，GPU address 使用 bank/slot u32；128 MiB bank/512 slots。Offline 产物的 scene/instance 索引由 `docs/specs/oegpack-scene-manifest-v3.md` 冻结，并自 ADR-0016 S6 起与 Web 路线共用 `Geometry Product admission -> VirtualGeometryResidency -> Renderer` 同一条路径（已删除 OEGPACK 专用 bootstrap residency adapter）。
+- OEngine/WebGPU differences: 48 B hierarchy、64 B GroupHeader、48 B MeshletHeader 和 16 B GroupDirectory 是 OEngine `OEGPACK V3.0` 的显式 little-endian ABI；disk offset 使用 u64，GPU address 使用 bank/slot u32；128 MiB bank/512 slots。Offline 产物的 scene/instance 索引由 `docs/specs/oegpack-scene-manifest-v4.md` 冻结，并自 ADR-0016 S6 起与 Web 路线共用 `Geometry Product admission -> VirtualGeometryResidency -> Renderer` 同一条路径（已删除 OEGPACK 专用 bootstrap residency adapter）。
 - Fallback/lifecycle: attribute-aware simplification未达到冻结比率时仅在 recipe 允许时使用 `meshopt_simplifySloppy`，并设置 `kGroupSimplificationFallback`、放大 error、计数；不做隐藏的 source-vertex runtime fallback。bootstrap owner 失败时销毁全部 bank，显式 `destroy()` 释放 GPUBuffer。
-- Local validation: C++ struct/offset `static_assert`、不同线程数 byte-identical golden、native/TS reopen、CRC/hash、DAG/bootstrap、page independence、corruption、Chrome WGSL raw-record decode/readback 与 medium-scene diagnostic cook。格式冻结还需要 [OEGPACK V3 spec](../specs/oegpack-v3.md) 规定的真实生产 Visibility consumer。
+- Local validation: C++ struct/offset `static_assert`、不同线程数 byte-identical golden、native/TS reopen、CRC/hash、DAG/bootstrap、page independence、corruption、Chrome WGSL raw-record decode/readback 与 medium-scene diagnostic cook。格式冻结还需要 [OEGPACK V3 spec](../specs/oegpack-v4.md) 规定的真实生产 Visibility consumer。
 
 ## GEO-NYX-WEB-COOKER · Browser-first WASM Geometry Product producer（移植中）
 
@@ -99,7 +107,7 @@ S6 changes only production ownership and entry topology; it does not replace or 
 | --- | --- |
 | 非法 meshlet 上限 / 空 Product / 缺 bootstrap / 非有限 error / 反向 bounds | `nyx-differential-corpus.test.mjs` |
 | 跨页 Group | `nyx-differential-corpus.test.mjs` |
-| header/metadata/compressed bytes/logical link corruption | `oegpack-v3.test.mjs` |
+| header/metadata/compressed bytes/logical link corruption | `oegpack-v4.test.mjs` |
 | stale generation / duplicate / retry / budget / abort | `geometry-page-scheduler.test.mjs`、`geometry-product-admission.test.mjs` |
 | overflow（output / readback / demand） | `web-cook-budget.test.mjs`、`geometry-page-demand-abi.test.mjs` |
 | 取消 / 回滚 / replacement / device-loss recovery | `geometry-product-admission.test.mjs`、`virtual-geometry-product.test.mjs` |

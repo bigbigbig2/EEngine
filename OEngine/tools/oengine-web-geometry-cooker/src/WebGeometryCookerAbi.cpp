@@ -21,7 +21,7 @@ namespace {
 
 using namespace oengine::asset;
 
-constexpr std::uint32_t kAbiVersion = 6u;
+constexpr std::uint32_t kAbiVersion = 7u;
 /** Upper bound on per-cook worker threads; the pthread pool is sized the same. */
 [[maybe_unused]] constexpr std::uint32_t kMaxCookThreads = 8u;
 constexpr std::uint32_t kCanonicalHeaderBytes = 128u;
@@ -38,14 +38,14 @@ struct CookResult {
     /** Descriptor-stage skeleton: final IDs and layout, no page payloads. */
     DecodedGeometryProductPlanV1 plan;
     /** Group payloads retained for on-demand page materialisation. */
-    std::vector<SerializedGroupV3> retainedGroups;
+    std::vector<SerializedGroupV4> retainedGroups;
     /**
      * Per-PageID materialised payload. A null entry means "declared but not yet
      * produced"; pageCount is always plan.pages.size(), so a page is PENDING
      * rather than out of range until it is produced.
      */
     std::vector<std::shared_ptr<const DecodedGeometryPageV1>> pages;
-    CookEvidenceV3 evidence;
+    CookEvidenceV4 evidence;
     Hash256 recipeHash{};
     Hash256 contentManifestHash{};
     std::vector<std::uint8_t> assetRecords;
@@ -62,10 +62,10 @@ struct CookResult {
 };
 
 struct CookBuilder {
-    GeometryCookRecipeV3 recipe;
+    GeometryCookRecipeV4 recipe;
     std::uint64_t maxDecodedProductBytes = 0u;
-    std::vector<CookedAssetV3> cooked;
-    CookEvidenceV3 evidence;
+    std::vector<CookedAssetV4> cooked;
+    CookEvidenceV4 evidence;
 };
 
 void AddU32(Sha256Builder& hash, std::uint32_t value) {
@@ -155,7 +155,7 @@ void RequireZero(
     }
 }
 
-GeometryCookRecipeV3 DecodeRecipe(
+GeometryCookRecipeV4 DecodeRecipe(
     const std::uint8_t* bytes, std::size_t byteLength) {
     if (!bytes || byteLength != kRecipeBytes ||
         !std::equal(kRecipeMagic.begin(), kRecipeMagic.end(), bytes)) {
@@ -164,7 +164,7 @@ GeometryCookRecipeV3 DecodeRecipe(
     if (ReadU32(bytes, 8u) != kAbiVersion || ReadU32(bytes, 12u) != kRecipeBytes) {
         throw std::runtime_error("unsupported Web geometry recipe ABI");
     }
-    GeometryCookRecipeV3 recipe;
+    GeometryCookRecipeV4 recipe;
     recipe.meshletMaxVertices = ReadU32(bytes, 16u);
     recipe.meshletMinTriangles = ReadU32(bytes, 20u);
     recipe.meshletMaxTriangles = ReadU32(bytes, 24u);
@@ -183,7 +183,7 @@ GeometryCookRecipeV3 DecodeRecipe(
     recipe.lodErrorMergeFactor = ReadF32(bytes, 64u);
     recipe.hierarchyFanout = ReadU32(bytes, 68u);
     recipe.pageShift = ReadU32(bytes, 72u);
-    recipe.rawCodecThresholdBytes = ReadU32(bytes, 76u);
+    if (ReadU32(bytes, 76u) != 0u) throw std::runtime_error("recipe reserved word must be zero");
     recipe.bootstrapGeometryBudgetBytes =
         std::uint64_t(ReadU32(bytes, 80u)) |
         (std::uint64_t(ReadU32(bytes, 84u)) << 32u);
@@ -286,7 +286,7 @@ CanonicalGeometryAsset DecodeCanonicalInput(
             domain.indices[index] = ReadU32(
                 bytes, indexOffset + std::size_t(indexBegin + index) * 4u);
         }
-        if (generateNormals) GenerateCanonicalNormalsV3(domain);
+        if (generateNormals) GenerateCanonicalNormalsV4(domain);
         asset.domains.push_back(std::move(domain));
         expectedVertexBegin += domainVertexCount;
         expectedIndexBegin += domainIndexCount;
@@ -294,7 +294,7 @@ CanonicalGeometryAsset DecodeCanonicalInput(
     if (expectedVertexBegin != vertexCount || expectedIndexBegin != indexCount) {
         throw std::runtime_error("canonical geometry contains unowned vertices or indices");
     }
-    FinalizeCanonicalGeometryAssetV3(asset);
+    FinalizeCanonicalGeometryAssetV4(asset);
     return asset;
 }
 
@@ -302,7 +302,7 @@ template <typename T>
 std::vector<std::uint8_t> EncodeRecords(const std::vector<T>& records) {
     std::vector<std::uint8_t> output(records.size() * sizeof(T));
     for (std::size_t index = 0u; index < records.size(); ++index) {
-        EncodeRecordV3(output.data() + index * sizeof(T), records[index]);
+        EncodeRecordV4(output.data() + index * sizeof(T), records[index]);
     }
     return output;
 }
@@ -321,14 +321,14 @@ void AppendCanonicalWindow(
         singles[domainIndex].sourceName = asset.sourceName + "#" +
             std::to_string(builder.cooked.size() + domainIndex);
         singles[domainIndex].domains.push_back(std::move(asset.domains[domainIndex]));
-        FinalizeCanonicalGeometryAssetV3(singles[domainIndex]);
+        FinalizeCanonicalGeometryAssetV4(singles[domainIndex]);
     }
-    std::vector<CookedAssetV3> cooked(domainCount);
-    std::vector<CookEvidenceV3> domainEvidence(domainCount);
+    std::vector<CookedAssetV4> cooked(domainCount);
+    std::vector<CookEvidenceV4> domainEvidence(domainCount);
     const std::uint32_t concurrency = CookConcurrency(domainCount);
     if (concurrency <= 1u) {
         for (std::size_t index = 0u; index < domainCount; ++index) {
-            cooked[index] = CookGeometryAssetV3(singles[index], builder.recipe, domainEvidence[index]);
+            cooked[index] = CookGeometryAssetV4(singles[index], builder.recipe, domainEvidence[index]);
         }
     } else {
         for (std::size_t begin = 0u; begin < domainCount; begin += concurrency) {
@@ -337,14 +337,14 @@ void AppendCanonicalWindow(
             tasks.reserve(end - begin);
             for (std::size_t index = begin; index < end; ++index) {
                 tasks.push_back(std::async(std::launch::async, [&, index]() {
-                    cooked[index] = CookGeometryAssetV3(singles[index], builder.recipe, domainEvidence[index]);
+                    cooked[index] = CookGeometryAssetV4(singles[index], builder.recipe, domainEvidence[index]);
                 }));
             }
             for (auto& task : tasks) task.get();
         }
     }
-    for (const CookEvidenceV3& item : domainEvidence) AddEvidence(builder.evidence, item);
-    for (CookedAssetV3& item : cooked) builder.cooked.push_back(std::move(item));
+    for (const CookEvidenceV4& item : domainEvidence) AddEvidence(builder.evidence, item);
+    for (CookedAssetV4& item : cooked) builder.cooked.push_back(std::move(item));
 }
 
 std::unique_ptr<CookResult> FinishBuilder(CookBuilder&& builder) {
@@ -353,9 +353,9 @@ std::unique_ptr<CookResult> FinishBuilder(CookBuilder&& builder) {
     result->evidence = builder.evidence;
     result->plan = PlanDecodedGeometryProductV1(std::move(builder.cooked), result->retainedGroups);
     result->pages.assign(result->plan.pages.size(), nullptr);
-    const std::uint64_t decodedBytes = std::uint64_t(result->plan.pages.size()) * kGeometryPageBytesV3;
+    const std::uint64_t decodedBytes = std::uint64_t(result->plan.pages.size()) * kGeometryPageBytesV4;
     std::uint64_t bootstrapPayloadBytes = 0u;
-    for (const GeometryGroupDirectoryV3& group : result->plan.groups) if ((group.flags & kGroupBootstrap) != 0u) bootstrapPayloadBytes += group.payloadBytes;
+    for (const GeometryGroupDirectoryV4& group : result->plan.groups) if ((group.flags & kGroupBootstrap) != 0u) bootstrapPayloadBytes += group.payloadBytes;
     if (decodedBytes > builder.maxDecodedProductBytes || bootstrapPayloadBytes > builder.recipe.bootstrapGeometryBudgetBytes) {
         throw std::runtime_error("decoded Geometry Product exceeds admitted budget");
     }
@@ -382,7 +382,7 @@ std::unique_ptr<CookResult> Cook(
     const std::uint8_t* canonicalInput, std::size_t canonicalInputBytes,
     const std::uint8_t* recipeInput, std::size_t recipeInputBytes,
     std::uint64_t maxDecodedProductBytes) {
-    if (maxDecodedProductBytes < kGeometryPageBytesV3) {
+    if (maxDecodedProductBytes < kGeometryPageBytesV4) {
         throw std::runtime_error("decoded Product budget cannot hold one page");
     }
     CookBuilder builder{DecodeRecipe(recipeInput, recipeInputBytes), maxDecodedProductBytes, {}, {}};
@@ -526,7 +526,7 @@ std::uintptr_t oengine_web_geometry_cook_builder_begin(
     std::uint64_t maxDecodedProductBytes) {
     try {
         gLastError.clear();
-        if (maxDecodedProductBytes < kGeometryPageBytesV3) throw std::runtime_error("decoded Product budget cannot hold one page");
+        if (maxDecodedProductBytes < kGeometryPageBytesV4) throw std::runtime_error("decoded Product budget cannot hold one page");
         auto builder = std::make_unique<CookBuilder>();
         builder->recipe = DecodeRecipe(recipeInput, recipeInputBytes);
         builder->maxDecodedProductBytes = maxDecodedProductBytes;
@@ -578,14 +578,14 @@ std::uint32_t oengine_web_geometry_cook_produce_page(
             return OENGINE_WEB_COOK_PAGE_UNDECLARED;
         }
         if (!result.pages[pageId]) {
-            if (!output || outputBytes != kGeometryPageBytesV3) {
+            if (!output || outputBytes != kGeometryPageBytesV4) {
                 // A pending page reports PENDING; the caller may retry with a
                 // correctly sized destination.
                 return OENGINE_WEB_COOK_PAGE_PENDING;
             }
             EnsurePageMaterialized(result, pageId);
         }
-        if (!output || outputBytes != kGeometryPageBytesV3) {
+        if (!output || outputBytes != kGeometryPageBytesV4) {
             throw std::runtime_error(
                 "Web geometry cook page destination must be exactly one decoded page");
         }
@@ -649,7 +649,7 @@ std::size_t oengine_web_geometry_cook_section_size(
             if (index >= result.plan.pages.size()) {
                 throw std::runtime_error("decoded page index is out of range");
             }
-            return kGeometryPageBytesV3;
+            return kGeometryPageBytesV4;
         }
         const std::vector<std::uint8_t>* bytes = Section(result, section, index);
         if (!bytes) throw std::runtime_error("unknown Web geometry cook section");

@@ -49,11 +49,11 @@ struct DecodedGeometryPagePlanV1 {
 struct DecodedGeometryProductPlanV1 {
     /** Versioned query metadata; references shared page payload, never a second mesh. */
     std::vector<std::uint8_t> querySection;
-    std::vector<GeometryAssetRecordV3> assets;
+    std::vector<GeometryAssetRecordV4> assets;
     std::vector<std::uint32_t> roots;
-    std::vector<GeometryHierarchyNodeV3> hierarchy;
-    std::vector<GeometryGroupDirectoryV3> groups;
-    std::vector<VertexFormatRecordV3> formats;
+    std::vector<GeometryHierarchyNodeV4> hierarchy;
+    std::vector<GeometryGroupDirectoryV4> groups;
+    std::vector<VertexFormatRecordV4> formats;
     std::vector<std::uint32_t> bootstrapPages;
     std::vector<DecodedGeometryPagePlanV1> pages;
 };
@@ -78,17 +78,17 @@ std::array<std::uint8_t, 16> ComputeGeometryPageIdentityV1(
 /** Producer-neutral V3-decoded Geometry Product before file-container encoding. */
 struct DecodedGeometryProductV1 {
     std::vector<std::uint8_t> querySection;
-    std::vector<GeometryAssetRecordV3> assets;
+    std::vector<GeometryAssetRecordV4> assets;
     std::vector<std::uint32_t> roots;
-    std::vector<GeometryHierarchyNodeV3> hierarchy;
-    std::vector<GeometryGroupDirectoryV3> groups;
-    std::vector<VertexFormatRecordV3> formats;
+    std::vector<GeometryHierarchyNodeV4> hierarchy;
+    std::vector<GeometryGroupDirectoryV4> groups;
+    std::vector<VertexFormatRecordV4> formats;
     std::vector<std::uint32_t> bootstrapPages;
     std::vector<DecodedGeometryPageV1> pages;
 };
 
 DecodedGeometryProductV1 AssembleDecodedGeometryProductV1(
-    std::vector<CookedAssetV3> cooked);
+    std::vector<CookedAssetV4> cooked);
 
 /**
  * Descriptor-stage assembly: identical page packing and identity rollup as
@@ -98,8 +98,8 @@ DecodedGeometryProductV1 AssembleDecodedGeometryProductV1(
  * later materialisation step can reconstruct any page byte-for-byte.
  */
 DecodedGeometryProductPlanV1 PlanDecodedGeometryProductV1(
-    std::vector<CookedAssetV3> cooked,
-    std::vector<SerializedGroupV3>& retainedGroups);
+    std::vector<CookedAssetV4> cooked,
+    std::vector<SerializedGroupV4>& retainedGroups);
 
 /**
  * Payload-stage materialisation of one planned page.
@@ -111,7 +111,7 @@ DecodedGeometryProductPlanV1 PlanDecodedGeometryProductV1(
  */
 DecodedGeometryPageV1 MaterializeDecodedGeometryPageV1(
     const DecodedGeometryProductPlanV1& plan,
-    const std::vector<SerializedGroupV3>& retainedGroups,
+    const std::vector<SerializedGroupV4>& retainedGroups,
     std::uint32_t pageId);
 
 }  // namespace oengine::asset

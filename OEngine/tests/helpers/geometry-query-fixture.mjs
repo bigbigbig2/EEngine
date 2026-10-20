@@ -1,8 +1,8 @@
 // Synthetic triangle descriptor metadata only. Actual cooker tests consume the
 // cooker-produced section and independently compare it with decoded pages.
 export function attachTriangleQuerySection(descriptor, payloads) {
-  descriptor.schemaVersion = 2;
-  descriptor.runtimeProfile = "oengine-vg-v2-v3-decoded-query3";
+  descriptor.schemaVersion = 3;
+  descriptor.runtimeProfile = "oengine-vg-v3-soa4-query3";
   Object.defineProperty(descriptor, "querySection", {
     configurable: true,
     enumerable: true,
@@ -38,7 +38,7 @@ export function attachTriangleQuerySection(descriptor, payloads) {
             const payload = payloads instanceof Uint8Array ? payloads : payloads?.[pageId]?.page ?? payloads?.[pageId];
             const source = payload && new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
             const groupAt = groups.getUint32(group * 16 + 4, true);
-            const meshletAt = groupAt + (source?.getUint32(groupAt + 48, true) ?? 64) + local * 48;
+            const meshletAt = groupAt + (source?.getUint32(groupAt + 48, true) ?? 64) + local * 44;
             const refine = source?.getUint32(meshletAt + 12, true) ?? 0xffffffff;
             const childBegin = children.length;
             if (refine !== 0xffffffff) {
@@ -54,19 +54,19 @@ export function attachTriangleQuerySection(descriptor, payloads) {
             const bounds = [];
             for (let axis = 0; axis < 6; axis++) {
               const fallback = new Float32Array([axis < 3 ? -0.5 : 0.5]);
-              bounds.push(source?.getUint32(meshletAt + 24 + axis * 4, true) ??
+              bounds.push(source?.getUint32(meshletAt + 20 + axis * 4, true) ??
                 new Uint32Array(fallback.buffer)[0]);
             }
-            clusters.push([pageId, group, local, source?.getUint16(meshletAt + 2, true) ?? 1,
+            clusters.push([pageId, group, local, source?.getUint8(meshletAt + 1) ?? 1,
               source?.getUint32(meshletAt + 16, true) ?? 0, source?.getUint8(groupAt + 47) ?? 0,
               refine === 0xffffffff ? 5 : 6, asset, ...bounds,
               refine === 0xffffffff ? 0 : source.getUint32(groupAt + 40, true),
               childBegin, children.length - childBegin, source?.getUint8(groupAt + 46) ?? 0,
               primitives.length, vertices.length]);
-            for (let triangle = 0; triangle < (source?.getUint16(meshletAt + 2, true) ?? 1); triangle++) {
+            for (let triangle = 0; triangle < (source?.getUint8(meshletAt + 1) ?? 1); triangle++) {
               primitives.push(refine === 0xffffffff ? sourcePrimitive++ : coarsePrimitive++);
             }
-            for (let vertex = 0; vertex < (source?.getUint16(meshletAt, true) ?? 3); vertex++) {
+            for (let vertex = 0; vertex < (source?.getUint8(meshletAt) ?? 3); vertex++) {
               vertices.push(vertices.length);
             }
           }

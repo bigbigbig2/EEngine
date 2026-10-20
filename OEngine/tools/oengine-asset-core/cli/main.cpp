@@ -37,8 +37,7 @@ void PrintUsage() {
         << "  --meshlet-triangles N       cook profile, maximum 128\n"
         << "  --group-meshlets N          target Nyx partition size\n"
         << "  --simplify-ratio X          attribute-aware simplification target\n"
-        << "  --bootstrap-budget N        maximum decoded bootstrap bytes\n"
-        << "  --raw-threshold N           choose raw page when LZ4 saves fewer than N bytes\n";
+        << "  --bootstrap-budget N        maximum decoded bootstrap bytes\n";
 }
 
 }  // namespace
@@ -49,7 +48,7 @@ int main(int argc, char** argv) {
         if (std::string(argv[1]) == "validate") {
             if (argc < 3) { PrintUsage(); return 2; }
             const bool metadataOnly = argc >= 4 && std::string(argv[3]) == "--metadata-only";
-            oengine::asset::ValidateOegPackV3File(argv[2], !metadataOnly);
+            oengine::asset::ValidateOegPackV4File(argv[2], !metadataOnly);
             std::cout << "{\"valid\":true,\"path\":\"" << argv[2] << "\"}\n";
             return 0;
         }
@@ -58,7 +57,7 @@ int main(int argc, char** argv) {
         std::uint32_t threads = std::max(1u, std::thread::hardware_concurrency());
         std::uint64_t shardBytes = 256ull * 1024ull * 1024ull;
         std::uint64_t memoryLimit = 0u;
-        oengine::asset::GeometryCookRecipeV3 recipe;
+        oengine::asset::GeometryCookRecipeV4 recipe;
         for (int i = 2; i < argc; ++i) {
             const std::string option = argv[i];
             if (i + 1 >= argc) throw std::runtime_error("missing value for " + option);
@@ -72,7 +71,6 @@ int main(int argc, char** argv) {
             else if (option == "--group-meshlets") recipe.groupTargetMeshlets = std::uint32_t(ParseU64(value, "group-meshlets"));
             else if (option == "--simplify-ratio") recipe.simplifyTargetRatio = ParseFloat(value, "simplify-ratio");
             else if (option == "--bootstrap-budget") recipe.bootstrapGeometryBudgetBytes = ParseU64(value, "bootstrap-budget");
-            else if (option == "--raw-threshold") recipe.rawCodecThresholdBytes = std::uint32_t(ParseU64(value, "raw-threshold"));
             else throw std::runtime_error("unknown option: " + option);
         }
         if (output.empty()) throw std::runtime_error("--out is required");
@@ -92,7 +90,7 @@ int main(int argc, char** argv) {
                 throw std::runtime_error("cannot install process memory limit: " + std::to_string(GetLastError()));
             }
         }
-        const auto result = oengine::asset::CookAndWriteSceneV3(input, output, recipe, shardBytes, threads);
+        const auto result = oengine::asset::CookAndWriteSceneV4(input, output, recipe, shardBytes, threads);
         const auto& e = result.evidence;
         std::string scenePath = result.scenePath;
         std::replace(scenePath.begin(), scenePath.end(), '\\', '/');

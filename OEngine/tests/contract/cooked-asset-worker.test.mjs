@@ -1,3 +1,4 @@
+import { geometryVertexFormat } from "../../.test-dist/assets/GeometryAbiV4.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createServer } from "node:http";
@@ -86,7 +87,7 @@ async function fixture() {
     descriptor: f.descriptor,
     pages: directories,
     groups: [0, 1].map((pageId) => ({ pageId, offsetInDecodedPage: 0, payloadBytes: 176, meshletCount: 1 })),
-    formats: [{ strideBytes: 16 }],
+    formats: [geometryVertexFormat(3, 0)],
     init: {},
     verifyPageSha256: true,
   };
@@ -310,6 +311,18 @@ test("range coalescing preserves its caller-selected domain and encoded bound", 
   assert.deepEqual(cookedGeometrySpans(registration.pages, [1])[0].pageIds, [1]);
   assert.equal(cookedGeometrySpans(registration.pages, [0, 1], 262144).length, 2);
   assert.throws(() => cookedGeometrySpans(registration.pages, [3]), /directory/);
+});
+
+test("decoder heaps are reserved before task admission, not hidden in per-task credit", () => {
+  const MiB = 1024 * 1024;
+  assert.throws(() => new CookedAssetPreparation({ maxWorkers: 4, maxTemporaryBytes: 19 * MiB }), /decoder reservations/);
+  const preparation = new CookedAssetPreparation({ maxWorkers: 4 });
+  try {
+    assert.equal(preparation.evidence().decoderReservedBytes, 16 * MiB);
+    assert.equal(preparation.evidence().taskCapacityBytes, 384 * MiB);
+  } finally {
+    preparation.dispose();
+  }
 });
 
 test("returned ready storage blocks new admission until consumption or cancellation", async () => {

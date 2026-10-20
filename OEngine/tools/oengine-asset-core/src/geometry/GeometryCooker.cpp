@@ -42,12 +42,12 @@ struct Group {
 };
 
 struct DomainProduct {
-    std::vector<SerializedGroupV3> groups;
-    std::vector<GeometryHierarchyNodeV3> hierarchy;
+    std::vector<SerializedGroupV4> groups;
+    std::vector<GeometryHierarchyNodeV4> hierarchy;
     std::uint32_t rootNode = 0u;
     std::uint32_t leafMeshlets = 0u;
     std::uint32_t totalMeshlets = 0u;
-    VertexFormatRecordV3 vertexFormat{};
+    VertexFormatRecordV4 vertexFormat{};
 };
 
 constexpr float kInfinity = std::numeric_limits<float>::infinity();
@@ -111,7 +111,7 @@ void ComputeBounds(const MaterialDomain& source, Meshlet& meshlet) {
 }
 
 std::vector<Meshlet> BuildMeshlets(
-    const MaterialDomain& source, const GeometryCookRecipeV3& recipe,
+    const MaterialDomain& source, const GeometryCookRecipeV4& recipe,
     const std::vector<std::uint32_t>& indices, const std::vector<SurfacePrimitiveMetadata>& surface) {
     if(surface.size()!=indices.size()/3u)throw std::runtime_error("Surface metadata does not cover input triangles");
     auto key=[](std::uint32_t a,std::uint32_t b,std::uint32_t c){
@@ -150,10 +150,10 @@ std::vector<Meshlet> BuildMeshlets(
     return output;
 }
 
-VertexFormatRecordV3 MakeVertexFormat(std::uint16_t mask);
+VertexFormatRecordV4 MakeVertexFormat(std::uint16_t mask);
 
 std::vector<std::uint32_t> GroupMeshlets(
-    const MaterialDomain& source, const GeometryCookRecipeV3& recipe,
+    const MaterialDomain& source, const GeometryCookRecipeV4& recipe,
     const std::vector<Meshlet>& meshlets, const std::vector<std::uint32_t>& active,
     const std::vector<std::uint32_t>& positionRemap, std::uint8_t lodLevel,
     std::vector<Group>& groups) {
@@ -175,7 +175,7 @@ std::vector<std::uint32_t> GroupMeshlets(
     std::vector<Group> partitioned(partitionCount);
     for (std::size_t index = 0; index < active.size(); ++index)
         partitioned[partitions[index]].meshletIds.push_back(active[index]);
-    const auto stride = MakeVertexFormat(source.attributeMask).strideBytes;
+    const auto stride = MakeVertexFormat(source.attributeMask).streamBytesPerVertex;
     std::vector<Group> created;
     for (const auto& partition : partitioned) {
         Group bounded;
@@ -185,15 +185,15 @@ std::vector<std::uint32_t> GroupMeshlets(
             const auto triangles = AlignUp(std::uint32_t(meshlet.triangles.size()), 4u);
             const auto vertices = AlignUp(std::uint32_t(meshlet.vertices.size()) * stride, 4u);
             auto payload = [&](std::uint32_t count, std::uint32_t triangleTotal, std::uint32_t vertexTotal) {
-                return AlignUp(AlignUp(AlignUp(64u + count * 48u, 16u) + triangleTotal, 16u) + vertexTotal, 16u);
+                return AlignUp(AlignUp(AlignUp(64u + count * layout_v4::meshletHeaderBytes, 16u) + triangleTotal, 16u) + vertexTotal, 16u);
             };
             if (!bounded.meshletIds.empty() && (bounded.meshletIds.size() == 128u ||
                 payload(std::uint32_t(bounded.meshletIds.size()) + 1u, triangleBytes + triangles,
-                    vertexBytes + vertices) > kGeometryPageBytesV3)) {
+                    vertexBytes + vertices) > kGeometryPageBytesV4)) {
                 created.push_back(std::move(bounded));
                 bounded = Group{}; triangleBytes = 0u; vertexBytes = 0u;
             }
-            if (payload(1u, triangles, vertices) > kGeometryPageBytesV3)
+            if (payload(1u, triangles, vertices) > kGeometryPageBytesV4)
                 throw std::runtime_error("Surface meshlet payload exceeds one geometry page");
             bounded.meshletIds.push_back(id); triangleBytes += triangles; vertexBytes += vertices;
         }
@@ -220,7 +220,7 @@ std::vector<std::uint32_t> GroupMeshlets(
 }
 
 void BuildSeamLocks(
-    const MaterialDomain& source, const GeometryCookRecipeV3& recipe,
+    const MaterialDomain& source, const GeometryCookRecipeV4& recipe,
     const std::vector<Group>& groups, const std::vector<std::uint32_t>& groupIds,
     const std::vector<Meshlet>& meshlets, const std::vector<std::uint32_t>& positionRemap,
     std::vector<unsigned char>& locks) {
@@ -260,7 +260,7 @@ void BuildSeamLocks(
 }
 
 std::uint64_t MeshletPayloadCost(const std::vector<Meshlet>& items, std::uint32_t stride) {
-    std::uint32_t bytes=64u+48u*std::uint32_t(items.size());
+    std::uint32_t bytes=64u+layout_v4::meshletHeaderBytes*std::uint32_t(items.size());
     for(const auto& m:items) bytes+=AlignUp(std::uint32_t(m.triangles.size()),4u);
     bytes=AlignUp(bytes,16u);
     for(const auto& m:items) bytes+=AlignUp(std::uint32_t(m.vertices.size())*stride,4u);
@@ -268,7 +268,7 @@ std::uint64_t MeshletPayloadCost(const std::vector<Meshlet>& items, std::uint32_
 }
 
 bool SimplifyGroup(
-    MaterialDomain& source, const GeometryCookRecipeV3& recipe,
+    MaterialDomain& source, const GeometryCookRecipeV4& recipe,
     const Group& group, const std::vector<Meshlet>& meshlets,
     const std::vector<unsigned char>& locks, std::vector<Meshlet>& output,
     float& outputError, bool& usedFallback, std::uint32_t& nextSurfaceDomain, std::uint32_t stableDomainEnd) {
@@ -284,9 +284,9 @@ bool SimplifyGroup(
     originalLineage.resize(original.size());
     float inheritedPositionError=0,inheritedAttributeError=0;
     std::vector<std::uint32_t> indices;
-    std::uint64_t originalBytes=64u+48u*group.meshletIds.size();
+    std::uint64_t originalBytes=64u+layout_v4::meshletHeaderBytes*group.meshletIds.size();
     std::uint32_t childTriangles=0,childVertices=0;
-    const auto stride=MakeVertexFormat(source.attributeMask).strideBytes;
+    const auto stride=MakeVertexFormat(source.attributeMask).streamBytesPerVertex;
     for(auto id:group.meshletIds) {
         const auto& m=meshlets[id];
         if(m.surface.size()!=m.triangles.size()/3u)throw std::runtime_error("LOD input lacks Surface lineage");
@@ -437,7 +437,7 @@ bool SimplifyGroup(
         }
         auto built=BuildMeshlets(temp,recipe,compactIndices,continuity.triangles);
         auto bytes=MeshletPayloadCost(built,stride);
-        if(built.empty()||built.size()>=group.meshletIds.size()||bytes>originalBytes||bytes>kGeometryPageBytesV3)return false;
+        if(built.empty()||built.size()>=group.meshletIds.size()||bytes>originalBytes||bytes>kGeometryPageBytesV4)return false;
         if(!best.meshlets.empty() && (built.size()>best.meshlets.size() || (built.size()==best.meshlets.size() && bytes>MeshletPayloadCost(best.meshlets,stride)) || (built.size()==best.meshlets.size() && bytes==MeshletPayloadCost(best.meshlets,stride) && !updated)))return false;
         best.vertices=std::move(temp.vertices);best.meshlets=std::move(built);best.error=error;best.indices=reduced.size();best.updated=updated;
         return true;
@@ -489,34 +489,34 @@ void ValidateLodBuild(const std::vector<Group>& groups, const std::vector<Meshle
     }
 }
 
-std::vector<GeometryHierarchyNodeV3> BuildHierarchy(
-    const std::vector<GeometryHierarchyNodeV3>& initial,
+std::vector<GeometryHierarchyNodeV4> BuildHierarchy(
+    const std::vector<GeometryHierarchyNodeV4>& initial,
     std::vector<std::uint32_t>& reorder) {
     if (initial.empty()) return {};
     if (initial.size() == 1u) {
         reorder[0] = 0u;
-        GeometryHierarchyNodeV3 parent = initial[0];
-        parent.packedNodeData = PackInternalNodeV3(1u, 1u);
+        GeometryHierarchyNodeV4 parent = initial[0];
+        parent.packedNodeData = PackInternalNodeV4(1u, 1u);
         return {parent, initial[0]};
     }
-    std::vector<std::vector<GeometryHierarchyNodeV3>> levels(1u, initial);
+    std::vector<std::vector<GeometryHierarchyNodeV4>> levels(1u, initial);
     while (levels.back().size() > 1u) {
-        const std::vector<GeometryHierarchyNodeV3>& current = levels.back();
+        const std::vector<GeometryHierarchyNodeV4>& current = levels.back();
         std::vector<float> centers(current.size() * 3u);
         for (std::size_t i = 0; i < current.size(); ++i) std::copy(current[i].boundsSphere, current[i].boundsSphere + 3, centers.begin() + i * 3u);
         std::vector<unsigned int> order(current.size());
         meshopt_spatialClusterPoints(order.data(), centers.data(), current.size(), sizeof(float) * 3u, 8u);
         if (levels.size() == 1u) for (std::size_t i = 0; i < order.size(); ++i) reorder[i] = order[i];
-        std::vector<GeometryHierarchyNodeV3> sorted(current.size());
+        std::vector<GeometryHierarchyNodeV4> sorted(current.size());
         for (std::size_t i = 0; i < order.size(); ++i) sorted[i] = current[order[i]];
         levels.back() = std::move(sorted);
-        std::vector<GeometryHierarchyNodeV3> parents;
+        std::vector<GeometryHierarchyNodeV4> parents;
         for (std::uint32_t start = 0u; start < levels.back().size(); start += 8u) {
             const std::uint32_t count = std::min<std::uint32_t>(8u, std::uint32_t(levels.back().size()) - start);
-            GeometryHierarchyNodeV3 parent = levels.back()[start];
-            parent.packedNodeData = PackInternalNodeV3(start, count);
+            GeometryHierarchyNodeV4 parent = levels.back()[start];
+            parent.packedNodeData = PackInternalNodeV4(start, count);
             for (std::uint32_t i = 1u; i < count; ++i) {
-                const GeometryHierarchyNodeV3& child = levels.back()[start + i];
+                const GeometryHierarchyNodeV4& child = levels.back()[start + i];
                 MergeSphere(parent.boundsSphere, child.boundsSphere, parent.boundsSphere);
                 MergeAabb(parent.bboxMin, parent.bboxMax, child.bboxMin, child.bboxMax, parent.bboxMin, parent.bboxMax);
                 parent.maxParentError = std::max(parent.maxParentError, child.maxParentError);
@@ -528,14 +528,14 @@ std::vector<GeometryHierarchyNodeV3> BuildHierarchy(
     std::vector<std::size_t> offsets(levels.size());
     std::size_t total = 0u;
     for (std::size_t i = levels.size(); i-- > 0u;) { offsets[i] = total; total += levels[i].size(); }
-    std::vector<GeometryHierarchyNodeV3> result(total);
+    std::vector<GeometryHierarchyNodeV4> result(total);
     for (std::size_t level = levels.size(); level-- > 0u;) {
         for (std::size_t i = 0; i < levels[level].size(); ++i) {
-            GeometryHierarchyNodeV3 node = levels[level][i];
-            if (level > 0u && !IsGroupLeafV3(node.packedNodeData)) {
+            GeometryHierarchyNodeV4 node = levels[level][i];
+            if (level > 0u && !IsGroupLeafV4(node.packedNodeData)) {
                 const std::uint32_t childStart = (node.packedNodeData >> 1u) & 0x07ffffffu;
                 const std::uint32_t childCount = (node.packedNodeData >> 28u) & 0x0fu;
-                node.packedNodeData = PackInternalNodeV3(std::uint32_t(offsets[level - 1u]) + childStart, childCount);
+                node.packedNodeData = PackInternalNodeV4(std::uint32_t(offsets[level - 1u]) + childStart, childCount);
             }
             result[offsets[level] + i] = node;
         }
@@ -543,22 +543,22 @@ std::vector<GeometryHierarchyNodeV3> BuildHierarchy(
     return result;
 }
 
-std::vector<GeometryHierarchyNodeV3> BuildNyxHierarchy(
+std::vector<GeometryHierarchyNodeV4> BuildNyxHierarchy(
     const std::vector<Group>& groups, const std::vector<std::uint32_t>& oldToSerialized,
     std::uint32_t& rootIndex) {
     std::uint8_t maximumLod = 0u;
     for (const Group& group : groups) maximumLod = std::max(maximumLod, group.lodLevel);
-    std::vector<std::vector<GeometryHierarchyNodeV3>> lodTrees(maximumLod + 1u);
-    std::vector<GeometryHierarchyNodeV3> lodRoots;
+    std::vector<std::vector<GeometryHierarchyNodeV4>> lodTrees(maximumLod + 1u);
+    std::vector<GeometryHierarchyNodeV4> lodRoots;
     for (int lod = maximumLod; lod >= 0; --lod) {
-        std::vector<GeometryHierarchyNodeV3> leaves;
+        std::vector<GeometryHierarchyNodeV4> leaves;
         for (const Group& group : groups) if (group.lodLevel == lod) {
-            GeometryHierarchyNodeV3 leaf{};
+            GeometryHierarchyNodeV4 leaf{};
             std::copy(group.sphere, group.sphere + 4, leaf.boundsSphere);
             std::copy(group.bboxMin, group.bboxMin + 3, leaf.bboxMin);
             std::copy(group.bboxMax, group.bboxMax + 3, leaf.bboxMax);
             leaf.maxParentError = group.parentError;
-            leaf.packedNodeData = PackGroupLeafV3(oldToSerialized[group.id], std::uint32_t(group.meshletIds.size()));
+            leaf.packedNodeData = PackGroupLeafV4(oldToSerialized[group.id], std::uint32_t(group.meshletIds.size()));
             leaves.push_back(leaf);
         }
         std::vector<std::uint32_t> reorder(leaves.size());
@@ -567,31 +567,31 @@ std::vector<GeometryHierarchyNodeV3> BuildNyxHierarchy(
         lodRoots.push_back(lodTrees[lod][0]);
     }
     std::vector<std::uint32_t> rootReorder(lodRoots.size());
-    std::vector<GeometryHierarchyNodeV3> top = BuildHierarchy(lodRoots, rootReorder);
+    std::vector<GeometryHierarchyNodeV4> top = BuildHierarchy(lodRoots, rootReorder);
     if (top.empty()) throw std::runtime_error("top hierarchy is empty");
     const std::uint32_t topSize = std::uint32_t(top.size());
     std::vector<std::uint32_t> lodOffsets(maximumLod + 1u);
     std::uint32_t cursor = topSize;
     for (int lod = maximumLod; lod >= 0; --lod) { lodOffsets[lod] = cursor; cursor += std::uint32_t(lodTrees[lod].size() - 1u); }
-    std::vector<GeometryHierarchyNodeV3> result(cursor);
+    std::vector<GeometryHierarchyNodeV4> result(cursor);
     for (std::uint32_t i = 0; i < topSize; ++i) {
-        GeometryHierarchyNodeV3 node = top[i];
+        GeometryHierarchyNodeV4 node = top[i];
         if (i >= topSize - lodRoots.size()) {
             const int lod = int(maximumLod) - int(rootReorder[i - (topSize - std::uint32_t(lodRoots.size()))]);
-            const GeometryHierarchyNodeV3& root = lodTrees[lod][0];
+            const GeometryHierarchyNodeV4& root = lodTrees[lod][0];
             const std::uint32_t count = (root.packedNodeData >> 28u) & 0x0fu;
-            node.packedNodeData = PackInternalNodeV3(lodOffsets[lod], count);
+            node.packedNodeData = PackInternalNodeV4(lodOffsets[lod], count);
         }
         result[i] = node;
     }
     for (int lod = maximumLod; lod >= 0; --lod) {
         const auto& tree = lodTrees[lod];
         for (std::size_t i = 1u; i < tree.size(); ++i) {
-            GeometryHierarchyNodeV3 node = tree[i];
-            if (!IsGroupLeafV3(node.packedNodeData)) {
+            GeometryHierarchyNodeV4 node = tree[i];
+            if (!IsGroupLeafV4(node.packedNodeData)) {
                 const std::uint32_t localStart = (node.packedNodeData >> 1u) & 0x07ffffffu;
                 const std::uint32_t count = (node.packedNodeData >> 28u) & 0x0fu;
-                node.packedNodeData = PackInternalNodeV3(lodOffsets[lod] + localStart - 1u, count);
+                node.packedNodeData = PackInternalNodeV4(lodOffsets[lod] + localStart - 1u, count);
             }
             result[lodOffsets[lod] + std::uint32_t(i - 1u)] = node;
         }
@@ -636,61 +636,63 @@ void WriteU16(std::vector<std::uint8_t>& bytes, std::uint32_t offset, std::uint1
     bytes[offset] = std::uint8_t(value); bytes[offset + 1u] = std::uint8_t(value >> 8u);
 }
 
-VertexFormatRecordV3 MakeVertexFormat(std::uint16_t mask) {
-    VertexFormatRecordV3 format{};
-    std::memset(&format, 0xff, sizeof(format));
-    format.attributeMask = mask;
-    std::uint8_t cursor = 0u;
-    format.positionOffset = cursor; cursor += 12u;
-    format.normalOffset = cursor; cursor += 4u;
-    if (mask & kAttributeTangent) { format.tangentOffset = cursor; cursor += 6u; }
-    if (mask & kAttributeUv0) { format.uv0Offset = cursor; cursor += 4u; }
-    if (mask & kAttributeUv1) { format.uv1Offset = cursor; cursor += 4u; }
-    if (mask & kAttributeColor) { format.colorOffset = cursor; cursor += 4u; }
-    format.strideBytes = std::uint16_t(AlignUp(cursor, 4u));
-    std::memset(format.reserved, 0, sizeof(format.reserved));
-    format.positionEncoding = 1u; // Float32x3; old meshlet-local U16 products must be recooked.
-    return format;
+VertexFormatRecordV4 MakeVertexFormat(std::uint16_t mask) {
+    return GeometryVertexFormatV4(mask, (mask & kAttributeTangent) ? 2u : 0u);
 }
 
 void PackVertex(
-    std::vector<std::uint8_t>& bytes, std::uint32_t offset, const CanonicalVertex& vertex,
-    const VertexFormatRecordV3& format) {
-    for (std::uint32_t axis = 0; axis < 3u; ++axis) {
+    std::vector<std::uint8_t>& bytes, std::uint32_t base, std::uint32_t count,
+    std::uint32_t local, const CanonicalVertex& vertex, const VertexFormatRecordV4& format) {
+    for (std::uint32_t axis = 0u; axis < 3u; ++axis) {
         std::uint32_t bits;
         std::memcpy(&bits, &vertex.position[axis], sizeof(bits));
-        WriteU16(bytes, offset + format.positionOffset + axis * 4u, std::uint16_t(bits));
-        WriteU16(bytes, offset + format.positionOffset + axis * 4u + 2u, std::uint16_t(bits >> 16u));
+        const auto at = base + axis * count * 4u + local * 4u;
+        WriteU16(bytes, at, std::uint16_t(bits));
+        WriteU16(bytes, at + 2u, std::uint16_t(bits >> 16u));
     }
-    const auto normal = EncodeOct(vertex.normal[0], vertex.normal[1], vertex.normal[2]);
-    WriteU16(bytes, offset + format.normalOffset, std::uint16_t(normal[0]));
-    WriteU16(bytes, offset + format.normalOffset + 2u, std::uint16_t(normal[1]));
+    const auto oct = [&](std::uint8_t stream, const float* value) {
+        const auto encoded = EncodeOct(value[0], value[1], value[2]);
+        const auto at = base + stream * count + local * 4u;
+        WriteU16(bytes, at, std::uint16_t(encoded[0]));
+        WriteU16(bytes, at + 2u, std::uint16_t(encoded[1]));
+    };
+    oct(format.normalOffset, vertex.normal);
     if (format.tangentOffset != 0xffu) {
-        const auto tangent = EncodeOct(vertex.tangent[0], vertex.tangent[1], vertex.tangent[2]);
-        WriteU16(bytes, offset + format.tangentOffset, std::uint16_t(tangent[0]));
-        WriteU16(bytes, offset + format.tangentOffset + 2u, std::uint16_t(tangent[1]));
-        WriteU16(bytes, offset + format.tangentOffset + 4u, std::uint16_t(ToSnorm16(vertex.tangent[3])));
+        oct(format.tangentOffset, vertex.tangent);
+        const auto at = base + count * (format.streamBytesPerVertex - (format.tangentSignEncoding == 2u ? 2u : 0u));
+        if (format.tangentSignEncoding == 1u) {
+            if (vertex.tangent[3] < 0.0f) bytes[at + local / 8u] |= std::uint8_t(1u << (local & 7u));
+        } else {
+            WriteU16(bytes, at + local * 2u, std::uint16_t(ToSnorm16(vertex.tangent[3])));
+        }
     }
-    if (format.uv0Offset != 0xffu) { WriteU16(bytes, offset + format.uv0Offset, FloatToHalf(vertex.uv0[0])); WriteU16(bytes, offset + format.uv0Offset + 2u, FloatToHalf(vertex.uv0[1])); }
-    if (format.uv1Offset != 0xffu) { WriteU16(bytes, offset + format.uv1Offset, FloatToHalf(vertex.uv1[0])); WriteU16(bytes, offset + format.uv1Offset + 2u, FloatToHalf(vertex.uv1[1])); }
-    if (format.colorOffset != 0xffu) for (std::uint32_t i = 0; i < 4u; ++i) bytes[offset + format.colorOffset + i] = std::uint8_t(std::lround(std::max(0.0f, std::min(1.0f, vertex.color[i])) * 255.0f));
+    const auto uv = [&](std::uint8_t stream, const float* value) {
+        if (stream == 0xffu) return;
+        const auto at = base + stream * count + local * 4u;
+        WriteU16(bytes, at, FloatToHalf(value[0])); WriteU16(bytes, at + 2u, FloatToHalf(value[1]));
+    };
+    uv(format.uv0Offset, vertex.uv0); uv(format.uv1Offset, vertex.uv1);
+    if (format.colorOffset != 0xffu) for (std::uint32_t i = 0u; i < 4u; ++i) {
+        bytes[base + format.colorOffset * count + local * 4u + i] =
+            std::uint8_t(std::lround(std::max(0.0f, std::min(1.0f, vertex.color[i])) * 255.0f));
+    }
 }
 
-SerializedGroupV3 SerializeGroup(
+SerializedGroupV4 SerializeGroup(
     const MaterialDomain& source, const Group& group, const std::vector<Meshlet>& meshlets,
     const std::vector<std::uint32_t>& oldToSerialized, std::uint8_t vertexFormatId,
-    const VertexFormatRecordV3& format, CookEvidenceV3& evidence) {
+    const VertexFormatRecordV4& format, CookEvidenceV4& evidence) {
     const std::uint32_t meshletCount = std::uint32_t(group.meshletIds.size());
-    const std::uint32_t headersEnd = 64u + meshletCount * 48u;
+    const std::uint32_t headersEnd = 64u + meshletCount * layout_v4::meshletHeaderBytes;
     const std::uint32_t triangleStart = AlignUp(headersEnd, 16u);
     std::uint32_t triangleCursor = triangleStart;
     for (std::uint32_t id : group.meshletIds) triangleCursor += AlignUp(std::uint32_t(meshlets[id].triangles.size()), 4u);
     const std::uint32_t vertexStart = AlignUp(triangleCursor, 16u);
     std::uint32_t vertexCursor = vertexStart;
-    for (std::uint32_t id : group.meshletIds) vertexCursor += AlignUp(std::uint32_t(meshlets[id].vertices.size()) * format.strideBytes, 4u);
+    for (std::uint32_t id : group.meshletIds) vertexCursor += GeometryVertexPayloadBytes(std::uint32_t(meshlets[id].vertices.size()), format);
     const std::uint32_t payloadBytes = AlignUp(vertexCursor, 16u);
-    if (payloadBytes > kGeometryPageBytesV3) throw std::runtime_error("group payload exceeds one 256 KiB page");
-    SerializedGroupV3 output;
+    if (payloadBytes > kGeometryPageBytesV4) throw std::runtime_error("group payload exceeds one 256 KiB page");
+    SerializedGroupV4 output;
     output.bytes.resize(payloadBytes, 0u);
     output.lodLevel = group.lodLevel;
     output.flags = 0u;
@@ -699,7 +701,7 @@ SerializedGroupV3 SerializeGroup(
     if (source.meshletFlags & kMeshletMask) output.flags |= kGroupMask;
     if (source.meshletFlags & kMeshletBlend) output.flags |= kGroupBlend;
     if (source.meshletFlags & kMeshletTwoSided) output.flags |= kGroupTwoSided;
-    GroupHeaderV3 header{};
+    GroupHeaderV4 header{};
     std::copy(group.sphere, group.sphere + 4, header.boundsSphere);
     std::copy(group.bboxMin, group.bboxMin + 3, header.bboxMin);
     std::copy(group.bboxMax, group.bboxMax + 3, header.bboxMax);
@@ -707,38 +709,39 @@ SerializedGroupV3 SerializeGroup(
     header.lodLevel = group.lodLevel; header.vertexFormatId = vertexFormatId;
     header.meshletHeaderOffset = 64u; header.triangleDataOffset = triangleStart;
     header.vertexDataOffset = vertexStart; header.payloadBytes = payloadBytes;
-    EncodeRecordV3(output.bytes.data(), header);
+    EncodeRecordV4(output.bytes.data(), header);
     triangleCursor = triangleStart; vertexCursor = vertexStart;
     for (std::uint32_t i = 0; i < meshletCount; ++i) {
         const Meshlet& meshlet = meshlets[group.meshletIds[i]];
-        MeshletHeaderV3 meshletHeader{};
-        meshletHeader.vertexCount = std::uint16_t(meshlet.vertices.size());
-        meshletHeader.triangleCount = std::uint16_t(meshlet.triangles.size() / 3u);
+        MeshletHeaderV4 meshletHeader{};
+        meshletHeader.vertexCount = std::uint8_t(meshlet.vertices.size());
+        meshletHeader.triangleCount = std::uint8_t(meshlet.triangles.size() / 3u);
         meshletHeader.vertexByteOffset = vertexCursor;
         meshletHeader.triangleByteOffset = triangleCursor;
         meshletHeader.refineGroupId = meshlet.refineGroupId == kInvalidId ? kInvalidId : oldToSerialized[meshlet.refineGroupId];
         meshletHeader.materialId = source.materialId; meshletHeader.flags = source.meshletFlags;
         std::copy(meshlet.bboxMin, meshlet.bboxMin + 3, meshletHeader.bboxMin);
         std::copy(meshlet.bboxMax, meshlet.bboxMax + 3, meshletHeader.bboxMax);
-        EncodeRecordV3(output.bytes.data() + 64u + i * 48u, meshletHeader);
+        EncodeRecordV4(output.bytes.data() + 64u + i * layout_v4::meshletHeaderBytes, meshletHeader);
         std::copy(meshlet.triangles.begin(), meshlet.triangles.end(), output.bytes.begin() + triangleCursor);
         triangleCursor += AlignUp(std::uint32_t(meshlet.triangles.size()), 4u);
         if (meshlet.surface.size() != meshletHeader.triangleCount)
             throw std::runtime_error("Serialized meshlet lacks complete Surface metadata");
         output.stablePrimitiveIds.insert(output.stablePrimitiveIds.end(),
             meshlet.stablePrimitiveIds.begin(), meshlet.stablePrimitiveIds.end());
-        for (std::uint32_t vertex : meshlet.vertices) {
+        for (std::uint32_t local = 0u; local < meshlet.vertices.size(); ++local) {
+            const auto vertex = meshlet.vertices[local];
             output.sourceVertexIds.push_back(vertex);
-            PackVertex(output.bytes, vertexCursor, source.vertices[vertex], format);
-            vertexCursor += format.strideBytes;
-            evidence.serializedVertexBytes += format.strideBytes;
+            PackVertex(output.bytes, vertexCursor, meshletHeader.vertexCount, local, source.vertices[vertex], format);
         }
-        vertexCursor = AlignUp(vertexCursor, 4u);
+        const auto vertexBytes = GeometryVertexPayloadBytes(meshletHeader.vertexCount, format);
+        evidence.serializedVertexBytes += vertexBytes;
+        vertexCursor += vertexBytes;
     }
     return output;
 }
 
-DomainProduct CookDomain(MaterialDomain source, const GeometryCookRecipeV3& recipe, CookEvidenceV3& evidence,
+DomainProduct CookDomain(MaterialDomain source, const GeometryCookRecipeV4& recipe, CookEvidenceV4& evidence,
     std::uint32_t& nextSurfaceDomain) {
     // Both cook consumers use triangle domains; vertex lineage is reconstructed
     // locally from meshlet metadata during SimplifyGroup.
@@ -813,6 +816,11 @@ DomainProduct CookDomain(MaterialDomain source, const GeometryCookRecipeV3& reci
     for (std::uint32_t i = 0; i < order.size(); ++i) oldToSerialized[order[i]] = i;
     DomainProduct product;
     product.vertexFormat = MakeVertexFormat(source.attributeMask);
+    if ((source.attributeMask & kAttributeTangent) && std::all_of(source.vertices.begin(), source.vertices.end(),
+        [](const auto& vertex) { return vertex.tangent[3] == -1.0f || vertex.tangent[3] == 1.0f; })) {
+        product.vertexFormat.tangentSignEncoding = 1u;
+        product.vertexFormat.streamBytesPerVertex -= 2u;
+    }
     std::vector<std::uint8_t> hasCoarseParent(groups.size(), 0u);
     for (const Meshlet& meshlet : meshlets) if (meshlet.refineGroupId != kInvalidId) hasCoarseParent[meshlet.refineGroupId] = 1u;
     product.groups.reserve(groups.size());
@@ -826,7 +834,7 @@ DomainProduct CookDomain(MaterialDomain source, const GeometryCookRecipeV3& reci
         }
     }
     for (std::uint32_t oldId : order) {
-        SerializedGroupV3 serialized = SerializeGroup(source, groups[oldId], meshlets, oldToSerialized, 0u, product.vertexFormat, evidence);
+        SerializedGroupV4 serialized = SerializeGroup(source, groups[oldId], meshlets, oldToSerialized, 0u, product.vertexFormat, evidence);
         serialized.localStableId = oldToSerialized[oldId];
         // Every refine-DAG root is required. Branches can stop simplifying at
         // different LODs, so "maximum LOD only" would create bootstrap holes.
@@ -838,25 +846,25 @@ DomainProduct CookDomain(MaterialDomain source, const GeometryCookRecipeV3& reci
     return product;
 }
 
-void PatchGroupIds(SerializedGroupV3& group, std::uint32_t groupBase, std::uint8_t vertexFormatId) {
-    GroupHeaderV3 header{}; DecodeRecordV3(group.bytes.data(), &header);
-    header.vertexFormatId = vertexFormatId; EncodeRecordV3(group.bytes.data(), header);
+void PatchGroupIds(SerializedGroupV4& group, std::uint32_t groupBase, std::uint8_t vertexFormatId) {
+    GroupHeaderV4 header{}; DecodeRecordV4(group.bytes.data(), &header);
+    header.vertexFormatId = vertexFormatId; EncodeRecordV4(group.bytes.data(), header);
     for (std::uint32_t i = 0; i < header.meshletCount; ++i) {
-        std::uint8_t* address = group.bytes.data() + header.meshletHeaderOffset + i * sizeof(MeshletHeaderV3);
-        MeshletHeaderV3 meshlet{}; DecodeRecordV3(address, &meshlet);
+        std::uint8_t* address = group.bytes.data() + header.meshletHeaderOffset + i * sizeof(MeshletHeaderV4);
+        MeshletHeaderV4 meshlet{}; DecodeRecordV4(address, &meshlet);
         if (meshlet.refineGroupId != kInvalidId) meshlet.refineGroupId += groupBase;
-        EncodeRecordV3(address, meshlet);
+        EncodeRecordV4(address, meshlet);
     }
 }
 
 }  // namespace
 
-CookedAssetV3 CookGeometryAssetV3(
-    const CanonicalGeometryAsset& source, const GeometryCookRecipeV3& recipe,
-    CookEvidenceV3& evidence) {
+CookedAssetV4 CookGeometryAssetV4(
+    const CanonicalGeometryAsset& source, const GeometryCookRecipeV4& recipe,
+    CookEvidenceV4& evidence) {
     ValidateRecipe(recipe);
     const auto started = std::chrono::steady_clock::now();
-    CookedAssetV3 output;
+    CookedAssetV4 output;
     Sha256Builder identity;
     identity.Add("OEG3", 4u); identity.Add(source.sourceHash.data(), source.sourceHash.size());
     const Hash256 recipeHash = Sha256(CanonicalRecipeJson(recipe));
@@ -886,7 +894,7 @@ CookedAssetV3 CookGeometryAssetV3(
         DomainProduct product = CookDomain(domain, recipe, evidence, nextSurfaceDomain);
         // Asset culling must enclose relocated parent geometry as well as leaves.
         for (const auto& serialized : product.groups) {
-            GroupHeaderV3 header{}; DecodeRecordV3(serialized.bytes.data(), &header);
+            GroupHeaderV4 header{}; DecodeRecordV4(serialized.bytes.data(), &header);
             MergeSphere(output.boundsSphere, header.boundsSphere, output.boundsSphere);
             MergeAabb(output.boundsMin, output.boundsMax, header.bboxMin, header.bboxMax, output.boundsMin, output.boundsMax);
         }
@@ -895,7 +903,7 @@ CookedAssetV3 CookGeometryAssetV3(
         const std::uint8_t formatId = std::uint8_t(output.vertexFormats.size());
         if (formatId == 0xffu) throw std::runtime_error("asset requires too many vertex formats");
         output.vertexFormats.push_back(product.vertexFormat);
-        for (SerializedGroupV3& group : product.groups) {
+        for (SerializedGroupV4& group : product.groups) {
             for (auto& primitive : group.stablePrimitiveIds) {
                 if (primitive < triangleCount) {
                     primitive += primitiveBase;
@@ -920,15 +928,15 @@ CookedAssetV3 CookGeometryAssetV3(
             PatchGroupIds(group, groupBase, formatId);
             output.groups.push_back(std::move(group));
         }
-        for (GeometryHierarchyNodeV3 node : product.hierarchy) {
-            if (IsGroupLeafV3(node.packedNodeData)) {
+        for (GeometryHierarchyNodeV4 node : product.hierarchy) {
+            if (IsGroupLeafV4(node.packedNodeData)) {
                 const std::uint32_t group = (node.packedNodeData >> 1u) & 0x00ffffffu;
                 const std::uint32_t count = ((node.packedNodeData >> 25u) & 0x7fu) + 1u;
-                node.packedNodeData = PackGroupLeafV3(groupBase + group, count);
+                node.packedNodeData = PackGroupLeafV4(groupBase + group, count);
             } else {
                 const std::uint32_t child = (node.packedNodeData >> 1u) & 0x07ffffffu;
                 const std::uint32_t count = (node.packedNodeData >> 28u) & 0x0fu;
-                node.packedNodeData = PackInternalNodeV3(nodeBase + child, count);
+                node.packedNodeData = PackInternalNodeV4(nodeBase + child, count);
             }
             output.hierarchy.push_back(node);
         }
@@ -944,7 +952,7 @@ CookedAssetV3 CookGeometryAssetV3(
     evidence.parentMeshlets += output.totalMeshletCount - output.leafMeshletCount;
     evidence.groups += output.groups.size();
     evidence.hierarchyNodes += output.hierarchy.size();
-    evidence.hierarchyBytes += output.hierarchy.size() * sizeof(GeometryHierarchyNodeV3);
+    evidence.hierarchyBytes += output.hierarchy.size() * sizeof(GeometryHierarchyNodeV4);
     evidence.vertexDuplicationRatio = evidence.uniqueReferencedVertexBytes == 0u ? 0.0 :
         double(evidence.serializedVertexBytes) / double(evidence.uniqueReferencedVertexBytes);
     evidence.cookWallMilliseconds += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();

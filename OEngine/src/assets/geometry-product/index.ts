@@ -6,10 +6,10 @@ export {
   assertGeometryProductDescriptorV1,
   cloneGeometryProductDescriptorV1,
   decodeGeometryProductPageRecordV1,
-  encodeAssetRecordsV3,
+  encodeAssetRecordsV4,
   encodeGeometryProductPageRecordsV1,
-  encodeGroupDirectoryV3,
-  encodeVertexFormatsV3,
+  encodeGroupDirectoryV4,
+  encodeVertexFormatsV4,
   hierarchyNodesFromBytes,
   validateGeometryProductDescriptorV1,
 } from "./GeometryProductV1.js";

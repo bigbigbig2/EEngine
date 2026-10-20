@@ -1,9 +1,10 @@
+import { decodeVertexFormatV4, geometryVertexPayloadBytes } from "../GeometryAbiV4.js";
 import {
-  decodeGroupHeaderV3,
-  decodeMeshletHeaderV3,
-  OEGPACK_V3_PAGE_BYTES,
-  OEGPACK_V3_MESHLET_HEADER_BYTES
-} from "../GeometryAbiV3.js";
+  decodeGroupHeaderV4,
+  decodeMeshletHeaderV4,
+  OEGPACK_V4_PAGE_BYTES,
+  OEGPACK_V4_MESHLET_HEADER_BYTES
+} from "../GeometryAbiV4.js";
 import { decodeGeometryProductPageRecordV1, type GeometryProductDescriptorV1 } from "./GeometryProductV1.js";
 import { geometryProductWorkload } from "./GeometryProductWorkload.js";
 import type { GeometryPageProductV1 } from "./GeometryProductV1.js";
@@ -28,7 +29,7 @@ export function importPreparedResidentPage(
 ): void {
   assertAssetWorkerResult(receipt);
   if (
-    page.bytes.byteLength !== OEGPACK_V3_PAGE_BYTES ||
+    page.bytes.byteLength !== OEGPACK_V4_PAGE_BYTES ||
     typeof prepared.queryContentHash !== "string" ||
     !/^[0-9a-f]{64}$/.test(prepared.queryContentHash) ||
     prepared.groupBounds.length !== prepared.groupCount * 6 ||
@@ -85,7 +86,7 @@ export function prepareProductResidentAttributes(
     descriptor.vertexFormats.byteOffset,
     descriptor.vertexFormats.byteLength
   );
-  if (bytes.byteLength !== OEGPACK_V3_PAGE_BYTES) {
+  if (bytes.byteLength !== OEGPACK_V4_PAGE_BYTES) {
     throw new RangeError("Product resident page must be 256 KiB");
   }
   const rawPayloadBytes = geometryPagePayloadBytes(descriptor, pageId);
@@ -96,7 +97,7 @@ export function prepareProductResidentAttributes(
   const query = new DataView(
     descriptor.querySection.buffer,
     descriptor.querySection.byteOffset,
-    descriptor.querySection.byteLength,
+    descriptor.querySection.byteLength
   );
   const groupBounds = new Float32Array(pageRecord.groupCount * 6);
   const refineEdges: number[] = [];
@@ -106,13 +107,13 @@ export function prepareProductResidentAttributes(
     if (offset + payload > bytes.byteLength) {
       throw new RangeError("Product group exceeds the decoded page");
     }
-    const header = decodeGroupHeaderV3(page, offset);
+    const header = decodeGroupHeaderV4(page, offset);
     if (
       header.payloadBytes !== payload ||
       header.meshletCount < 1 ||
       header.meshletCount > 128 ||
       header.meshletHeaderOffset < 64 ||
-      header.meshletHeaderOffset + header.meshletCount * OEGPACK_V3_MESHLET_HEADER_BYTES >
+      header.meshletHeaderOffset + header.meshletCount * OEGPACK_V4_MESHLET_HEADER_BYTES >
         header.triangleDataOffset ||
       header.triangleDataOffset > header.vertexDataOffset ||
       header.vertexDataOffset > payload ||
@@ -130,35 +131,14 @@ export function prepareProductResidentAttributes(
       groupBounds[localGroup * 6 + axis] = bounds[axis]!;
       groupBounds[localGroup * 6 + 3 + axis] = boundsMax[axis]!;
     }
-    const format = header.vertexFormatId * 16;
-    const stride = formats.getUint16(format, true),
-      mask = formats.getUint16(format + 2, true);
-    const position = formats.getUint8(format + 4),
-      normal = formats.getUint8(format + 5),
-      tangent = formats.getUint8(format + 6),
-      uv0 = formats.getUint8(format + 7),
-      uv1 = formats.getUint8(format + 8),
-      color = formats.getUint8(format + 9);
-    const hasNormal = (mask & 2) !== 0;
-    const hasTangent = (mask & 4) !== 0;
-    const hasUv0 = (mask & 8) !== 0;
-    const hasUv1 = (mask & 16) !== 0;
-    const hasColor = (mask & 32) !== 0;
-    const checkField = (field: number, size: number, active: boolean): void => {
-      if (active && (field === 255 || field + size > stride)) {
-        throw new RangeError("Product resident vertex field exceeds its stride");
-      }
-    };
-    checkField(position, 12, true);
-    checkField(normal, 4, hasNormal);
-    checkField(tangent, 6, hasTangent);
-    checkField(uv0, 4, hasUv0);
-    checkField(uv1, 4, hasUv1);
-    checkField(color, 3, hasColor);
+    const format = decodeVertexFormatV4(formats, header.vertexFormatId * 16);
+    const mask = format.attributeMask;
+    const hasUv0 = (mask & 8) !== 0,
+      hasUv1 = (mask & 16) !== 0;
     for (let local = 0; local < header.meshletCount; local++) {
-      const meshlet = decodeMeshletHeaderV3(
+      const meshlet = decodeMeshletHeaderV4(
         page,
-        offset + header.meshletHeaderOffset + local * OEGPACK_V3_MESHLET_HEADER_BYTES
+        offset + header.meshletHeaderOffset + local * OEGPACK_V4_MESHLET_HEADER_BYTES
       );
       if (
         meshlet.vertexCount < 1 ||
@@ -166,7 +146,7 @@ export function prepareProductResidentAttributes(
         meshlet.triangleCount < 1 ||
         meshlet.triangleCount > 128 ||
         meshlet.vertexByteOffset < header.vertexDataOffset ||
-        meshlet.vertexByteOffset + meshlet.vertexCount * stride > payload ||
+        meshlet.vertexByteOffset + geometryVertexPayloadBytes(meshlet.vertexCount, format) > payload ||
         meshlet.triangleByteOffset < header.triangleDataOffset ||
         meshlet.triangleByteOffset + meshlet.triangleCount * 3 > header.vertexDataOffset
       ) {
@@ -175,7 +155,8 @@ export function prepareProductResidentAttributes(
       queryIndices ??= geometryProductQueryMeshletIndex(descriptor);
       const queryAt = queryIndices.get(group * 128 + local);
       if (
-        queryAt === undefined || query.getUint32(queryAt, true) !== pageId ||
+        queryAt === undefined ||
+        query.getUint32(queryAt, true) !== pageId ||
         query.getUint32(queryAt + 12, true) !== meshlet.triangleCount ||
         query.getUint32(queryAt + 16, true) !== meshlet.materialId ||
         query.getUint32(queryAt + 20, true) !== header.vertexFormatId ||
@@ -187,8 +168,10 @@ export function prepareProductResidentAttributes(
       const clustersOffset = query.getUint32(76, true);
       const clusterIndex = (queryAt - clustersOffset) / 80;
       const vertexBegin = query.getUint32(queryAt + 76, true);
-      const vertexEnd = clusterIndex + 1 < clusterCount
-        ? query.getUint32(queryAt + 80 + 76, true) : query.getUint32(100, true);
+      const vertexEnd =
+        clusterIndex + 1 < clusterCount
+          ? query.getUint32(queryAt + 80 + 76, true)
+          : query.getUint32(100, true);
       if (vertexEnd - vertexBegin !== meshlet.vertexCount) {
         throw new RangeError("Product query source vertex remap disagrees with shared meshlet payload");
       }
@@ -207,10 +190,13 @@ export function prepareProductResidentAttributes(
       } else {
         const childrenOffset = query.getUint32(80, true);
         const clustersOffset = query.getUint32(76, true);
-        if (childCount === 0 || query.getUint32(
-          clustersOffset + query.getUint32(childrenOffset + childBegin * 4, true) * 80 + 4,
-          true,
-        ) !== meshlet.refineGroupId) {
+        if (
+          childCount === 0 ||
+          query.getUint32(
+            clustersOffset + query.getUint32(childrenOffset + childBegin * 4, true) * 80 + 4,
+            true
+          ) !== meshlet.refineGroupId
+        ) {
           throw new RangeError("Product query refinement disagrees with shared meshlet payload");
         }
       }
@@ -230,16 +216,20 @@ export function prepareProductResidentAttributes(
       }
       const vertexBase = offset + meshlet.vertexByteOffset;
       for (let vertex = 0; vertex < meshlet.vertexCount; vertex++) {
-        const at = vertexBase + vertex * stride;
+        const at = vertexBase + vertex * 4;
         for (let axis = 0; axis < 3; axis++) {
-          const coordinate = page.getFloat32(at + position + axis * 4, true);
+          const coordinate = page.getFloat32(at + axis * meshlet.vertexCount * 4, true);
           if (!Number.isFinite(coordinate)) {
             throw new RangeError("Product resident attributes contain nonfinite position values");
           }
-          if (coordinate < meshlet.bboxMin[axis]! || coordinate > meshlet.bboxMax[axis]! ||
-              coordinate < header.bboxMin[axis]! || coordinate > header.bboxMax[axis]! ||
-              coordinate < query.getFloat32(queryAt + 32 + axis * 4, true) ||
-              coordinate > query.getFloat32(queryAt + 44 + axis * 4, true)) {
+          if (
+            coordinate < meshlet.bboxMin[axis]! ||
+            coordinate > meshlet.bboxMax[axis]! ||
+            coordinate < header.bboxMin[axis]! ||
+            coordinate > header.bboxMax[axis]! ||
+            coordinate < query.getFloat32(queryAt + 32 + axis * 4, true) ||
+            coordinate > query.getFloat32(queryAt + 44 + axis * 4, true)
+          ) {
             throw new RangeError("Product query/shared bounds do not contain decoded vertex");
           }
         }
@@ -248,7 +238,7 @@ export function prepareProductResidentAttributes(
         for (let set = 0; set < 2; set++) {
           const present = set === 0 ? hasUv0 : hasUv1;
           if (present) {
-            const uv = at + (set === 0 ? uv0 : uv1);
+            const uv = at + (set === 0 ? format.uv0Offset : format.uv1Offset) * meshlet.vertexCount;
             if (
               (page.getUint16(uv, true) & 0x7c00) === 0x7c00 ||
               (page.getUint16(uv + 2, true) & 0x7c00) === 0x7c00

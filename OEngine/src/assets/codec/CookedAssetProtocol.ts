@@ -1,15 +1,15 @@
 import type { GeometryProductDescriptorV1 } from "../geometry-product/GeometryProductV1.js";
 import type { ProductResidentPage } from "../geometry-product/GeometryProductResidentAttributes.js";
 import type {
-  GeometryGroupDirectoryV3,
-  GeometryPageDirectoryV3,
-  VertexFormatRecordV3,
-} from "../GeometryAbiV3.js";
+  GeometryGroupDirectoryV4,
+  GeometryPageDirectoryV4,
+  VertexFormatRecordV4
+} from "../GeometryAbiV4.js";
 export interface CookedGeometryRegistration {
   readonly descriptor: GeometryProductDescriptorV1;
-  readonly pages: readonly GeometryPageDirectoryV3[];
-  readonly groups: readonly GeometryGroupDirectoryV3[];
-  readonly formats: readonly VertexFormatRecordV3[];
+  readonly pages: readonly GeometryPageDirectoryV4[];
+  readonly groups: readonly GeometryGroupDirectoryV4[];
+  readonly formats: readonly VertexFormatRecordV4[];
   readonly url: string;
   readonly init: Omit<RequestInit, "headers" | "signal">;
   readonly verifyPageSha256: boolean;
@@ -22,7 +22,7 @@ export interface CookedRangeSpan {
 }
 
 export interface CookedTaskHeader {
-  readonly version: 3;
+  readonly version: 6;
   readonly session: string;
   readonly epoch: number;
   readonly task: number;
@@ -56,9 +56,9 @@ export type CookedAssetResult = CookedTaskHeader & { readonly decoderMemoryBytes
 
 /** Priority is decided before this offset sort; callers pass one urgency class only. */
 export function cookedGeometrySpans(
-  pages: readonly GeometryPageDirectoryV3[],
+  pages: readonly GeometryPageDirectoryV4[],
   pageIds: ArrayLike<number>,
-  maxBytes = 16 * 1024 * 1024,
+  maxBytes = 16 * 1024 * 1024
 ): readonly CookedRangeSpan[] {
   const ids = [...new Set(Array.from(pageIds))];
   for (const id of ids) {
@@ -71,7 +71,7 @@ export function cookedGeometrySpans(
       ? -1
       : pages[a]!.compressedFileOffset > pages[b]!.compressedFileOffset
         ? 1
-        : a - b,
+        : a - b
   );
   const spans: { offset: bigint; bytes: number; pageIds: number[] }[] = [];
   for (const id of ids) {

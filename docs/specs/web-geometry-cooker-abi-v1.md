@@ -12,11 +12,11 @@ Owners: `oengine-web-geometry-cooker`、Dedicated Worker glue、Web CookSession
 
 ## Version/Compatibility
 
-ABI major 2；未知 version、非 canonical section offset、非零 reserved/padding 或未知 flag 必须拒绝，不做 best-effort 解码。major 1 的 consumer 必须显式拒绝 major 2 的模块，major 2 的 consumer 必须显式拒绝 major 1 的模块：两阶段的 handle 语义与 identity 定义都改变了，静默接受会让 consumer 把 descriptor-stage handle 当作已完整物化的 Product。
+ABI major 7，仅接受7；SoA4输出改变recipe及Product身份，旧模块/bytes必须重建，无兼容decoder。公共V1 API名不代表binary version。
 
 ## Contract
 
-本 ABI 只跨 `Dedicated Worker TypeScript <-> browser-first WASM` 边界。它把一个或多个已经按 glTF 语义 canonicalize 的 material domain 交给 Nyx geometry builder，并返回 `Geometry Product V1` 的 `oengine-vg-v1-v3-decoded` tables/pages。它不接受路径或 URL，不读取虚拟文件系统，不生成 OEGPACK，不创建 GPU object，也不拥有 Runtime publication。
+本 ABI 只跨 `Dedicated Worker TypeScript <-> browser-first WASM` 边界。它把一个或多个已经按 glTF 语义 canonicalize 的 material domain 交给 Nyx geometry builder，并返回 `Geometry Product V1` 的 `oengine-vg-v3-soa4-query3` tables/pages。它不接受路径或 URL，不读取虚拟文件系统，不生成 OEGPACK，不创建 GPU object，也不拥有 Runtime publication。
 
 cook 分两个可分离阶段。descriptor 阶段只冻结完整 ID graph（page count、每 PageID identity、page-to-Group 映射、activation cut），不产生任何 page payload；payload 阶段按 PageID 推进并把已就绪的页拷出。两阶段必须共用同一份装箱与 identity 推导实现，因此对同一输入，单体式入口与两阶段入口必须在 descriptor section 和逐页 payload 上 byte-identical。所有整数和 f32 都是 little-endian。所有 offset 从输入 buffer 起点计算；section 按下述顺序紧密排列并 16-byte 对齐；padding 必须为零。计数、offset 和总长度是 u32，任何乘加溢出均拒绝。
 
@@ -27,7 +27,7 @@ Header 固定 128 bytes：
 | Byte | Type | Field |
 | ---: | --- | --- |
 | 0..7 | `u8[8]` | `OEWGCAN\0` |
-| 8 | `u32` | ABI version = 2 |
+| 8 | `u32` | ABI version = 7 |
 | 12 | `u32` | header bytes = 128 |
 | 16 | `u32` | total bytes，含末尾 16-byte padding |
 | 20 | `u32` | domain count，必须非零 |
@@ -37,23 +37,25 @@ Header 固定 128 bytes：
 | 36 | `u32` | vertex table offset |
 | 40 | `u32` | index table offset |
 | 44 | `u32` | vertex stride = 72 |
-| 48 | `u32` | domain stride = 32 |
+| 48 | `u32` | domain stride = 48 |
 | 52 | `u32` | flags = 0 |
-| 56..127 | `u8[72]` | reserved = 0 |
+| 56..127 | `u8[72]` | normalUvSet u32，0/1或0xffffffff |
+| 32 | `f32[4]` | UV attribute weights |
 
 每个 32-byte domain record：
 
 | Byte | Type | Field |
 | ---: | --- | --- |
 | 0 | `u32` | material ID；`0xffffffff` 表示无 source material |
-| 4 | `u32` | V3 meshlet material flags；OPAQUE/MASK/BLEND 必须且只能选一项 |
-| 8 | `u16` | V3 attribute mask；POSITION 必需 |
+| 4 | `u32` | V4 meshlet material flags；OPAQUE/MASK/BLEND 必须且只能选一项 |
+| 8 | `u16` | V4 attribute mask；POSITION 必需 |
 | 10 | `u16` | flags；bit 0 = generate normals，bits 1..15 = 0 |
 | 12 | `u32` | vertex begin |
 | 16 | `u32` | vertex count，至少 3 |
 | 20 | `u32` | index begin |
 | 24 | `u32` | index count，非零且为 3 的倍数 |
-| 28 | `u32` | reserved = 0 |
+| 28 | `u32` | normalUvSet，0/1或0xffffffff |
+| 32 | `f32[4]` | UV attribute weights |
 
 Domain 必须按表顺序完整 partition vertex/index tables，不允许 alias、gap 或未归属记录。`generate normals` 与 NORMAL attribute bit 必须互斥；设置时 WASM 使用与 Native importer 相同的面积加权三角形累积和 normalize 规则，然后把 NORMAL 加入 canonical identity。
 
@@ -61,7 +63,7 @@ Domain 必须按表顺序完整 partition vertex/index tables，不允许 alias�
 
 ### Recipe input
 
-Recipe 固定 96 bytes，magic 为 `OEWGRCP\0`，version = 2，bytes = 96。其余字段按顺序为：
+Recipe 固定 96 bytes，magic 为 `OEWGRCP\0`，version = 7，bytes = 96。其余字段按顺序为：
 
 ```text
 16 meshletMaxVertices u32
@@ -72,20 +74,20 @@ Recipe 固定 96 bytes，magic 为 `OEWGRCP\0`，version = 2，bytes = 96。其�
 36 clusterSplitFactor f32
 40 simplifyTargetRatio f32
 44 simplifyFailureRatio f32
-48 simplifySloppyFailureRatio f32
-52 flags u32: bit0 simplifyPermissive, bit1 sloppyFallback
-56 sloppyErrorFactor f32
+48 simplifyUpdateFailureRatio f32
+52 flags u32: bit0 simplifyPermissive, bit1 simplifyWithUpdate
+56 attributeErrorScale f32
 60 minimumLodReduction f32
 64 lodErrorMergeFactor f32
 68 hierarchyFanout u32 = 8
 72 pageShift u32 = 18
-76 rawCodecThresholdBytes u32
+76 reserved u32 = 0
 80 bootstrapGeometryBudgetBytes u64
 88 deterministicSeed u32
 92 reserved u32 = 0
 ```
 
-字符串型算法身份固定为 `GeometryCookRecipeV3` 的 Nyx/V3 constants；WASM 用 production-authoritative `ValidateRecipe()` 和 `CanonicalRecipeJson()`，返回其 SHA-256。Web/Native 若使用相同 recipe profile，recipe hash 必须相同；Product/Page 字节不因此要求跨 producer 相同。
+字符串型算法身份固定为 `GeometryCookRecipeV4` 的 Nyx/SoA4 constants；WASM 用 production-authoritative `ValidateRecipe()` 和 `CanonicalRecipeJson()`，返回其 SHA-256。Web/Native 若使用相同 recipe profile，recipe hash 必须相同；Product/Page 字节不因此要求跨 producer 相同。
 
 ### Result ownership and sections
 

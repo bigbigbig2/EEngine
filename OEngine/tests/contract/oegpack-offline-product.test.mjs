@@ -15,10 +15,10 @@ const { load_oegpack_product } = await import(
 const { createOegPackSceneSource } = await import(
   "../../.test-dist/assets/geometry-product/OegPackSceneSourceV1.js"
 );
-const { OegPackSceneManifestError, parseOegPackSceneManifestV3 } = await import(
-  "../../.test-dist/assets/geometry-product/OegPackSceneManifestV3.js"
+const { OegPackSceneManifestError, parseOegPackSceneManifestV4 } = await import(
+  "../../.test-dist/assets/geometry-product/OegPackSceneManifestV4.js"
 );
-const { OegPackV3Error } = await import("../../.test-dist/assets/OegPackV3.js");
+const { OegPackV4Error } = await import("../../.test-dist/assets/OegPackV4.js");
 
 const cooker = resolve("tools/oengine-asset-core/build/oengine-asset-cooker.exe");
 
@@ -137,8 +137,8 @@ async function cookedFixture(recipe = []) {
 
 test("scene manifest parser accepts the native writer output and rejects malformed manifests", async () => {
   const fixture = await cookedFixture();
-  const manifest = parseOegPackSceneManifestV3(fixture.manifest);
-  assert.equal(manifest.schema, "oengine-scene-v3");
+  const manifest = parseOegPackSceneManifestV4(fixture.manifest);
+  assert.equal(manifest.schema, "oengine-scene-v4");
   assert.equal(manifest.packs.length, 1);
   assert.match(manifest.packs[0].packId, /^[0-9a-f]{64}$/u);
   assert.equal(manifest.assets.length, 1);
@@ -151,7 +151,7 @@ test("scene manifest parser accepts the native writer output and rejects malform
   const reject = (mutate, pattern) => {
     const copy = structuredClone(original);
     mutate(copy);
-    assert.throws(() => parseOegPackSceneManifestV3(JSON.stringify(copy)), pattern);
+    assert.throws(() => parseOegPackSceneManifestV4(JSON.stringify(copy)), pattern);
   };
   reject((value) => {
     value.schema = "oengine-scene-v4";
@@ -183,7 +183,7 @@ test("scene manifest parser accepts the native writer output and rejects malform
   reject((value) => {
     delete value.instances;
   }, /missing 'instances'/u);
-  assert.throws(() => parseOegPackSceneManifestV3("{"), /not valid JSON/u);
+  assert.throws(() => parseOegPackSceneManifestV4("{"), /not valid JSON/u);
 });
 
 test("Offline Product asset serves hash-validated pages from a memory source", async () => {
@@ -256,11 +256,11 @@ test("Offline Product asset requires honored HTTP ranges and reports failures", 
     asset.release();
     await assert.rejects(
       load_oegpack_product({ kind: "http-range", url: "https://offline.test/bad.oegpack" }),
-      (error) => error instanceof OegPackV3Error && /byte range/u.test(error.message),
+      (error) => error instanceof OegPackV4Error && /byte range/u.test(error.message),
     );
     await assert.rejects(
       load_oegpack_product({ kind: "http-range", url: "https://offline.test/missing.oegpack" }),
-      (error) => error instanceof OegPackV3Error && /byte range/u.test(error.message),
+      (error) => error instanceof OegPackV4Error && /byte range/u.test(error.message),
     );
   } finally {
     globalThis.fetch = originalFetch;
@@ -279,7 +279,7 @@ test("Offline scene mapper builds the shared Virtual Geometry scene source", asy
   assert.equal(source.assetCount, asset.descriptor.assetRecords.byteLength / 128);
   assert.equal(source.geometryProfiles.length, source.assetCount);
   assert.equal(mapped.materials.length, 1);
-  const manifest = parseOegPackSceneManifestV3(fixture.manifest);
+  const manifest = parseOegPackSceneManifestV4(fixture.manifest);
   assert.equal(source.count, manifest.instances.length);
   assert.equal(source.geometryIndices.length, source.count);
   assert.equal(source.currentTransforms.length, source.count * 16);

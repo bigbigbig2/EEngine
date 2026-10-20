@@ -4,7 +4,7 @@
 
 namespace oengine::asset {
 
-void GenerateCanonicalNormalsV3(MaterialDomain& domain);
-void FinalizeCanonicalGeometryAssetV3(CanonicalGeometryAsset& asset);
+void GenerateCanonicalNormalsV4(MaterialDomain& domain);
+void FinalizeCanonicalGeometryAssetV4(CanonicalGeometryAsset& asset);
 
 }  // namespace oengine::asset

@@ -1,8 +1,8 @@
-import { createGeometryCookRecipeV3, type GeometryCookRecipeV3 } from "../../GeometryCookRecipe.js";
+import { createGeometryCookRecipeV4, type GeometryCookRecipeV4 } from "../../GeometryCookRecipe.js";
 
 import type { GeometryAppearanceProfile } from "../../GeometryAppearanceProfile.js";
 
-export const WEB_GEOMETRY_COOKER_ABI_VERSION = 6;
+export const WEB_GEOMETRY_COOKER_ABI_VERSION = 7;
 export const WEB_GEOMETRY_CANONICAL_HEADER_BYTES = 128;
 export const WEB_GEOMETRY_CANONICAL_DOMAIN_BYTES = 48;
 export const WEB_GEOMETRY_CANONICAL_VERTEX_FLOATS = 18;
@@ -267,8 +267,8 @@ export function encodeWebCanonicalGeometryV1(domains: readonly WebCanonicalGeome
   return bytes.buffer;
 }
 
-export function encodeWebGeometryCookRecipeV1(input: Partial<GeometryCookRecipeV3> = {}): ArrayBuffer {
-  const recipe = createGeometryCookRecipeV3(input);
+export function encodeWebGeometryCookRecipeV1(input: Partial<GeometryCookRecipeV4> = {}): ArrayBuffer {
+  const recipe = createGeometryCookRecipeV4(input);
   if (!Number.isSafeInteger(recipe.bootstrapGeometryBudgetBytes) || recipe.bootstrapGeometryBudgetBytes < 0)
     throw new RangeError("bootstrapGeometryBudgetBytes must be a non-negative safe integer");
   const bytes = new Uint8Array(WEB_GEOMETRY_RECIPE_BYTES),
@@ -291,7 +291,7 @@ export function encodeWebGeometryCookRecipeV1(input: Partial<GeometryCookRecipeV
   view.setFloat32(64, recipe.lodErrorMergeFactor, true);
   view.setUint32(68, recipe.hierarchyFanout, true);
   view.setUint32(72, recipe.pageShift, true);
-  view.setUint32(76, recipe.rawCodecThresholdBytes, true);
+  // Word 76 is reserved in ABI 7; zero-filled buffer is canonical.
   const bootstrap = BigInt(recipe.bootstrapGeometryBudgetBytes);
   view.setUint32(80, Number(bootstrap & 0xffffffffn), true);
   view.setUint32(84, Number(bootstrap >> 32n), true);

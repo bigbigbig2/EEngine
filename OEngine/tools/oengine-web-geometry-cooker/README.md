@@ -1,11 +1,11 @@
 # OEngine Web Geometry Cooker
 
-Current artifacts (2026-10-10 / VSM V4-R1): native, portable-single and pthread
-producers use input ABI 5, `static-pbr-page-local-f32-lean-v7` and hierarchy
+Current artifacts (2026-10-21 / compression E4): native, portable-single and pthread
+producers use input ABI 7, `static-pbr-soa-f32-v8` and hierarchy
 recipe `nyx-hierarchy-v4.1-conservative-spheres`. Sphere merge recomputes the
 required radius about the stored f32 center and rounds outward; the independent
-translated-hierarchy oracle tests strict double containment. This changes
-content/recipe identity, not page layout. Existing Products need recooking.
+translated-hierarchy oracle tests strict double containment. E4 additionally changes
+page layout to SoA4 and compact 44-byte meshlet headers, and invalidates content/recipe identity. Existing Products need recooking.
 The canonical recipe now includes `instanceSemantics: cast-receive-explicit-v1`.
 Native glTF node extras and public Scene/WASM producers preserve explicit
 cast/receive off, with both enabled by default. Legacy scene manifests without
@@ -103,3 +103,5 @@ shared-position bits and terminal LOD error after a rejected simplification.
 2026-09-29 historical experiment: v3.2 rejected sloppy for entire seam-bearing groups. It retained excessive fine geometry and is no longer current behavior.
 
 Historical 2026-09-30 record before the Surface phase-one rebuild: experimental nyx-hierarchy-v3.3 artifact pairs. The Nyx 0.25 sloppy extension carries source triangle-corner attributes separately from clustered positions, compacts coarse wedges and preserves fine vertices. Prior builds and targeted geometry tests passed, but same-close-camera barrel artifacts remain. This is not visual/performance acceptance or a meshoptimizer v1.3 port. The candidate is described in docs/next-design/virtual-geometry-attribute-simplification-2026.md and docs/porting/next-renderer.md. Always copy WASM with matching .mjs; recipe changes require recooking old products.
+
+E4 uses compact SoA4 pages and 44-byte meshlet headers. Publish both native-built WASM profiles with `node OEngine/tools/publish-web-geometry-cooker.mjs`; paired artifacts and source/build SHA256 receipts are emitted together. Offline transport is independent Zstd/raw, not a second Web cooker path. Full scene recook and integration belong to E5.

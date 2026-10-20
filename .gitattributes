@@ -39,3 +39,6 @@ OEngine/tests/oracle/reference/offset-allocator/** -text whitespace=-blank-at-eo
 *.lib binary
 *.bin binary
 *.zip binary
+
+OEngine/src/assets/codec/vendor/geometry-zstd/** -text whitespace=-blank-at-eol
+OEngine/tools/oengine-asset-core/vendor/zstd/** -text whitespace=-blank-at-eol

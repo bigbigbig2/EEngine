@@ -152,7 +152,7 @@ export default defineConfig({
       input: {
         "protocol-self-test": resolve(root, "cases/protocol-self-test/index.html"),
         "webgpu-component": resolve(root, "cases/webgpu-component/index.html"),
-        "oegpack-v3-component": resolve(root, "cases/oegpack-v3-component/index.html"),
+        "oegpack-v4-component": resolve(root, "cases/oegpack-v4-component/index.html"),
         "virtual-geometry-component": resolve(root, "cases/virtual-geometry-component/index.html"),
         "web-authored-large-cook-k0": resolve(root, "cases/web-authored-large-cook-k0/index.html"),
         "virtual-product-observer": resolve(root, "labs/virtual-product-observer/index.html")

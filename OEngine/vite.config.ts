@@ -111,7 +111,9 @@ function imageWorkerAssets(): Plugin {
         ? ["image-resample/source.json", "image-resample/image_resample.wasm"]
         : id.endsWith("/codec/ImageTextureKtxImport.ts")
           ? ["image-ktx/source.json", "image-ktx/ktx_pc.wasm", "image-import/source.json", "image-import/image_decode.wasm"]
-          : null;
+          : id.endsWith("/codec/GeometryZstd.ts")
+            ? ["geometry-zstd/source.json", "geometry-zstd/geometry_zstd.wasm"]
+            : null;
       if (!assets) return null;
       let code = readFileSync(id, "utf8");
       for (const name of assets) {
@@ -132,6 +134,7 @@ export default defineConfig({
   worker: { format: "es", plugins: () => [imageWorkerAssets()] },
   plugins: [
     preserveConsumerAssetUrls,
+    imageWorkerAssets(),
     {
       name: "shade-native-assets",
       generateBundle() {

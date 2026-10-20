@@ -2,12 +2,12 @@ import { geometryQueryDirectorySegments } from "./GeometryQueryDirectory.js";
 import { geometryQueryCut, type GeometryQueryCut } from "./GeometryQueryCut.js";
 import { Signal } from "../core/Signal.js";
 import {
-  OEGPACK_V3_PAGE_BYTES,
-  hierarchyNodeChildCountV3,
-  hierarchyNodeChildStartV3,
-  hierarchyNodeGroupIdV3,
-  hierarchyNodeIsGroupV3,
-} from "../assets/GeometryAbiV3.js";
+  OEGPACK_V4_PAGE_BYTES,
+  hierarchyNodeChildCountV4,
+  hierarchyNodeChildStartV4,
+  hierarchyNodeGroupIdV4,
+  hierarchyNodeIsGroupV4,
+} from "../assets/GeometryAbiV4.js";
 import {
   assertGeometryProductDescriptorV1,
   decodeGeometryProductPageRecordV1,
@@ -584,7 +584,7 @@ export class VirtualGeometryResidency {
             !sameBytes(page.productId, this.#descriptor.productId) ||
             page.revision !== this.#descriptor.revision ||
             page.pageId !== pageId ||
-            page.bytes.byteLength !== OEGPACK_V3_PAGE_BYTES ||
+            page.bytes.byteLength !== OEGPACK_V4_PAGE_BYTES ||
             !sameBytes(page.decodedHash128, expected.decodedHash128)
           )
             throw new Error(`page ${pageId} returned an invalid Product key, identity or size`);
@@ -1191,7 +1191,7 @@ export class VirtualGeometryResidency {
     this.#assertPageId(page.pageId);
     if (
       page.revision !== this.#descriptor.revision ||
-      page.bytes.byteLength !== OEGPACK_V3_PAGE_BYTES ||
+      page.bytes.byteLength !== OEGPACK_V4_PAGE_BYTES ||
       !sameBytes(page.productId, this.#descriptor.productId) ||
       !sameBytes(
         page.decodedHash128,
@@ -1714,7 +1714,7 @@ export class VirtualGeometryResidency {
       history.reloads++;
       this.#reloads++;
       if (this.#frameClock - history.lastEvicted <= EVICTION_THRASH_WINDOW_FRAMES)
-        this.#thrashBytes += OEGPACK_V3_PAGE_BYTES;
+        this.#thrashBytes += OEGPACK_V4_PAGE_BYTES;
     }
     history.residentSince = this.#frameClock;
     history.lastUsed = this.#frameClock;
@@ -1748,13 +1748,13 @@ export class VirtualGeometryResidency {
       if (visited.has(nodeId)) return;
       visited.add(nodeId);
       const packed = nodes.getUint32(nodeId * 48 + 44, true);
-      if (hierarchyNodeIsGroupV3(packed)) {
-        const groupId = hierarchyNodeGroupIdV3(packed);
+      if (hierarchyNodeIsGroupV4(packed)) {
+        const groupId = hierarchyNodeGroupIdV4(packed);
         const pageId = groups.getUint32(groupId * 16, true);
         this.#pageImportance.set(pageId, Math.max(this.#pageImportance.get(pageId) ?? 0, 1 / (depth + 1)));
       } else {
-        const start = hierarchyNodeChildStartV3(packed),
-          count = hierarchyNodeChildCountV3(packed);
+        const start = hierarchyNodeChildStartV4(packed),
+          count = hierarchyNodeChildCountV4(packed);
         for (let child = 0; child < count; child++) walk(start + child, depth + 1);
       }
     };

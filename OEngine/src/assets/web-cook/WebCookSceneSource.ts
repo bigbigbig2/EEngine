@@ -11,7 +11,7 @@ import {
 } from "../geometry-product/VirtualGeometrySceneSourceV1.js";
 import type { WebCookSceneCatalogSnapshot } from "./WebCookClient.js";
 import type { VirtualGeometryGeometryProfile } from "../../gpu/GpuRenderWorld.js";
-import { OEGPACK_V3_ASSET_STRIDE } from "../GeometryAbiV3.js";
+import { OEGPACK_V4_ASSET_STRIDE } from "../GeometryAbiV4.js";
 
 export type WebCookSceneSourceOptions = VirtualGeometrySceneSourceOptionsV1 & {
   /** Map geometry and instances without reading authored images or materials. */
@@ -63,7 +63,7 @@ export function createWebCookSceneSource(
   descriptor: GeometryProductDescriptorV1,
   options: WebCookSceneSourceOptions = {},
 ): WebCookSceneSourceResult {
-  const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V3_ASSET_STRIDE;
+  const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V4_ASSET_STRIDE;
   if (assetCount === 0) throw new Error("The Web Cook Product asset dictionary must not be empty");
   const catalogIndices =
     options.sceneAssetIndices === undefined
@@ -146,7 +146,7 @@ export async function createWebCookSceneSourceAsync(
   signal?: AbortSignal,
   options: WebCookSceneSourceOptions = {},
 ): Promise<WebCookSceneSourceResult> {
-  const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V3_ASSET_STRIDE;
+  const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V4_ASSET_STRIDE;
   if (assetCount === 0) throw new Error("The Web Cook Product asset dictionary must not be empty");
   const catalogIndices = sceneAssetIndices(catalog, assetCount, options.sceneAssetIndices);
   if (options.geometryOnly || options.singleLitMaterial) {

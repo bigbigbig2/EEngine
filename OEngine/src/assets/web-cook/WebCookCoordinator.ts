@@ -10,7 +10,7 @@ import {
   type GlbRangeSourceOptions,
 } from "../../loaders/gltf/streaming/GlbRangeSource.js";
 import { decodeGeometryProductDescriptorBinaryV1 } from "../geometry-product/GeometryProductBinaryV1.js";
-import { OEGPACK_V3_ASSET_STRIDE } from "../GeometryAbiV3.js";
+import { OEGPACK_V4_ASSET_STRIDE } from "../GeometryAbiV4.js";
 import {
   WebCookSessionProtocol,
   WEB_COOK_PAGE_BYTES,
@@ -997,7 +997,7 @@ export class WebCookCoordinator {
     )
       throw new Error("Web Cook descriptor and revision identity/count disagree");
     if (revision.sceneAssetIndices !== undefined) {
-      const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V3_ASSET_STRIDE;
+      const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V4_ASSET_STRIDE;
       if (
         revision.sceneAssetIndices.length !== assetCount ||
         revision.sceneAssetIndices.some((index) => !Number.isSafeInteger(index) || index < 0)

@@ -1,4 +1,4 @@
-import { OEGPACK_V3_PAGE_BYTES } from "../assets/GeometryAbiV3.js";
+import { OEGPACK_V4_PAGE_BYTES } from "../assets/GeometryAbiV4.js";
 import { GEOMETRY_PRODUCT_GPU_BANK_BYTES_MAX_V1 } from "./GeometryProductGpuAbiV1.js";
 
 /** Phase H profile selector ABI. This changes physical capacity only; Product/Page ABI stays V1. */
@@ -98,7 +98,7 @@ export function selectGeometryProductResidencyProfileV1(
   if (
     options.configuredBankBytes !== undefined &&
     (!Number.isSafeInteger(options.configuredBankBytes) ||
-      options.configuredBankBytes < OEGPACK_V3_PAGE_BYTES)
+      options.configuredBankBytes < OEGPACK_V4_PAGE_BYTES)
   ) {
     throw new RangeError("Geometry Product configuredBankBytes must be a positive page-sized integer");
   }
@@ -137,9 +137,9 @@ export function selectGeometryProductResidencyProfileV1(
         options.configuredBankBytes ?? PROFILE_BANK_BYTES[requested],
         maximumBankBytes,
         configuredCapacityBytes / GEOMETRY_PRODUCT_RESIDENCY_BANK_COUNT_V1,
-      ) / OEGPACK_V3_PAGE_BYTES,
-    ) * OEGPACK_V3_PAGE_BYTES;
-  if (bankBytes < OEGPACK_V3_PAGE_BYTES) {
+      ) / OEGPACK_V4_PAGE_BYTES,
+    ) * OEGPACK_V4_PAGE_BYTES;
+  if (bankBytes < OEGPACK_V4_PAGE_BYTES) {
     return disabledPlan(normalizedLimits, requestedProfile, evidence, "configured-budget");
   }
   const profile =

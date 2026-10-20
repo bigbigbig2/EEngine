@@ -54,13 +54,13 @@ std::vector<std::uint8_t> Recipe() {
     std::vector<std::uint8_t> bytes(96u, 0u);
     const std::uint8_t magic[8] = {'O','E','W','G','R','C','P',0};
     std::copy(magic, magic + 8u, bytes.begin());
-    U32(bytes, 8u, 6u); U32(bytes, 12u, 96u);
+    U32(bytes, 8u, 7u); U32(bytes, 12u, 96u);
     U32(bytes, 16u, 64u); U32(bytes, 20u, 32u); U32(bytes, 24u, 128u);
     U32(bytes, 28u, 32u); F32(bytes, 32u, 0.0f); F32(bytes, 36u, 2.0f);
     F32(bytes, 40u, 0.5f); F32(bytes, 44u, 0.51f); F32(bytes, 48u, 0.85f);
     U32(bytes, 52u, 3u); F32(bytes, 56u, 1.0f); F32(bytes, 60u, 0.01f);
     F32(bytes, 64u, 1.5f); U32(bytes, 68u, 8u); U32(bytes, 72u, 18u);
-    U32(bytes, 76u, 256u); U32(bytes, 80u, 64u * 1024u * 1024u);
+    U32(bytes, 76u, 0u); U32(bytes, 80u, 64u * 1024u * 1024u);
     U32(bytes, 84u, 0u); U32(bytes, 88u, 0u);
     return bytes;
 }
@@ -83,7 +83,7 @@ std::vector<std::uint8_t> CanonicalCube() {
     std::vector<std::uint8_t> bytes(totalBytes, 0u);
     const std::uint8_t magic[8] = {'O','E','W','G','C','A','N',0};
     std::copy(magic, magic + 8u, bytes.begin());
-    U32(bytes, 8u, 6u); U32(bytes, 12u, 128u); U32(bytes, 16u, totalBytes);
+    U32(bytes, 8u, 7u); U32(bytes, 12u, 128u); U32(bytes, 16u, totalBytes);
     U32(bytes, 20u, 1u); U32(bytes, 24u, positions.size()); U32(bytes, 28u, indices.size());
     U32(bytes, 32u, domainOffset); U32(bytes, 36u, vertexOffset); U32(bytes, 40u, indexOffset);
     U32(bytes, 44u, 72u); U32(bytes, 48u, 48u);
@@ -127,7 +127,7 @@ std::vector<std::uint8_t> CanonicalDomains(std::size_t domainCount, std::size_t 
     std::vector<std::uint8_t> bytes(totalBytes, 0u);
     const std::uint8_t magic[8] = {'O','E','W','G','C','A','N',0};
     std::copy(magic, magic + 8u, bytes.begin());
-    U32(bytes, 8u, 6u); U32(bytes, 12u, 128u); U32(bytes, 16u, totalBytes);
+    U32(bytes, 8u, 7u); U32(bytes, 12u, 128u); U32(bytes, 16u, totalBytes);
     U32(bytes, 20u, std::uint32_t(domainCount)); U32(bytes, 24u, std::uint32_t(vertexCount)); U32(bytes, 28u, std::uint32_t(indexCount));
     U32(bytes, 32u, domainOffset); U32(bytes, 36u, vertexOffset); U32(bytes, 40u, indexOffset);
     U32(bytes, 44u, 72u); U32(bytes, 48u, 48u);
@@ -276,7 +276,7 @@ void AssertTwoPhaseParity(
         assert(Section(planned, section) == Section(monolithic, section));
     }
     assert(oengine_web_geometry_cook_section_size(
-        planned, OENGINE_WEB_COOK_SECTION_PAGE_BYTES, 0u) == kGeometryPageBytesV3);
+        planned, OENGINE_WEB_COOK_SECTION_PAGE_BYTES, 0u) == kGeometryPageBytesV4);
 
     // Before any produce call every declared page is PENDING, not missing.
     for (std::uint32_t page = 0u; page < pageCount; ++page) {
@@ -290,7 +290,7 @@ void AssertTwoPhaseParity(
            OENGINE_WEB_COOK_PAGE_UNDECLARED);
     assert(oengine_web_geometry_cook_page_count(planned) == pageCount);
 
-    std::vector<std::uint8_t> page(kGeometryPageBytesV3, 0u);
+    std::vector<std::uint8_t> page(kGeometryPageBytesV4, 0u);
     const std::vector<std::uint8_t> monolithicPage =
         Section(monolithic, OENGINE_WEB_COOK_SECTION_PAGE_BYTES, 0u);
 
@@ -398,29 +398,29 @@ void AssertMeshletSeamsAndTerminalLod() {
     }
     source.domains.push_back(domain);
     for (const float minimumReduction : {0.01f, 1.0f}) {
-        GeometryCookRecipeV3 recipe;
+        GeometryCookRecipeV4 recipe;
         recipe.groupTargetMeshlets = 4;
         recipe.minimumLodReduction = minimumReduction;
         recipe.simplifyWithUpdate = false;
-        CookEvidenceV3 evidence;
-        const auto cooked = CookGeometryAssetV3(source, recipe, evidence);
+        CookEvidenceV4 evidence;
+        const auto cooked = CookGeometryAssetV4(source, recipe, evidence);
         assert(cooked.groups.size() > 1);
         std::set<std::array<std::uint32_t, 3>> seen;
         std::size_t shared = 0;
         for (const auto& group : cooked.groups) {
-            GroupHeaderV3 header{}; DecodeRecordV3(group.bytes.data(), &header);
+            GroupHeaderV4 header{}; DecodeRecordV4(group.bytes.data(), &header);
             const auto& format = cooked.vertexFormats[header.vertexFormatId];
-            assert(format.positionEncoding == 1 && format.normalOffset == 12);
+            assert(format.positionEncoding == 2 && format.normalOffset == 12);
             if (minimumReduction == 1.0f) {
                 assert(header.parentError == FLT_MAX);
                 assert((group.flags & kGroupBootstrap) != 0);
             }
             for (std::uint32_t m = 0; m < header.meshletCount; ++m) {
-                MeshletHeaderV3 meshlet{};
-                DecodeRecordV3(group.bytes.data() + header.meshletHeaderOffset + m * 48, &meshlet);
+                MeshletHeaderV4 meshlet{};
+                DecodeRecordV4(group.bytes.data() + header.meshletHeaderOffset + m * 44, &meshlet);
                 for (std::uint32_t v = 0; v < meshlet.vertexCount; ++v) {
                     std::array<std::uint32_t, 3> bits;
-                    std::memcpy(bits.data(), group.bytes.data() + meshlet.vertexByteOffset + v * format.strideBytes + format.positionOffset, 12);
+                    for (unsigned axis = 0; axis < 3; ++axis) std::memcpy(&bits[axis], group.bytes.data() + meshlet.vertexByteOffset + (axis * meshlet.vertexCount + v) * 4u, 4u);
                     assert(sourcePositions.count(bits) == 1);
                     if (!seen.insert(bits).second) ++shared;
                 }
@@ -453,25 +453,25 @@ void AssertSurfaceMetadataAndPageCapacity() {
             first + 1u, first + side + 1u, first + side});
     }
     source.domains.push_back(domain);
-    GeometryCookRecipeV3 recipe;
+    GeometryCookRecipeV4 recipe;
     recipe.groupTargetMeshlets = 128u; recipe.minimumLodReduction = 1.0f;
-    CookEvidenceV3 evidence;
-    const auto cooked = CookGeometryAssetV3(source, recipe, evidence);
+    CookEvidenceV4 evidence;
+    const auto cooked = CookGeometryAssetV4(source, recipe, evidence);
     assert(cooked.groups.size() >= 3u);
     std::uint32_t primitiveCount = 0u;
     for (const auto& group : cooked.groups) {
-        assert(group.bytes.size() <= kGeometryPageBytesV3);
+        assert(group.bytes.size() <= kGeometryPageBytesV4);
         assert((group.flags & 0xc0u) == 0u);
-        GroupHeaderV3 header{}; DecodeRecordV3(group.bytes.data(), &header);
+        GroupHeaderV4 header{}; DecodeRecordV4(group.bytes.data(), &header);
         assert(header.meshletCount <= 128u);
         for (std::uint32_t meshletIndex = 0; meshletIndex < header.meshletCount; ++meshletIndex) {
-            MeshletHeaderV3 meshlet{};
-            DecodeRecordV3(group.bytes.data() + header.meshletHeaderOffset + meshletIndex * 48u, &meshlet);
+            MeshletHeaderV4 meshlet{};
+            DecodeRecordV4(group.bytes.data() + header.meshletHeaderOffset + meshletIndex * 44u, &meshlet);
             assert(meshlet.triangleByteOffset + meshlet.triangleCount * 3u <= header.vertexDataOffset);
             const auto end = AlignUp(meshlet.triangleByteOffset + meshlet.triangleCount * 3u, 4u);
             if (meshletIndex + 1u < header.meshletCount) {
-                MeshletHeaderV3 next{};
-                DecodeRecordV3(group.bytes.data() + header.meshletHeaderOffset + (meshletIndex + 1u) * 48u, &next);
+                MeshletHeaderV4 next{};
+                DecodeRecordV4(group.bytes.data() + header.meshletHeaderOffset + (meshletIndex + 1u) * 44u, &next);
                 assert(next.triangleByteOffset == end);
             } else {
                 assert(header.vertexDataOffset == AlignUp(end, 16u));
@@ -490,8 +490,8 @@ void AssertSurfaceMetadataAndPageCapacity() {
     triangle.vertices[1].position[0] = 1.0f; triangle.vertices[2].position[1] = 1.0f;
     triangle.indices = {0u, 1u, 2u}; triangle.materialId = 0u;
     duplicated.domains = {triangle, triangle};
-    CookEvidenceV3 duplicateEvidence;
-    const auto separate = CookGeometryAssetV3(duplicated, recipe, duplicateEvidence);
+    CookEvidenceV4 duplicateEvidence;
+    const auto separate = CookGeometryAssetV4(duplicated, recipe, duplicateEvidence);
     assert(separate.groups.size() == 2u);
     // Domains remain cooker semantics, not an unused runtime triangle payload.
     const auto first = BuildSourceSurfaceDomains(duplicated.domains[0], 1u);
@@ -558,13 +558,13 @@ void AssertConservativeTranslatedHierarchy() {
                 first + 1u, first + side + 1u, first + side});
         }
         source.domains.push_back(domain);
-        GeometryCookRecipeV3 recipe;
+        GeometryCookRecipeV4 recipe;
         recipe.groupTargetMeshlets = 4u;
-        CookEvidenceV3 evidence;
-        const auto cooked = CookGeometryAssetV3(source, recipe, evidence);
+        CookEvidenceV4 evidence;
+        const auto cooked = CookGeometryAssetV4(source, recipe, evidence);
         assert(cooked.hierarchy.size() > 1u);
         for (const auto& node : cooked.hierarchy) {
-            if (IsGroupLeafV3(node.packedNodeData)) continue;
+            if (IsGroupLeafV4(node.packedNodeData)) continue;
             const auto first = (node.packedNodeData >> 1u) & 0x07ffffffu;
             const auto count = (node.packedNodeData >> 28u) & 0x0fu;
             for (std::uint32_t i = 0; i < count; ++i) {
@@ -578,21 +578,78 @@ void AssertConservativeTranslatedHierarchy() {
     }
 }
 
+void AssertCompactTangentAndPositionBytes() {
+    for (const bool signOnly : {true, false}) {
+        CanonicalGeometryAsset source;
+        MaterialDomain domain;
+        domain.attributeMask = kAttributePosition | kAttributeNormal | kAttributeTangent;
+        for (std::uint32_t i = 0; i < 3u; ++i) {
+            CanonicalVertex vertex;
+            vertex.position[0] = i == 0u ? -0.0f : float(i);
+            vertex.position[1] = i == 2u ? 1.25f : 0.0f;
+            vertex.position[2] = 65536.125f;
+            vertex.tangent[3] = signOnly ? (i == 1u ? -1.0f : 1.0f) :
+                (i == 0u ? 0.0f : i == 1u ? 0.5f : -0.25f);
+            domain.vertices.push_back(vertex);
+        }
+        domain.indices = {0u, 1u, 2u};
+        source.domains.push_back(domain);
+        CookEvidenceV4 evidence;
+        const auto cooked = CookGeometryAssetV4(source, GeometryCookRecipeV4{}, evidence);
+        std::uint32_t checked = 0u;
+        for (const auto& group : cooked.groups) {
+            GroupHeaderV4 header{};
+            DecodeRecordV4(group.bytes.data(), &header);
+            const auto& format = cooked.vertexFormats[header.vertexFormatId];
+            assert(IsGeometryVertexFormatV4(format));
+            assert(format.tangentSignEncoding == (signOnly ? 1u : 2u));
+            for (std::uint32_t m = 0; m < header.meshletCount; ++m) {
+                MeshletHeaderV4 meshlet{};
+                DecodeRecordV4(group.bytes.data() + header.meshletHeaderOffset + m * sizeof(meshlet), &meshlet);
+                const auto* vertices = group.bytes.data() + meshlet.vertexByteOffset;
+                for (std::uint32_t i = 0; i < meshlet.vertexCount; ++i) {
+                    float x;
+                    std::memcpy(&x, vertices + i * 4u, 4u);
+                    const auto sourceIndex = std::uint32_t(x);
+                    assert(sourceIndex < 3u);
+                    const auto& original = domain.vertices[sourceIndex];
+                    for (std::uint32_t axis = 0; axis < 3u; ++axis) {
+                        assert(std::memcmp(vertices + (axis * meshlet.vertexCount + i) * 4u,
+                            &original.position[axis], 4u) == 0);
+                    }
+                    const auto signAt = meshlet.vertexCount * 20u;
+                    if (signOnly) {
+                        assert(((vertices[signAt + i / 8u] >> (i & 7u)) & 1u) ==
+                            (original.tangent[3] < 0.0f ? 1u : 0u));
+                    } else {
+                        std::int16_t actual;
+                        std::memcpy(&actual, vertices + signAt + i * 2u, 2u);
+                        assert(actual == std::int16_t(std::lround(original.tangent[3] * 32767.0f)));
+                    }
+                    ++checked;
+                }
+            }
+        }
+        assert(checked == 3u);
+    }
+}
+
 int main() {
+    AssertCompactTangentAndPositionBytes();
     AssertConservativeTranslatedHierarchy();
     AssertIndependentSurfaceContinuity();
     AssertSurfaceMetadataAndPageCapacity();
     AssertMeshletSeamsAndTerminalLod();
     AssertPageIdentityRollup();
-    assert(oengine_web_geometry_cook_abi_version() == 6u);
+    assert(oengine_web_geometry_cook_abi_version() == 7u);
     const std::vector<std::uint8_t> canonical = CanonicalCube();
     const std::vector<std::uint8_t> recipe = Recipe();
     // Golden freeze of the fixture encoding itself: these digests pin the exact
     // recipe/canonical byte layout (including the ABI version word) so that any
     // accidental edit to the fixture is caught before it can mask a real
     // regression in the cooker.
-    assert(Hex(Sha256(canonical)) == "cec2f1ec00814783421fc52e3414ac0a0d67fb44b75216d20b472d18e24260c1");
-    assert(Hex(Sha256(recipe)) == "2adb46802c540c940eb8172902fb847686c6565f9fc7541a4bc5d6971e32e6ea");
+    assert(Hex(Sha256(canonical)) == "47ae022db406813dddbc97616cac60b986465fbc0f0ad267fedbc2873db8b8fe");
+    assert(Hex(Sha256(recipe)) == "7e9e48c5bb89c2d632bb56991a7480b1dee86d45e3ba4f44d4ba63663e8d80e6");
     AssertTwoPhaseParity(canonical, recipe);
     AssertWindowedBuilderParity(recipe);
     const std::uintptr_t first = oengine_web_geometry_cook(
@@ -620,7 +677,7 @@ int main() {
     }
     for (std::uint32_t page = 0u; page < pageCount; ++page) {
         const std::vector<std::uint8_t> pageBytes = Section(first, OENGINE_WEB_COOK_SECTION_PAGE_BYTES, page);
-        assert(pageBytes.size() == kGeometryPageBytesV3);
+        assert(pageBytes.size() == kGeometryPageBytesV4);
         // Page identity is rolled up from Group payloads, so it is deliberately
         // NOT the whole-page digest. Both must stay independently verifiable.
         const Hash256 wholePageHash = Sha256(pageBytes);
@@ -672,7 +729,7 @@ int main() {
     assert(!LastError().empty());
     assert(oengine_web_geometry_cook(
         canonical.data(), canonical.size(), recipe.data(), recipe.size(),
-        kGeometryPageBytesV3 - 1u) == 0u);
+        kGeometryPageBytesV4 - 1u) == 0u);
     assert(!LastError().empty());
 
     oengine_web_geometry_cook_destroy(second);

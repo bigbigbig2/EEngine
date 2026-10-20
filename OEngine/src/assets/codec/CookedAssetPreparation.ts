@@ -53,6 +53,7 @@ interface ImageDirectoryRegistration {
  * caller-owned. Session cancellation terminates active tasks via the pool. */
 export class CookedAssetPreparation {
   readonly #pool: AssetWorkerPool;
+  readonly #decoderReservedBytes: number;
   readonly #credit: CookedAssetCredit;
   // Separate IO admission from Worker and byte capacity. A smaller Worker
   // profile may run fewer simultaneous requests, but never bypasses this cap.
@@ -100,8 +101,11 @@ export class CookedAssetPreparation {
     this.#io = new CookedAssetCredit({ total: maxRanges, encoded: 0, ready: 0 });
     // Cold KTX can retain libktx (96 MiB), decoder (64 MiB), resampler
     // (64 MiB), canonical chains and PNG framing until its Worker retires.
-    const temporaryBytes = options.maxTemporaryBytes ?? 384 * MiB;
-    const taskBytes = temporaryBytes;
+    // Keep the existing 384 MiB cold-import allowance plus four retained decoder heaps.
+    const temporaryBytes = options.maxTemporaryBytes ?? 400 * MiB;
+    const decoderCapacity = maxWorkers * 4 * MiB;
+    this.#decoderReservedBytes = decoderCapacity;
+    const taskBytes = temporaryBytes - decoderCapacity;
     if (
       !Number.isSafeInteger(options.maxEncodedBytes ?? 16 * MiB) ||
       (options.maxEncodedBytes ?? 16 * MiB) < 1 ||
@@ -129,7 +133,7 @@ export class CookedAssetPreparation {
       },
       retainedBytes: (result) => {
         const bytes = (result as { decoderMemoryBytes?: unknown } | null)?.decoderMemoryBytes;
-        if (bytes !== 0) {
+        if (bytes !== 0 && bytes !== 4 * MiB) {
           throw new Error("Cooked Worker decoder memory receipt mismatch");
         }
         return bytes;
@@ -572,7 +576,7 @@ export class CookedAssetPreparation {
         result.sourceRevision !== task.sourceRevision ||
         result.recipe !== task.recipe ||
         result.itemId !== itemId ||
-        result.decoderMemoryBytes !== 0
+        (result.decoderMemoryBytes !== 0 && result.decoderMemoryBytes !== 4 * MiB)
       ) {
         throw new Error("Image texture receipt provenance/domain mismatch");
       }
@@ -871,6 +875,8 @@ export class CookedAssetPreparation {
       credit: this.#credit.evidence(),
       imageDirectoryBytes: this.#imageDirectoryBytes,
       localImageReplayBytes: this.#localReplayBytes,
+      decoderReservedBytes: this.#decoderReservedBytes,
+      taskCapacityBytes: this.#credit.limits.total,
       decodedImageCacheBytes: this.#decodedImageBytes,
       decodedImageCacheHits: this.#decodedImageHits,
       io: this.#io.evidence()
@@ -904,7 +910,7 @@ export class CookedAssetPreparation {
   }
   #header(session: string): CookedTaskHeader {
     this.#assertSession(session);
-    return { version: 3, session, epoch: 1, task: ++this.#task };
+    return { version: 6, session, epoch: 1, task: ++this.#task };
   }
   async #submit(
     task: CookedAssetTask,

@@ -1,7 +1,8 @@
+import { geometryZstdSources } from "./build-geometry-zstd.mjs";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir } from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { spawn, spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compilerProbe } from "./native-compiler.mjs";
@@ -25,7 +26,6 @@ const requiredHashes = new Map([
   ["MiniEngine/Model/Shaders/VBufferMesh.slang", "9f374a2437d5ab939ae4d98289c150097bdab17305191ff97abf3fd1d13c621d"],
   ["MiniEngine/ThirdParty/meshoptimizer/simplifier.cpp", "131b2092e1acd5546d46fba5463c2a8027089565826ce75790c3e5bc45acf8b2"],
   ["MiniEngine/ThirdParty/meshoptimizer/meshoptimizer.h", "a05dfed026d1dbeea6b38751ff22397e48a6706a4138e92a160ad57e33f7c0fd"],
-  ["MiniEngine/ThirdParty/lz4/lz4.c", "aba04f8c20e7f7396bed55e0ee041f762d9ee123e175d1b48cf8a9533a360074"],
   ["MiniEngine/ThirdParty/cgltf/cgltf.h", "123d322d3eff8db5dc34a690131037a89972dff91793050caa48353a5911b4d7"],
 ]);
 
@@ -46,6 +46,7 @@ const meshoptimizerSources = (await readdir(meshoptimizerDir))
   .filter((name) => name.endsWith(".cpp"))
   .sort()
   .map((name) => join(meshoptimizerDir, name));
+const zstd = await geometryZstdSources();
 const sources = [
   join(coreDir, "src", "Hash.cpp"),
   join(coreDir, "src", "GeometryCookRecipe.cpp"),
@@ -57,14 +58,14 @@ const sources = [
   join(coreDir, "src", "package", "OegPackWriter.cpp"),
   join(coreDir, "cli", "main.cpp"),
   ...meshoptimizerSources,
-  join(nyxRoot, "MiniEngine", "ThirdParty", "lz4", "lz4.c"),
+  ...zstd.files,
 ];
 const args = [
   ...(process.platform === "win32" ? ["-static"] : []),
-  "-std=c++2a", "-O2", "-Wall", "-Wextra", "-Werror=return-type", "-fno-fast-math", "-ffp-contract=off", "-pthread", "-DNOMINMAX",
+  "-std=c++2a", "-O2", "-Wall", "-Wextra", "-Werror=return-type", "-fno-fast-math", "-ffp-contract=off", "-pthread", "-DNOMINMAX", "-DZSTD_LEGACY_SUPPORT=0", "-DZSTD_DISABLE_ASM=1",
   `-I${join(coreDir, "include")}`,
   `-I${meshoptimizerDir}`,
-  `-I${join(nyxRoot, "MiniEngine", "ThirdParty", "lz4")}`,
+  `-I${zstd.include}`,
   `-I${join(nyxRoot, "MiniEngine", "ThirdParty", "cgltf")}`,
   ...sources,
   "-lpsapi",
@@ -76,4 +77,17 @@ await new Promise((resolvePromise, reject) => {
   child.once("error", reject);
   child.once("exit", (code) => code === 0 ? resolvePromise() : reject(new Error(`native cooker build exited ${code}`)));
 });
+const inputs = {};
+for (const path of [...sources, ...((await readdir(join(coreDir, "include/oengine_asset")))
+  .map((name) => join(coreDir, "include/oengine_asset", name))),
+  fileURLToPath(import.meta.url), join(coreDir, "geometry-layout-v4.json")]) {
+  inputs[path.replaceAll("\\", "/").replace(resolve(coreDir).replaceAll("\\", "/"), "asset-core")] =
+    createHash("sha256").update(await readFile(path)).digest("hex");
+}
+await writeFile(join(dirname(output), "source.json"), JSON.stringify({
+  profile: "OEGPACK4 SoA4 WebABI7 Zstd1.5.7 levels9/15/19 raw-if-no-saving",
+  compiler: spawnSync(compiler, ["--version"], { encoding: "utf8", windowsHide: true }).stdout.trim(),
+  args, inputs, zstdRevision: zstd.revision,
+  binarySha256: createHash("sha256").update(await readFile(output)).digest("hex"),
+}, null, 2) + "\n");
 console.log(output);

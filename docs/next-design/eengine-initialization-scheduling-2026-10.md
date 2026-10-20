@@ -8,7 +8,7 @@ verifies:
     - OEngine/src/render/SceneRefinement.ts
     - OEngine/src/gpu/GpuNativeMaterialScene.ts
     - OEngine/src/assets/AssetLoadBatch.ts
-    - OEngine/src/assets/OegPackV3.ts
+    - OEngine/src/assets/OegPackV4.ts
     - OEngine/src/assets/ImageTextureSource.ts
     - OEngine/src/assets/RuntimeAssetPackage.ts
     - OEngine/src/assets/RuntimeAssetManifestV2.ts

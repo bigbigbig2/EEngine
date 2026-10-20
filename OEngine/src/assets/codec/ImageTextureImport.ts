@@ -16,7 +16,7 @@ export interface ImageTextureImportTask {
 }
 
 export type ImageTextureImportResult = Pick<ImageTextureImportTask, "version" | "session" | "task"> & {
-  readonly decoderMemoryBytes: 0;
+  readonly decoderMemoryBytes: number;
 } & ({ readonly ok: false; readonly message: string } | {
   readonly ok: true;
   readonly directory: ImageTextureDirectory;

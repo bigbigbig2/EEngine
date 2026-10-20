@@ -248,7 +248,7 @@ MaterialDomain DecodePrimitive(const cgltf_data& data, const cgltf_primitive& pr
         if (index >= domain.vertices.size()) throw std::runtime_error("glTF index exceeds primitive vertex count");
         domain.indices[i] = std::uint32_t(index);
     }
-    if (!normal) GenerateCanonicalNormalsV3(domain);
+    if (!normal) GenerateCanonicalNormalsV4(domain);
     return domain;
 }
 
@@ -283,13 +283,13 @@ CanonicalGeometryAsset DecodeMesh(const cgltf_data& data, const cgltf_mesh& mesh
         }
     }
     if (asset.domains.empty()) throw std::runtime_error("glTF mesh has no supported triangle primitives");
-    FinalizeCanonicalGeometryAssetV3(asset);
+    FinalizeCanonicalGeometryAssetV4(asset);
     return asset;
 }
 
 }  // namespace
 
-ImportedSceneV3 ImportGltfCanonical(const std::string& path) {
+ImportedSceneV4 ImportGltfCanonical(const std::string& path) {
     cgltf_options options{};
     cgltf_data* raw = nullptr;
     const cgltf_result parse = cgltf_parse_file(&options, path.c_str(), &raw);
@@ -319,7 +319,7 @@ ImportedSceneV3 ImportGltfCanonical(const std::string& path) {
         }
     }
 
-    ImportedSceneV3 output;
+    ImportedSceneV4 output;
     std::vector<std::uint32_t> meshToAsset(data->meshes_count, kInvalidId);
     std::unordered_map<std::string, std::uint32_t> deduplicated;
     for (cgltf_size meshIndex = 0; meshIndex < data->meshes_count; ++meshIndex) {
@@ -345,7 +345,7 @@ ImportedSceneV3 ImportGltfCanonical(const std::string& path) {
         }
         const std::size_t meshIndex = std::size_t(node.mesh - data->meshes);
         if (meshIndex >= meshToAsset.size() || meshToAsset[meshIndex] == kInvalidId) continue;
-        SceneInstanceV3 instance;
+        SceneInstanceV4 instance;
         instance.assetIndex = meshToAsset[meshIndex];
         instance.flags = InstanceShadowFlags(node.extras);
         cgltf_node_transform_world(&node, instance.worldTransform.data());

@@ -8,21 +8,21 @@
 
 namespace oengine::asset {
 
-inline constexpr std::array<std::uint8_t, 8> kOegPackMagicV3 = {
+inline constexpr std::array<std::uint8_t, 8> kOegPackMagicV4 = {
     'O', 'E', 'G', 'P', 'A', 'C', 'K', 0};
-inline constexpr std::uint32_t kOegPackFormatMajorV3 = 3u;
-inline constexpr std::uint32_t kOegPackFormatMinorV3 = 1u;
+inline constexpr std::uint32_t kOegPackFormatMajorV4 = 4u;
+inline constexpr std::uint32_t kOegPackFormatMinorV4 = 0u;
 inline constexpr std::uint32_t kOegPackEndianMarker = 0x01020304u;
-inline constexpr std::uint32_t kOegPackHeaderBytesV3 = 256u;
+inline constexpr std::uint32_t kOegPackHeaderBytesV4 = 256u;
 
-enum GeometryPageCodecV3 : std::uint32_t {
+enum GeometryPageCodecV4 : std::uint32_t {
     kPageCodecRaw256K = 0u,
-    kPageCodecLz4Block = 1u,
+    kPageCodecZstdFrame = 1u,
     kPageCodecMeshoptReserved = 2u,
     kPageCodecGpuExperimentalReserved = 3u,
 };
 
-struct OegPackHeaderV3 {
+struct OegPackHeaderV4 {
     std::uint8_t magic[8];
     std::uint32_t formatMajor;
     std::uint32_t formatMinor;
@@ -56,7 +56,7 @@ struct OegPackHeaderV3 {
     std::uint8_t reserved[32];
 };
 
-struct GeometryAssetRecordV3 {
+struct GeometryAssetRecordV4 {
     std::uint8_t assetId[32];
     float boundsSphere[4];
     float boundsMin[3];
@@ -76,7 +76,7 @@ struct GeometryAssetRecordV3 {
     std::uint32_t reserved[2];
 };
 
-struct GeometryPageDirectoryV3 {
+struct GeometryPageDirectoryV4 {
     std::uint64_t compressedFileOffset;
     std::uint32_t compressedBytes;
     std::uint32_t decodedBytes;
@@ -90,11 +90,11 @@ struct GeometryPageDirectoryV3 {
     std::uint64_t reserved1;
 };
 
-static_assert(sizeof(OegPackHeaderV3) == 256u);
-static_assert(offsetof(OegPackHeaderV3, assetDirectoryOffset) == 72u);
-static_assert(offsetof(OegPackHeaderV3, recipeHash) == 144u);
-static_assert(sizeof(GeometryAssetRecordV3) == 128u);
-static_assert(sizeof(GeometryPageDirectoryV3) == 64u);
-static_assert(offsetof(GeometryPageDirectoryV3, decodedContentHash128) == 32u);
+static_assert(sizeof(OegPackHeaderV4) == 256u);
+static_assert(offsetof(OegPackHeaderV4, assetDirectoryOffset) == 72u);
+static_assert(offsetof(OegPackHeaderV4, recipeHash) == 144u);
+static_assert(sizeof(GeometryAssetRecordV4) == 128u);
+static_assert(sizeof(GeometryPageDirectoryV4) == 64u);
+static_assert(offsetof(GeometryPageDirectoryV4, decodedContentHash128) == 32u);
 
 }  // namespace oengine::asset

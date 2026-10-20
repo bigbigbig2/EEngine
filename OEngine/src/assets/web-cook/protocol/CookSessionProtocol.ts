@@ -1,4 +1,4 @@
-import { OEGPACK_V3_ASSET_STRIDE } from "../../GeometryAbiV3.js";
+import { OEGPACK_V4_ASSET_STRIDE } from "../../GeometryAbiV4.js";
 import type { WebCookProductTaskTraceEventV1 } from "../ProductTaskTrace.js";
 
 export const WEB_COOK_PROTOCOL_VERSION = 1;
@@ -236,7 +236,7 @@ export class WebCookSessionProtocol {
     if (this.#events.length >= max) throw new RangeError("CookSession event queue capacity exceeded");
     if (event.type === "RevisionOffered") {
       const descriptor = decodeGeometryProductDescriptorBinaryV1(event.descriptor);
-      const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V3_ASSET_STRIDE;
+      const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V4_ASSET_STRIDE;
       if (
         event.sceneAssetIndices !== undefined &&
         (event.sceneAssetIndices.length !== assetCount ||

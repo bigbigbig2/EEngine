@@ -1,9 +1,9 @@
 import type { GeometryProductDescriptorV1 } from "./GeometryProductV1.js";
 import {
-  hierarchyNodeGroupIdV3,
-  hierarchyNodeIsGroupV3,
-  hierarchyNodeMeshletCountV3,
-} from "../GeometryAbiV3.js";
+  hierarchyNodeGroupIdV4,
+  hierarchyNodeIsGroupV4,
+  hierarchyNodeMeshletCountV4,
+} from "../GeometryAbiV4.js";
 
 export const GEOMETRY_QUERY_SECTION_VERSION = 3;
 export const GEOMETRY_QUERY_HEADER_BYTES = 160;
@@ -162,8 +162,8 @@ export function validateGeometryProductQuerySection(
   );
   for (let at = 44; at < hierarchy.byteLength; at += 48) {
     const packed = hierarchy.getUint32(at, true);
-    if (hierarchyNodeIsGroupV3(packed)) {
-      groupCounts[hierarchyNodeGroupIdV3(packed)] = hierarchyNodeMeshletCountV3(packed);
+    if (hierarchyNodeIsGroupV4(packed)) {
+      groupCounts[hierarchyNodeGroupIdV4(packed)] = hierarchyNodeMeshletCountV4(packed);
     }
   }
   const seenMeshlets = new Set<string>();

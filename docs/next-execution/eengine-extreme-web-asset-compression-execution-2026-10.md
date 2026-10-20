@@ -25,7 +25,7 @@ verifies:
 
 日期：2026-10-20。唯一目标依据：[设计](../next-design/eengine-extreme-web-asset-compression-2026-10.md)。设计最初核对源码为`5f3f4153`，准备提交为`1f856ea0`，E0/E1提交为`eddb8669`；后续施工状态只读§12，不把初始快照当当前源码事实。
 
-**用户已要求先提交E2，再实施E3；2026-10-20继续按新节奏推进。** P准备为`1f856ea0`，E0/E1为`eddb8669`，E2收口提交为`4ee234cf`；本轮E3结果见§12。E0–E4以连续实现、设计对照和最小正确性检查为主，全部场景cook/recook、部署与全路径测试统一放到最后E5。旧路径随替换直接删除，不为中间阶段可运行保留兼容；E2代码实现收口与最终集成资格分开。本次授权不自动跨入E4–E5，也不把旧U0的“完成/冻结”当作新计划状态。
+**用户本轮要求先提交E3，再实施E4；E3已提交为`9329af7d`。** P为`1f856ea0`，E0/E1为`eddb8669`，E2为`4ee234cf`；本轮E4实现与最小检查见§12。E0–E4以连续实现、设计对照与必要编译/少量正确性检查收口，不保兼容旧路径；完整场景cook/recook、部署、GPU全路径与组合成本统一E5。本轮止于E5边界，不自动启动E5。
 
 ## 1. 执行合同：连续实现，最后集中验证
 
@@ -70,7 +70,7 @@ verifies:
 | E1：忠实内核与新产品准备闭包 | 大 | 新图片产品、语义Cooker、浏览器decode/lease、GPU recorder、有限内存，覆盖RGB/RGBA/BC5/BC4和mip | 隔离闭包已实现并验证；本地evaluation来源边界及结果见§12 |
 | E2：纹理全链原子切换 | **很大，主工作项** | 普通/VT、材质/coverage/query、统一准备/缓存、加载/部署代码直接切换、旧产品与依赖删除；不跑场景recook | 实现闭包及相关编译/最小检查完成；最终集成与许可边界见§12，停在E3 |
 | E3：离线极限码率与交付优化 | 大 | 实现双质量档有限搜索、最终GPU评价缓存、资产报告生成、VT cell布局与请求优化；不跑完整资产搜索/报告 | 实现与最小检查完成；完整资产搜索/质量/部署在E5，仍只一个生产owner |
-| E4：几何紧凑ABI与无损传输原子切换 | 很大，独立资产类别闭包 | F32-exact SoA、Zstd/raw、全部Cooker/reader/query/lifecycle代码同切并删旧ABI；不跑场景recook | 公共准备合同在E2已定；待授权 |
+| E4：几何紧凑ABI与无损传输原子切换 | 很大，独立资产类别闭包 | F32-exact SoA、Zstd/raw、全部Cooker/reader/query/lifecycle代码同切并删旧ABI；不跑场景recook | 本轮已授权并完成实现；结果见§12 |
 | E5：最终集中cook、全路径集成与成本收口 | 大 | 统一全量cook/recook与manifest发布、新鲜build、全部直接路径/示例部署、组合生命周期/上界/质量及粗成本 | E2/E3/E4实现后；待授权；全路径验证唯一阶段 |
 
 E1是即将接入生产的新模块，不是永久第二套runtime；生产入口在E2一次替换。E2必须带最基本的正确边界和资源预算，不能把接缝/缺页/失控容量当E3优化延期。E3不为优化另建ABI或再选一轮基础codec。E4不混入纹理切换以免最大闭包失控，但几何本身不得按reader分批迁移。
@@ -298,7 +298,7 @@ node tools/gpu-oracle.mjs --list
 
 本模块实现完成需要：新全套PBR/普通/VT产品与全部真实consumer已切换、旧依赖删除、合法来源/许可、质量档/边界/精确语义、容量与组合生命周期成立，成本如实报告。正式跨设备FPS/画质资格可按仓库节奏归最终集成，但已发现错误、漏工作与失控容量不能延期。
 
-当前用户已授权E3离线极限码率与交付优化，结束停在E4边界。以后用户授权某单元就完成该单元，授权整模块则按依赖连续推进；不自动启动其它效果、HDR/神经压缩或有损几何精度变更。
+当前用户已授权并完成E4实现与最小检查，结束停在E5边界。以后用户授权某单元就完成该单元，授权整模块则按依赖连续推进；不自动启动其它效果、HDR/神经压缩或有损几何精度变更。
 
 ## 12. 本轮P准备记录与后续实施结果
 
@@ -452,3 +452,33 @@ gltf-tex固定pin只有package/README MIT声明，无独立版权notice；本轮
 **实际检查：** engine typecheck、build:test通过；`image-search.test.mjs`与`image-texture-preparation.test.mjs`共7项通过，覆盖有限非单调选优/坏结果拒绝、缓存环境与篡改/上界、Range urgency/过取/HTTP错误/取消、真实准备链pack一次Range供16-owner、decoded缓存不重复解码/收费与generation隔离、共享lease信用与source退休、原cancel/retry。串行`image-search-gpu.mjs`8×8颜色实际解码→完整mip→BC→材质/SSIM检查通过（这是评价器最小检查，不是20/60候选搜索）；receipt在`.local/extreme-web-asset/evaluator-smoke/receipt.json`。首次失败是评价器sRGB view继承了storage usage，已显式限定TEXTURE_BINDING后复跑通过；不改Spark算法或质量阈值。未跑完整资产Cook/recook、完整候选搜索、全部格式/GPU矩阵、部署、整场景质量/FPS与网络报告，统一E5；Spark生产分发许可仍未记录。
 
 E3收口：新增/修改MJS均经`node --check`；`docs-verify`为209 documents、0 finding、86 historical warnings，`git diff --check`通过。
+
+
+### E4：几何紧凑ABI与无损传输原子切换（2026-10-21）
+
+**结论：E3已按用户要求提交为`9329af7d`；E4实现与阶段最小检查完成，停在E5边界。E4改动尚未提交；没有启动完整场景cook/recook、全路径GPU/部署/性能验收，不冒称E5通过。**
+
+#### 唯一生产闭包
+
+- 删除GeometryAbiV3/OegPackV3/scene-manifest-V3/旧decode模块，无alias、A/B、adapter展开或旧schema fallback。native/portable/pthread同用SoA4：OEGPACK4.0、scene-v4、Product schema3/binary3/profile4、Web ABI7、geometry Worker协议6。ordinary非Product几何既有owner未被误删，不是旧Product兼容路径；OGQ2 query section仍v3（字段语义未变）。部署consumer与validation入口迁新major，完整资产E5统一生成。
+- position为F32 x[n]/y[n]/z[n]逐bit搬运，normal/tangent原oct16、UV原half2、color原RGBA8，optional独立stream。tangent尾流仅所有canonical/coarse W严格±1时用bit，否则保留SNORM16值；44B meshlet header包含U8 counts、U16 flags及原完整bounds/refine/material。triangle仍U8、corner/source primitive/source vertex/LOD remap不改序。JSON事实源生成C++/TS常量，WGSL直接引用；C++offsetof及generator --check核对。
+- shared bank/目录/有效前缀direct write→visibility/hierarchy/软硬raster/Surface/VSM/shadow/query/picking/SCGI/motion均经共享reader直读新页，不存旧展开页或query精确顶点副本。Surface frame-cache分支补恢复vertexCount，避免SoA基址错误。GPU bank growth/epoch/abort、publication、generation及末读fence退休仍归原Residency/BytePool/QueryDirectory；不新增本帧readback或独立frame submit。
+- Native writer复用完整Zstd1.5.7 revision `f8745da6ff1ad1e7bab384bd1f9d742439278e99`（BSD-3-Clause选项），逐页9/15/19有限比较，最小合法frame严格小于raw才选。encoded≤256KiB，decoded恰256KiB；checksum、content size、window≤256KiB、dictID0、单frame终止严格受检。旧raw-threshold CLI/recipe字段退休，ABI7 word76为受检零reserved。CPU/WASM使用完整上游decoder，无自制熵或精简近似。
+- Runtime decoder懒加载、固定4MiB heap/256KiB静态context，HTTP依赖流式上界及WASM hash校验；所有后续geometry/image/import成功/失败回执上报实际retained0/4MiB。默认temporary400MiB，最多4Worker预留16MiB，task至少384MiB保留原KTX冷导入容量；显式不足预算创建前失败。不是每任务分配400MiB或RSS上界。Vite静态URL和Worker/root双入口保留manifest/WASM为独立可核hash资源，避免动态glob将二进制错误导入/内联。
+- source/build/hash覆盖native本地receipt、portable/pthread成对JS/WASM receipt与decoderreceipt，记录实际compiler/cache/参数/源码/产物；donor原字节及许可证保留，Node/CMake都核来源hash。来源账本明确Local布局适配与Adopt完整CPU codec，尚未宣称新GPU采用/性能资格。
+
+#### Cost Card与边界
+
+- 每meshlet header48→44，固定节省4B（8.33% header，不是整包）；position仍12B/vertex，无量化损失。全optional旧32B/vertex→sign bit档约28.125B/vertex（另≤3B meshlet尾对齐），非sign档30B/vertex；只有position/normal仍16B。padding/分组/LOD acceptance按真实或保守上界bytes计费，真实节省看E5。
+- GPU原bank direct读取；position三个stream、属性各4B顺序load，sign每顶点一次bit或u16读取，无新dispatch/pipeline/barrier/atomics/长期position副本，query仍共享；地址计算新增vertexCount乘法，缓存恢复一标量。CPU增加Zstd完整解压及最多16MiB retained heap，输入/输出/ready依原credit有界；offline最多三次完整Zstd encode及有限scratch，不算runtime成本。压缩率/延迟/显存收益未测，不用算法名字或测试通过宣称提速。
+
+#### 实际检查、原失败与未运行
+
+- native CLI、独立C++ ABI oracle、portable/pthread及固定heap decoder均构建通过；TypeScript typecheck、新鲜build:test和package build通过。C++ oracle新增实际producer的F32 signed-zero/大平移bit保真、±1 bit与非sign SNORM16精确字节，保留原position seam/bounds/LOD/page capacity/两阶段/remap检查。pthread本轮仅编译和receipt核对，没有冒称浏览器多线程执行通过。
+- 定向8文件37项通过：布局optional/sign/corruption、44B header、Surface缓存接线、Product binary3/profile4及负例、query精确cut/remap/bounds、Web ABI7、portable真实producer→新reader、source/buildhash、Worker真实transfer/cancel/重注册/信用及图片缓存。冷布局6项、极小Native glTF instance/recipe/scene-v4拒旧语义1项另通过；不是完整场景recook或组合生命周期验收。日志`e4-focused-final.log`、`e4-cold-layout.log`、`e4-native-small.log`，位于`.local/extreme-web-asset/`。
+- 独立Zstd native三档最小选择/raw不膨胀→实际TS loader/hash/WASM完整decoder四次逐字节往返，十个invalid frame/extent拒绝（checksum、串联、trailing、unknown size、无checksum、截断、错误decoded/encoded上界），固定4MiB检查通过；`e4-zstd-final.log`。不是浏览器吞吐/大资产压缩率结论。
+- 失败保留：初次旧oracle要求interleaved positionEncoding/旧ABI golden，迁新encoding与逐字节SoA断言；Product binary旧golden首次24/25，新header3/profile4/SoA字段独立断言后更新新fixture SHA；CWD误用导致一次命令未执行，正确cwd重跑。原失败日志不覆盖；不改容差、不删精度/lifecycle断言或恢复旧路径。docs初次1finding为历史V5 verifies已删V3文件，删除失效声明，不恢复文件。
+- package build后静态检查发现动态URL会将codec目录变成glob/内联资源，改静态URL并接现有Vite asset插件；重新构建核独立manifest/WASM bytes，不以能build代替部署可加载性。既有Emscripten/node:module externalization、WASM_BIGINT/MAXIMUM_MEMORY和donor unused警告如实保留。
+- E5待授权：全部示例/资产统一cook、完整有限质量档搜索与原子manifest/HTTP发布；全部production GPU/颜色/接缝/反馈/query/motion/VSM、growth/abort/retry/device-loss/unload组合、来源许可（Spark生产分发权仍未记录）、尺寸/内存显存/网络/延迟与同条件成本报告。未运行项不能追认为通过，旧失败与baseline golden不会因新major自动追认为修复。
+
+收口复核：最终typecheck、build:test、package build与Zstd loader往返通过；dist独立geometry-zstd manifest/WASM逐字节hash一致。`docs-verify`为209 documents、0 findings、86 historical warnings；`git diff --check`通过。validation registry首次重建因旧workloadId失败，迁移新major workload后重建成功（11 cases），未执行browser case；原失败日志保留。
