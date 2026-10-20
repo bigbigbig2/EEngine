@@ -11,6 +11,7 @@ import {
   Scene
 } from "../../../OEngine/src/index.ts";
 import { ImageTextureSource } from "../../../OEngine/src/assets/ImageTextureSource.ts";
+import { imageTextureHash } from "../../../OEngine/src/assets/ImageTextureProduct.ts";
 import { MATERIAL_TEXTURE_PROPERTIES } from "../../../OEngine/src/assets/PcMaterialTextures.ts";
 import { parseGltfMaterial } from "../../../OEngine/src/loaders/gltf/gltfMaterials.ts";
 import { textureFromGltf } from "../../../OEngine/src/loaders/gltf/gltfTextures.ts";
@@ -63,6 +64,12 @@ let submittedFrameAtSample = 0;
 let activeAsset: Awaited<ReturnType<typeof load_oegpack_product>> | undefined;
 const imageSources = new Set<ImageTextureSource>();
 const loadAbort = new AbortController();
+const startupMarks: Record<string, number> = {};
+
+function markStartup(name: string): void {
+  startupMarks[name] = performance.now();
+  performance.mark(`hello-hdr-gltf/${name}`);
+}
 
 function releaseScene(): void {
   loadAbort.abort();
@@ -135,12 +142,14 @@ function frame(time: number): void {
 }
 
 async function start(): Promise<void> {
+  markStartup("start");
   if (!navigator.gpu) throw new Error("当前浏览器没有 WebGPU，请使用支持 WebGPU 的浏览器。");
   const context = canvas.getContext("webgpu");
   if (!context) throw new Error("无法创建 WebGPU canvas context。");
 
   setPhase("初始化原生 HDR 管线");
   const kernels = await exampleImageKernels();
+  markStartup("kernels-ready");
   loadAbort.signal.throwIfAborted();
   renderer = new Renderer({
     imageTextureKernels: kernels,
@@ -152,6 +161,7 @@ async function start(): Promise<void> {
     renderScale: 1
   });
   await renderer.initialize({ context });
+  markStartup("renderer-ready");
   if (loadAbort.signal.aborted) {
     renderer.destroy();
     loadAbort.signal.throwIfAborted();
@@ -170,6 +180,7 @@ async function start(): Promise<void> {
     "/modules/hello-hdr-gltf/assets/venice_sunset_1k.hdr",
     ProjectionMappingType.Equirectangular
   );
+  markStartup("hdr-ready");
   loadAbort.signal.throwIfAborted();
 
   setPhase("打开离线 GeometryProduct / AVIF 纹理");
@@ -183,7 +194,11 @@ async function start(): Promise<void> {
   const sceneResponse = await fetch(`${base}${manifest.geometryManifest}`, { signal: loadAbort.signal });
   if (!sceneResponse.ok) throw new Error(`无法读取预烘焙场景清单 (${sceneResponse.status})`);
   const sceneBytes = await sceneResponse.arrayBuffer();
+  if ((await imageTextureHash(new Uint8Array(sceneBytes))) !== manifest.geometryManifestHash) {
+    throw new Error("Geometry manifest hash mismatch");
+  }
   const sceneManifest = parseOegPackSceneManifestV4(sceneBytes);
+  markStartup("scene-catalog-ready");
   const images = Array.from({ length: manifest.source.images }, () =>
     ShadeImage.fromEncodedImage(new ArrayBuffer(0), "image/png")
   );
@@ -205,6 +220,7 @@ async function start(): Promise<void> {
       products.set(product.identity, source);
     })
   );
+  markStartup("image-directories-ready");
   for (const [materialIndex, material] of materials.entries()) {
     const bindings = manifest.bindings[materialIndex];
     for (const property of MATERIAL_TEXTURE_PROPERTIES) {
@@ -229,6 +245,7 @@ async function start(): Promise<void> {
     loadAbort.signal.throwIfAborted();
   }
   activeAsset = asset;
+  markStartup("geometry-directory-ready");
   setPhase("发布 Virtual Geometry");
   const mask = asset.pack.vertexFormats.reduce((value, format) => value | format.attributeMask, 0);
   const profile = {
@@ -258,6 +275,7 @@ async function start(): Promise<void> {
       configuredBankBytes: 32 * 1024 * 1024
     }
   });
+  markStartup("scene-published");
   loadAbort.signal.throwIfAborted();
   void residency.settled().then(
     () => undefined,
@@ -267,6 +285,21 @@ async function start(): Promise<void> {
   lastTime = performance.now();
   lastFpsTime = lastTime;
   submittedFrameAtSample = renderer.frame_count;
+  const owner = renderer;
+  owner.onFrameFinished.addOne(() => {
+    void owner.device.queue.onSubmittedWorkDone().then(() => {
+      if (disposed || renderer !== owner) return;
+      markStartup("first-completed-frame");
+      canvas.dataset.initialization = JSON.stringify({
+        marks: startupMarks,
+        renderer: owner.initializationEvidence(scene),
+        texture: owner.graphics.texture_residency.evidence(),
+        preparation: owner.texturePreparationEvidence(),
+        geometry: activeAsset?.evidence(),
+        memory: owner.memoryEvidence()
+      });
+    }, fail);
+  });
   requestAnimationFrame(frame);
   setPhase("就绪 · 拖动旋转，滚轮缩放");
   sceneState.textContent = "Venice Mask · Venice Sunset HDR";

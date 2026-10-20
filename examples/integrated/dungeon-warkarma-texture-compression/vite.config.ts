@@ -1,3 +1,5 @@
+// @ts-expect-error Shared build tooling is plain ESM.
+import { imageWorkerAssets } from "../../../OEngine/tools/image-worker-assets-plugin.mjs";
 import { imageKernelsPlugin } from "../../shared/image-kernels-plugin";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,7 +14,8 @@ export default defineConfig({
     __EENGINE_PERFORMANCE_DIAGNOSTICS__: process.env.EENGINE_PERFORMANCE_DIAGNOSTICS === "1"
   },
   root: examplesRoot,
-  plugins: [imageKernelsPlugin(examplesRoot), dungeonLocalModel(examplesRoot)],
+  worker: { format: "es", plugins: () => [imageWorkerAssets()] },
+  plugins: [imageWorkerAssets(), imageKernelsPlugin(examplesRoot), dungeonLocalModel(examplesRoot)],
   server: {
     port: 5176,
     headers: {

@@ -6,8 +6,10 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 import { productDescriptorForAssetRecords } from "../helpers/geometry-product-fixture.mjs";
 import { attachTriangleQuerySection } from "../helpers/geometry-query-fixture.mjs";
+import { installGeometryZstdNodeHost } from "../helpers/geometry-zstd-node-host.mjs";
 
 globalThis.GPUBufferUsage ??= Object.freeze({ COPY_DST: 8, STORAGE: 128 });
+installGeometryZstdNodeHost();
 
 const { load_oegpack_product } = await import(
   "../../.test-dist/assets/geometry-product/OegPackProductAsset.js"
@@ -154,7 +156,7 @@ test("scene manifest parser accepts the native writer output and rejects malform
     assert.throws(() => parseOegPackSceneManifestV4(JSON.stringify(copy)), pattern);
   };
   reject((value) => {
-    value.schema = "oengine-scene-v4";
+    value.schema = "oengine-scene-v3";
   }, OegPackSceneManifestError);
   reject((value) => {
     value.packs[0].packId = value.packs[0].packId.toUpperCase();

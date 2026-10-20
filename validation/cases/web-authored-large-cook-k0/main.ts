@@ -1,7 +1,7 @@
 import { createDefaultWebCookWorker, load_gltf, type WebCookRuntimeAsset } from "../../../OEngine/src/index.ts";
 import { assertGeometryProductDescriptorV1, GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE } from "../../../OEngine/src/assets/geometry-product/GeometryProductV1.ts";
 import { createValidationController } from "../../harness/browser.ts";
-import { prepareProductResidentAttributes } from "../../../OEngine/src/gpu/GeometryProductResidentAttributes.ts";
+import { prepareProductResidentAttributes } from "../../../OEngine/src/assets/geometry-product/GeometryProductResidentAttributes.ts";
 
 const MiB = 1024 * 1024;
 const source = { url: "/assets/web-authored-large/large.glb", bytes: 477_591_060, triangles: 4_871_612, primitives: 1_920,
@@ -72,13 +72,15 @@ async function run(): Promise<void> {
         if (activationIds.has(pageId)) {
           // Packing-only CPU cost accounting; no GPU upload or attribute oracle
           // shortcut. All pages still undergo both complete checksum reads.
-          const resident = prepareProductResidentAttributes(descriptor, pageId, first.bytes, false);
-          activationSlots += resident.slotCount;
+          const resident = prepareProductResidentAttributes(descriptor, pageId, first.bytes);
+          activationSlots += Math.ceil(resident.rawPayloadBytes / 16);
           activationUploadBytes += resident.uploadBytes;
         }
+        if (!first.decodedPageHash128) throw new Error("Producer must expose decoded transport integrity");
         const firstDigest = hex(new Uint8Array(await crypto.subtle.digest("SHA-256", first.bytes)));
         if (firstDigest.slice(0, 32) !== hex(first.decodedPageHash128)) throw new Error(`Page checksum mismatch ${id}/${pageId}`);
         const repeated = await revision.readPage(pageId);
+        if (!repeated.decodedPageHash128) throw new Error("Reread must expose decoded transport integrity");
         const repeatedDigest = hex(new Uint8Array(await crypto.subtle.digest("SHA-256", repeated.bytes)));
         if (firstDigest !== repeatedDigest || repeatedDigest.slice(0, 32) !== hex(repeated.decodedPageHash128)) throw new Error(`Page reread mismatch ${id}/${pageId}`);
         readPages++;
@@ -139,9 +141,10 @@ async function run(): Promise<void> {
     controller.addEvidence("activationFootprint", {
       pages: products.reduce((sum, p) => sum + p.activationPages, 0),
       slots: products.reduce((sum, p) => sum + p.activationSlots, 0),
-      physicalBytes: products.reduce((sum, p) => sum + p.activationSlots, 0) * 262144,
+      allocationUnitBytes: 16,
+      physicalBytes: products.reduce((sum, p) => sum + p.activationSlots, 0) * 16,
       uploadBytes: products.reduce((sum, p) => sum + p.activationUploadBytes, 0),
-      source: "Current resident packing, raw + decoded directory/attributes; not driver VRAM"
+      source: "Compact raw prefix rounded to 16-byte shared byte-pool units; no expanded attributes; not driver VRAM"
     });
     cleanup = await asset.disposeAsync();
     if (cleanup.spillCurrentBytes !== 0 || cleanup.spillOwnerCount !== 0 || asset.evidence().provider.bufferedBytes !== 0) throw new Error("Producer disposal retained ownership");

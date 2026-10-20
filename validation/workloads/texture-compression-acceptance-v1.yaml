@@ -3,9 +3,9 @@ id: texture-compression-acceptance-v1
 resolution: [1920, 1080]
 deviceScaleFactor: 1
 renderScale: 1
-quality: complete-authored-original-2k-bc7-quality6-native-v4
+quality: complete-authored-original-2k-avif-spark-gpu-high-soa4
 features:
-  [web-cook, multi-product-runtime, visibility, native-surface, vsm, temporal, fsr, bc-texture-products]
+  [offline-image-scene, product-runtime, visibility, native-surface, vsm, temporal, fsr, image-gpu-bc]
 seed: 4300
 cameraPath: dungeon-static-motion-resize-recovery-v1
 warmupFrames: 30
@@ -27,7 +27,7 @@ texture:
   sourceTextures: 25
   authoredResolution: 2048
   requiredFeature: texture-compression-bc
-  cookedTranscode: 0
+  runtimeEncoding: spark-gpu-bc
 acceptance:
   requiresSettled: true
   requiresDisposed: true

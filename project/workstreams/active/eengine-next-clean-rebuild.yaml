@@ -36,14 +36,14 @@ currentSlice:
     Implement each complete closure and cut over every direct consumer in the
     same unit; immediately delete replaced contracts and dedicated dependencies.
     Temporary intermediate breakage is allowed, without legacy bridges or fallbacks.
-    The user has authorized E4, source-exact compact geometry layout and bounded
-    Zstd/raw delivery, after committing E3.
+    The user has authorized final E5 integration after committing E4.
+    Fix integration failures in the documented architecture and actual owners,
+    without ad-hoc compatibility patches or restoring retired paths.
     Follow the user's revised cadence: E0-E4 use design/source review and only
     minimal relevant correctness checks. Do not retain legacy compatibility to
     keep intermediate examples runnable. Full asset cook/recook, deployment and
     full-path integration tests belong only to the final E5 unit.
-    Detailed unit results live in the execution authority. E5 requires
-    separate implementation authorization.
+    Detailed unit results live in the execution authority.
     Do not start other renderer modules.
 
 pausedModules:

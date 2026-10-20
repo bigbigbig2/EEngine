@@ -9,10 +9,11 @@
     "primitives": 5,
     "materials": 5,
     "textures": 15,
-    "images": 15
+    "images": 15,
+    "cookedImages": 15
   },
-  "geometryManifest": "scene.oescene",
-  "geometryManifestHash": "08124169c326c611dc8e260b5457acbf91f6d69ddd2a8a053328cdc71fffe83b",
+  "geometryManifest": "scene-bd3f18c857fbf9491b526f2c93fe4b2990513921fe4030a4eabf69af461382e0.oescene",
+  "geometryManifestHash": "bd3f18c857fbf9491b526f2c93fe4b2990513921fe4030a4eabf69af461382e0",
   "gltf": {
     "materials": [
       {
@@ -241,71 +242,71 @@
     {
       "texture_albedo": {
         "textureIndex": 0,
-        "uri": "textures/8144f55bafc26d74072d25cb8241280386da4540b0b3ba330a893df54f3410eb/directory.json"
+        "uri": "textures/2a567cf67031c171e2aaa4db5cd8b7e45152a3195cf176fcb4eb8f0642066cde/directory-8815591e3e1b1eb230f4bb8dc6b5fb9a0f4fbe55c0a67a4ac08b680ed16d65a0.json"
       },
       "texture_normal": {
         "textureIndex": 1,
-        "uri": "textures/e565cf1b09bd1cdfab9100ac11b2d7c60b9e8af38fd6c01aa15b5ccb22ab49ae/directory.json"
+        "uri": "textures/e565cf1b09bd1cdfab9100ac11b2d7c60b9e8af38fd6c01aa15b5ccb22ab49ae/directory-d8a8f2322e5ce1bdfd243f2af696ba883e38882dd4f9b826de19d6945c96bb14.json"
       },
       "texture_orm": {
         "textureIndex": 2,
-        "uri": "textures/721732505f3d8d7ba4b849217bc5b3cb3af526650763fce7573c931c9ae23874/directory.json"
+        "uri": "textures/721732505f3d8d7ba4b849217bc5b3cb3af526650763fce7573c931c9ae23874/directory-ad5e0423b4173f4f15bcd5861530a07dec4cf889ca5660e6db6dfc4e07bda29a.json"
       }
     },
     {
       "texture_albedo": {
         "textureIndex": 3,
-        "uri": "textures/7fb60bcd3e78abf0b37d9c24e51b6a3a3017adc1cb60ce309ad9d1a7b9f28390/directory.json"
+        "uri": "textures/7f566aa3c69bae084555599801067253d89b2a2b1063faa4c75ffd5dc850f268/directory-96b979c3622f47466df9ebe7dba100af20efc20626b2b07b7022f9bd8fff6b26.json"
       },
       "texture_normal": {
         "textureIndex": 4,
-        "uri": "textures/346193ec62eb08f12e09cb114afd72183a318396d840041ed9a54c201ba9a418/directory.json"
+        "uri": "textures/346193ec62eb08f12e09cb114afd72183a318396d840041ed9a54c201ba9a418/directory-70e26bd00b0823d77f79ed1c4ea887c9d6a158d28f3963c3df77e0e569862b36.json"
       },
       "texture_orm": {
         "textureIndex": 5,
-        "uri": "textures/370611cdbc4880711d0c33a40e7af579eeebca8d979bac3190be102035262e25/directory.json"
+        "uri": "textures/370611cdbc4880711d0c33a40e7af579eeebca8d979bac3190be102035262e25/directory-d4d7bcb2e6bc62501a5ebbadca3a0ece360de36cd87786c4bd14eb7c49edd4c2.json"
       }
     },
     {
       "texture_albedo": {
         "textureIndex": 6,
-        "uri": "textures/8b47f93dff171e29f4dc8408d5bf5775632c435f39d5e12dcd5e981c66dfbdd6/directory.json"
+        "uri": "textures/10f895a3f84aca78adffc625da1410a201428a3ab4410eec03b2230a91da5cd3/directory-2e69d1e43a83ba303d9835ef133e298fd868e9bebc3540c84dbfa01112bb6664.json"
       },
       "texture_normal": {
         "textureIndex": 7,
-        "uri": "textures/4f2b473ae91b5a3bc8d86e3123621b514d9747769968662c0121dc0cf3862570/directory.json"
+        "uri": "textures/4f2b473ae91b5a3bc8d86e3123621b514d9747769968662c0121dc0cf3862570/directory-7e163849afc10d53a5c03ea3597fb2c3a27ede82ca8bab82585b8f15e5af6162.json"
       },
       "texture_orm": {
         "textureIndex": 8,
-        "uri": "textures/46cd59881f9e582f1cbb779bdbaaf5e3d383f25d32a7becbcc80c101bd3e9d33/directory.json"
+        "uri": "textures/46cd59881f9e582f1cbb779bdbaaf5e3d383f25d32a7becbcc80c101bd3e9d33/directory-19cf28b8f78b0d5df272a00d2164a0d11d08a0a76803354cebca06505be38b38.json"
       }
     },
     {
       "texture_albedo": {
         "textureIndex": 9,
-        "uri": "textures/abfe008120a127ec1fba89c4073e69dad467c65ee94b1124b071458f67709be7/directory.json"
+        "uri": "textures/8175ccbc7619bd7cfa4a3f1cdf7661d2a471e7e60dba8ff3cd477281e314fec6/directory-13e315ca36aedba91819c1239f9426d0aef9de89bc29a0a04f45bcb7d47a9139.json"
       },
       "texture_normal": {
         "textureIndex": 10,
-        "uri": "textures/d3ed93734aa6724c2e023ce4c543fc5419ee0e0ff10ace1d08043b3d8a7a0389/directory.json"
+        "uri": "textures/d3ed93734aa6724c2e023ce4c543fc5419ee0e0ff10ace1d08043b3d8a7a0389/directory-d9af99d403524487bf275ebee4bf1f61e3f9ce0bb05fcfd9d7f9a582b907a81e.json"
       },
       "texture_orm": {
         "textureIndex": 11,
-        "uri": "textures/9f64e8dc94b8db98f172a616561c2b2e22f70114feaff74ab15923f3c324f605/directory.json"
+        "uri": "textures/9f64e8dc94b8db98f172a616561c2b2e22f70114feaff74ab15923f3c324f605/directory-dc3ad2e1c361951b4878b26a1310ad37adbe941014541387e02bde0380975c4c.json"
       }
     },
     {
       "texture_albedo": {
         "textureIndex": 12,
-        "uri": "textures/dbcb45ad543456ec21b0cd912151b2bf8dc8f2e7f9642821a6729c9a17e31bde/directory.json"
+        "uri": "textures/d52ec14349006c7ebb7df5b9ffe7010b73dd52571079f4d5807cff6e2068e8cd/directory-b3e5e48b01120115060ef86d1253b3a2b91d8815ab15cfa2b774a6b264231301.json"
       },
       "texture_normal": {
         "textureIndex": 13,
-        "uri": "textures/cee6b726c0493782f4adf409064e58b5adb3079be6dee3126cc4cabc60378b59/directory.json"
+        "uri": "textures/cee6b726c0493782f4adf409064e58b5adb3079be6dee3126cc4cabc60378b59/directory-b801cf3f7982c16622585e259cccfea6a60e1c19bbc524a7647ee74f30489b34.json"
       },
       "texture_orm": {
         "textureIndex": 14,
-        "uri": "textures/88c43e9eb058df21e589903cc046e26182159a5c05b282d762398e4a888a4ae6/directory.json"
+        "uri": "textures/88c43e9eb058df21e589903cc046e26182159a5c05b282d762398e4a888a4ae6/directory-cc44593f09c460d17ad21eb072f73246a60f9cbf20953fa356fc121317595aad.json"
       }
     }
   ],
@@ -360,88 +361,133 @@
   ],
   "products": [
     {
-      "uri": "textures/8144f55bafc26d74072d25cb8241280386da4540b0b3ba330a893df54f3410eb/directory.json",
-      "identity": "11cadba932e5cb0ff9d2bed0e8aeeef318fce74a23680f75945ea732e715c622",
-      "byteLength": 752
+      "uri": "textures/2a567cf67031c171e2aaa4db5cd8b7e45152a3195cf176fcb4eb8f0642066cde/directory-8815591e3e1b1eb230f4bb8dc6b5fb9a0f4fbe55c0a67a4ac08b680ed16d65a0.json",
+      "identity": "8815591e3e1b1eb230f4bb8dc6b5fb9a0f4fbe55c0a67a4ac08b680ed16d65a0",
+      "byteLength": 7475,
+      "receipt": "textures/2a567cf67031c171e2aaa4db5cd8b7e45152a3195cf176fcb4eb8f0642066cde/receipt-f199a3068dc54a83be2266eb6d7e4c69cfc1973f5eaf9f834594422d518aaa14.json",
+      "searchReport": "textures/2a567cf67031c171e2aaa4db5cd8b7e45152a3195cf176fcb4eb8f0642066cde/search-report-b614fddfb9441e2f4fd05452b245ac9573207b4692575b9fc5a178e58e48d926-8815591e3e1b1eb230f4bb8dc6b5fb9a0f4fbe55c0a67a4ac08b680ed16d65a0.json",
+      "searchReportHash": "86abb24da0e9e54f119ba6b5fcb9c43f8bf39d9dc92156c4122cfa4ede5d06fa"
     },
     {
-      "uri": "textures/e565cf1b09bd1cdfab9100ac11b2d7c60b9e8af38fd6c01aa15b5ccb22ab49ae/directory.json",
-      "identity": "437e6badd929b069dc9aeee65b97826ebfda5417c3b31209c4e5024af17ea28f",
-      "byteLength": 3891
+      "uri": "textures/e565cf1b09bd1cdfab9100ac11b2d7c60b9e8af38fd6c01aa15b5ccb22ab49ae/directory-d8a8f2322e5ce1bdfd243f2af696ba883e38882dd4f9b826de19d6945c96bb14.json",
+      "identity": "d8a8f2322e5ce1bdfd243f2af696ba883e38882dd4f9b826de19d6945c96bb14",
+      "byteLength": 3891,
+      "receipt": "textures/e565cf1b09bd1cdfab9100ac11b2d7c60b9e8af38fd6c01aa15b5ccb22ab49ae/receipt-43004eb884203156427d9933d0cbe1db46bd738015dd7be53eb5c8db46716beb.json",
+      "searchReport": "textures/e565cf1b09bd1cdfab9100ac11b2d7c60b9e8af38fd6c01aa15b5ccb22ab49ae/search-report-a21a665d915101a74a49a6b9cb780f73169eba8b33e74c2931ea00a8d5b0048d-d8a8f2322e5ce1bdfd243f2af696ba883e38882dd4f9b826de19d6945c96bb14.json",
+      "searchReportHash": "57b913b6497e59561131eba8d4cb6c755240a8bc328acac66b8cf4dae0cb4968"
     },
     {
-      "uri": "textures/721732505f3d8d7ba4b849217bc5b3cb3af526650763fce7573c931c9ae23874/directory.json",
-      "identity": "02053205a8362cd069930bd3c1ec0bac38dba22a129b789a8d6c86b1c4e44d64",
-      "byteLength": 751
+      "uri": "textures/721732505f3d8d7ba4b849217bc5b3cb3af526650763fce7573c931c9ae23874/directory-ad5e0423b4173f4f15bcd5861530a07dec4cf889ca5660e6db6dfc4e07bda29a.json",
+      "identity": "ad5e0423b4173f4f15bcd5861530a07dec4cf889ca5660e6db6dfc4e07bda29a",
+      "byteLength": 751,
+      "receipt": "textures/721732505f3d8d7ba4b849217bc5b3cb3af526650763fce7573c931c9ae23874/receipt-19f84270b69412e58bd30a5668a1eaf084fe9e77ba3f0e2083470261635a158a.json",
+      "searchReport": "textures/721732505f3d8d7ba4b849217bc5b3cb3af526650763fce7573c931c9ae23874/search-report-61a6f11aff4cf714028e43bdc95b1e0389d4445330ebd54329e91f9c72b212a9-ad5e0423b4173f4f15bcd5861530a07dec4cf889ca5660e6db6dfc4e07bda29a.json",
+      "searchReportHash": "294a59da213fba74b3a0bb1e347a5de8d9d156d5b4b89a81fa743199a7aa31ac"
     },
     {
-      "uri": "textures/7fb60bcd3e78abf0b37d9c24e51b6a3a3017adc1cb60ce309ad9d1a7b9f28390/directory.json",
-      "identity": "d2526c3990773fc477c78551a5e10a55fbabc53c74ea5a9d99f53b6eb61dddc3",
-      "byteLength": 752
+      "uri": "textures/7f566aa3c69bae084555599801067253d89b2a2b1063faa4c75ffd5dc850f268/directory-96b979c3622f47466df9ebe7dba100af20efc20626b2b07b7022f9bd8fff6b26.json",
+      "identity": "96b979c3622f47466df9ebe7dba100af20efc20626b2b07b7022f9bd8fff6b26",
+      "byteLength": 7475,
+      "receipt": "textures/7f566aa3c69bae084555599801067253d89b2a2b1063faa4c75ffd5dc850f268/receipt-e414abc9b0be12c6fd4355f3842d4e86ba522c3845c780042402d881386106ee.json",
+      "searchReport": "textures/7f566aa3c69bae084555599801067253d89b2a2b1063faa4c75ffd5dc850f268/search-report-705ad0c9d63a62f241560df933c27ac6fb3768960c55909c9be532ff2a5e4831-96b979c3622f47466df9ebe7dba100af20efc20626b2b07b7022f9bd8fff6b26.json",
+      "searchReportHash": "6ddc2844d3dcdc9b278310a2ce4d45119d38ea278fac5546e3c47ffc8b2ceafb"
     },
     {
-      "uri": "textures/346193ec62eb08f12e09cb114afd72183a318396d840041ed9a54c201ba9a418/directory.json",
-      "identity": "de7848d7395f8dcf13515c1de58417315c65b807961fa3f36962ee5999c52260",
-      "byteLength": 3891
+      "uri": "textures/346193ec62eb08f12e09cb114afd72183a318396d840041ed9a54c201ba9a418/directory-70e26bd00b0823d77f79ed1c4ea887c9d6a158d28f3963c3df77e0e569862b36.json",
+      "identity": "70e26bd00b0823d77f79ed1c4ea887c9d6a158d28f3963c3df77e0e569862b36",
+      "byteLength": 3891,
+      "receipt": "textures/346193ec62eb08f12e09cb114afd72183a318396d840041ed9a54c201ba9a418/receipt-a14c0eff8a7f0e80b9bf7d00af619504ae661527a33d636a849524b9ccd4ea01.json",
+      "searchReport": "textures/346193ec62eb08f12e09cb114afd72183a318396d840041ed9a54c201ba9a418/search-report-dc2c7d09f4dea39dda644c677c873f3af5cf56fc74b1e7fce21bbced4d34b602-70e26bd00b0823d77f79ed1c4ea887c9d6a158d28f3963c3df77e0e569862b36.json",
+      "searchReportHash": "bcbfe09e63ef24385d0075da62e73c86fa83fabe3023e7c974d93586a4bc7e8c"
     },
     {
-      "uri": "textures/370611cdbc4880711d0c33a40e7af579eeebca8d979bac3190be102035262e25/directory.json",
-      "identity": "aaa5810f357b933795b0a7ae36356dae0137bbacc8ee4c4c98ac911f1e9905d9",
-      "byteLength": 751
+      "uri": "textures/370611cdbc4880711d0c33a40e7af579eeebca8d979bac3190be102035262e25/directory-d4d7bcb2e6bc62501a5ebbadca3a0ece360de36cd87786c4bd14eb7c49edd4c2.json",
+      "identity": "d4d7bcb2e6bc62501a5ebbadca3a0ece360de36cd87786c4bd14eb7c49edd4c2",
+      "byteLength": 751,
+      "receipt": "textures/370611cdbc4880711d0c33a40e7af579eeebca8d979bac3190be102035262e25/receipt-10889f80b73ddb2e257dc644079adfbdece52ff6bc4155ba354b39285847dbe8.json",
+      "searchReport": "textures/370611cdbc4880711d0c33a40e7af579eeebca8d979bac3190be102035262e25/search-report-f480fcd8fcbd87803c15e23a085c671761db1563c6167b68967c52a185e47f9c-d4d7bcb2e6bc62501a5ebbadca3a0ece360de36cd87786c4bd14eb7c49edd4c2.json",
+      "searchReportHash": "2075f8ea9832b2b951aaea018b59e08bf41f74f7dfcf8f125b8a32d35677bdc0"
     },
     {
-      "uri": "textures/8b47f93dff171e29f4dc8408d5bf5775632c435f39d5e12dcd5e981c66dfbdd6/directory.json",
-      "identity": "fde9b06b6da232f326ecb23e812d3d02526e6f3757e04337a2966519e05156d6",
-      "byteLength": 752
+      "uri": "textures/10f895a3f84aca78adffc625da1410a201428a3ab4410eec03b2230a91da5cd3/directory-2e69d1e43a83ba303d9835ef133e298fd868e9bebc3540c84dbfa01112bb6664.json",
+      "identity": "2e69d1e43a83ba303d9835ef133e298fd868e9bebc3540c84dbfa01112bb6664",
+      "byteLength": 7475,
+      "receipt": "textures/10f895a3f84aca78adffc625da1410a201428a3ab4410eec03b2230a91da5cd3/receipt-d207cee9dadec5e939721bcae3dd1ad3d31cbd5b1cf845d66a0eb6cc783cf863.json",
+      "searchReport": "textures/10f895a3f84aca78adffc625da1410a201428a3ab4410eec03b2230a91da5cd3/search-report-502239041eb61a79ff8b3fc8eccb69e881d64fd48e293b13062f4c41fbbc7789-2e69d1e43a83ba303d9835ef133e298fd868e9bebc3540c84dbfa01112bb6664.json",
+      "searchReportHash": "cab59106fca70b695a541de5b84dce2c743d923382bdd76dcfc980e144acd608"
     },
     {
-      "uri": "textures/4f2b473ae91b5a3bc8d86e3123621b514d9747769968662c0121dc0cf3862570/directory.json",
-      "identity": "8d302dedd9b484310940c87cc39c1222b5e7c144001fcc3d4bc606f8fa80aad6",
-      "byteLength": 3891
+      "uri": "textures/4f2b473ae91b5a3bc8d86e3123621b514d9747769968662c0121dc0cf3862570/directory-7e163849afc10d53a5c03ea3597fb2c3a27ede82ca8bab82585b8f15e5af6162.json",
+      "identity": "7e163849afc10d53a5c03ea3597fb2c3a27ede82ca8bab82585b8f15e5af6162",
+      "byteLength": 3889,
+      "receipt": "textures/4f2b473ae91b5a3bc8d86e3123621b514d9747769968662c0121dc0cf3862570/receipt-dddbcb85c1b0e100b66462d951ed596e553b4e862850d6ae79361dc0c1088619.json",
+      "searchReport": "textures/4f2b473ae91b5a3bc8d86e3123621b514d9747769968662c0121dc0cf3862570/search-report-6ce5d1bac0bb75368fadc07eea11539bf16b4f476352ce033367a63554a32d7e-7e163849afc10d53a5c03ea3597fb2c3a27ede82ca8bab82585b8f15e5af6162.json",
+      "searchReportHash": "a1b6a9f84842768a2d8d560ab0f39e57ab5a44cc9a642d9f2416a865900774a8"
     },
     {
-      "uri": "textures/46cd59881f9e582f1cbb779bdbaaf5e3d383f25d32a7becbcc80c101bd3e9d33/directory.json",
-      "identity": "68a493bc13cee8f26abfdb7469781aa93cb48ca9eb8817db44aab0ab0dc38e0a",
-      "byteLength": 751
+      "uri": "textures/46cd59881f9e582f1cbb779bdbaaf5e3d383f25d32a7becbcc80c101bd3e9d33/directory-19cf28b8f78b0d5df272a00d2164a0d11d08a0a76803354cebca06505be38b38.json",
+      "identity": "19cf28b8f78b0d5df272a00d2164a0d11d08a0a76803354cebca06505be38b38",
+      "byteLength": 751,
+      "receipt": "textures/46cd59881f9e582f1cbb779bdbaaf5e3d383f25d32a7becbcc80c101bd3e9d33/receipt-c9d4c4e91ad4ea01183d13a6dcf4a7fffb855f793d1535f3614fa31f84db3201.json",
+      "searchReport": "textures/46cd59881f9e582f1cbb779bdbaaf5e3d383f25d32a7becbcc80c101bd3e9d33/search-report-dbb216ac823498bf2f326782db2b55ddcbec09e964b78706d644b57a4c587a63-19cf28b8f78b0d5df272a00d2164a0d11d08a0a76803354cebca06505be38b38.json",
+      "searchReportHash": "ee47a1a302ee0dcc0bc52dcd6a457143d3bd782eab97db2ed14254881047f13a"
     },
     {
-      "uri": "textures/abfe008120a127ec1fba89c4073e69dad467c65ee94b1124b071458f67709be7/directory.json",
-      "identity": "407f0d388ddb5c43b921484716ccfe5c5c498b0210616231fbda31a9708a2209",
-      "byteLength": 752
+      "uri": "textures/8175ccbc7619bd7cfa4a3f1cdf7661d2a471e7e60dba8ff3cd477281e314fec6/directory-13e315ca36aedba91819c1239f9426d0aef9de89bc29a0a04f45bcb7d47a9139.json",
+      "identity": "13e315ca36aedba91819c1239f9426d0aef9de89bc29a0a04f45bcb7d47a9139",
+      "byteLength": 7475,
+      "receipt": "textures/8175ccbc7619bd7cfa4a3f1cdf7661d2a471e7e60dba8ff3cd477281e314fec6/receipt-baa27248a1816f8cbd1865d8b9080ad9ed8077fb531aac4f81ff421010db6475.json",
+      "searchReport": "textures/8175ccbc7619bd7cfa4a3f1cdf7661d2a471e7e60dba8ff3cd477281e314fec6/search-report-edf83974c5cbd2b0bdd73d0bee63f0a16b2b4346c978f7e9b13c4b4c1d1182c4-13e315ca36aedba91819c1239f9426d0aef9de89bc29a0a04f45bcb7d47a9139.json",
+      "searchReportHash": "46b72cf13926e1b572f2cbcf945719e5a89e2b31b7e6238be48b0359003e34be"
     },
     {
-      "uri": "textures/d3ed93734aa6724c2e023ce4c543fc5419ee0e0ff10ace1d08043b3d8a7a0389/directory.json",
-      "identity": "e31097f000f596c3193c4f932845ebd193e1f09b5264489b31d49e87d434a5b8",
-      "byteLength": 3885
+      "uri": "textures/d3ed93734aa6724c2e023ce4c543fc5419ee0e0ff10ace1d08043b3d8a7a0389/directory-d9af99d403524487bf275ebee4bf1f61e3f9ce0bb05fcfd9d7f9a582b907a81e.json",
+      "identity": "d9af99d403524487bf275ebee4bf1f61e3f9ce0bb05fcfd9d7f9a582b907a81e",
+      "byteLength": 3883,
+      "receipt": "textures/d3ed93734aa6724c2e023ce4c543fc5419ee0e0ff10ace1d08043b3d8a7a0389/receipt-fb45394150e35a2976dff97ba137fea63fcb58a86dccbc0f62e34aa28303cb90.json",
+      "searchReport": "textures/d3ed93734aa6724c2e023ce4c543fc5419ee0e0ff10ace1d08043b3d8a7a0389/search-report-47d3c4a32ac26a2013572ee4f5512a2869660b79166f570f1a69d5654c9fc1cc-d9af99d403524487bf275ebee4bf1f61e3f9ce0bb05fcfd9d7f9a582b907a81e.json",
+      "searchReportHash": "ac7854c73f6267be53a778e378d0a604866542d7a091f742533f2bc0bbad6e63"
     },
     {
-      "uri": "textures/9f64e8dc94b8db98f172a616561c2b2e22f70114feaff74ab15923f3c324f605/directory.json",
-      "identity": "bd31caf805114665ee42b09ed3f169d88fa9e03fd90daff9f158625d9e558d1b",
-      "byteLength": 751
+      "uri": "textures/9f64e8dc94b8db98f172a616561c2b2e22f70114feaff74ab15923f3c324f605/directory-dc3ad2e1c361951b4878b26a1310ad37adbe941014541387e02bde0380975c4c.json",
+      "identity": "dc3ad2e1c361951b4878b26a1310ad37adbe941014541387e02bde0380975c4c",
+      "byteLength": 751,
+      "receipt": "textures/9f64e8dc94b8db98f172a616561c2b2e22f70114feaff74ab15923f3c324f605/receipt-ef8d924660f10cde98931ffe4ccf79bfe3a4c216368febf5cfe6b7b32bf69507.json",
+      "searchReport": "textures/9f64e8dc94b8db98f172a616561c2b2e22f70114feaff74ab15923f3c324f605/search-report-1a550f86124f85a7644f1858e80ee1a0727314a888c8d71468ebfef1cf3a8ad1.json",
+      "searchReportHash": "1a550f86124f85a7644f1858e80ee1a0727314a888c8d71468ebfef1cf3a8ad1"
     },
     {
-      "uri": "textures/dbcb45ad543456ec21b0cd912151b2bf8dc8f2e7f9642821a6729c9a17e31bde/directory.json",
-      "identity": "8f765886a11442460fa9eade1e882f116d7237f4636c03993a1b93527716e83a",
-      "byteLength": 752
+      "uri": "textures/d52ec14349006c7ebb7df5b9ffe7010b73dd52571079f4d5807cff6e2068e8cd/directory-b3e5e48b01120115060ef86d1253b3a2b91d8815ab15cfa2b774a6b264231301.json",
+      "identity": "b3e5e48b01120115060ef86d1253b3a2b91d8815ab15cfa2b774a6b264231301",
+      "byteLength": 7475,
+      "receipt": "textures/d52ec14349006c7ebb7df5b9ffe7010b73dd52571079f4d5807cff6e2068e8cd/receipt-f7ac9a00f5b73da5067546f77a17d8678d5f51c8aaba33ed750e2f10c8857d4e.json",
+      "searchReport": "textures/d52ec14349006c7ebb7df5b9ffe7010b73dd52571079f4d5807cff6e2068e8cd/search-report-bf2a920304c133dd0664a1a746335cc47a20dc35f7c9376b1d3cb583c8bd9f4d.json",
+      "searchReportHash": "bf2a920304c133dd0664a1a746335cc47a20dc35f7c9376b1d3cb583c8bd9f4d"
     },
     {
-      "uri": "textures/cee6b726c0493782f4adf409064e58b5adb3079be6dee3126cc4cabc60378b59/directory.json",
-      "identity": "8f633db2dc78a69cd66f182292ef15203020467f530205b2fcdfb49a8d1ae89f",
-      "byteLength": 3891
+      "uri": "textures/cee6b726c0493782f4adf409064e58b5adb3079be6dee3126cc4cabc60378b59/directory-b801cf3f7982c16622585e259cccfea6a60e1c19bbc524a7647ee74f30489b34.json",
+      "identity": "b801cf3f7982c16622585e259cccfea6a60e1c19bbc524a7647ee74f30489b34",
+      "byteLength": 3887,
+      "receipt": "textures/cee6b726c0493782f4adf409064e58b5adb3079be6dee3126cc4cabc60378b59/receipt-a830a4019848e845b92f35964c73666f01c0aa70f58fba17ba57f3cc5822146d.json",
+      "searchReport": "textures/cee6b726c0493782f4adf409064e58b5adb3079be6dee3126cc4cabc60378b59/search-report-276d942f2876fafd0abba02dd67fd70976b4b3911b6b80ec0031891ff76bc810.json",
+      "searchReportHash": "276d942f2876fafd0abba02dd67fd70976b4b3911b6b80ec0031891ff76bc810"
     },
     {
-      "uri": "textures/88c43e9eb058df21e589903cc046e26182159a5c05b282d762398e4a888a4ae6/directory.json",
-      "identity": "c857e4e789d66ed13072a9532e567b24d374d3b06fd4e49a626b6dcc9ad991ed",
-      "byteLength": 751
+      "uri": "textures/88c43e9eb058df21e589903cc046e26182159a5c05b282d762398e4a888a4ae6/directory-cc44593f09c460d17ad21eb072f73246a60f9cbf20953fa356fc121317595aad.json",
+      "identity": "cc44593f09c460d17ad21eb072f73246a60f9cbf20953fa356fc121317595aad",
+      "byteLength": 751,
+      "receipt": "textures/88c43e9eb058df21e589903cc046e26182159a5c05b282d762398e4a888a4ae6/receipt-646bc20b0cf77a97c8d32756b0af34548b744e5a98630ed3e8828b5ff7415df1.json",
+      "searchReport": "textures/88c43e9eb058df21e589903cc046e26182159a5c05b282d762398e4a888a4ae6/search-report-5e67b75cb1e19d2f428c4ae052a0796e90645a644bbff3c663768057f5ace33a.json",
+      "searchReportHash": "5e67b75cb1e19d2f428c4ae052a0796e90645a644bbff3c663768057f5ace33a"
     }
   ],
   "evidence": {
     "products": 15,
-    "directoryBytes": 26964,
-    "payloadBytes": 6565667,
+    "directoryBytes": 60571,
+    "payloadBytes": 12873120,
     "imageCodec": "native-avif-10bit-444-high",
     "runtimeTextureEncoding": "Spark BC7/BC5/BC4, exact R8",
     "runtimeMipGeneration": "GPU for runtime profile, canonical provided otherwise",
-    "wallMs": 29956.4013
+    "wallMs": 378.6127
   }
 }

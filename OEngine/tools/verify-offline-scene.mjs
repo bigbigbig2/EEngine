@@ -18,7 +18,9 @@ function localPath(base, uri) {
 }
 
 const directory = resolve(process.argv[2] ?? ".local/models/bistro-cooked");
-const sceneBytes = await readFile(resolve(directory, "scene.oescene"));
+const geometryOnly = process.argv.includes("--geometry-only");
+const materials = geometryOnly ? null : JSON.parse(await readFile(resolve(directory, "scene.materials.json")));
+const sceneBytes = await readFile(localPath(directory, materials?.geometryManifest ?? "scene.oescene"));
 const scene = parseOegPackSceneManifestV4(sceneBytes);
 const packs = [];
 for (const reference of scene.packs) {
@@ -54,10 +56,9 @@ const geometry = {
   fileBytes: packs.reduce((sum, pack) => sum + Number(pack.header.fileBytes), 0),
   pages: packs.reduce((sum, pack) => sum + pack.pages.length, 0)
 };
-if (process.argv.includes("--geometry-only")) {
+if (geometryOnly) {
   console.log(JSON.stringify({ geometry }, null, 2));
 } else {
-  const materials = JSON.parse(await readFile(resolve(directory, "scene.materials.json")));
   assert.equal(materials.schema, "oengine-image-scene-materials-v2");
   assert.equal(materials.geometryManifestHash, await imageTextureHash(sceneBytes));
   assert.equal(materials.instanceMaterials.length, scene.instances.length);
@@ -75,9 +76,19 @@ if (process.argv.includes("--geometry-only")) {
     assert.equal(bytes.length, entry.byteLength);
     assert.equal(await imageTextureHash(bytes), entry.identity);
     const product = readImageTextureDirectory(bytes);
-    const receipt = JSON.parse(await readFile(path + ".receipt.json"));
+    const receipt = JSON.parse(await readFile(localPath(directory, entry.receipt)));
     assert.equal(receipt.identity, entry.identity);
     assert.deepEqual(receipt.directory, product);
+    const reportPath = localPath(directory, entry.searchReport);
+    const reportBytes = await readFile(reportPath);
+    assert.equal(await imageTextureHash(reportBytes), entry.searchReportHash);
+    assert.equal(entry.searchReportHash, receipt.searchReportHash);
+    const search = JSON.parse(reportBytes);
+    assert.equal(search.identity, receipt.searchIdentity);
+    assert.equal(search.report.selected.evaluation.inputHash, entry.identity);
+    assert.equal(search.report.selected.accepted, true);
+    assert.equal(search.report.selected.evaluation.hardSemantics, true);
+    assert.equal(search.report.rows.length, product.planes.some((plane) => plane.mode === "virtual") ? 60 : 20);
     images.add(receipt.imageIndex);
     identities.add(entry.identity);
     receipts.push(receipt);

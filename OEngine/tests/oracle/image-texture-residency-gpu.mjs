@@ -248,13 +248,18 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     const route = stage.surfacePublications.get(material.texture_orm).virtual;
     assert.equal(route.tailFirst, 3);
     assert.equal(residency.virtualTextures.evidence().pinned, 2);
-    assert.equal(preparation.evidence().credit.used.total, 0);
+    const prepared = preparation.evidence();
+    assert.equal(prepared.credit.used.total, prepared.decodedImageCacheBytes);
+    assert.equal(prepared.credit.used.ready, prepared.decodedImageCacheBytes);
+    assert.equal(prepared.credit.used.encoded, 0);
     const fineDemand = await checkVirtualImageDemand(graphics, residency.virtualTextures, route);
     return { logicalSampling, fineDemand, webImports, nativeSamples: samples, protectedTailLevels: 12, formats: ["bc7", "bc5", "r8"],
       residency: residency.evidence(), scope: "actual production owners, local evaluation kernels" };
   } finally {
     residency.destroy();
     for (const source of sources) source.close();
+    assert.equal(preparation.evidence().credit.used.total, 0);
+    assert.equal(preparation.evidence().decodedImageCacheBytes, 0);
     preparation.dispose();
     graphics.destroy();
   }

@@ -1,3 +1,5 @@
+// @ts-expect-error Shared build tooling is plain ESM.
+import { imageWorkerAssets } from "../OEngine/tools/image-worker-assets-plugin.mjs";
 import { imageKernelsPlugin } from "./shared/image-kernels-plugin";
 import { helloImageAssetsPlugin } from "./shared/hello-image-assets-plugin";
 import { readdirSync } from "node:fs";
@@ -31,7 +33,8 @@ function collectExamplePages(directory: string): Record<string, string> {
 
 export default defineConfig({
   root: examplesRoot,
-  plugins: [imageKernelsPlugin(examplesRoot), helloImageAssetsPlugin(examplesRoot), bistroLocalModel(examplesRoot), dungeonLocalModel(examplesRoot)],
+  worker: { format: "es", plugins: () => [imageWorkerAssets()] },
+  plugins: [imageWorkerAssets(), imageKernelsPlugin(examplesRoot), helloImageAssetsPlugin(examplesRoot), bistroLocalModel(examplesRoot), dungeonLocalModel(examplesRoot)],
   server: {
     port: 5173,
     headers: {

@@ -4,6 +4,7 @@ import { geometryVertexFormat, geometryVertexPayloadBytes, decodeVertexFormatV4,
   decodeMeshletHeaderV4, OEGPACK_V4_MESHLET_HEADER_BYTES } from "../../.test-dist/assets/GeometryAbiV4.js";
 import { encodeVertexFormatsV4 } from "../../.test-dist/assets/geometry-product/GeometryProductV1.js";
 import { surfaceGeometryCompletionWgsl } from "../../.test-dist/shaders/surface_geometry_completion.js";
+import { VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL } from "../../.test-dist/shaders/virtual_geometry_work.js";
 
 test("SoA4 canonical optional streams and sign extents have no interleaved fallback", () => {
   for (let mask = 3; mask <= 63; mask += 4) {
@@ -43,4 +44,13 @@ test("Surface cached Product path restores both format and SoA vertex domain", (
   const shader = surfaceGeometryCompletionWgsl(true, true);
   assert.match(shader, /product_source_vertex_count = cached\.vertex_count;/);
   assert.match(shader, /product_frame_vertex_load_format\(cached\.vertex_indices\)/);
+});
+
+test("camera and shadow Product work use compact meshlet counts and stride", () => {
+  const shader = VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL;
+  assert.match(shader, /local \* 44u/);
+  assert.match(shader, /\(payload - meshlet_offset\) \/ 44u/);
+  assert.match(shader, /let vertex_count = \(counts >> 0u\) & 0xffu/);
+  assert.match(shader, /let triangle_count = \(counts >> 8u\) & 0xffu/);
+  assert.doesNotMatch(shader, /local \* 48u|let triangle_count = counts >> 16u/);
 });

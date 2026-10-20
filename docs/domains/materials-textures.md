@@ -37,7 +37,7 @@ verifies:
 
 普通与VT共用schema4图片目录和`ImageTextureSource`。目录/recipe/来源身份、逻辑mip、semantic/target、image/exact item由`ImageTextureProduct`定义；`ImageTexturePages`拥有immutable空间索引和完整页依赖。`ShadeTexture.fromImageSource`是cooked纹理入口，不再提供旧Product/tiled factory。source只拥有准备session，不创建长期GPU资源，close退休其CPU工作。
 
-`CookedAssetPreparation`和现有`AssetWorkerPool`统一拥有IO、Worker、credit和image/exact receipt；不另建图片线程池。离线工具从canonical生成AVIF，合法Web输入经新冷导入成为图片item；canonical重采样和KTX冷输入解码是新链依赖，不是最终BC产品直接上传。几何协议在E4前仍保持当前唯一版本，不冒称已切新几何ABI。
+`CookedAssetPreparation`和现有`AssetWorkerPool`统一拥有IO、Worker、credit和image/exact receipt；不另建图片线程池。离线工具从canonical生成AVIF，合法Web输入经新冷导入成为图片item；canonical重采样和KTX冷输入解码是新链依赖，不是最终BC产品直接上传。几何已切为OEGPACK4/source-exact SoA4与Worker协议6，Zstd完整decoder由同一准备链按需加载，不保留旧几何ABI入口。
 
 `ImageTextureTranscoder`只记录原Spark选定BC7 RGB/RGBA、BC5 RG、BC4 R及exact copy，拥有按设备epoch的pipeline和有限input/scratch；`ImageTexturePageAssembly`装配唯一decoded owner到物理页。scene隐藏批次由`RendererCore`原owner提交，最终scene command发布完整必需域；正常frame不为转码增加独立submit。Spark shader由显式kernel source提供，本地evaluation不等于公开生产再分发授权，未将原shader复制进公开vendor/dist。
 
@@ -51,9 +51,9 @@ verifies:
 
 KTX只读decoder已独立归属`vendor/image-ktx`，原生成模块名不改变其冷导入职责；canonical tent resampler分别有独立WASM/native构建，不依赖旧BC encoder。材质冷准备只在本批次去重，失败/取消关闭未发布source；成功source由CPU材质/场景持有，unload后调用`image_source.close()`，不能在GPU device replacement时提前关闭。调用方原bitmap不由材质准备擅自关闭，也不建立全图RGBA replay缓存。
 
-Residency evidence schema8报告实际mandatory上传和image encoder计数，GraphicsContext总分配/临时池单独包含encoder RGBA及block/uniform staging。常规图片任务按实际尺寸收费；冷输入导入另预留256MiB，KTX为384MiB（包含96+64+64MiB模块上界及canonical/PNG临时项），任务结束退休Worker。默认全局临时信用384MiB、encoded 16MiB、ready 64MiB，local encoded replay另有64MiB上界；不是常驻分配，也不是浏览器RSS保证。
+Residency evidence schema8报告实际mandatory上传和image encoder计数，GraphicsContext总分配/临时池单独包含encoder RGBA及block/uniform staging。常规图片任务按实际尺寸收费；冷输入导入另预留256MiB，KTX为384MiB（包含96+64+64MiB模块上界及canonical/PNG临时项），任务结束退休Worker。默认全局temporary预算400MiB，最多4个Worker先预留合计16MiB decoder heap，余量进入task信用；encoded 16MiB、ready 64MiB，local encoded replay另有64MiB上界；不是常驻分配，也不是浏览器RSS保证。
 
-示例加载代码已经改用图片source，hello已有一次提前生成的AVIF资产；这些不是E5最终资产资格。Bistro完整cook已按用户要求停止，未完成本地目录不可发布。E2继续直接删旧引用，不为暂时不可运行的示例恢复旧路径；最终普通/VT/几何cook、manifest、静态部署、画面和完整生命周期测试统一归E5。
+示例加载代码已经改用图片source。最终发布以唯一可变`scene.materials.json`引用不可变geometry manifest、图片directory、receipt与search report；publisher先核闭包再复制依赖、最后原子替换根。静态构建只枚举该闭包，不打包scratch、候选或旧生成物。hello完整High产品已生成；其它资产与组合资格按执行文档E5实际结果记录，未完成目录不可发布，不为暂时不可运行的示例恢复旧路径。Worker/WASM独立资源URL转换只在build生效，dev由Vite原路径提供；本地evaluation shader挂载不随默认静态构建公开分发。
 
 Environment/HDR/IBL及其GPUTextureManager/MipmapGenerator保持各自真实owner，不因材质纹理重构误删。Native材质publication、Visibility/VSM exact alpha、Surface/query沿现有消费者组合，不新增第二套材质系统。
 

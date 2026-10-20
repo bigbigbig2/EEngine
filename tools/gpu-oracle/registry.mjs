@@ -855,7 +855,7 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/geometry-shadow-view-gpu.mjs",
     entry: "runGeometryShadowViewGpuOracle",
     requiredFeatures: ["timestamp-query"],
-    allowPrefixes: ["OEngine/src/render/assets/"],
+    allowPrefixes: ["OEngine/src/render/assets/", ".local/extreme-web-asset/"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     description:
       "Actual Renderer off-camera caster, native alpha, visible receiver HDR and shadow abort/retry.",

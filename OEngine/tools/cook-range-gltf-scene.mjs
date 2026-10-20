@@ -253,7 +253,7 @@ async function packHeader(path) {
     const bytes = Buffer.alloc(256);
     const read = await file.read(bytes, 0, 256, 0);
     if (read.bytesRead !== 256) throw new Error("Incomplete pack header");
-    if (bytes.subarray(0, 8).toString("ascii") !== "OEGPACK\0" || bytes.readUInt32LE(8) !== 3)
+    if (bytes.subarray(0, 8).toString("ascii") !== "OEGPACK\0" || bytes.readUInt32LE(8) !== 4)
       throw new Error("Invalid pack header");
     const length = (await file.stat()).size;
     if (Number(bytes.readBigUInt64LE(136)) !== length) throw new Error("Pack length mismatch");
@@ -424,7 +424,7 @@ export async function cookRangeScene(options) {
       });
     }
     const scene = {
-      schema: "oengine-scene-v3",
+      schema: "oengine-scene-v4",
       instanceSemantics: "cast-receive-explicit-v1",
       packs: [],
       assets: [],
@@ -487,7 +487,8 @@ export async function cookRangeScene(options) {
         primitives: selection.reduce((sum, index) => sum + catalog.meshes[index].primitives, 0),
         materials: document.materials?.length ?? 0,
         textures: 0,
-        images: 0
+        images: 0,
+        cookedImages: 0
       },
       fullScene,
       selection,
@@ -513,7 +514,7 @@ export async function cookRangeScene(options) {
     if (document.meshes.some((mesh) => mesh.primitives.some((primitive) => primitive.material === undefined)))
       materials.push({});
     const materialManifest = {
-      schema: "oengine-offline-scene-materials-v1",
+      schema: "oengine-image-scene-materials-v2",
       source: report.source,
       geometryManifest: geometryName,
       geometryManifestHash: hash(await readFile(join(output, geometryName))),

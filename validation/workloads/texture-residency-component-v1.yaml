@@ -5,7 +5,7 @@ resolution:
   - 720
 deviceScaleFactor: 1
 renderScale: 1
-quality: adr-0016-mode-a-texture-v1
+quality: schema4-image-gpu-bc-complete-resident-v1
 features:
   - core-features-and-limits
 seed: 16017

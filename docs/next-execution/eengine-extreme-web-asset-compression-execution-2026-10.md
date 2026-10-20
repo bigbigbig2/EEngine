@@ -25,7 +25,7 @@ verifies:
 
 日期：2026-10-20。唯一目标依据：[设计](../next-design/eengine-extreme-web-asset-compression-2026-10.md)。设计最初核对源码为`5f3f4153`，准备提交为`1f856ea0`，E0/E1提交为`eddb8669`；后续施工状态只读§12，不把初始快照当当前源码事实。
 
-**用户本轮要求先提交E3，再实施E4；E3已提交为`9329af7d`。** P为`1f856ea0`，E0/E1为`eddb8669`，E2为`4ee234cf`；本轮E4实现与最小检查见§12。E0–E4以连续实现、设计对照与必要编译/少量正确性检查收口，不保兼容旧路径；完整场景cook/recook、部署、GPU全路径与组合成本统一E5。本轮止于E5边界，不自动启动E5。
+**用户已授权先提交E4，再推进最终E5；E4已提交为`f6398625`。** P为`1f856ea0`，E0/E1为`eddb8669`，E2为`4ee234cf`，E3为`9329af7d`；E4实现与最小检查见§12。E0–E4以连续实现、设计对照与必要编译/少量正确性检查收口，不保兼容旧路径；完整场景cook/recook、部署、GPU全路径与组合成本统一E5。E5发现问题必须回到设计规定的owner修复，不打兼容补丁，不自动启动其他模块。
 
 ## 1. 执行合同：连续实现，最后集中验证
 
@@ -71,7 +71,7 @@ verifies:
 | E2：纹理全链原子切换 | **很大，主工作项** | 普通/VT、材质/coverage/query、统一准备/缓存、加载/部署代码直接切换、旧产品与依赖删除；不跑场景recook | 实现闭包及相关编译/最小检查完成；最终集成与许可边界见§12，停在E3 |
 | E3：离线极限码率与交付优化 | 大 | 实现双质量档有限搜索、最终GPU评价缓存、资产报告生成、VT cell布局与请求优化；不跑完整资产搜索/报告 | 实现与最小检查完成；完整资产搜索/质量/部署在E5，仍只一个生产owner |
 | E4：几何紧凑ABI与无损传输原子切换 | 很大，独立资产类别闭包 | F32-exact SoA、Zstd/raw、全部Cooker/reader/query/lifecycle代码同切并删旧ABI；不跑场景recook | 本轮已授权并完成实现；结果见§12 |
-| E5：最终集中cook、全路径集成与成本收口 | 大 | 统一全量cook/recook与manifest发布、新鲜build、全部直接路径/示例部署、组合生命周期/上界/质量及粗成本 | E2/E3/E4实现后；待授权；全路径验证唯一阶段 |
+| E5：最终集中cook、全路径集成与成本收口 | 大 | 统一全量cook/recook与manifest发布、新鲜build、全部直接路径/示例部署、组合生命周期/上界/质量及粗成本 | 已授权，进行中；全路径验证唯一阶段，尚未通过 |
 
 E1是即将接入生产的新模块，不是永久第二套runtime；生产入口在E2一次替换。E2必须带最基本的正确边界和资源预算，不能把接缝/缺页/失控容量当E3优化延期。E3不为优化另建ABI或再选一轮基础codec。E4不混入纹理切换以免最大闭包失控，但几何本身不得按reader分批迁移。
 
@@ -298,7 +298,7 @@ node tools/gpu-oracle.mjs --list
 
 本模块实现完成需要：新全套PBR/普通/VT产品与全部真实consumer已切换、旧依赖删除、合法来源/许可、质量档/边界/精确语义、容量与组合生命周期成立，成本如实报告。正式跨设备FPS/画质资格可按仓库节奏归最终集成，但已发现错误、漏工作与失控容量不能延期。
 
-当前用户已授权并完成E4实现与最小检查，结束停在E5边界。以后用户授权某单元就完成该单元，授权整模块则按依赖连续推进；不自动启动其它效果、HDR/神经压缩或有损几何精度变更。
+当前用户已授权E5最终集成，并要求E5闭合后提交，再分析和优化初始化性能（重点VG）。E5仍须按实际结果关闭，不以后台任务启动或少量通过代替完整验收；初始化优化不混入E5修复提交，不自动启动其它效果、HDR/神经压缩或有损几何精度变更。
 
 ## 12. 本轮P准备记录与后续实施结果
 
@@ -456,7 +456,7 @@ E3收口：新增/修改MJS均经`node --check`；`docs-verify`为209 documents�
 
 ### E4：几何紧凑ABI与无损传输原子切换（2026-10-21）
 
-**结论：E3已按用户要求提交为`9329af7d`；E4实现与阶段最小检查完成，停在E5边界。E4改动尚未提交；没有启动完整场景cook/recook、全路径GPU/部署/性能验收，不冒称E5通过。**
+**结论：E3已按用户要求提交为`9329af7d`；E4实现与阶段最小检查完成并提交为`f6398625`。以下是E4结束时记录；当时没有启动完整场景cook/recook、全路径GPU/部署/性能验收，不冒称E5通过。**
 
 #### 唯一生产闭包
 
@@ -479,6 +479,37 @@ E3收口：新增/修改MJS均经`node --check`；`docs-verify`为209 documents�
 - 独立Zstd native三档最小选择/raw不膨胀→实际TS loader/hash/WASM完整decoder四次逐字节往返，十个invalid frame/extent拒绝（checksum、串联、trailing、unknown size、无checksum、截断、错误decoded/encoded上界），固定4MiB检查通过；`e4-zstd-final.log`。不是浏览器吞吐/大资产压缩率结论。
 - 失败保留：初次旧oracle要求interleaved positionEncoding/旧ABI golden，迁新encoding与逐字节SoA断言；Product binary旧golden首次24/25，新header3/profile4/SoA字段独立断言后更新新fixture SHA；CWD误用导致一次命令未执行，正确cwd重跑。原失败日志不覆盖；不改容差、不删精度/lifecycle断言或恢复旧路径。docs初次1finding为历史V5 verifies已删V3文件，删除失效声明，不恢复文件。
 - package build后静态检查发现动态URL会将codec目录变成glob/内联资源，改静态URL并接现有Vite asset插件；重新构建核独立manifest/WASM bytes，不以能build代替部署可加载性。既有Emscripten/node:module externalization、WASM_BIGINT/MAXIMUM_MEMORY和donor unused警告如实保留。
-- E5待授权：全部示例/资产统一cook、完整有限质量档搜索与原子manifest/HTTP发布；全部production GPU/颜色/接缝/反馈/query/motion/VSM、growth/abort/retry/device-loss/unload组合、来源许可（Spark生产分发权仍未记录）、尺寸/内存显存/网络/延迟与同条件成本报告。未运行项不能追认为通过，旧失败与baseline golden不会因新major自动追认为修复。
+- E4结束时留给E5（现已授权）：全部示例/资产统一cook、完整有限质量档搜索与原子manifest/HTTP发布；全部production GPU/颜色/接缝/反馈/query/motion/VSM、growth/abort/retry/device-loss/unload组合、来源许可（Spark生产分发权仍未记录）、尺寸/内存显存/网络/延迟与同条件成本报告。未运行项不能追认为通过，旧失败与baseline golden不会因新major自动追认为修复。
 
 收口复核：最终typecheck、build:test、package build与Zstd loader往返通过；dist独立geometry-zstd manifest/WASM逐字节hash一致。`docs-verify`为209 documents、0 findings、86 historical warnings；`git diff --check`通过。validation registry首次重建因旧workloadId失败，迁移新major workload后重建成功（11 cases），未执行browser case；原失败日志保留。
+
+### E5：最终集成实施记录（2026-10-21，进行中）
+
+**E5尚未完成，尚未提交本阶段。** 本节只记录已运行事实；Dungeon/Bistro双质量档、playground、完整部署/组合与成本报告未齐，不因hello画面正常或局部oracle通过而关闭E5。GPU作业串行；长时间cook不与browser/oracle同时运行。用户追加的初始化优化在E5完成并提交后单独执行。
+
+#### 已修复的真实闭包错误
+
+- `virtual_geometry_work`仍使用48B meshlet stride及旧U16 counts，导致新44B/U8页面的camera/shadow work无合法输出；改为直接引用SoA4布局事实源及字段位移。新增生成WGSL回归断言；不改层次/LOD/精度、容量或裁剪算法。首次hello“就绪”但模型空白、product winners为空及shadow invalid-cut原失败日志保留，修复后实际模型显示、预算驻留与shadow生产链通过。
+- Worker/WASM共享Vite URL插件原在dev调用build专用`emitFile`，导致Zstd URL为undefined；限定`apply: build`，dev使用正常Vite源码URL，静态构建保留独立manifest/WASM。不是增加旧decoder fallback。
+- 完整scene根现在引用不可变geometry manifest、image directory、receipt和search report，依赖核验/复制后最后原子替换唯一可变根。部署publisher拒绝immutable冲突、损坏/越界payload、错receipt、缺失完整20/60候选报告；静态插件只打包最终闭包。hello目录移除65个不再被该闭包引用的旧生成文件，保留全部最终依赖，不保留旧ABI供兼容。
+- offline评价F32回传改精确字节/base64，仍逐32行覆盖全部像素/探针；canonical磁盘参考按完整recipe/cell分别缓存，至多3个；FFmpeg SSIM只批量摊薄进程启动，各独立窗口/小窗口扩边/像素权重不变。独立bit-preserving与逐窗口旧调用对照通过，不降低候选数、质量门限、normal/ORM或exact断言。
+
+#### 实际检查与用例迁移
+
+- engine typecheck、新鲜build:test、package build，以及hello静态构建通过。新metric/publisher/meshlet回归共9项通过，publisher加强receipt核验后2项复跑通过；此前47项定向闭包、真实Zstd与源corpus结果按原日志保留，不反复当作新运行计数。
+- 真实GPU通过：`image-texture-transcode`及f16（完整donor、颜色/alpha/目标和取消/损坏/OOM/loss）；`image-texture-page`及f16（各18页、16-owner、NPOT/address、432重叠块、exact与压力）；`image-texture-residency`（270独立logical采样、9导入、24 Native sample、primary与query-only fine demand）；`scgi-query-vt`、`scgi-query`；`geometry-budgeted-residency`、`geometry-shadow-view`；`native-surface-product-production`、`native-surface-multi-product-production`及`geometry-product-scale`（19组）。原失败单独保留；上述通过只覆盖各实际输入和设备，不自动等于整场景或跨设备性能资格。
+- E3有界decoded LRU有意保留信用，旧测试“提交后所有信用为0”迁成`total=ready=decoded cache bytes, encoded=0`，source/session关闭后必须全归零；不删图像/donor/生命周期断言。multi-product独立query在Renderer普通帧后通过同一native publication owner准备/提交自己的投影需求，避免被GI-off帧重置；不改Renderer的feature-demand规则。
+- 独立validation宿主`texture-residency-component`真实通过，artifact为`.local/validation/2026-10-20T19-31-45-255Z-texture-residency-component-05dace48-3166-4df1-bcb1-13559eb62e32/`，明确为diagnostic-only。首次失败漏`residency.prepare()`已补正确异步准备；依赖扫描中的retired V3 URL helper直接迁V4。完整Dungeon宿主已迁新产品，保留1920×1080、原场景/25张2K纹理、30warmup/120普通+120profile样本、运动/resize/recovery/卸载断言；等待VG与VT真实view-settled，不用两帧或FullMipCode冒充fine-demand收敛。该完整case尚未运行。
+
+#### hello完整High与部署观察
+
+- source SHA256 `fe5873882034b3071fab964d72b58f8184b8a86f8b20dc539dfb8da75f0227be`、295600三角形/5实例/15纹理不变，普通非VT，VSM/HDR设置未改。完成300个候选，纹理payload 12873120B、directory 60571B（115 AVIF+55 raw exact item）；几何15543856B/102页，完整部署闭包218文件/29101659B（含非runtime报告/receipt）。编码搜索墙时约6413.6秒，不是运行时加载时长。旧选样纹理21092132B/几何18026400B不是完整网络基线，不能据此承诺FPS或整体网络下降比例。
+- 完整包核验、不可变发布、dev画面、真实静态HTTP画面通过，无页面/GPU错误。静态build不公开分发evaluation kernels，测试由单独本地只读evaluation挂载提供。Spark仍未记录生产分发授权，不提升adoption或把静态包称作无需配置即可公开部署。
+- 单个独立Chrome profile的1280×720限速观察：100Mbps/10ms冷缓存UI就绪12542ms，暖缓存6142ms；10Mbps/40ms冷缓存38993ms。UI就绪不是首个完成GPU帧；每档仅1样本，不是P50/P95或初始化性能资格。画面截图已人工检查。
+- **网络初稿有明确测量缺口：**page CDP只统计主target，看到冷约16142687B（modules9022929、HDR1398087、metadata23665、texture directories64961、geometry5536966、evaluation kernels96079），没有覆盖Dedicated Worker中的图片/payload/decoder请求，不能称完整冷网络字节。暖缓存geometry Range仍约5536966B也只是该观测范围。后续需含Worker target的实际请求/bytes/module inventory，不能将图片payload缺失解释成只下载目录即可渲染。原观察文件保留，不能回写成完整口径。
+
+#### 正在执行与未关闭项
+
+- Dungeon High VT完整25纹理/1500候选正在`.local/extreme-web-asset/e5-dungeon-high`执行，日志`e5-dungeon-high.log`。完整几何已生成：72137三角形、798源primitives、1187页；没有发布未完成图片目录。单候选native AVIF高effort及全域GPU评价为分钟级，当前不能承诺整个矩阵很快完成，也不删候选规避耗时。
+- hello Extreme、Dungeon Extreme、Bistro High/Extreme、完整playground发布、完整Dungeon validation、Worker-inclusive HTTP/冷暖与网络/启动/内存显存/steady-state成本矩阵仍未关闭。前述local GPU/语义检查不能替代这些结果。Spark许可边界保持本地evaluation；公开生产分发需要调用方合法授权配置。
+- 初始化源码预审已定位待实测候选：GraphicsContext无条件加载vec1/2/3 STBN与split-sum；hello初始化之后才关闭FSR/bloom；HDR→目录→VG activation cut→材质准备有串行等待，现有prepared-material token可用于保持单一事务下重叠；VG根页按64页批次准备/逐页发布。它们目前只是候选，尚未修改生产行为，不据静态分析声称已经提速。

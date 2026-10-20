@@ -151,7 +151,10 @@ export async function runImageTexturePageGpu(device, precision = "f32") {
         read.unmap();
         read.destroy();
         texture.destroy();
-        assert.equal(preparation.evidence().credit.used.total, 0);
+        const prepared = preparation.evidence();
+        assert.equal(prepared.credit.used.total, prepared.decodedImageCacheBytes);
+        assert.equal(prepared.credit.used.ready, prepared.decodedImageCacheBytes);
+        assert.equal(prepared.credit.used.encoded, 0);
       }
       let previousBlocks;
       for (const [mip, x, y] of [
@@ -266,7 +269,10 @@ export async function runImageTexturePageGpu(device, precision = "f32") {
             overlapBlocks += 4;
           }
         }
-        assert.equal(preparation.evidence().credit.used.total, 0);
+        const prepared = preparation.evidence();
+        assert.equal(prepared.credit.used.total, prepared.decodedImageCacheBytes);
+        assert.equal(prepared.credit.used.ready, prepared.decodedImageCacheBytes);
+        assert.equal(prepared.credit.used.encoded, 0);
         for (const texture of [...uploaded, output, input, donorOutput]) texture.destroy();
         pagesChecked++;
       }
@@ -292,7 +298,10 @@ export async function runImageTexturePageGpu(device, precision = "f32") {
       assert.equal(pressured.recordPage(second, b, pressurePage, destination), "recorded");
       await second.submit();
       assert.equal(pressured.evidence().busySlots, 0);
-      assert.equal(preparation.evidence().credit.used.total, 0);
+      const prepared = preparation.evidence();
+      assert.equal(prepared.credit.used.total, prepared.decodedImageCacheBytes);
+      assert.equal(prepared.credit.used.ready, prepared.decodedImageCacheBytes);
+      assert.equal(prepared.credit.used.encoded, 0);
       pressured.dispose();
       assert.equal(pressured.evidence().rgbaBytes, 0);
       assert.equal(pressured.evidence().scratchBytes, 0);
@@ -300,6 +309,8 @@ export async function runImageTexturePageGpu(device, precision = "f32") {
       pressureChecks++;
       imageSource.close();
       assert.equal(preparation.evidence().imageDirectoryBytes, 0);
+      assert.equal(preparation.evidence().decodedImageCacheBytes, 0);
+      assert.equal(preparation.evidence().credit.used.total, 0);
     }
     assert.equal(maxDependencies, 16);
     return {

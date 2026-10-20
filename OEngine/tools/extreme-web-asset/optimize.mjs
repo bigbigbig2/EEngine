@@ -16,7 +16,7 @@ import { deliveryCost } from "./delivery.mjs";
 /** The evaluator is the actual offline GPU/metric host, never runtime code.
  * It must evaluate all mips, exact bytes, neighboring cells and final material
  * probes and expose a full immutable environment identity before any cache hit. */
-export async function optimizeImage(request, output, evaluator, { trace = null, signal } = {}) {
+export async function optimizeImage(request, output, evaluator, { trace = null, signal, onCandidate } = {}) {
   const environment = await evaluator.identity();
   const canonical = contentHash(
     stableJson(
@@ -94,6 +94,7 @@ export async function optimizeImage(request, output, evaluator, { trace = null, 
             ? delivery.worstPageBytes + delivery.residentBytes
             : delivery.payloadBytes);
       const { rows, ...deliverySummary } = delivery;
+      onCandidate?.({ index, candidate, encodeMs, cacheHit, deliveryBytes });
       return {
         evaluation,
         deliveryBytes,
@@ -152,9 +153,10 @@ export async function optimizeImage(request, output, evaluator, { trace = null, 
       }
     })
   );
-  const reportName = `search-report-${identity}-${contentHash(await readFile(join(chosen, "directory.json")))}.json`;
+  const reportBytes = JSON.stringify(summary, null, 2) + "\n";
+  const reportName = `search-report-${contentHash(reportBytes)}.json`;
   const pending = join(root, `search-report-${randomUUID()}.tmp`);
-  await writeFile(pending, JSON.stringify(summary, null, 2) + "\n");
+  await writeFile(pending, reportBytes);
   await rename(pending, join(root, reportName));
   const bytes = await readFile(join(chosen, "directory.json"));
   const temporary = join(root, `directory-${randomUUID()}.tmp`);

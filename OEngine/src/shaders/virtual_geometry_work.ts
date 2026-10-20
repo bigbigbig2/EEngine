@@ -4,6 +4,7 @@ import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL, GPU_MESHLET_DECODE_PROFILE, GPU_PRODUCT_MESHLET_WORK_SETTINGS_FLAGS } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_VISIBLE_CLUSTER_RECORD_SCHEMA, GPU_WORK_GENERATION_WGSL } from "../gpu/GpuWorkGenerationAbi.js";
 import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "./virtual_geometry_product.js";
+import { GEOMETRY_LAYOUT_V4 as L } from "../assets/GeometryLayoutV4.generated.js";
 
 const COUNTER_MESHLET_WORKS = counterByteOffset("geometryMeshletWorksProduced") / 4;
 const COUNTER_QUEUE_BYTES = counterByteOffset("geometryQueueBytes") / 4;
@@ -165,7 +166,7 @@ fn generate_virtual_geometry_work(@builtin(workgroup_id) group: vec3u,
       let meshlet_offset = product_bank_word(location.bank_index, header_at + 12u);
       let payload = product_bank_word(location.bank_index, header_at + 15u);
       if (meshlets > 0u && meshlets <= 128u && meshlet_offset >= 64u &&
-          meshlet_offset <= payload && meshlets <= (payload - meshlet_offset) / 48u) {
+          meshlet_offset <= payload && meshlets <= (payload - meshlet_offset) / ${L.meshletHeaderBytes}u) {
         product_group_id = visible.cluster_record_index;
         product_group_page_bank = location.bank_index;
         product_group_page_byte = location.byte_offset + group.offset_in_page;
@@ -192,14 +193,14 @@ fn generate_virtual_geometry_work(@builtin(workgroup_id) group: vec3u,
   // The hierarchy visits the fine group for the complementary > SSE case.
   // A group has up to 128 meshlets; all 64 lanes process both halves.
   for (var local = lane; local < product_group_count; local += 64u) {
-    let at = (product_group_page_byte + product_group_meshlet_offset + local * 48u) >> 2u;
+    let at = (product_group_page_byte + product_group_meshlet_offset + local * ${L.meshletHeaderBytes}u) >> 2u;
     let counts = product_bank_word(product_group_page_bank, at);
-    let vertex_count = counts & 0xffffu;
-    let triangle_count = counts >> 16u;
+    let vertex_count = (counts >> ${L.meshlet.vertexCount * 8}u) & 0xffu;
+    let triangle_count = (counts >> ${L.meshlet.triangleCount * 8}u) & 0xffu;
     var keep = vertex_count > 0u && vertex_count <= 128u &&
       triangle_count > 0u && triangle_count <= 128u;
     if (!keep) { atomicAdd(&product_work.header.invalid_count, 1u); }
-    let refine_local = product_bank_word(product_group_page_bank, at + 3u);
+    let refine_local = product_bank_word(product_group_page_bank, at + ${L.meshlet.refineGroupId / 4}u);
     if (keep && refine_local != 0xffffffffu) {
       // Payload IDs are product-local; the heap group directory is global.
       let refine = oengine_virtual_refine_group_v1(&product_heap, asset, refine_local);

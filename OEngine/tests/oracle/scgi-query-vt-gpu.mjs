@@ -365,7 +365,10 @@ export async function runScgiQueryVtGpuOracle(device) {
       "independent fine-mip value from delayed query demand",
     );
     assert.equal(vt.evidence().demand.wanted, 0, "query demand did not enter the primary channel");
-    assert.equal(cold.preparation.evidence().credit.used.ready, 0, "tile IO receipts all released");
+    const prepared = cold.preparation.evidence();
+    assert.equal(prepared.credit.used.ready, prepared.decodedImageCacheBytes, "only charged decoded LRU remains");
+    assert.equal(prepared.credit.used.total, prepared.decodedImageCacheBytes);
+    assert.equal(prepared.credit.used.encoded, 0);
     const fullDescriptors = await checkFullDescriptors(
       device,
       graphics,
@@ -395,6 +398,8 @@ export async function runScgiQueryVtGpuOracle(device) {
     }
     native?.destroy();
     textures.destroy();
+    cold?.source.close();
+    if (cold) assert.equal(cold.preparation.evidence().credit.used.total, 0);
     cold?.preparation.dispose();
     products.destroy();
     scene.destroy();

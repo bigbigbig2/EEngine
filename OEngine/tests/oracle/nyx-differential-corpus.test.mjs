@@ -5,8 +5,10 @@ import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
+import { installGeometryZstdNodeHost } from "../helpers/geometry-zstd-node-host.mjs";
 
 globalThis.GPUBufferUsage ??= Object.freeze({ COPY_DST: 8, STORAGE: 128 });
+installGeometryZstdNodeHost();
 
 const { encodeWebCanonicalGeometryV1, encodeWebGeometryCookRecipeV1, cookWebGeometryWasmV1 } = await import(
   "../../.test-dist/assets/web-cook/wasm/WebGeometryCookerAbi.js"

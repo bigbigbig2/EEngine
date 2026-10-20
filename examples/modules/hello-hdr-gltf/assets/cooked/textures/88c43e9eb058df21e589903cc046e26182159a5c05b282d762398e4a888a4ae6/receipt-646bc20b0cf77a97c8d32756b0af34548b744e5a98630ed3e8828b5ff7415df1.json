@@ -1,0 +1,56 @@
+{
+  "imageIndex": 13,
+  "encodedHash": "e348c42e1cf75f9823f7a9310472c679ec3f913484cb58d594b3d8f771f1c93c",
+  "identity": "cc44593f09c460d17ad21eb072f73246a60f9cbf20953fa356fc121317595aad",
+  "directory": {
+    "schemaVersion": 4,
+    "sourceRevision": "45e9dfe91e5939b253173c34ae504b649f42b5110625aaf06de0c5798faea4d2",
+    "recipe": "d34db1959727f87e70b38e2e1ba7a5f0f83986f479f65d0e293585bec1592742",
+    "width": 1024,
+    "height": 1024,
+    "mipCount": 11,
+    "quality": "high",
+    "planes": [
+      {
+        "semantic": "data-rgb",
+        "target": "bc7-rgb",
+        "mode": "resident",
+        "mips": "runtime",
+        "addressU": "repeat",
+        "addressV": "repeat",
+        "alphaScales": [],
+        "constants": [
+          null,
+          null,
+          null,
+          255
+        ]
+      }
+    ],
+    "items": [
+      {
+        "id": 0,
+        "plane": 0,
+        "mip": 0,
+        "x": 0,
+        "y": 0,
+        "width": 1024,
+        "height": 1024,
+        "kind": "image",
+        "codec": "avif",
+        "bytes": 145879,
+        "decodedBytes": 4194304,
+        "sha256": "f7a61b558b22c3d98eb5994e6c8c2ffc014668dc39273ad5275cab12666d36da",
+        "uri": "f7a61b558b22c3d98eb5994e6c8c2ffc014668dc39273ad5275cab12666d36da.avif",
+        "offset": null,
+        "objectBytes": "145879"
+      }
+    ]
+  },
+  "byteLength": 751,
+  "payloadBytes": 145879,
+  "wallMs": 271397.1815,
+  "searchIdentity": "c483d390db9dc0bc36c342707b79fdfdeba49e8d90d5e70c9adf76f6a745ba78",
+  "searchReport": "search-report-5e67b75cb1e19d2f428c4ae052a0796e90645a644bbff3c663768057f5ace33a.json",
+  "searchReportHash": "5e67b75cb1e19d2f428c4ae052a0796e90645a644bbff3c663768057f5ace33a"
+}

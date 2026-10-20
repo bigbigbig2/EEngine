@@ -1,0 +1,1005 @@
+{
+  "schemaVersion": 1,
+  "identity": "61a6f11aff4cf714028e43bdc95b1e0389d4445330ebd54329e91f9c72b212a9",
+  "environment": {
+    "encoder": "c2b8e632f6c8cf85ce953316eb6405f276eeb70958cb89dc6d5691f315761d32",
+    "argv": "521eeb5c17293c8125c5b76a715101c5b048dba3100955ccf39bb39219c7f6b2",
+    "target": "fee40c1fadb87e5bd6fbf1e4e4664bc6c4c8803f2c2d30d8cefb84e6f1d3e85e",
+    "metrics": "664f06b538dbf12599a11e0d241e5acd12894be02e1bbd3c23d0656b8a5362ac",
+    "device": "fea2c2b2717fcf9404d91d02c260b65de8087f75f4016cb2c2208484dea42d61",
+    "evaluator": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd"
+  },
+  "canonical": "ce7c57312110e980a866ebd629afdd02ddb68b6bdf2abace146bdb3b11291b02",
+  "report": {
+    "quality": "high",
+    "semantic": "data-rgb",
+    "selected": {
+      "candidate": {
+        "quality": 70,
+        "speed": 2,
+        "cell": null,
+        "donor": false
+      },
+      "evaluation": {
+        "representation": "gpu-final",
+        "identity": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd",
+        "inputHash": "ad5e0423b4173f4f15bcd5861530a07dec4cf889ca5660e6db6dfc4e07bda29a",
+        "hardSemantics": true,
+        "metrics": {
+          "materialError": 0.09461901626491453,
+          "boundaryMax": 0.7294117659330368,
+          "channelR": 0.2862744927406311,
+          "channelG": 0.7294117659330368,
+          "channelB": 0.666666679084301
+        }
+      },
+      "deliveryBytes": 349240,
+      "encodeMs": 11211.06229999999,
+      "cacheHit": false,
+      "directory": "../../../jobs/caaf4bdd-456b-4999-8194-9b0d0a0d4db2/11",
+      "delivery": {
+        "trace": "no-trace",
+        "traceRows": 0,
+        "payloadBytes": 348489,
+        "directoryBytes": 751,
+        "residentBytes": 348489,
+        "fetchedBytes": null,
+        "requestedBytes": null,
+        "requests": null,
+        "overfetchBytes": null,
+        "decodedBytes": null,
+        "peakDecodedBytes": null,
+        "usefulTexels": null,
+        "assemblyPixels": null,
+        "worstPageBytes": 0,
+        "worstDecodedBytes": 0,
+        "cacheModel": "cold-per-page; no invented cross-page cache hit"
+      },
+      "accepted": true
+    },
+    "donor": {
+      "candidate": {
+        "quality": 80,
+        "speed": 4,
+        "cell": null,
+        "donor": true
+      },
+      "evaluation": {
+        "representation": "gpu-final",
+        "identity": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd",
+        "inputHash": "1b9be52ce8b798c9e1e3dd9b3a1e308c4552939e2905708c3e6ba8aa165c00d8",
+        "hardSemantics": true,
+        "metrics": {
+          "materialError": 0.0947504224604927,
+          "boundaryMax": 0.7333333343267441,
+          "channelR": 0.3176470398902893,
+          "channelG": 0.7333333343267441,
+          "channelB": 0.666666679084301
+        }
+      },
+      "deliveryBytes": 473231,
+      "encodeMs": 3774.8568,
+      "cacheHit": false,
+      "directory": "../../../jobs/caaf4bdd-456b-4999-8194-9b0d0a0d4db2/0",
+      "delivery": {
+        "trace": "no-trace",
+        "traceRows": 0,
+        "payloadBytes": 472480,
+        "directoryBytes": 751,
+        "residentBytes": 472480,
+        "fetchedBytes": null,
+        "requestedBytes": null,
+        "requests": null,
+        "overfetchBytes": null,
+        "decodedBytes": null,
+        "peakDecodedBytes": null,
+        "usefulTexels": null,
+        "assemblyPixels": null,
+        "worstPageBytes": 0,
+        "worstDecodedBytes": 0,
+        "cacheModel": "cold-per-page; no invented cross-page cache hit"
+      },
+      "accepted": true
+    },
+    "rows": [
+      {
+        "candidate": {
+          "quality": 80,
+          "speed": 4,
+          "cell": null,
+          "donor": true
+        },
+        "evaluation": {
+          "representation": "gpu-final",
+          "identity": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd",
+          "inputHash": "1b9be52ce8b798c9e1e3dd9b3a1e308c4552939e2905708c3e6ba8aa165c00d8",
+          "hardSemantics": true,
+          "metrics": {
+            "materialError": 0.0947504224604927,
+            "boundaryMax": 0.7333333343267441,
+            "channelR": 0.3176470398902893,
+            "channelG": 0.7333333343267441,
+            "channelB": 0.666666679084301
+          }
+        },
+        "deliveryBytes": 473231,
+        "encodeMs": 3774.8568,
+        "cacheHit": false,
+        "directory": "../../../jobs/caaf4bdd-456b-4999-8194-9b0d0a0d4db2/0",
+        "delivery": {
+          "trace": "no-trace",
+          "traceRows": 0,
+          "payloadBytes": 472480,
+          "directoryBytes": 751,
+          "residentBytes": 472480,
+          "fetchedBytes": null,
+          "requestedBytes": null,
+          "requests": null,
+          "overfetchBytes": null,
+          "decodedBytes": null,
+          "peakDecodedBytes": null,
+          "usefulTexels": null,
+          "assemblyPixels": null,
+          "worstPageBytes": 0,
+          "worstDecodedBytes": 0,
+          "cacheModel": "cold-per-page; no invented cross-page cache hit"
+        },
+        "accepted": true
+      },
+      {
+        "candidate": {
+          "quality": 95,
+          "speed": 4,
+          "cell": null,
+          "donor": false
+        },
+        "evaluation": {
+          "representation": "gpu-final",
+          "identity": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd",
+          "inputHash": "caafbc50e9c350844a985d1d14022b16831cfa3836eea38fe91746b6964c76a1",
+          "hardSemantics": true,
+          "metrics": {
+            "materialError": 0.0947504224604927,
+            "boundaryMax": 0.7294117659330368,
+            "channelR": 0.2901960611343384,
+            "channelG": 0.7294117659330368,
+            "channelB": 0.666666679084301
+          }
+        },
+        "deliveryBytes": 1287665,
+        "encodeMs": 4082.8287999999993,
+        "cacheHit": false,
+        "directory": "../../../jobs/caaf4bdd-456b-4999-8194-9b0d0a0d4db2/1",
+        "delivery": {
+          "trace": "no-trace",
+          "traceRows": 0,
+          "payloadBytes": 1286912,
+          "directoryBytes": 753,
+          "residentBytes": 1286912,
+          "fetchedBytes": null,
+          "requestedBytes": null,
+          "requests": null,
+          "overfetchBytes": null,
+          "decodedBytes": null,
+          "peakDecodedBytes": null,
+          "usefulTexels": null,
+          "assemblyPixels": null,
+          "worstPageBytes": 0,
+          "worstDecodedBytes": 0,
+          "cacheModel": "cold-per-page; no invented cross-page cache hit"
+        },
+        "accepted": true
+      },
+      {
+        "candidate": {
+          "quality": 95,
+          "speed": 2,
+          "cell": null,
+          "donor": false
+        },
+        "evaluation": {
+          "representation": "gpu-final",
+          "identity": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd",
+          "inputHash": "ddd3709995e0e108da49978b7439d0e0d5f4c88daa5e3bad876ac1e4da68b298",
+          "hardSemantics": true,
+          "metrics": {
+            "materialError": 0.09496333618881181,
+            "boundaryMax": 0.7294117659330368,
+            "channelR": 0.3176470398902893,
+            "channelG": 0.7294117659330368,
+            "channelB": 0.666666679084301
+          }
+        },
+        "deliveryBytes": 1279850,
+        "encodeMs": 10345.324099999998,
+        "cacheHit": false,
+        "directory": "../../../jobs/caaf4bdd-456b-4999-8194-9b0d0a0d4db2/2",
+        "delivery": {
+          "trace": "no-trace",
+          "traceRows": 0,
+          "payloadBytes": 1279097,
+          "directoryBytes": 753,
+          "residentBytes": 1279097,
+          "fetchedBytes": null,
+          "requestedBytes": null,
+          "requests": null,
+          "overfetchBytes": null,
+          "decodedBytes": null,
+          "peakDecodedBytes": null,
+          "usefulTexels": null,
+          "assemblyPixels": null,
+          "worstPageBytes": 0,
+          "worstDecodedBytes": 0,
+          "cacheModel": "cold-per-page; no invented cross-page cache hit"
+        },
+        "accepted": false
+      },
+      {
+        "candidate": {
+          "quality": 90,
+          "speed": 4,
+          "cell": null,
+          "donor": false
+        },
+        "evaluation": {
+          "representation": "gpu-final",
+          "identity": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd",
+          "inputHash": "da27886dc0caa9ac56820c53039e36faeb4c501238f8311c4e73a28267ad24df",
+          "hardSemantics": true,
+          "metrics": {
+            "materialError": 0.0947504224604927,
+            "boundaryMax": 0.7294117659330368,
+            "channelR": 0.2901960611343384,
+            "channelG": 0.7294117659330368,
+            "channelB": 0.6705882474780083
+          }
+        },
+        "deliveryBytes": 844671,
+        "encodeMs": 4594.1134999999995,
+        "cacheHit": false,
+        "directory": "../../../jobs/caaf4bdd-456b-4999-8194-9b0d0a0d4db2/3",
+        "delivery": {
+          "trace": "no-trace",
+          "traceRows": 0,
+          "payloadBytes": 843920,
+          "directoryBytes": 751,
+          "residentBytes": 843920,
+          "fetchedBytes": null,
+          "requestedBytes": null,
+          "requests": null,
+          "overfetchBytes": null,
+          "decodedBytes": null,
+          "peakDecodedBytes": null,
+          "usefulTexels": null,
+          "assemblyPixels": null,
+          "worstPageBytes": 0,
+          "worstDecodedBytes": 0,
+          "cacheModel": "cold-per-page; no invented cross-page cache hit"
+        },
+        "accepted": false
+      },
+      {
+        "candidate": {
+          "quality": 90,
+          "speed": 2,
+          "cell": null,
+          "donor": false
+        },
+        "evaluation": {
+          "representation": "gpu-final",
+          "identity": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd",
+          "inputHash": "449f95fbf5ab0fe37c2c89fd1f9cc7e61813b805c1695cee9fded4225808fd8d",
+          "hardSemantics": true,
+          "metrics": {
+            "materialError": 0.09496333618881181,
+            "boundaryMax": 0.7333333194255829,
+            "channelR": 0.2901960611343384,
+            "channelG": 0.7294117659330368,
+            "channelB": 0.7333333194255829
+          }
+        },
+        "deliveryBytes": 837784,
+        "encodeMs": 13158.378099999994,
+        "cacheHit": false,
+        "directory": "../../../jobs/caaf4bdd-456b-4999-8194-9b0d0a0d4db2/4",
+        "delivery": {
+          "trace": "no-trace",
+          "traceRows": 0,
+          "payloadBytes": 837033,
+          "directoryBytes": 751,
+          "residentBytes": 837033,
+          "fetchedBytes": null,
+          "requestedBytes": null,
+          "requests": null,
+          "overfetchBytes": null,
+          "decodedBytes": null,
+          "peakDecodedBytes": null,
+          "usefulTexels": null,
+          "assemblyPixels": null,
+          "worstPageBytes": 0,
+          "worstDecodedBytes": 0,
+          "cacheModel": "cold-per-page; no invented cross-page cache hit"
+        },
+        "accepted": false
+      },
+      {
+        "candidate": {
+          "quality": 85,
+          "speed": 4,
+          "cell": null,
+          "donor": false
+        },
+        "evaluation": {
+          "representation": "gpu-final",
+          "identity": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd",
+          "inputHash": "67b2dcd219c7729893ba43e1082d4c348ccf2bb6c32c20215ded0d1a417602de",
+          "hardSemantics": true,
+          "metrics": {
+            "materialError": 0.0947504224604927,
+            "boundaryMax": 0.7294117659330368,
+            "channelR": 0.2901960611343384,
+            "channelG": 0.7294117659330368,
+            "channelB": 0.666666679084301
+          }
+        },
+        "deliveryBytes": 627698,
+        "encodeMs": 4087.407600000006,
+        "cacheHit": false,
+        "directory": "../../../jobs/caaf4bdd-456b-4999-8194-9b0d0a0d4db2/5",
+        "delivery": {
+          "trace": "no-trace",
+          "traceRows": 0,
+          "payloadBytes": 626947,
+          "directoryBytes": 751,
+          "residentBytes": 626947,
+          "fetchedBytes": null,
+          "requestedBytes": null,
+          "requests": null,
+          "overfetchBytes": null,
+          "decodedBytes": null,
+          "peakDecodedBytes": null,
+          "usefulTexels": null,
+          "assemblyPixels": null,
+          "worstPageBytes": 0,
+          "worstDecodedBytes": 0,
+          "cacheModel": "cold-per-page; no invented cross-page cache hit"
+        },
+        "accepted": true
+      },
+      {
+        "candidate": {
+          "quality": 85,
+          "speed": 2,
+          "cell": null,
+          "donor": false
+        },
+        "evaluation": {
+          "representation": "gpu-final",
+          "identity": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd",
+          "inputHash": "1bae916ee03fbba6f1d490697d5b4bf76ecff3a14b1f3a4e3fc6affd834f9b09",
+          "hardSemantics": true,
+          "metrics": {
+            "materialError": 0.0947504224604927,
+            "boundaryMax": 0.7294117659330368,
+            "channelR": 0.3215686082839966,
+            "channelG": 0.7294117659330368,
+            "channelB": 0.666666679084301
+          }
+        },
+        "deliveryBytes": 622497,
+        "encodeMs": 12446.260999999999,
+        "cacheHit": false,
+        "directory": "../../../jobs/caaf4bdd-456b-4999-8194-9b0d0a0d4db2/6",
+        "delivery": {
+          "trace": "no-trace",
+          "traceRows": 0,
+          "payloadBytes": 621746,
+          "directoryBytes": 751,
+          "residentBytes": 621746,
+          "fetchedBytes": null,
+          "requestedBytes": null,
+          "requests": null,
+          "overfetchBytes": null,
+          "decodedBytes": null,
+          "peakDecodedBytes": null,
+          "usefulTexels": null,
+          "assemblyPixels": null,
+          "worstPageBytes": 0,
+          "worstDecodedBytes": 0,
+          "cacheModel": "cold-per-page; no invented cross-page cache hit"
+        },
+        "accepted": false
+      },
+      {
+        "candidate": {
+          "quality": 80,
+          "speed": 2,
+          "cell": null,
+          "donor": false
+        },
+        "evaluation": {
+          "representation": "gpu-final",
+          "identity": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd",
+          "inputHash": "b2d629807c928086e1879a59461b16471374dce0e9b12c891315f3d7c58cfc5a",
+          "hardSemantics": true,
+          "metrics": {
+            "materialError": 0.0947504224604927,
+            "boundaryMax": 0.7333333343267441,
+            "channelR": 0.2901960611343384,
+            "channelG": 0.7333333343267441,
+            "channelB": 0.666666679084301
+          }
+        },
+        "deliveryBytes": 469120,
+        "encodeMs": 11756.539699999994,
+        "cacheHit": false,
+        "directory": "../../../jobs/caaf4bdd-456b-4999-8194-9b0d0a0d4db2/7",
+        "delivery": {
+          "trace": "no-trace",
+          "traceRows": 0,
+          "payloadBytes": 468369,
+          "directoryBytes": 751,
+          "residentBytes": 468369,
+          "fetchedBytes": null,
+          "requestedBytes": null,
+          "requests": null,
+          "overfetchBytes": null,
+          "decodedBytes": null,
+          "peakDecodedBytes": null,
+          "usefulTexels": null,
+          "assemblyPixels": null,
+          "worstPageBytes": 0,
+          "worstDecodedBytes": 0,
+          "cacheModel": "cold-per-page; no invented cross-page cache hit"
+        },
+        "accepted": true
+      },
+      {
+        "candidate": {
+          "quality": 75,
+          "speed": 4,
+          "cell": null,
+          "donor": false
+        },
+        "evaluation": {
+          "representation": "gpu-final",
+          "identity": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd",
+          "inputHash": "8ce14714cd0b9ea5f6a564871cdc56f43bfaac5360682424d161193c7fe7bd6b",
+          "hardSemantics": true,
+          "metrics": {
+            "materialError": 0.09476387873291969,
+            "boundaryMax": 0.7294117659330368,
+            "channelR": 0.2901960611343384,
+            "channelG": 0.7294117659330368,
+            "channelB": 0.666666679084301
+          }
+        },
+        "deliveryBytes": 401871,
+        "encodeMs": 3709.452000000005,
+        "cacheHit": false,
+        "directory": "../../../jobs/caaf4bdd-456b-4999-8194-9b0d0a0d4db2/8",
+        "delivery": {
+          "trace": "no-trace",
+          "traceRows": 0,
+          "payloadBytes": 401120,
+          "directoryBytes": 751,
+          "residentBytes": 401120,
+          "fetchedBytes": null,
+          "requestedBytes": null,
+          "requests": null,
+          "overfetchBytes": null,
+          "decodedBytes": null,
+          "peakDecodedBytes": null,
+          "usefulTexels": null,
+          "assemblyPixels": null,
+          "worstPageBytes": 0,
+          "worstDecodedBytes": 0,
+          "cacheModel": "cold-per-page; no invented cross-page cache hit"
+        },
+        "accepted": false
+      },
+      {
+        "candidate": {
+          "quality": 75,
+          "speed": 2,
+          "cell": null,
+          "donor": false
+        },
+        "evaluation": {
+          "representation": "gpu-final",
+          "identity": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd",
+          "inputHash": "0e24e5be2d38247fcbb6fc0773f44455dc050919c2d478703fc89f7d3b58f95f",
+          "hardSemantics": true,
+          "metrics": {
+            "materialError": 0.0947504224604927,
+            "boundaryMax": 0.7450980395078659,
+            "channelR": 0.2862744927406311,
+            "channelG": 0.7450980395078659,
+            "channelB": 0.6705882474780083
+          }
+        },
+        "deliveryBytes": 397407,
+        "encodeMs": 11383.40479999999,
+        "cacheHit": false,
+        "directory": "../../../jobs/caaf4bdd-456b-4999-8194-9b0d0a0d4db2/9",
+        "delivery": {
+          "trace": "no-trace",
+          "traceRows": 0,
+          "payloadBytes": 396656,
+          "directoryBytes": 751,
+          "residentBytes": 396656,
+          "fetchedBytes": null,
+          "requestedBytes": null,
+          "requests": null,
+          "overfetchBytes": null,
+          "decodedBytes": null,
+          "peakDecodedBytes": null,
+          "usefulTexels": null,
+          "assemblyPixels": null,
+          "worstPageBytes": 0,
+          "worstDecodedBytes": 0,
+          "cacheModel": "cold-per-page; no invented cross-page cache hit"
+        },
+        "accepted": false
+      },
+      {
+        "candidate": {
+          "quality": 70,
+          "speed": 4,
+          "cell": null,
+          "donor": false
+        },
+        "evaluation": {
+          "representation": "gpu-final",
+          "identity": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd",
+          "inputHash": "361f3afe4fa88056c9a041c17ef9d2784a07759fc493a717852acb377a89cf48",
+          "hardSemantics": true,
+          "metrics": {
+            "materialError": 0.0947504224604927,
+            "boundaryMax": 0.7333333343267441,
+            "channelR": 0.2901960611343384,
+            "channelG": 0.7333333343267441,
+            "channelB": 0.666666679084301
+          }
+        },
+        "deliveryBytes": 353940,
+        "encodeMs": 3439.935599999997,
+        "cacheHit": false,
+        "directory": "../../../jobs/caaf4bdd-456b-4999-8194-9b0d0a0d4db2/10",
+        "delivery": {
+          "trace": "no-trace",
+          "traceRows": 0,
+          "payloadBytes": 353189,
+          "directoryBytes": 751,
+          "residentBytes": 353189,
+          "fetchedBytes": null,
+          "requestedBytes": null,
+          "requests": null,
+          "overfetchBytes": null,
+          "decodedBytes": null,
+          "peakDecodedBytes": null,
+          "usefulTexels": null,
+          "assemblyPixels": null,
+          "worstPageBytes": 0,
+          "worstDecodedBytes": 0,
+          "cacheModel": "cold-per-page; no invented cross-page cache hit"
+        },
+        "accepted": true
+      },
+      {
+        "candidate": {
+          "quality": 70,
+          "speed": 2,
+          "cell": null,
+          "donor": false
+        },
+        "evaluation": {
+          "representation": "gpu-final",
+          "identity": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd",
+          "inputHash": "ad5e0423b4173f4f15bcd5861530a07dec4cf889ca5660e6db6dfc4e07bda29a",
+          "hardSemantics": true,
+          "metrics": {
+            "materialError": 0.09461901626491453,
+            "boundaryMax": 0.7294117659330368,
+            "channelR": 0.2862744927406311,
+            "channelG": 0.7294117659330368,
+            "channelB": 0.666666679084301
+          }
+        },
+        "deliveryBytes": 349240,
+        "encodeMs": 11211.06229999999,
+        "cacheHit": false,
+        "directory": "../../../jobs/caaf4bdd-456b-4999-8194-9b0d0a0d4db2/11",
+        "delivery": {
+          "trace": "no-trace",
+          "traceRows": 0,
+          "payloadBytes": 348489,
+          "directoryBytes": 751,
+          "residentBytes": 348489,
+          "fetchedBytes": null,
+          "requestedBytes": null,
+          "requests": null,
+          "overfetchBytes": null,
+          "decodedBytes": null,
+          "peakDecodedBytes": null,
+          "usefulTexels": null,
+          "assemblyPixels": null,
+          "worstPageBytes": 0,
+          "worstDecodedBytes": 0,
+          "cacheModel": "cold-per-page; no invented cross-page cache hit"
+        },
+        "accepted": true
+      },
+      {
+        "candidate": {
+          "quality": 60,
+          "speed": 4,
+          "cell": null,
+          "donor": false
+        },
+        "evaluation": {
+          "representation": "gpu-final",
+          "identity": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd",
+          "inputHash": "7293eec4d6e12a22dfc14c102545c7e7aaf902957b92417328fee7a0e92e7979",
+          "hardSemantics": true,
+          "metrics": {
+            "materialError": 0.09476387873291969,
+            "boundaryMax": 0.7294117659330368,
+            "channelR": 0.3215686082839966,
+            "channelG": 0.7294117659330368,
+            "channelB": 0.666666679084301
+          }
+        },
+        "deliveryBytes": 271710,
+        "encodeMs": 3478.8788999999815,
+        "cacheHit": false,
+        "directory": "../../../jobs/caaf4bdd-456b-4999-8194-9b0d0a0d4db2/12",
+        "delivery": {
+          "trace": "no-trace",
+          "traceRows": 0,
+          "payloadBytes": 270959,
+          "directoryBytes": 751,
+          "residentBytes": 270959,
+          "fetchedBytes": null,
+          "requestedBytes": null,
+          "requests": null,
+          "overfetchBytes": null,
+          "decodedBytes": null,
+          "peakDecodedBytes": null,
+          "usefulTexels": null,
+          "assemblyPixels": null,
+          "worstPageBytes": 0,
+          "worstDecodedBytes": 0,
+          "cacheModel": "cold-per-page; no invented cross-page cache hit"
+        },
+        "accepted": false
+      },
+      {
+        "candidate": {
+          "quality": 60,
+          "speed": 2,
+          "cell": null,
+          "donor": false
+        },
+        "evaluation": {
+          "representation": "gpu-final",
+          "identity": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd",
+          "inputHash": "d28ac1978ee22ef859d3f5947e2a3a0ea4832ea54da70074b67ff9b468c9a917",
+          "hardSemantics": true,
+          "metrics": {
+            "materialError": 0.09476387873291969,
+            "boundaryMax": 0.7607843205332756,
+            "channelR": 0.3176470398902893,
+            "channelG": 0.7607843205332756,
+            "channelB": 0.666666679084301
+          }
+        },
+        "deliveryBytes": 268087,
+        "encodeMs": 10748.580100000021,
+        "cacheHit": false,
+        "directory": "../../../jobs/caaf4bdd-456b-4999-8194-9b0d0a0d4db2/13",
+        "delivery": {
+          "trace": "no-trace",
+          "traceRows": 0,
+          "payloadBytes": 267336,
+          "directoryBytes": 751,
+          "residentBytes": 267336,
+          "fetchedBytes": null,
+          "requestedBytes": null,
+          "requests": null,
+          "overfetchBytes": null,
+          "decodedBytes": null,
+          "peakDecodedBytes": null,
+          "usefulTexels": null,
+          "assemblyPixels": null,
+          "worstPageBytes": 0,
+          "worstDecodedBytes": 0,
+          "cacheModel": "cold-per-page; no invented cross-page cache hit"
+        },
+        "accepted": false
+      },
+      {
+        "candidate": {
+          "quality": 50,
+          "speed": 4,
+          "cell": null,
+          "donor": false
+        },
+        "evaluation": {
+          "representation": "gpu-final",
+          "identity": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd",
+          "inputHash": "7e0bc7919372be738d6c2d9da97d022a33485e686bcd487f478040e8c66d7d2f",
+          "hardSemantics": true,
+          "metrics": {
+            "materialError": 0.09562433785140456,
+            "boundaryMax": 0.7607843242585659,
+            "channelR": 0.3215686082839966,
+            "channelG": 0.7607843242585659,
+            "channelB": 0.6509803831577301
+          }
+        },
+        "deliveryBytes": 174898,
+        "encodeMs": 3807.684199999989,
+        "cacheHit": false,
+        "directory": "../../../jobs/caaf4bdd-456b-4999-8194-9b0d0a0d4db2/14",
+        "delivery": {
+          "trace": "no-trace",
+          "traceRows": 0,
+          "payloadBytes": 174147,
+          "directoryBytes": 751,
+          "residentBytes": 174147,
+          "fetchedBytes": null,
+          "requestedBytes": null,
+          "requests": null,
+          "overfetchBytes": null,
+          "decodedBytes": null,
+          "peakDecodedBytes": null,
+          "usefulTexels": null,
+          "assemblyPixels": null,
+          "worstPageBytes": 0,
+          "worstDecodedBytes": 0,
+          "cacheModel": "cold-per-page; no invented cross-page cache hit"
+        },
+        "accepted": false
+      },
+      {
+        "candidate": {
+          "quality": 50,
+          "speed": 2,
+          "cell": null,
+          "donor": false
+        },
+        "evaluation": {
+          "representation": "gpu-final",
+          "identity": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd",
+          "inputHash": "d62bd24114e1445ef2de4a685018977cdf7b54431d459b6972b228493ddcb3d9",
+          "hardSemantics": true,
+          "metrics": {
+            "materialError": 0.09544547554469318,
+            "boundaryMax": 0.7686274498701096,
+            "channelR": 0.3176470398902893,
+            "channelG": 0.7686274498701096,
+            "channelB": 0.666666679084301
+          }
+        },
+        "deliveryBytes": 172874,
+        "encodeMs": 9599.376500000013,
+        "cacheHit": false,
+        "directory": "../../../jobs/caaf4bdd-456b-4999-8194-9b0d0a0d4db2/15",
+        "delivery": {
+          "trace": "no-trace",
+          "traceRows": 0,
+          "payloadBytes": 172123,
+          "directoryBytes": 751,
+          "residentBytes": 172123,
+          "fetchedBytes": null,
+          "requestedBytes": null,
+          "requests": null,
+          "overfetchBytes": null,
+          "decodedBytes": null,
+          "peakDecodedBytes": null,
+          "usefulTexels": null,
+          "assemblyPixels": null,
+          "worstPageBytes": 0,
+          "worstDecodedBytes": 0,
+          "cacheModel": "cold-per-page; no invented cross-page cache hit"
+        },
+        "accepted": false
+      },
+      {
+        "candidate": {
+          "quality": 40,
+          "speed": 4,
+          "cell": null,
+          "donor": false
+        },
+        "evaluation": {
+          "representation": "gpu-final",
+          "identity": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd",
+          "inputHash": "72dda9ca8880d5969bd518b9b3457382c911c9d27bf21d9f43d382d9f66c6036",
+          "hardSemantics": true,
+          "metrics": {
+            "materialError": 0.09474560525632114,
+            "boundaryMax": 0.7607843242585659,
+            "channelR": 0.3019607663154602,
+            "channelG": 0.7607843242585659,
+            "channelB": 0.6862744987010956
+          }
+        },
+        "deliveryBytes": 114174,
+        "encodeMs": 3000.6449999999895,
+        "cacheHit": false,
+        "directory": "../../../jobs/caaf4bdd-456b-4999-8194-9b0d0a0d4db2/16",
+        "delivery": {
+          "trace": "no-trace",
+          "traceRows": 0,
+          "payloadBytes": 113423,
+          "directoryBytes": 751,
+          "residentBytes": 113423,
+          "fetchedBytes": null,
+          "requestedBytes": null,
+          "requests": null,
+          "overfetchBytes": null,
+          "decodedBytes": null,
+          "peakDecodedBytes": null,
+          "usefulTexels": null,
+          "assemblyPixels": null,
+          "worstPageBytes": 0,
+          "worstDecodedBytes": 0,
+          "cacheModel": "cold-per-page; no invented cross-page cache hit"
+        },
+        "accepted": false
+      },
+      {
+        "candidate": {
+          "quality": 40,
+          "speed": 2,
+          "cell": null,
+          "donor": false
+        },
+        "evaluation": {
+          "representation": "gpu-final",
+          "identity": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd",
+          "inputHash": "0f0ebfe7870eb397e83eb83e677d3c6256c85ef3e2484ff7b56a15a67875143e",
+          "hardSemantics": true,
+          "metrics": {
+            "materialError": 0.09476079669548199,
+            "boundaryMax": 0.823529414832592,
+            "channelR": 0.3215686082839966,
+            "channelG": 0.823529414832592,
+            "channelB": 0.6666666567325592
+          }
+        },
+        "deliveryBytes": 112123,
+        "encodeMs": 8418.241399999999,
+        "cacheHit": false,
+        "directory": "../../../jobs/caaf4bdd-456b-4999-8194-9b0d0a0d4db2/17",
+        "delivery": {
+          "trace": "no-trace",
+          "traceRows": 0,
+          "payloadBytes": 111372,
+          "directoryBytes": 751,
+          "residentBytes": 111372,
+          "fetchedBytes": null,
+          "requestedBytes": null,
+          "requests": null,
+          "overfetchBytes": null,
+          "decodedBytes": null,
+          "peakDecodedBytes": null,
+          "usefulTexels": null,
+          "assemblyPixels": null,
+          "worstPageBytes": 0,
+          "worstDecodedBytes": 0,
+          "cacheModel": "cold-per-page; no invented cross-page cache hit"
+        },
+        "accepted": false
+      },
+      {
+        "candidate": {
+          "quality": 30,
+          "speed": 4,
+          "cell": null,
+          "donor": false
+        },
+        "evaluation": {
+          "representation": "gpu-final",
+          "identity": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd",
+          "inputHash": "433223ae8788dd197780bd3b83ed309780b24c04b506934956cf7d31576bd45c",
+          "hardSemantics": true,
+          "metrics": {
+            "materialError": 0.09521445172140375,
+            "boundaryMax": 0.7803921699523926,
+            "channelR": 0.2901960611343384,
+            "channelG": 0.7803921699523926,
+            "channelB": 0.6392157077789307
+          }
+        },
+        "deliveryBytes": 76791,
+        "encodeMs": 3031.5128999999724,
+        "cacheHit": false,
+        "directory": "../../../jobs/caaf4bdd-456b-4999-8194-9b0d0a0d4db2/18",
+        "delivery": {
+          "trace": "no-trace",
+          "traceRows": 0,
+          "payloadBytes": 76042,
+          "directoryBytes": 749,
+          "residentBytes": 76042,
+          "fetchedBytes": null,
+          "requestedBytes": null,
+          "requests": null,
+          "overfetchBytes": null,
+          "decodedBytes": null,
+          "peakDecodedBytes": null,
+          "usefulTexels": null,
+          "assemblyPixels": null,
+          "worstPageBytes": 0,
+          "worstDecodedBytes": 0,
+          "cacheModel": "cold-per-page; no invented cross-page cache hit"
+        },
+        "accepted": false
+      },
+      {
+        "candidate": {
+          "quality": 30,
+          "speed": 2,
+          "cell": null,
+          "donor": false
+        },
+        "evaluation": {
+          "representation": "gpu-final",
+          "identity": "5cf6166f557d8431e6599d5afb19f1b47c2dd5e2428fbb83645bb5ca69959afd",
+          "inputHash": "b7ae67780783784222936b1a7bac55db9d3cd44351fc182f6dc86417290ef022",
+          "hardSemantics": true,
+          "metrics": {
+            "materialError": 0.09513908252120018,
+            "boundaryMax": 0.8352941237390041,
+            "channelR": 0.3215686082839966,
+            "channelG": 0.8352941237390041,
+            "channelB": 0.666666679084301
+          }
+        },
+        "deliveryBytes": 75303,
+        "encodeMs": 7253.143199999991,
+        "cacheHit": false,
+        "directory": "../../../jobs/caaf4bdd-456b-4999-8194-9b0d0a0d4db2/19",
+        "delivery": {
+          "trace": "no-trace",
+          "traceRows": 0,
+          "payloadBytes": 74554,
+          "directoryBytes": 749,
+          "residentBytes": 74554,
+          "fetchedBytes": null,
+          "requestedBytes": null,
+          "requests": null,
+          "overfetchBytes": null,
+          "decodedBytes": null,
+          "peakDecodedBytes": null,
+          "usefulTexels": null,
+          "assemblyPixels": null,
+          "worstPageBytes": 0,
+          "worstDecodedBytes": 0,
+          "cacheModel": "cold-per-page; no invented cross-page cache hit"
+        },
+        "accepted": false
+      }
+    ],
+    "scope": "bounded offline selection; not a full-scene quality or performance qualification"
+  },
+  "encoding": {
+    "candidateCount": 20,
+    "totalEncodeWallMs": 143327.62649999993,
+    "selectedEncodeMs": 11211.06229999999,
+    "donorEncodeMs": 3774.8568
+  },
+  "network": {
+    "moduleBytes": null,
+    "moduleInventory": null,
+    "accounting": "deployment-module-inventory-missing; not full-network-qualified",
+    "payloadBytes": 348489,
+    "directoryBytes": 751,
+    "previewBytes": 0,
+    "coldAllBytes": null,
+    "traceFetchedBytes": null,
+    "exactBytes": 0
+  }
+}

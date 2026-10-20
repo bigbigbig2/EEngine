@@ -1,3 +1,5 @@
+// @ts-expect-error Shared build tooling is plain ESM.
+import { imageWorkerAssets } from "../../../OEngine/tools/image-worker-assets-plugin.mjs";
 import { imageKernelsPlugin } from "../../shared/image-kernels-plugin";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,7 +10,8 @@ const examplesRoot = fileURLToPath(new URL("../../", import.meta.url));
 
 export default defineConfig({
   root: examplesRoot,
-  plugins: [imageKernelsPlugin(examplesRoot), bistroLocalModel(examplesRoot)],
+  worker: { format: "es", plugins: () => [imageWorkerAssets()] },
+  plugins: [imageWorkerAssets(), imageKernelsPlugin(examplesRoot), bistroLocalModel(examplesRoot)],
   server: {
     port: 5174,
     headers: {

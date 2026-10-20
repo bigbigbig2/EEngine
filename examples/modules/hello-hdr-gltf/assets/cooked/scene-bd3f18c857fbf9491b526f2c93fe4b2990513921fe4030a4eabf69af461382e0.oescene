@@ -1,0 +1,21 @@
+{
+  "schema": "oengine-scene-v4",
+  "instanceSemantics": "cast-receive-explicit-v1",
+  "packs": [
+    {"packId":"06073a59318a09792ab02c67f65149cd241a181347cd184a93a139ad12440ae4","uri":"geometry-06073a59318a09792ab0.oegpack"}
+  ],
+  "assets": [
+    {"assetId":"3e07086408b5aaa28e14cec96e9f072e41377b61c0a6296b0b67a2feb62c1872","pack":0,"assetRecordIndex":0},
+    {"assetId":"7fbffc36c062d0583a379b449698a5bca6574ed5a1da12f4ae504ed7d16c0afc","pack":0,"assetRecordIndex":1},
+    {"assetId":"dc73e6a0b0636e831f1288742116d3a57eaf8181254d7f32b771530da7f3b68b","pack":0,"assetRecordIndex":2},
+    {"assetId":"982de604c82eb7cff3dda92992cfd4dc77f67ddd71b65d648c256ee3fb72e250","pack":0,"assetRecordIndex":3},
+    {"assetId":"1a5381aaec3a8e31a82b69dc64d37fb27495dbab749bc8cefa4e86b5451da92b","pack":0,"assetRecordIndex":4}
+  ],
+  "instances": [
+    {"asset":0,"materialBindingTable":0,"flags":6,"transform":[0.00999999978,0,0,0,0,0.00999999978,0,0,0,0,0.00999999978,0,0,0,0,1]},
+    {"asset":1,"materialBindingTable":0,"flags":6,"transform":[0.00999999978,0,0,0,0,0.00999999978,0,0,0,0,0.00999999978,0,0,0,0,1]},
+    {"asset":2,"materialBindingTable":0,"flags":6,"transform":[0.00999999978,0,0,0,0,0.00999999978,0,0,0,0,0.00999999978,0,0,0,0,1]},
+    {"asset":3,"materialBindingTable":0,"flags":6,"transform":[0.00999999978,0,0,0,0,0.00999999978,0,0,0,0,0.00999999978,0,0,0,0,1]},
+    {"asset":4,"materialBindingTable":0,"flags":6,"transform":[0.00999999978,0,0,0,0,0.00999999978,0,0,0,0,0.00999999978,0,0,0,0,1]}
+  ]
+}

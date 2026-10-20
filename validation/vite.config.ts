@@ -1,9 +1,11 @@
-import { resolve } from "node:path";
+import { resolve, relative, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createReadStream, existsSync, statSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { defineConfig } from "vite";
+// @ts-expect-error Shared build tooling is plain ESM.
+import { imageWorkerAssets } from "../OEngine/tools/image-worker-assets-plugin.mjs";
+import { imageKernelsPlugin } from "../examples/shared/image-kernels-plugin";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const authoredLargeSource = resolve(root, "../.local/validation/web-authored-large/large.glb");
@@ -43,44 +45,40 @@ function formalAssetPlugin() {
   return {
     name: "oengine-formal-local-assets",
     configureServer(server: import("vite").ViteDevServer) {
-      // Validation-only persisted cook outputs; never a production asset cache.
-      const archive = resolve(root, "../.local/texture-compression-dungeon");
-      server.middlewares.use("/texture-acceptance-archive", async (request, response) => {
-        const name = (request.url ?? "").slice(1);
-        if (!/^(?:[a-f0-9]{64}\.oetex|manifest\.json)$/u.test(name)) {
-          response.statusCode = 400;
-          response.end("Invalid archive name");
-          return;
-        }
+      const cookedRoot = resolve(root, "../.local/models/dungeon-vt-cooked");
+      server.middlewares.use("/assets/texture-dungeon/cooked", async (request, response) => {
         try {
-          const path = resolve(archive, name);
-          if (request.method === "PUT") {
-            let length = 0;
-            const chunks: Buffer[] = [];
-            for await (const chunk of request) {
-              length += chunk.length;
-              if (length > 128 * 1024 * 1024) throw new Error("Archive size limit exceeded");
-              chunks.push(chunk);
-            }
-            await mkdir(archive, { recursive: true });
-            await writeFile(path, Buffer.concat(chunks));
-            response.statusCode = 200;
-            response.setHeader("Content-Type", "application/json");
-            response.end(JSON.stringify({ bytes: length }));
-          } else if (request.method === "GET") {
-            if (!existsSync(path)) {
-              response.statusCode = name === "manifest.json" ? 200 : 404;
-              response.end(name === "manifest.json" ? "null" : "");
-              return;
-            }
-            response.end(await readFile(path));
-          } else {
-            response.statusCode = 405;
-            response.end();
+          const name = decodeURIComponent((request.url ?? "").split("?")[0]!.slice(1));
+          const path = resolve(cookedRoot, name);
+          const child = relative(cookedRoot, path);
+          if (!child || child.startsWith("..") || isAbsolute(child) || /[\\\x00]/.test(name) ||
+              !/\.(?:json|oescene|oegpack|bin|avif|png)$/u.test(name)) {
+            response.writeHead(403).end(); return;
           }
+          if (request.method !== "GET" && request.method !== "HEAD") { response.writeHead(405).end(); return; }
+          const size = statSync(path).size;
+          const range = request.headers.range;
+          const match = /^bytes=(\d+)-(\d*)$/u.exec(range ?? "");
+          const start = match ? Number(match[1]) : 0;
+          const end = match?.[2] ? Number(match[2]) : size - 1;
+          if ((range && !match) || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) ||
+              start < 0 || end < start || end >= size) {
+            response.writeHead(416, { "Content-Range": `bytes */${size}` }).end(); return;
+          }
+          response.writeHead(match ? 206 : 200, {
+            "Accept-Ranges": "bytes", "Content-Length": end - start + 1,
+            "Content-Type": name.endsWith(".json") ? "application/json" : "application/octet-stream",
+            "Cache-Control": "no-store",
+            ...(match ? { "Content-Range": `bytes ${start}-${end}/${size}` } : {})
+          });
+          if (request.method === "HEAD") { response.end(); return; }
+          const stream = createReadStream(path, { start, end });
+          response.on("close", () => stream.destroy());
+          stream.on("error", (error) => response.destroy(error));
+          stream.pipe(response);
         } catch (error) {
-          response.statusCode = 500;
-          response.end(String(error));
+          if (response.headersSent) response.destroy(error instanceof Error ? error : new Error(String(error)));
+          else response.writeHead(404).end("Final Dungeon product is not mounted");
         }
       });
       for (const asset of localAssets)
@@ -133,7 +131,8 @@ function formalAssetPlugin() {
 
 export default defineConfig({
   root,
-  plugins: [formalAssetPlugin()],
+  plugins: [formalAssetPlugin(), imageWorkerAssets(), imageKernelsPlugin(resolve(root, "../examples"))],
+  worker: { format: "es", plugins: () => [imageWorkerAssets()] },
   server: {
     host: "127.0.0.1",
     port: 4178,

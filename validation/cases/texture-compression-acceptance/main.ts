@@ -2,19 +2,20 @@ import {
   Renderer,
   Scene,
   PerspectiveCamera,
-  load_gltf,
-  createDefaultWebCookWorker,
-  type WebCookRuntimeAsset,
-  type MultiProductSceneHandles
+  load_oegpack_product,
+  parseOegPackSceneManifestV4,
+  buildVirtualGeometrySceneSourceV1,
+  type ProductSceneHandles
 } from "../../../OEngine/src/index.ts";
 import { ShadeTexture } from "../../../OEngine/src/texture/ShadeTexture.ts";
-import { PcTexturePreparation } from "../../../OEngine/src/assets/codec/PcTexturePreparation.ts";
-import {
-  saveTextureProduct,
-  openTextureProduct,
-  textureProductHash,
-  type TextureProduct
-} from "../../../OEngine/src/assets/TextureProduct.ts";
+import { ImageTextureSource } from "../../../OEngine/src/assets/ImageTextureSource.ts";
+import { imageTextureHash } from "../../../OEngine/src/assets/ImageTextureProduct.ts";
+import { cookedAssetPreparation } from "../../../OEngine/src/assets/codec/CookedAssetPreparation.ts";
+import { MATERIAL_TEXTURE_PROPERTIES } from "../../../OEngine/src/assets/PcMaterialTextures.ts";
+import { ShadeImage } from "../../../OEngine/src/texture/ShadeImage.ts";
+import { parseGltfMaterial } from "../../../OEngine/src/loaders/gltf/gltfMaterials.ts";
+import { textureFromGltf } from "../../../OEngine/src/loaders/gltf/gltfTextures.ts";
+import { validationImageKernels } from "../../harness/image-kernels.ts";
 import { materialTextureLeaves } from "../../../OEngine/src/assets/PcMaterialTextures.ts";
 import { summarizeGpuTimingCost } from "../../../OEngine/src/debug/GpuTimingCost.ts";
 import { decodeFloat16 } from "../../../OEngine/src/core/Float16.ts";
@@ -36,8 +37,9 @@ const canvas = document.querySelector<HTMLCanvasElement>("#output")!;
 const status = document.querySelector<HTMLPreElement>("#status")!;
 let renderer: Renderer | undefined;
 let scene: Scene | undefined;
-let asset: WebCookRuntimeAsset | undefined;
-let handles: MultiProductSceneHandles | undefined;
+let asset: Awaited<ReturnType<typeof load_oegpack_product>> | undefined;
+const sources = new Set<ImageTextureSource>();
+let handles: ProductSceneHandles | undefined;
 let errors: ReturnType<typeof attachGpuErrorCollection> | undefined;
 const intentionallyDestroyedDevices = new WeakSet<GPUDevice>();
 let disposed = false;
@@ -78,6 +80,10 @@ function zeroTextureOwner(ledger: TextureResidencyEvidence) {
 }
 async function dispose() {
   if (!disposed) {
+    capture?.destroy();
+    winners?.destroy();
+    capture = undefined;
+    winners = undefined;
     if (renderer && scene) {
       await renderer.releaseScene(scene);
       await drained();
@@ -91,73 +97,15 @@ async function dispose() {
       controller.addEvidence("teardown", { texture, geometry });
       await renderer.releaseScene(scene);
     }
-    await asset?.disposeAsync();
+    asset?.release();
+    for (const source of sources) source.close();
+    sources.clear();
     errors?.remove();
     if (renderer) intentionallyDestroyedDevices.add(renderer.device);
     renderer?.destroy();
     disposed = true;
   }
   return { disposed, producer: asset?.evidence() ?? null };
-}
-const cookResults: Array<{ metadata: TextureProduct["metadata"]; evidence: unknown; identity: string }> = [];
-const products = new Map<string, TextureProduct>();
-const savedProducts = new Map<string, { identity: string; hash: string; bytes: number }>();
-let archiveWriteMs = 0;
-// Case-owned cold-only observation. No shader changes or steady-frame instrumentation.
-const cookImage = PcTexturePreparation.prototype.cookImage;
-PcTexturePreparation.prototype.cookImage = async function (...args) {
-  const result = await cookImage.apply(this, args);
-  products.set(result.product.identity, result.product);
-  cookResults.push({
-    metadata: result.product.metadata,
-    evidence: result.evidence,
-    identity: result.product.identity
-  });
-  status.textContent = `Cold cook ${cookResults.length}/25 textures completed`;
-  controller.addEvidence("coldProgress", cookResults);
-  if (!savedProducts.has(result.product.identity)) {
-    const started = performance.now();
-    const bytes = await saveTextureProduct(result.product);
-    const hash = await textureProductHash(new Uint8Array(bytes));
-    await put(hash + ".oetex", bytes);
-    savedProducts.set(result.product.identity, {
-      identity: result.product.identity,
-      hash,
-      bytes: bytes.byteLength
-    });
-    archiveWriteMs += performance.now() - started;
-    controller.addEvidence("coldArchive", { files: [...savedProducts.values()], ms: archiveWriteMs });
-  }
-  return result;
-};
-interface CacheRecord {
-  key: string;
-  identity: string;
-  sampler: {
-    minFilter: number;
-    magFilter: number;
-    mipmapFilter: number;
-    wrapS: number;
-    wrapT: number;
-    wrapR: number;
-  };
-}
-interface Archive {
-  sourceHash: string;
-  engineSourceHash: string;
-  rawRunId: string;
-  records: CacheRecord[];
-  files: Array<{ identity: string; hash: string; bytes: number }>;
-  raw: unknown;
-  cooks: typeof cookResults;
-}
-const archiveRoot = "/texture-acceptance-archive/";
-async function put(name: string, body: ArrayBuffer | string) {
-  const response = await fetch(archiveRoot + name, { method: "PUT", body });
-  check(response.ok, `Could not archive ${name}`);
-  const receipt = (await response.json()) as { bytes: number };
-  const bytes = typeof body === "string" ? new TextEncoder().encode(body).byteLength : body.byteLength;
-  check(receipt.bytes === bytes, `Incomplete archive receipt for ${name}`);
 }
 function observeDeviceErrors() {
   const device = renderer!.device;
@@ -174,7 +122,8 @@ function resetCamera() {
 }
 async function tick() {
   const first = renderer!.frame_count;
-  for (let attempt = 0; attempt < 400; attempt++) {
+  const deadline = performance.now() + 60_000;
+  while (performance.now() < deadline) {
     const start = performance.now();
     renderer!.render(camera, scene!, 1 / 60);
     const cpuMs = performance.now() - start;
@@ -323,7 +272,7 @@ async function costs() {
   };
 }
 async function initialize() {
-  renderer = new Renderer({ autoExposure: false, fixedExposure: 1, requiredFeatures: ["timestamp-query"] });
+  renderer = new Renderer({ imageTextureKernels: await validationImageKernels(), autoExposure: false, fixedExposure: 1, requiredFeatures: ["timestamp-query"] });
   await renderer.initialize({ context: canvas.getContext("webgpu")! });
   renderer.resize(1920, 1080);
   observeDeviceErrors();
@@ -332,149 +281,110 @@ async function initialize() {
   resetCamera();
   observeSurface();
 }
-async function load(cache: Map<string, Promise<ShadeTexture>>) {
+async function load() {
   const start = performance.now();
-  asset = load_gltf(`${location.origin}${frozen.url}`, {
-    worker: createDefaultWebCookWorker({
-      maxCanonicalInputBytes: 128 * 1024 ** 2,
-      maxDecodedProductBytes: 256 * 1024 ** 2
-    }),
-    bootstrap: { unitCount: 1024, maxSourceBytes: 128 * 1024 ** 2 }
-  });
-  const publication: unknown[] = [];
-  handles = await renderer!.uploadWebCookedMultiProductScene(scene!, asset, {
-    fitHeight: 8,
-    fitBase: [0, 0, 0],
-    stream: true,
-    residency: { configuredCapacityBytes: 512 * 1024 ** 2 },
-    textureCache: cache,
-    onProductPublicationTiming: (p) => publication.push(p)
-  });
+  const base = new URL("/assets/texture-dungeon/cooked/", location.href);
+  const response = await fetch(new URL("scene.materials.json", base));
+  check(response.ok, "Final Dungeon image scene is not mounted");
+  const manifest = await response.json();
+  check(manifest.schema === "oengine-image-scene-materials-v2" &&
+    manifest.source.sha256 === frozen.sha256 && manifest.source.cookedImages === frozen.images &&
+    manifest.source.primitives === frozen.primitives && manifest.source.triangles === frozen.triangles,
+    "Complete frozen authored scene missing");
+  const geometryResponse = await fetch(new URL(manifest.geometryManifest, base));
+  check(geometryResponse.ok, "Missing immutable geometry manifest");
+  const bytes = await geometryResponse.arrayBuffer();
+  check(await imageTextureHash(new Uint8Array(bytes)) === manifest.geometryManifestHash, "Geometry manifest changed");
+  const geometry = parseOegPackSceneManifestV4(bytes);
+  check(geometry.packs.length === 1, "Dungeon fixture requires its complete single pack, not a subset");
+  const images = Array.from({ length: manifest.source.images }, () => ShadeImage.fromEncodedImage(new ArrayBuffer(0), "image/png"));
+  const textures = manifest.gltf.textures.map((texture: any) => textureFromGltf(texture, images, manifest.gltf.samplers));
+  const materials = manifest.gltf.materials.map((material: any) => parseGltfMaterial(material, textures));
+  const byUri = new Map<string, ImageTextureSource>();
+  for (const entry of manifest.products) {
+    const source = await ImageTextureSource.open(new URL(entry.uri, base).href, entry.identity, entry.byteLength);
+    sources.add(source);
+    byUri.set(entry.uri, source);
+  }
+  for (const [index, material] of materials.entries()) {
+    for (const property of MATERIAL_TEXTURE_PROPERTIES) {
+      const binding = manifest.bindings[index][property];
+      if (!binding) { check(!material[property], "Authored texture binding omitted"); continue; }
+      const source = byUri.get(binding.uri);
+      check(source && textures[binding.textureIndex], "Authored product/sampler missing");
+      const texture = ShadeTexture.fromImageSource(source);
+      for (const name of ["minFilter", "magFilter", "mipmapFilter", "wrapS", "wrapT", "wrapR", "dimensions"] as const)
+        texture[name] = textures[binding.textureIndex][name];
+      material[property] = texture;
+    }
+  }
+  asset = await load_oegpack_product({ kind: "http-range", url: new URL(geometry.packs[0]!.uri, base).href }, { manifest: bytes });
+  const sourceTriangles = geometry.instances.reduce((sum, instance) => {
+    const reference = geometry.assets[instance.asset]!;
+    return sum + asset!.pack.assets[reference.assetRecordIndex]!.sourceTriangleCount;
+  }, 0);
+  check(sourceTriangles === frozen.triangles && geometry.instances.length === manifest.instanceMaterials.length,
+    "Incomplete source triangle/instance union");
+  handles = await renderer!.uploadProductScene(scene!, asset, ({ descriptor }) => {
+    const profiles = new Array(descriptor.assetRecords.byteLength / 128);
+    const instances = geometry.instances.map((instance, index) => {
+      const assetIndex = geometry.assets[instance.asset]!.assetRecordIndex;
+      profiles[assetIndex] = manifest.instanceProfiles[index];
+      return { assetIndex, materialIndex: manifest.instanceMaterials[index], transform: instance.transform, flags: instance.flags };
+    });
+    check(profiles.filter(Boolean).length === profiles.length, "Uninstantiated Product profile");
+    return buildVirtualGeometrySceneSourceV1(descriptor, profiles, instances, materials, { fitHeight: 8, fitBase: [0, 0, 0] });
+  }, { residency: { requestedProfile: "HighEnd", configuredCapacityBytes: 512 * 1024 ** 2, configuredBankBytes: 128 * 1024 ** 2 } });
   await handles.settled();
   const settledMs = performance.now() - start;
-  const catalog = asset.catalog;
-  check(
-    catalog &&
-      catalog.primitives.length === 798 &&
-      catalog.images.length === 25 &&
-      catalog.textures.length === 25,
-    "Full authored catalog missing"
-  );
-  const completed = asset.evidence().productTaskTrace.filter((p) => p.kind === "completed");
-  const covered = new Map<number, number>();
-  const shards = new Map<number, Set<number>>();
-  for (const { task } of completed) {
-    if (task.spatial) {
-      check(
-        task.sceneAssetIndices.length === 1 && task.shardOrdinal !== undefined && task.shardCount,
-        "Missing shard identity"
-      );
-      const index = task.sceneAssetIndices[0]!;
-      const set = shards.get(index) ?? new Set<number>();
-      check(!set.has(task.shardOrdinal), "Duplicate shard");
-      set.add(task.shardOrdinal);
-      shards.set(index, set);
-      covered.set(index, (covered.get(index) ?? 0) + task.triangles);
-    } else {
-      for (const index of task.sceneAssetIndices) {
-        check(!covered.has(index), "Duplicate primitive");
-        covered.set(index, catalog.primitives[index]!.triangleCount);
-      }
-    }
-  }
-  check(
-    covered.size === 798 &&
-      [...covered.values()].reduce((a, b) => a + b, 0) === 72137 &&
-      catalog.primitives.every((p) => covered.get(p.catalogIndex) === p.triangleCount),
-    "Incomplete source triangle union"
-  );
-  for (const { task } of completed.filter((p) => p.task.spatial)) {
-    check(shards.get(task.sceneAssetIndices[0]!)!.size === task.shardCount, "Missing planned shard");
-  }
-  check(
-    handles.runtime.evidence().active === completed.length &&
-      handles.current().shardCount === completed.length,
-    "Not all Products active"
-  );
   const runtime = renderer!.graphics.render_world.runtime(scene!)!;
-  check(
-    runtime.instanceCount === catalog.primitives.reduce((sum, p) => sum + p.instanceNodeIndices.length, 0) &&
-      runtime.materials.length === 25,
-    "Incomplete instance/material publication"
-  );
-  const tail = renderer!.graphics.texture_residency.evidence();
-  const leaves = [...new Set(runtime.materials.flatMap((m) => [...materialTextureLeaves(m)]))];
-  const uniqueTextureProducts = new Set(leaves.map((t) => t.texture_product?.identity)).size;
-  check(
-    leaves.length === 25 &&
-      uniqueTextureProducts === 24 &&
-      tail.residentTextureCount === uniqueTextureProducts,
-    "Incomplete authored routes or incorrect content deduplication"
-  );
+  check(runtime.instanceCount === geometry.instances.length && runtime.materials.length === frozen.images,
+    "Incomplete authored material/instance publication");
+  const leaves = [...new Set(runtime.materials.flatMap((material) => [...materialTextureLeaves(material)]))];
+  const uniqueTextureProducts = new Set(leaves.map((texture) => texture.image_source?.identity)).size;
+  check(leaves.length === frozen.images && leaves.every((texture) => texture.image_source &&
+    texture.image_source.directory.width === 2048 && texture.image_source.directory.height === 2048),
+    "Authored texture domain/resolution changed");
   await tick();
   const firstUsefulFrameMs = performance.now() - start;
-  await tick();
-  const fullQualityMs = performance.now() - start;
-  check(
-    leaves.length === 25 &&
-      leaves.every(
-        (t) =>
-          t.texture_product?.metadata.sourceWidth === 2048 && t.texture_product.metadata.sourceHeight === 2048
-      ),
-    "Authored resolution/product changed"
-  );
-  const full = renderer!.graphics.texture_residency.evidence();
-  check(
-    full.uploadBytes >= full.residentTextureBytes && full.mipPromotionCount > 0,
-    "Production never uploaded the full mip chain"
-  );
-  // Actual native constants must consume the live promoted minimum, not just upload the bytes.
-  const native = runtime.nativeMaterials!;
-  let checkedSamplers = 0;
-  for (const binding of native.bindings) {
-    for (const match of binding.program.source.matchAll(
-      /reference, u32\(native_material_constant\(material_base, (\d+)u\)\)/gu
-    )) {
-      const value = binding.program.constants[Number(match[1])]!;
-      check(
-        (value & S.MipMask) >>> S.MipShift === S.FullMipCode,
-        "Native consumer still clamps to coarse mip"
-      );
-      checkedSamplers++;
-    }
+  const virtual = renderer!.graphics.texture_residency.virtualTextures;
+  const qualityDeadline = performance.now() + 180_000;
+  let completeFrames = 0;
+  while (completeFrames < 3) {
+    await tick();
+    const state = virtual?.state();
+    const refinement = renderer!.sceneRefinementEvidence(scene!);
+    check(!state?.error, `VT preparation failed: ${state?.error}`);
+    check(!refinement?.error, `Geometry refinement failed: ${refinement?.error}`);
+    completeFrames = (!state || (state.complete && !state.limited)) && refinement?.phase === "view-settled"
+      ? completeFrames + 1 : 0;
+    check(performance.now() < qualityDeadline, "Visible VG and VT fine/tail demand did not converge");
   }
-  check(checkedSamplers >= 25, "Missing native mip clamp observations");
-  return {
-    settledMs,
-    firstUsefulFrameMs,
-    fullQualityMs,
-    readinessPolicy: "Complete geometry settlement before first submitted frame",
-    products: completed.length,
-    instances: runtime.instanceCount,
-    triangles: 72137,
-    primitives: 798,
-    authoredTextureCount: leaves.length,
-    uniqueTextureProducts,
-    diagnosticArchiveWriteMs: archiveWriteMs,
-    catalog,
-    publication,
-    tail,
-    full,
-    memory: renderer!.memoryEvidence(),
+  const fullQualityMs = performance.now() - start;
+  const full = renderer!.graphics.texture_residency.evidence();
+  check(full.residentTextureCount === uniqueTextureProducts && full.pendingTextureCount === 0 && full.mipUploadCount > 0,
+    "Complete image publication absent");
+  const samplers = runtime.nativeMaterials!.bindings.flatMap((binding) =>
+    [...binding.program.source.matchAll(/reference, u32\(native_material_constant\(material_base, (\d+)u\)\)/gu)]
+      .map((match) => binding.program.constants[Number(match[1])]!));
+  const virtualRanges = runtime.nativeMaterials!.bindings.flatMap((binding) =>
+    [...binding.program.source.matchAll(/native_vt_sample\([^;]+?u32\(native_material_constant\(material_base, (\d+)u\)\), u32\(native_material_constant\(material_base, (\d+)u\)\)/gu)]
+      .map((match) => [binding.program.constants[Number(match[1])]!, binding.program.constants[Number(match[2])]!]));
+  check(samplers.length + virtualRanges.length >= frozen.images && samplers.every((value) =>
+    ((value & S.MipMask) >>> S.MipShift) === S.FullMipCode), "Native full logical mip publication missing");
+  check(virtualRanges.every(([levels, tail]) => levels === 12 && tail >= 0 && tail < levels),
+    "Native VT route omitted authored mip levels or its resident tail");
+  return { settledMs, firstUsefulFrameMs, fullQualityMs, qualityCompletion: virtual?.evidence() ?? null,
+    refinement: renderer!.sceneRefinementEvidence(scene!), uniqueTextureProducts,
+    products: 1, instances: runtime.instanceCount, triangles: sourceTriangles, authoredTextureCount: leaves.length,
+    quality: manifest.evidence, full, memory: renderer!.memoryEvidence(),
     resourceLedger: renderer!.graphics.resource_accounting.snapshot(),
     geometry: geometryProductGpuBudgetEvidence(renderer!.device),
-    textureProducts: leaves.map((t) => ({
-      identity: t.texture_product!.identity,
-      metadata: t.texture_product!.metadata,
-      evidence: t.texture_product!.evidence
-    })),
-    streaming: renderer!.geometryStreamingEvidence(scene!),
-    producer: asset.evidence(),
-    frames: await costs()
-  };
+    preparation: cookedAssetPreparation().evidence(),
+    streaming: renderer!.geometryStreamingEvidence(scene!), producer: asset.evidence(), frames: await costs() };
 }
 async function releaseRun() {
-  await handles!.release();
+  await renderer!.releaseScene(scene!);
   await drained();
   zeroTextureOwner(renderer!.graphics.texture_residency.evidence());
   const geometry = geometryProductGpuBudgetEvidence(renderer!.device);
@@ -482,7 +392,10 @@ async function releaseRun() {
     geometry.totalBytes === 0 && geometry.allocations === 0 && geometry.metadataAllocations === 0,
     "Run retained Geometry allocations"
   );
-  await asset!.disposeAsync();
+  asset!.release();
+  for (const source of sources) source.close();
+  sources.clear();
+  check(cookedAssetPreparation().evidence().credit.used.total === 0, "Released scene retained preparation credit");
   errors!.remove();
   intentionallyDestroyedDevices.add(renderer!.device);
   renderer!.destroy();
@@ -499,152 +412,23 @@ async function run() {
     check(
       response.ok &&
         source.byteLength === frozen.bytes &&
-        (await textureProductHash(new Uint8Array(source))) === frozen.sha256,
+        (await imageTextureHash(new Uint8Array(source))) === frozen.sha256,
       "Frozen dungeon source unavailable"
     );
     controller.addEvidence("source", frozen);
-    const engineSourceHash =
-      new URLSearchParams(location.search).get("engineSourceSha256") ?? "see-runner-identity";
     controller.transition("ready");
     controller.transition("warming");
     controller.transition("sampling");
-    let archive: Archive;
-    const saved = await fetch(archiveRoot + "manifest.json");
-    check(saved.ok, "Archive access failed");
-    const existingArchive = (await saved.json()) as Archive | null;
-    if (existingArchive) {
-      archive = existingArchive;
-      check(archive.sourceHash === frozen.sha256, "Cook archive belongs to another authored source");
-      controller.addEvidence("rawEvidencePolicy", {
-        reused: true,
-        rawRunId: archive.rawRunId,
-        engineSourceHash: archive.engineSourceHash,
-        note: "Archived real cold path; not a fresh cold timing in this run"
-      });
-      // Exercise the repaired browser PUT completion without recooking the scene.
-      await put("manifest.json", JSON.stringify(archive));
-      controller.addEvidence("archiveReceipt", { manifestWriteVerified: true });
-    } else {
-      await initialize();
-      const cache = new Map<string, Promise<ShadeTexture>>();
-      const raw = await load(cache);
-      controller.addEvidence("raw", raw);
-      check(cookResults.length === 25 && products.size === 24, "Unexpected cold cook product count");
-      const records: CacheRecord[] = [];
-      for (const [key, pending] of cache) {
-        const texture = await pending;
-        const hash = await textureProductHash(new Uint8Array(texture.image!.source as ArrayBuffer));
-        const usage = (JSON.parse(key) as unknown[])[5];
-        const semantic =
-          usage === "srgb" ? "base-color-srgb" : usage === "normal" ? "normal-linear" : "orm-linear";
-        const product = [...products.values()].find(
-          (p) => p.metadata.sourceHash === hash && p.metadata.semantic === semantic
-        );
-        check(product, "Cold Product cannot be mapped back to authored source/semantic");
-        records.push({
-          key,
-          identity: product.identity,
-          sampler: {
-            minFilter: texture.minFilter,
-            magFilter: texture.magFilter,
-            mipmapFilter: texture.mipmapFilter,
-            wrapS: texture.wrapS,
-            wrapT: texture.wrapT,
-            wrapR: texture.wrapR
-          }
-        });
-      }
-      const files = [...savedProducts.values()];
-      const saveStart = performance.now();
-      archive = {
-        sourceHash: frozen.sha256,
-        engineSourceHash,
-        rawRunId: controller.snapshot.runId,
-        records,
-        files,
-        raw,
-        cooks: cookResults
-      };
-      await put("manifest.json", JSON.stringify(archive));
-      controller.addEvidence("archiveWrite", {
-        ms: performance.now() - saveStart,
-        perJobMsIncludedInRawLoad: archiveWriteMs,
-        files
-      });
-      cache.clear();
-      products.clear();
-      await releaseRun();
-    }
-    controller.addEvidence("raw", archive.raw);
-    controller.addEvidence("coldCook", archive.cooks);
-    const cookedStart = performance.now();
-    const opened = new Map<string, TextureProduct>();
-    let parseMs = 0;
-    for (const file of archive.files) {
-      const r = await fetch(archiveRoot + file.hash + ".oetex");
-      check(r.ok, "Persisted Product missing");
-      const bytes = await r.arrayBuffer();
-      check(
-        bytes.byteLength === file.bytes && (await textureProductHash(new Uint8Array(bytes))) === file.hash,
-        "Persisted archive bytes changed"
-      );
-      const start = performance.now();
-      const product = await openTextureProduct(bytes);
-      parseMs += performance.now() - start;
-      check(product.identity === file.identity, "Reopened Product identity changed");
-      opened.set(product.identity, product);
-    }
-    const cache = new Map<string, Promise<ShadeTexture>>();
-    for (const record of archive.records) {
-      const product = opened.get(record.identity);
-      check(product, "Cooked cache source missing");
-      const texture = ShadeTexture.fromProduct(product);
-      Object.assign(texture, record.sampler);
-      cache.set(record.key, Promise.resolve(texture));
-    }
-    const callsBefore = cookResults.length;
-    const packageReadParseMs = performance.now() - cookedStart;
-    const initializeStart = performance.now();
     await initialize();
-    const rendererInitializeMs = performance.now() - initializeStart;
-    status.textContent = "Cooked direct: complete authored publication and stable frame samples";
-    const loadOriginMs = performance.now() - cookedStart;
-    const cooked = await load(cache);
-    check(cookResults.length === callsBefore, "Cooked load unexpectedly started texture decode/encode");
-    const mapping = cooked.publication as Array<{
-      mapping: {
-        textureCacheHits: number;
-        textureCacheMisses: number;
-        imageReadMs: number;
-        imageDecodeMs: number;
-      };
-    }>;
-    check(
-      mapping.length > 0 &&
-        mapping.reduce((sum, p) => sum + p.mapping.textureCacheHits, 0) >= 25 &&
-        mapping.every(
-          (p) =>
-            p.mapping.textureCacheMisses === 0 && p.mapping.imageReadMs === 0 && p.mapping.imageDecodeMs === 0
-        ),
-      "Cooked publication unexpectedly read or decoded authored images"
-    );
-    controller.addEvidence("cooked", {
-      ...cooked,
-      packageBytes: archive.files.reduce((sum, f) => sum + f.bytes, 0),
-      packageReadParseMs,
-      parseMs,
-      rendererInitializeMs,
-      endToEndFirstUsefulFrameMs: loadOriginMs + cooked.firstUsefulFrameMs,
-      endToEndFullQualityMs: loadOriginMs + cooked.fullQualityMs,
-      textureColdTasks: 0,
-      textureTranscodeMs: 0,
-      runtimeMipGeneration: 0
-    });
-    check(
-      cooked.frames.output.visible === (archive.raw as typeof cooked).frames.output.visible &&
-        cooked.frames.output.hdrSum === (archive.raw as typeof cooked).frames.output.hdrSum,
-      "Raw/cooked Geometry winner coverage or HDR differs"
-    );
+    const cold = await load();
+    controller.addEvidence("cold", cold);
+    await releaseRun();
+    await initialize();
+    const cooked = await load();
+    controller.addEvidence("warm", cooked);
+    check(cooked.frames.output.visible === cold.frames.output.visible &&
+      cooked.frames.output.hdrSum === cold.frames.output.hdrSum,
+      "Cold/warm image publication changed Geometry coverage or HDR");
     for (let i = 0; i < 20; i++) {
       camera.transform.position.set(10 + Math.sin(i * 0.3) * 3, 7, 12);
       camera.transform.lookAt({ x: 0, y: 3, z: 0 });
@@ -677,7 +461,6 @@ async function run() {
     observeSurface();
     for (let i = 0; i < 8; i++) await tick();
     check(
-      cookResults.length === callsBefore &&
         renderer.graphics.texture_residency.evidence().residentTextureCount ===
           cooked.uniqueTextureProducts &&
         renderer.geometryStreamingError() === null &&
@@ -694,14 +477,14 @@ async function run() {
     });
     controller.addEvidence("readback", {
       matches: true,
-      raw: (archive.raw as typeof cooked).frames.output,
+      cold: cold.frames.output,
       cooked: cooked.frames.output,
       recovery: "finite/nonempty HDR and Geometry winners"
     });
     controller.transition("draining");
     // Runner screenshots the live recovered output, then calls the real fenced teardown.
     controller.pass();
-    status.textContent = "Complete dungeon BC acceptance passed";
+    status.textContent = "Complete Dungeon image GPU encoding acceptance passed";
   } catch (error) {
     controller.fail(error instanceof Error ? (error.stack ?? error.message) : String(error));
   }

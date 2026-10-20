@@ -4,6 +4,7 @@ import { ImageTextureTranscoder, imageGpuFormat } from "../../.test-dist/gpu/Ima
 import { imageTextureHash } from "../../.test-dist/assets/ImageTextureProduct.js";
 import { LIGHTING_BRDF_TYPES_WGSL, LIGHTING_BRDF_MATH_WGSL } from "../../.test-dist/shaders/lighting_brdf.js";
 import { APPEARANCE_NORMAL_FILTER_WGSL } from "../../.test-dist/shaders/appearance_normal_filter.js";
+import { encodeMetricValues } from "./metric-transport.mjs";
 
 function command(device) {
   const observers = [];
@@ -250,7 +251,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
                     width: texture.width,
                     height: rows,
                     semantic: plane.semantic,
-                    values: Array.from(values)
+                    valuesBase64: encodeMetricValues(values)
                   });
                   chunks++;
                 }

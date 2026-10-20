@@ -1,9 +1,10 @@
-# Extreme Web Asset Port Preparation
+# Extreme Web Asset Tooling
 
-E0 preparation only. The authority is
+The authority is
 `docs/next-design/eengine-extreme-web-asset-compression-2026-10.md` and its paired
-execution document. This directory is not a runtime codec, a production shader
-vendor, a scene cooker, or a second progress tracker.
+execution document. This directory owns offline image encoding, finite quality
+search/evaluation, fixtures and immutable scene publication. It is not a runtime
+codec, a production shader vendor or a second progress tracker.
 
 ```powershell
 node OEngine/tools/extreme-web-asset/prepare.mjs fetch
@@ -50,7 +51,7 @@ applicable notice is obtained, its implementation is studied as a reference,
 not copied as a vendored module. Further unit status and actual results belong
 only in the execution authority, section 12.
 
-## E1 isolated preparation and GPU closure
+## Preparation and GPU checks
 
 ```powershell
 npm --prefix OEngine run build:test
@@ -75,8 +76,31 @@ mips come from complete caller-provided canonical chains, not cell-local mip
 generation. `fixtures.mjs` creates local synthetic inputs only, not recooked
 hello/Dungeon/Bistro assets.
 
-The internal schema4 product, Cooker, shared preparation entry and encode-only
-recorder are not exported from the public engine entry. Production loaders and
-Residency still select their existing path until the E2 atomic cutover. The
-shared Worker pool accepts the explicit new task kind without adding a second
-pool or interpreting old products as new ones.
+Production image consumers use the schema4 product, shared preparation entry and
+encode-only recorder. Ordinary textures and VT share the same image contract;
+the Worker pool does not reinterpret retired products or provide a legacy codec
+fallback. The current geometry contract is OEGPACK4/source-exact SoA4 with the
+complete Zstd decoder owned by the existing preparation chain.
+
+## Complete scene cook and publication
+
+```powershell
+node OEngine/tools/cook-offline-scene.mjs <source.glb> <cook-directory> 1
+node OEngine/tools/cook-offline-scene.mjs <source.glb> <vt-cook-directory> 1 --vt
+node OEngine/tools/verify-offline-scene.mjs <cook-directory>
+node OEngine/tools/extreme-web-asset/scene-package.mjs <cook-directory> <deployment-directory>
+```
+
+Set `EENGINE_IMAGE_QUALITY` to `high` (default) or `extreme` before cooking.
+Each product evaluates all 20 resident or 60 VT candidates; local canonical,
+candidate and evaluation artifacts are not deployment assets. GPU search jobs
+must run serially. A completed search is not a formal scene performance result.
+
+`--publish-only` on the scene cooker revalidates existing complete source/profile
+checkpoints and reconstructs the immutable scene closure without running another
+search. It does not manufacture missing search results. Always run the verifier
+before deployment. The publisher checks closure hashes/extents and immutable
+object conflicts, copies dependencies first, then atomically replaces only
+`scene.materials.json`. Static build plugins enumerate this closure rather than
+copying scratch, candidates or obsolete files. Per-product reports explicitly
+leave module/network totals unknown until a real deployment inventory is supplied.

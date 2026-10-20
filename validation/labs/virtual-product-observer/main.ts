@@ -9,7 +9,7 @@ import {
   load_oegpack_product,
   WebCookBudgetLedger,
   parseOegPackSceneManifestV4,
-  resolveOegPackScenePackUrlV3,
+  resolveOegPackScenePackUrlV4,
   resolveWebCookRuntimeProfile,
   type OegPackProductAsset,
   type ProductSceneHandles,
@@ -132,7 +132,7 @@ async function openOffline(url: string, signal: AbortSignal): Promise<OegPackPro
   if (!response.ok) throw new Error(`scene manifest request failed (${response.status})`);
   const manifest = parseOegPackSceneManifestV4(await response.text());
   const manifestUrl = new URL(url, window.location.href).href;
-  const packUrl = resolveOegPackScenePackUrlV3(manifestUrl, manifest.packs[0]!);
+  const packUrl = resolveOegPackScenePackUrlV4(manifestUrl, manifest.packs[0]!);
   if (sourceFile.files?.length) throw new Error("Offline File/Blob 需要显式 scene.oescene manifest URL，不能猜测 pack identity");
   if (query.get("offlineSource") === "memory") {
     const bytes = await (await fetch(packUrl, { signal, headers: { "Accept-Encoding": "identity" } })).arrayBuffer();

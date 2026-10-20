@@ -757,8 +757,6 @@ export async function runNativeSurfaceProductionGpuOracle(
     const first = await inspect();
     if (productGeometry === "multi") {
       const world = renderer.graphics.render_world.runtime(scene);
-      world.nativeMaterials.setQueryProjectionEnabled(true);
-      await tick();
       // Exercise actual scheduler IO/staging and ordinary frame publication.
       // No independent page loader or test-only vertex/index mesh is supplied.
       for (const product of queryProducts) {
@@ -773,6 +771,18 @@ export async function runNativeSurfaceProductionGpuOracle(
           "Scheduled query coverage did not reach the ordinary frame publication",
         );
       }
+      // Standalone query consumers publish their demand after Renderer frames;
+      // Renderer owns its own GI demand and resets it at each frame boundary.
+      world.nativeMaterials.setQueryProjectionEnabled(true);
+      const projectionDeadline = performance.now() + 30_000;
+      while (!world.nativeMaterials.canPrepareFrame()) {
+        check(performance.now() < projectionDeadline, "Native query projection preparation timed out");
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+      const projection = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
+      world.nativeMaterials.prepareFrame(projection);
+      projection.finish();
+      await projection.gpuDone;
       // The v3 directory includes source-primitive remaps. Keep the finite
       // one-cluster stress route while admitting the complete largest cluster.
       let directorySegmentBytes = 160;
@@ -2073,15 +2083,13 @@ export async function runNativeSurfaceProductionGpuOracle(
     check(coldImageImportCount === 0, "Cooked Renderer unexpectedly dispatched a cold image import");
     const textureEvidence = renderer.graphics.texture_residency.evidence();
     check(
-      textureEvidence.resizeDispatchCount === 0 &&
-        textureEvidence.runtimeMipGenerationCount === 0 &&
-        textureEvidence.uncompressedFallbackCount === 0 &&
-        textureEvidence.cookedRuntimeMipGenerationCount === 0 &&
-        textureEvidence.workerTranscodeCount === 0 &&
-        textureEvidence.transcodeBytes === 0 &&
+      textureEvidence.schemaVersion === 8 &&
+        textureEvidence.pendingTextureCount === 0 &&
+        textureEvidence.quarantinedTextureCount === 0 &&
+        (!textureEvidence.imageEncoding || textureEvidence.imageEncoding.busySlots === 0) &&
         textureEvidence.copyBytes === textureEvidence.uploadBytes &&
         textureEvidence.physicalCopyBytes >= textureEvidence.committedUploadBytes,
-      "Cooked Renderer used a retired raw material route",
+      "Image publication retained incomplete/quarantined work or lost copy accounting",
     );
     renderer.destroy();
     await device.queue.onSubmittedWorkDone();

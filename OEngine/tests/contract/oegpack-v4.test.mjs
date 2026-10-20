@@ -5,8 +5,11 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
+import { installGeometryZstdNodeHost } from "../helpers/geometry-zstd-node-host.mjs";
 
 globalThis.GPUBufferUsage ??= Object.freeze({ COPY_DST: 8, STORAGE: 128 });
+
+installGeometryZstdNodeHost();
 
 const { MemoryRangeReadablePackV4, OegPackV4Error, openOegPackV4 } = await import(
   "../../.test-dist/assets/OegPackV4.js"
@@ -75,10 +78,10 @@ test("A1-A7 native cook is deterministic across thread counts and TS opens the g
     await readFile(join(first.output, "scene.oescene")),
     await readFile(join(second.output, "scene.oescene")),
   );
-  assert.equal(createHash("sha256").update(packA.bytes).digest("hex"), GOLDEN_PACK_SHA256);
-
   const opened = await openOegPackV4(new MemoryRangeReadablePackV4(packA.bytes));
-  assert.equal(opened.header.formatMajor, 3);
+  assert.equal(opened.header.formatMajor, 4);
+  assert.ok(opened.vertexFormats.every((format) => format.positionEncoding === 2));
+  assert.equal(createHash("sha256").update(packA.bytes).digest("hex"), GOLDEN_PACK_SHA256);
   assert.equal(opened.header.pageBytes, 262144);
   assert.equal(
     opened.header.recipeHash,
@@ -139,7 +142,7 @@ test("S1 OEGPACK adapter emits a producer-neutral Product V1 descriptor and excl
     const groupOffset = Number(view.getBigUint64(96, true));
     view.setUint32(groupOffset + 12, view.getUint32(groupOffset + 12, true) | retired, true);
     await rewriteMetadataHash(obsolete);
-    await assert.rejects(openOegPackV4(new MemoryRangeReadablePackV4(obsolete)), /recook.*lean v7/);
+    await assert.rejects(openOegPackV4(new MemoryRangeReadablePackV4(obsolete)), /recook.*SoA v8/);
   }
   const descriptor = descriptorFromOegPack(opened);
   // The leaf map preserves canonical source order across material domains;
@@ -166,7 +169,7 @@ test("S1 OEGPACK adapter emits a producer-neutral Product V1 descriptor and excl
   }
   const report = validateGeometryProductDescriptorV1(descriptor);
   assert.equal(report.valid, true, report.issues.map((issue) => issue.message).join("; "));
-  assert.equal(descriptor.runtimeProfile, "oengine-vg-v2-v3-decoded-query3");
+  assert.equal(descriptor.runtimeProfile, "oengine-vg-v3-soa4-query3");
   assert.equal(descriptor.producerKind, "offline-native");
   assert.equal(descriptor.assetRecords.byteLength, opened.assets.length * 128);
   assert.equal(descriptor.hierarchyNodes.byteLength, opened.hierarchy.length * 48);
@@ -721,4 +724,6 @@ function buildFixtureGlb({ distinctMaterialIds = false } = {}) {
 // v4.1 makes sphere merging conservative about the stored f32 center. The
 // independent translated-hierarchy oracle and native/Web parity validate the
 // numerical change before this content/recipe golden is advanced.
-const GOLDEN_PACK_SHA256 = "95fe8834260c5128ea2303920a29295f6e393499c3cc04a6d4e6287c93d4f791";
+// V4 changes the header/recipe, component-SoA records and Zstd frame bytes.
+// Thread determinism, actual decoding, source topology and bounds are checked above.
+const GOLDEN_PACK_SHA256 = "24e3092a272e5ec08726b3c2f5d617a2a2d58d16911a1981582e5f63c617d481";

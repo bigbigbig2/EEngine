@@ -8,7 +8,8 @@ import { startStaticServer, defaultAllowPrefixes } from "../../../tools/gpu-orac
 import { verifyTestBuild } from "../../../tools/test-build.mjs";
 import { cookImageTexture } from "./evaluation-input.mjs";
 import { contentHash, stableJson } from "./search.mjs";
-import { ImageQualityMetrics, nativeSsim } from "./metrics.mjs";
+import { ImageQualityMetrics, nativeSsimBatch, metricRgbFrame } from "./metrics.mjs";
+import { decodeMetricValues } from "./metric-transport.mjs";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const local = resolve(root, ".local/extreme-web-asset");
@@ -89,7 +90,8 @@ export async function createOfflineEvaluator({ signal, moduleInventory = null } 
       "gpu-evaluate.mjs",
       "metrics.mjs",
       "search.mjs",
-      "evaluation-input.mjs"
+      "evaluation-input.mjs",
+      "metric-transport.mjs"
     ];
     const evaluatorSource = contentHash(
       Buffer.concat(await Promise.all(sourceFiles.map((name) => readFile(new URL(name, import.meta.url)))))
@@ -159,6 +161,9 @@ export async function createOfflineEvaluator({ signal, moduleInventory = null } 
       globalThis.imageEvaluator = await createGpuImageEvaluator(evaluationDevice, identity);
     }, environment.evaluator);
     let receiver;
+    // Offline disk references only; cells change assembly domains, so each
+    // canonical recipe (including cell size and coverage) has a distinct key.
+    const references = new Map();
     await page.exposeBinding("receiveImageMetricChunk", async (_source, chunk) => {
       if (!receiver) throw new Error("GPU metric chunk has no active job");
       return receiver(chunk);
@@ -194,20 +199,16 @@ export async function createOfflineEvaluator({ signal, moduleInventory = null } 
         const child = relative(local, job);
         if (!child || child.startsWith("..") || isAbsolute(child))
           throw new Error("GPU search products must stay in the explicit local evaluation root");
-        const referenceRoot = join(job, "canonical");
-        const reference = await cookImageTexture(canonical, referenceRoot);
-        const expected = new Map();
+        const { inputs, exactCoverage, ...recipe } = canonical;
+        const referenceIdentity = contentHash(stableJson({
+          recipe: JSON.parse(JSON.stringify(recipe)),
+          inputs: inputs.map((input) => ({ width: input.width, height: input.height, hash: contentHash(input.rgba) })),
+          coverage: exactCoverage?.map((input) => ({ width: input.width, height: input.height, hash: contentHash(input.rgba) })) ?? []
+        }));
+        let referenceDomains = references.get(referenceIdentity);
         const key = ({ plane, mip, x, y, width, height }) => `${plane}/${mip}/${x}/${y}/${width}/${height}`;
         const url = (path) =>
           server.origin + "/" + relative(root, path).replaceAll("\\", "/") + "/directory.json";
-        receiver = async (chunk) => {
-          signal?.throwIfAborted();
-          const name = key(chunk);
-          if (expected.has(name)) throw new Error("Canonical evaluation duplicated a domain");
-          const path = join(referenceRoot, `samples-${expected.size}.bin`);
-          await writeFile(path, Buffer.from(new Float32Array(chunk.values).buffer));
-          expected.set(name, path);
-        };
         const run = (path, bytes, canonical) =>
           page.evaluate(
             async ({ url, hash, length, canonical }) =>
@@ -220,13 +221,36 @@ export async function createOfflineEvaluator({ signal, moduleInventory = null } 
               ),
             { url: url(path), hash: contentHash(bytes), length: bytes.length, canonical }
           );
-        try {
-          await run(referenceRoot, reference.bytes, true);
-        } catch (error) {
-          receiver = undefined;
-          throw error;
+        if (!referenceDomains) {
+          const referenceRoot = join(job, "canonical");
+          const reference = await cookImageTexture(canonical, referenceRoot);
+          referenceDomains = new Map();
+          receiver = async (chunk) => {
+            signal?.throwIfAborted();
+            const name = key(chunk);
+            if (referenceDomains.has(name)) throw new Error("Canonical evaluation duplicated a domain");
+            const path = join(referenceRoot, `samples-${referenceDomains.size}.bin`);
+            await writeFile(path, Buffer.from(decodeMetricValues(chunk).buffer));
+            referenceDomains.set(name, path);
+          };
+          try {
+            await run(referenceRoot, reference.bytes, true);
+          } finally {
+            receiver = undefined;
+          }
+          if (failures.length) throw new Error("Canonical GPU evaluation failed: " + failures.join("\n"));
+          if (references.size >= 3) references.delete(references.keys().next().value);
+          references.set(referenceIdentity, referenceDomains);
         }
+        const expected = new Map(referenceDomains);
         const quality = new ImageQualityMetrics(product.directory.planes[0].semantic);
+        let frames = [], windows = [], frameBytes = 0, frameWidth = 0, frameHeight = 0;
+        const flushSsim = () => {
+          if (!frames.length) return;
+          const scores = nativeSsimBatch(ffmpeg, frames, frameWidth, frameHeight);
+          for (let i = 0; i < scores.length; i++) quality.addPerceptual(scores[i], windows[i]);
+          frames = []; windows = []; frameBytes = 0;
+        };
         let exact = true;
         receiver = async (chunk) => {
           signal?.throwIfAborted();
@@ -237,20 +261,22 @@ export async function createOfflineEvaluator({ signal, moduleInventory = null } 
           const reference = new Float32Array(
             bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
           );
-          const values = new Float32Array(chunk.values);
+          const values = decodeMetricValues(chunk);
           if (chunk.semantic === "exact-r") {
             for (let at = 0; at < values.length; at += 28) {
               if (Math.round(reference[at] * 255) !== Math.round(values[at] * 255)) exact = false;
             }
           } else {
-            quality.add(
-              reference,
-              values,
-              chunk,
-              chunk.semantic.startsWith("color-")
-                ? nativeSsim(ffmpeg, reference, values, chunk.width, chunk.height)
-                : null
-            );
+            quality.add(reference, values, chunk);
+            if (chunk.semantic.startsWith("color-")) {
+              const bytes = Math.max(8, chunk.width) * Math.max(8, chunk.height) * 3 * 2;
+              if (frames.length && (frameWidth !== chunk.width || frameHeight !== chunk.height ||
+                  frameBytes + bytes > 8 * 1024 * 1024 || windows.length >= 16)) flushSsim();
+              frameWidth = chunk.width; frameHeight = chunk.height;
+              frames.push(metricRgbFrame(reference, chunk.width, chunk.height), metricRgbFrame(values, chunk.width, chunk.height));
+              windows.push(chunk.width * chunk.height);
+              frameBytes += bytes;
+            }
           }
           expected.delete(name);
         };
@@ -261,6 +287,7 @@ export async function createOfflineEvaluator({ signal, moduleInventory = null } 
         }
         if (expected.size || failures.length)
           throw new Error("Incomplete GPU evaluation or browser errors: " + failures.join("\n"));
+        flushSsim();
         return {
           representation: "gpu-final",
           identity: environment.evaluator,

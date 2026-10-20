@@ -9,7 +9,8 @@ artifacts: [result, events, screenshot]
 changedPaths:
   - validation/cases/texture-compression-acceptance
   - validation/workloads/texture-compression-acceptance-v1.yaml
-  - OEngine/src/assets/TextureProduct.ts
+  - OEngine/src/assets/ImageTextureProduct.ts
+  - OEngine/src/gpu/ImageTextureTranscoder.ts
   - OEngine/src/gpu/TextureResidency.ts
   - OEngine/src/render/pipeline/RendererCore.ts
 errorAllowlist:

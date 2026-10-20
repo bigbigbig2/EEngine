@@ -1,7 +1,9 @@
 import { createReadStream } from "node:fs";
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { resolve, relative } from "node:path";
 import type { Plugin } from "vite";
+// @ts-expect-error Offline Node tooling is intentionally plain ESM.
+import { scenePackageFiles } from "../../../OEngine/tools/extreme-web-asset/scene-package.mjs";
 
 const assetRoute = "/integrated/dungeon-warkarma-texture-compression/assets/";
 
@@ -80,19 +82,13 @@ export function dungeonLocalModel(examplesRoot: string): Plugin {
       });
     },
     async generateBundle() {
-      const emitDirectory = async (directory: string): Promise<void> => {
-        for (const entry of await readdir(directory, { withFileTypes: true })) {
-          const path = resolve(directory, entry.name);
-          if (entry.isDirectory()) await emitDirectory(path);
-          else if (/\.(?:glb|gltf|oegpack|oescene|json|avif|png|bin|hdr|jpg|jpeg|webp)$/u.test(entry.name))
-            this.emitFile({
-              type: "asset",
-              fileName: assetRoute.slice(1) + relative(root, path).replaceAll("\\", "/"),
-              source: await readFile(path)
-            });
+      for (const packageName of ["cooked", "playground-cooked"]) {
+        const { files } = await scenePackageFiles(resolve(root, packageName));
+        for (const [uri, record] of files) {
+          this.emitFile({ type: "asset", fileName: assetRoute.slice(1) + packageName + "/" + uri,
+            source: await readFile(record.path) });
         }
-      };
-      await emitDirectory(root);
+      }
     }
   };
 }

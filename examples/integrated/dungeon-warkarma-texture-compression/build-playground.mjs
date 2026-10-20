@@ -1,17 +1,18 @@
-import { readFile, writeFile, mkdir, copyFile } from "node:fs/promises";
+import { readFile, writeFile, mkdir, copyFile, rename } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { publishScenePackage } from "../../../OEngine/tools/extreme-web-asset/scene-package.mjs";
 
 const demo = fileURLToPath(new URL("./", import.meta.url));
-const root = resolve(demo, "../../../..");
+const root = resolve(demo, "../../..");
 const require = createRequire(resolve(root, "OEngine/package.json"));
 const { mat4, vec3 } = require("gl-matrix");
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
-const sourceBytes = await readFile(resolve(demo, "assets/dungeon_warkarma.glb"));
+const sourceBytes = await readFile(resolve(root, "examples/assets/three/rendering-lab/dungeon_warkarma.glb"));
 const source = JSON.parse(sourceBytes.subarray(20, 20 + sourceBytes.readUInt32LE(12)));
 const min = [Infinity, Infinity, Infinity],
   max = [-Infinity, -Infinity, -Infinity];
@@ -301,7 +302,7 @@ const cook = spawnSync(
 if (cook.status !== 0) throw new Error(`Playground cook failed: ${cook.status}`);
 
 const dungeonRoot = resolve(demo, "assets/cooked"),
-  destination = resolve(demo, "assets/playground-cooked");
+  destination = resolve(output, "composed");
 await mkdir(destination, { recursive: true });
 const dungeon = await readJson(resolve(dungeonRoot, "scene.materials.json"));
 const playground = await readJson(resolve(output, "scene.materials.json"));
@@ -312,12 +313,13 @@ const dungeonScene = await readJson(resolve(dungeonRoot, dungeon.geometryManifes
 const playgroundScene = await readJson(resolve(output, playground.geometryManifest));
 if (dungeonScene.instanceSemantics !== playgroundScene.instanceSemantics)
   throw new Error("Scene semantics mismatch");
+await publishScenePackage(dungeonRoot, resolve(destination, "dungeon"));
 for (const pack of playgroundScene.packs)
   await copyFile(resolve(output, pack.uri), resolve(destination, pack.uri));
 const scene = {
   schema: dungeonScene.schema,
   instanceSemantics: dungeonScene.instanceSemantics,
-  packs: [...dungeonScene.packs.map((p) => ({ ...p, uri: `../cooked/${p.uri}` })), ...playgroundScene.packs],
+  packs: [...dungeonScene.packs.map((p) => ({ ...p, uri: `dungeon/${p.uri}` })), ...playgroundScene.packs],
   assets: [
     ...dungeonScene.assets,
     ...playgroundScene.assets.map((a) => ({ ...a, pack: a.pack + dungeonScene.packs.length }))
@@ -343,17 +345,20 @@ const manifest = {
     materials: dungeon.source.materials + playground.source.materials,
     cookedImages: dungeon.source.cookedImages + playground.source.cookedImages
   },
+  geometryManifest: `scene-${hash(sceneBytes)}.oescene`,
   geometryManifestHash: hash(sceneBytes),
   gltf: { ...dungeon.gltf, materials: [...dungeon.gltf.materials, ...playground.gltf.materials] },
   bindings: [
     ...dungeon.bindings.map((b) =>
       Object.fromEntries(
-        Object.entries(b).map(([key, value]) => [key, { ...value, uri: `../cooked/${value.uri}` }])
+        Object.entries(b).map(([key, value]) => [key, { ...value, uri: `dungeon/${value.uri}` }])
       )
     ),
     ...playground.bindings
   ],
-  products: dungeon.products.map((p) => ({ ...p, uri: `../cooked/${p.uri}` })),
+  products: dungeon.products.map((p) => ({
+    ...p, uri: `dungeon/${p.uri}`, searchReport: `dungeon/${p.searchReport}`, receipt: `dungeon/${p.receipt}`
+  })),
   instanceMaterials: [
     ...dungeon.instanceMaterials,
     ...playground.instanceMaterials.map((i) => i + dungeon.gltf.materials.length)
@@ -362,8 +367,11 @@ const manifest = {
   framing: { center: frameCenter, radius: frameRadius },
   playground: { seed: "0x5741524b", counts, groundSize: planeSize, floor, dungeonBounds: { min, max } }
 };
-await writeFile(resolve(destination, "scene.oescene"), sceneBytes);
-await writeFile(resolve(destination, "scene.materials.json"), JSON.stringify(manifest, null, 2) + "\n");
+await writeFile(resolve(destination, manifest.geometryManifest), sceneBytes);
+const pendingManifest = resolve(destination, `scene.materials.json.${process.pid}.partial`);
+await writeFile(pendingManifest, JSON.stringify(manifest, null, 2) + "\n");
+await rename(pendingManifest, resolve(destination, "scene.materials.json"));
+await publishScenePackage(destination, resolve(demo, "assets/playground-cooked"));
 console.log(
   JSON.stringify(
     {

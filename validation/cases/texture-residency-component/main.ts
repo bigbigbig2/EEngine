@@ -11,6 +11,7 @@ import { ShadeImage } from "../../../OEngine/src/texture/ShadeImage.ts";
 import { ShadeTexture } from "../../../OEngine/src/texture/ShadeTexture.ts";
 import { StandardShadeMaterial } from "../../../OEngine/src/material/StandardShadeMaterial.ts";
 import { prepareMaterialTextureProducts } from "../../../OEngine/src/assets/PcMaterialTextures.ts";
+import { validationImageKernels } from "../../harness/image-kernels.ts";
 import {
   AppearanceGraphBuilder,
   snapshotAppearanceTexture,
@@ -24,6 +25,7 @@ let device: GPUDevice | undefined;
 let graphics: GraphicsContext | undefined;
 let errors: ReturnType<typeof attachGpuErrorCollection> | undefined;
 let intentionalLoss = false;
+let material: StandardShadeMaterial | undefined;
 const buffers: GPUBuffer[] = [];
 const controller = createValidationController(
   {
@@ -33,6 +35,7 @@ const controller = createValidationController(
   async () => {
     if (device) await device.queue.onSubmittedWorkDone();
     graphics?.destroy();
+    material?.texture_albedo?.image_source?.close();
     buffers.splice(0).forEach((buffer) => buffer.destroy());
     errors?.remove();
     intentionalLoss = true;
@@ -54,7 +57,7 @@ try {
     });
     device = await adapter.requestDevice({ requiredFeatures: ["texture-compression-bc"] });
     errors = attachGpuErrorCollection(device, controller, () => intentionalLoss);
-    graphics = new GraphicsContext(device);
+    graphics = new GraphicsContext(device, undefined, {}, undefined, undefined, await validationImageKernels());
     controller.transition("ready");
     const pixels = new Uint8Array(128 * 128 * 4);
     for (let y = 0; y < 128; y++) {
@@ -65,13 +68,25 @@ try {
         );
       }
     }
-    const material = new StandardShadeMaterial();
+    material = new StandardShadeMaterial();
     material.is_unlit = true;
     material.texture_albedo = ShadeTexture.from(ShadeImage.fromArrayBuffer(pixels, 4, "uint8", 128, 128));
     await prepareMaterialTextureProducts([material]);
     const residency = graphics.texture_residency;
+    await residency.prepare();
     const upload = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
     const stage = residency.stage([material], upload);
+    await residency.uploadImages([material], upload, async (record) => {
+      const batch = ShadeGPUCommandContext.create(graphics!, "Renderer/hidden-image-batch");
+      try {
+        record(batch);
+        batch.finish();
+        await batch.gpuDone;
+      } catch (error) {
+        if (!batch.closed) batch.abort(error);
+        throw error;
+      }
+    });
     upload.finish();
     await upload.gpuDone;
     controller.transition("warming");
@@ -85,9 +100,9 @@ try {
         program: lowerNativeMaterial(graph),
         group: 1,
         bindingSet: stage.bindings.bindingSets.find(
-          (set) => set.id === stage.materialBindingSetIds.get(material),
+          (set) => set.id === stage.materialBindingSetIds.get(material!),
         )!,
-        textureRoutingRefs: stage.materialTextureRoutingRefs.get(material)!,
+        textureRoutingRefs: stage.materialTextureRoutingRefs.get(material!)!,
         textureMipRanges: stage.textureMipRanges,
         texturePublications: stage.surfacePublications,
         obtainSampler: (descriptor) => graphics!.samplers.obtain(descriptor),
@@ -158,19 +173,14 @@ ${binding.program.source}
       return values;
     };
     controller.transition("sampling");
-    const tail = await sample();
-    const promotion = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
-    residency.promote([material], promotion);
-    promotion.finish();
-    await promotion.gpuDone;
-    const promoted = await sample();
+    const first = await sample();
+    const repeated = await sample();
     if (
-      tail.some((value) => !Number.isFinite(value)) ||
-      promoted.some((value) => !Number.isFinite(value)) ||
-      promoted[1]! < 0.98 ||
-      tail[1]! > 0.2
+      first.some((value) => !Number.isFinite(value)) ||
+      repeated.some((value) => !Number.isFinite(value)) ||
+      first[1]! < 0.98 || repeated.some((value, index) => value !== first[index])
     )
-      throw new Error("Native BC sampling did not observe mip promotion");
+      throw new Error("Native BC sampling did not consume the complete image publication");
     const before = residency.evidence();
     const release = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
     residency.release([material], release);
@@ -182,14 +192,14 @@ ${binding.program.source}
     if (after.allocatedBytes || after.residentTextureCount || after.retiringTextureCount)
       throw new Error("Fenced BC residency did not clear");
     controller.addEvidence("sampling", {
-      tail,
-      promoted,
+      first,
+      repeated,
       before,
       after,
-      format: "bc7-rgba-unorm-srgb",
+      format: "bc7-rgb-unorm-srgb",
       nativeConsumer: true,
     });
-    controller.addEvidence("readback", { bytes: 32, matches: true, tail, promoted });
+    controller.addEvidence("readback", { bytes: 32, matches: true, first, repeated });
     controller.transition("draining");
     if (status) status.textContent = "passed";
     controller.pass();

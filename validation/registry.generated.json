@@ -173,7 +173,8 @@
       "changedPaths": [
         "validation/cases/texture-compression-acceptance",
         "validation/workloads/texture-compression-acceptance-v1.yaml",
-        "OEngine/src/assets/TextureProduct.ts",
+        "OEngine/src/assets/ImageTextureProduct.ts",
+        "OEngine/src/gpu/ImageTextureTranscoder.ts",
         "OEngine/src/gpu/TextureResidency.ts",
         "OEngine/src/render/pipeline/RendererCore.ts"
       ],
@@ -208,9 +209,10 @@
       "caseKind": "component",
       "changedPaths": [
         "validation/cases/texture-residency-component",
-        "OEngine/src/assets/TextureProduct.ts",
+        "OEngine/src/assets/ImageTextureProduct.ts",
         "OEngine/src/assets/PcMaterialTextures.ts",
-        "OEngine/src/assets/codec/PcTexturePreparation.ts",
+        "OEngine/src/assets/codec/CookedAssetPreparation.ts",
+        "OEngine/src/gpu/ImageTextureTranscoder.ts",
         "OEngine/src/gpu/TextureResidency.ts",
         "OEngine/src/gpu/GpuTextureRefAbi.ts",
         "OEngine/src/gpu/GpuMaterialVisibilityAbi.ts"
@@ -857,14 +859,14 @@
       "cameraPath": "dungeon-static-motion-resize-recovery-v1",
       "deviceScaleFactor": 1,
       "features": [
-        "web-cook",
-        "multi-product-runtime",
+        "offline-image-scene",
+        "product-runtime",
         "visibility",
         "native-surface",
         "vsm",
         "temporal",
         "fsr",
-        "bc-texture-products"
+        "image-gpu-bc"
       ],
       "geometry": {
         "catalogCoverage": "all-primitives",
@@ -878,7 +880,7 @@
       },
       "id": "texture-compression-acceptance-v1",
       "independentRuns": 1,
-      "quality": "complete-authored-original-2k-bc7-quality6-native-v4",
+      "quality": "complete-authored-original-2k-avif-spark-gpu-high-soa4",
       "renderScale": 1,
       "resolution": [
         1920,
@@ -889,8 +891,8 @@
       "seed": 4300,
       "texture": {
         "authoredResolution": 2048,
-        "cookedTranscode": 0,
         "requiredFeature": "texture-compression-bc",
+        "runtimeEncoding": "spark-gpu-bc",
         "sourceImages": 25,
         "sourceTextures": 25
       },
@@ -905,7 +907,7 @@
       ],
       "id": "texture-residency-component-v1",
       "independentRuns": 1,
-      "quality": "adr-0016-mode-a-texture-v1",
+      "quality": "schema4-image-gpu-bc-complete-resident-v1",
       "renderScale": 1,
       "resolution": [
         1280,

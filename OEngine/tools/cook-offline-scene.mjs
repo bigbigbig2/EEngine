@@ -143,12 +143,15 @@ async function textureTask(taskPath) {
   });
   let result;
   try {
-    result = await optimizeImage(request, dirname(task.output), evaluator, { trace: task.trace ?? null });
+    result = await optimizeImage(request, dirname(task.output), evaluator, {
+      trace: task.trace ?? null,
+      onCandidate: (value) => log({ phase: "candidate", image: task.imageIndex, ...value })
+    });
   } finally {
     await evaluator.close();
   }
   const identity = hash(result.bytes);
-  await writeJson(task.output + ".receipt.json", {
+  const receipt = {
     imageIndex: task.imageIndex,
     encodedHash: hash(encoded),
     identity,
@@ -159,11 +162,16 @@ async function textureTask(taskPath) {
     searchIdentity: result.report.identity,
     searchReport: result.reportName,
     searchReportHash: hash(await readFile(join(dirname(task.output), result.reportName)))
-  });
+  };
+  // Scene manifests reference immutable product directories. The local search
+  // checkpoint may change during a recook without invalidating a live scene.
+  const directoryName = `directory-${identity}.json`;
+  await writeFile(join(dirname(task.output), directoryName), result.bytes);
+  await writeJson(task.output + ".receipt.json", receipt);
   log({ phase: "image", image: task.imageIndex, bytes: result.bytes.length });
 }
 
-async function cookScene(input, output, workers, tiled = false) {
+async function cookScene(input, output, workers, tiled = false, publishOnly = false) {
   await verifyTestBuild(root);
   const started = performance.now();
   await mkdir(output, { recursive: true });
@@ -351,7 +359,7 @@ async function cookScene(input, output, workers, tiled = false) {
     completed = 0;
   log({ phase: "textures", state: "cooking", tasks: list.length, sourceImages: cookedImages.size, workers });
   let textureFailure;
-  await Promise.all(
+  if (!publishOnly) await Promise.all(
     Array.from({ length: workers }, async (_, slot) => {
       const scratch = join(output, ".scratch", String(process.pid), String(slot));
       await mkdir(scratch, { recursive: true });
@@ -361,7 +369,7 @@ async function cookScene(input, output, workers, tiled = false) {
         await mkdir(dirname(task.output), { recursive: true });
         await writeJson(path, task);
         try {
-          await run(process.execPath, [self, "--texture-task", path]);
+          await run(process.execPath, [self, "--texture-task", path], (line) => process.stdout.write(line));
         } catch (error) {
           textureFailure ??= error;
           return;
@@ -388,6 +396,20 @@ async function cookScene(input, output, workers, tiled = false) {
   );
   if (textureFailure) throw textureFailure;
   const receipts = await Promise.all([...tasks.values()].map((task) => json(task.output + ".receipt.json")));
+  for (let index = 0; index < list.length; index++) {
+    const task = list[index][1], receipt = receipts[index];
+    if (receipt.encodedHash !== hash(await range(input, task.offset, task.length)) ||
+        receipt.directory.quality !== task.quality || receipt.directory.planes[0].mode !== (task.virtual ? "virtual" : "resident")) {
+      throw new Error("Completed image checkpoint differs from the requested source/profile");
+    }
+    const reportBytes = await readFile(join(dirname(task.output), receipt.searchReport));
+    const report = JSON.parse(reportBytes);
+    if (hash(reportBytes) !== receipt.searchReportHash || report.identity !== receipt.searchIdentity ||
+        report.report.rows.length !== (tiled ? 60 : 20) || !report.report.selected.accepted ||
+        !report.report.selected.evaluation.hardSemantics || report.report.selected.evaluation.inputHash !== receipt.identity) {
+      throw new Error("Completed image checkpoint lacks the complete qualified search");
+    }
+  }
   const triangles = document.meshes.reduce(
     (sum, mesh) =>
       sum +
@@ -397,6 +419,30 @@ async function cookScene(input, output, workers, tiled = false) {
       ),
     0
   );
+  const geometryManifestBytes = await readFile(join(output, "scene.oescene"));
+  const geometryManifestHash = hash(geometryManifestBytes);
+  const geometryManifest = `scene-${geometryManifestHash}.oescene`;
+  await writeFile(join(output, geometryManifest), geometryManifestBytes);
+  const productUris = receipts.map((receipt, index) =>
+    `textures/${list[index][0]}/directory-${receipt.identity}.json`
+  );
+  const receiptUris = await Promise.all(receipts.map(async (receipt, index) => {
+    const bytes = JSON.stringify(receipt, null, 2) + "\n";
+    const uri = `textures/${list[index][0]}/receipt-${hash(bytes)}.json`;
+    await writeFile(join(output, uri), bytes);
+    // Revalidate every completed checkpoint before publishing the scene root.
+    const directory = await readFile(join(output, `textures/${list[index][0]}/directory.json`));
+    if (hash(directory) !== receipt.identity) throw new Error("Completed image directory changed before scene publication");
+    await writeFile(join(output, productUris[index]), directory);
+    return uri;
+  }));
+  const publishedBindings = bindings.map((material) => Object.fromEntries(
+    Object.entries(material).map(([property, binding]) => {
+      const index = list.findIndex(([, task]) => relative(output, task.output).replaceAll("\\", "/") === binding.uri);
+      if (index < 0) throw new Error("Material binding has no completed image product");
+      return [property, { ...binding, uri: productUris[index] }];
+    })
+  ));
   const result = {
     schema: "oengine-image-scene-materials-v2",
     source: {
@@ -411,16 +457,17 @@ async function cookScene(input, output, workers, tiled = false) {
       images: document.images.length,
       cookedImages: cookedImages.size
     },
-    geometryManifest: "scene.oescene",
-    geometryManifestHash: hash(await readFile(join(output, "scene.oescene"))),
+    geometryManifest,
+    geometryManifestHash,
     gltf: { materials: document.materials, textures: document.textures, samplers: document.samplers },
-    bindings,
+    bindings: publishedBindings,
     instanceMaterials,
     instanceProfiles,
     products: receipts.map((receipt, index) => ({
-      uri: `textures/${list[index][0]}/directory.json`,
+      uri: productUris[index],
       identity: receipt.identity,
       byteLength: receipt.byteLength,
+      receipt: receiptUris[index],
       searchReport: `textures/${list[index][0]}/${receipt.searchReport}`,
       searchReportHash: receipt.searchReportHash
     })),
@@ -449,7 +496,7 @@ try {
     const output = resolve(process.argv[3] ?? resolve(root, ".local/models/bistro-cooked"));
     const workers = Number(process.argv[4] ?? 4);
     if (!Number.isInteger(workers) || workers < 1 || workers > 8) throw new Error("Workers must be 1..8");
-    await cookScene(input, output, workers, process.argv.includes("--vt"));
+    await cookScene(input, output, workers, process.argv.includes("--vt"), process.argv.includes("--publish-only"));
   }
 } catch (error) {
   console.error(error.stack ?? error);

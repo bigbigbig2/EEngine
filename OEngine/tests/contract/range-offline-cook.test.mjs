@@ -140,6 +140,9 @@ test("range native cook matches uncompressed geometry and preserves materials, i
   );
   assert.deepEqual(scenes[0], scenes[1], "compression must not change cooked asset or scene identity");
   const materials = JSON.parse(await readFile(join(compressedOut, "scene.materials.json"), "utf8"));
+  assert.equal(materials.schema, "oengine-image-scene-materials-v2");
+  assert.equal(materials.source.cookedImages, 0);
+  assert.ok(scenes.every((scene) => scene.schema === "oengine-scene-v4"));
   assert.deepEqual(materials.instanceMaterials, [0, 1, 0, 1]);
   assert.deepEqual(
     scenes[1].instances.map((i) => i.transform.slice(12, 15)),

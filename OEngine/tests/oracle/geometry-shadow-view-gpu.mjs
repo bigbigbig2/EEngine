@@ -16,6 +16,7 @@ import { decodeFloat16 } from "../../.test-dist/core/Float16.js";
 import { GPU_COUNTER_BYTE_SIZE, counterByteOffset } from "../../.test-dist/debug/GpuFrameCounters.js";
 import { authoredTexture } from "./native-surface-production-gpu.mjs";
 import { VsmCasterRecordPass } from "../../.test-dist/render/vsm/VsmCasterRecordPass.js";
+import { evaluationImageKernels } from "./texture-fixture.mjs";
 
 import { runVsmR3GpuOracle as checkCasterHeaders } from "./vsm-v4-r3-gpu.mjs";
 
@@ -25,6 +26,7 @@ export async function runGeometryShadowViewGpuOracle() {
   const width = 384,
     height = 224;
   const renderer = new Renderer({
+    imageTextureKernels: await evaluationImageKernels(),
     autoExposure: false,
     fixedExposure: 1,
     requiredFeatures: ["timestamp-query"]
