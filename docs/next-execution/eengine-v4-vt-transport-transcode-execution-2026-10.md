@@ -1,6 +1,7 @@
 ---
 id: eengine-v4-vt-transport-transcode-execution-2026-10
-state: current
+state: history
+supersededBy: eengine-web-asset-delivery-residency-execution-2026-10.md
 verifies:
   files:
     - docs/next-design/eengine-v4-vt-transport-transcode-2026-10.md
@@ -40,6 +41,8 @@ verifies:
 ---
 
 # VT 细页无损传输压缩执行文档
+
+2026-10-20 后续授权说明：本文保留已完成模块的实施、验证、成本与未运行范围，不再作为新模块执行入口。当前计划见[Web 资产传输与 GPU 紧凑驻留执行](eengine-web-asset-delivery-residency-execution-2026-10.md)；旧结果不被追认为新方案结果。
 
 唯一详细目标为[设计文档](../next-design/eengine-v4-vt-transport-transcode-2026-10.md)。本版已明确选择 **BC 细页逐页 Zstd → 现有 Worker 解压 → 原有 VT 上传事务**，不再安排泛泛的候选技术研究，也不实施图片解码和 GPU 重编码。
 

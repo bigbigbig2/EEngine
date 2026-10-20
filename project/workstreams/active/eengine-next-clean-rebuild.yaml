@@ -11,8 +11,8 @@ roadmap:
   execution: docs/next-execution/eengine-feature-expansion-execution-2026-10.md
 # Only the selected module pair is the current authority; roadmap remains stable.
 authority:
-  design: docs/next-design/eengine-v4-vt-transport-transcode-2026-10.md
-  execution: docs/next-execution/eengine-v4-vt-transport-transcode-execution-2026-10.md
+  design: docs/next-design/eengine-web-asset-delivery-residency-2026-10.md
+  execution: docs/next-execution/eengine-web-asset-delivery-residency-execution-2026-10.md
 goal: >-
   Build an extreme-performance GPU-driven WebGPU-native AAA renderer for
   scalable GPUs, including measured low-memory profiles without a 4GB large-scene guarantee. Follow global V4 invariants
@@ -25,15 +25,17 @@ goal: >-
   historical measurements retain their original device and thermal-state identity.
 
 currentSlice:
-  id: vt-lossless-transport
-  title: VT fine-page lossless transport compression
-  status: completed
+  id: web-asset-delivery-residency
+  title: Web asset delivery and compact GPU residency design
+  status: design-ready
   goal: >-
-    Follow the user's explicit authorization for the two VT transport units.
-    Keep one schema-2 BC/Zstd product path through the existing Worker and VT
-    upload transaction, validate actual bytes, lifecycle, capacity and cost,
-    then stop at this module boundary. Unit results live only in the execution
-    document. Do not automatically resume SCGI or claim whole-renderer performance.
+    Follow the user's 2026-10-20 authorization for final design and execution
+    preparation only. Separate network representation from compact GPU residency,
+    cover ordinary and virtual textures, and define complete geometry ABI cutovers.
+    Build new closures off the production boundary, switch all direct consumers
+    atomically, and delete replaced contracts without legacy bridges or fallbacks.
+    Implementation and recooking require subsequent authorization; unit details
+    live only in the execution document. Do not automatically resume other effects.
 
 pausedModules:
   - id: surface-cache-gi
