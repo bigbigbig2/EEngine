@@ -25,6 +25,8 @@ export interface ImageTextureCookRequest {
   readonly mips: "runtime" | "provided";
   readonly inputs: readonly CanonicalImageMip[];
   readonly toolHash: string;
+  /** Optional offline canonical decoder/filter build identity, before AVIF. */
+  readonly canonicalToolHash?: string;
   readonly scalarChannel?: 0 | 1 | 2 | 3;
   readonly exactCoverage?: readonly CanonicalImageMip[];
   /** Production alpha dependencies stay resident even when RGB is virtual.
@@ -61,6 +63,7 @@ export async function cookImageTexture(
   checkedImageInteger(base.width, 1, 65536);
   checkedImageInteger(base.height, 1, 65536);
   checkedImageHash(request.toolHash);
+  if (request.canonicalToolHash !== undefined) checkedImageHash(request.canonicalToolHash);
   imageTarget(request.semantic);
   if (
     !["runtime", "provided"].includes(request.mips) ||
@@ -199,7 +202,7 @@ export async function cookImageTexture(
             width,
             height,
             kind: exact ? "exact" : "image",
-              codec: exact ? "raw" : (sink.imageCodec ?? "avif"),
+            codec: exact ? "raw" : (sink.imageCodec ?? "avif"),
             bytes: payload.byteLength,
             decodedBytes: width * height * (exact ? 1 : 4),
             sha256,

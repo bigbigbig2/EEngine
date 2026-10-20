@@ -26,7 +26,7 @@ import { encodeGpuTextureRef } from "../../.test-dist/gpu/GpuTextureRefAbi.js";
 import { lowerNativeMaterial } from "../../.test-dist/shaders/native_material.js";
 import { triangleProductFixture } from "../helpers/geometry-product-fixture.mjs";
 import { scgiGraphics, scgiCommand } from "./scgi-fixture.mjs";
-import { sourceFixture } from "./streaming-vt-gpu.mjs";
+import { sourceFixture, prepareFixtureImageEncoding, fixtureImageBatch } from "./texture-fixture.mjs";
 
 const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 const tick = () => new Promise((resolve) => setTimeout(resolve, 1));
@@ -80,7 +80,7 @@ async function checkFullDescriptors(device, graphics, scene, batch, output, tile
     // Both VT sampler classes share the existing table/atlas: 14+2 textures,
     // and six ordinary + two VT samplers is the RGB Native route maximum.
     for (const filter of [0, 1]) {
-      const texture = ShadeTexture.fromTiled(tiled);
+      const texture = ShadeTexture.fromImageSource(tiled);
       texture.minFilter = texture.magFilter = filter;
       publications.set(texture, publication);
       add(texture);
@@ -190,7 +190,7 @@ export async function runScgiQueryVtGpuOracle(device) {
   try {
     cold = await sourceFixture();
     const material = new StandardShadeMaterial();
-    material.texture_occlusion = ShadeTexture.fromTiled(cold.source);
+    material.texture_occlusion = ShadeTexture.fromImageSource(cold.source);
     const graph = new AppearanceGraphBuilder();
     const uv = graph.input("uv0", 2, "surface", undefined, "uv0");
     const sample = graph.texture(snapshotAppearanceTexture(material.texture_occlusion, "linear-rgb"), uv);
@@ -248,8 +248,10 @@ export async function runScgiQueryVtGpuOracle(device) {
       },
       upload,
     );
+    await prepareFixtureImageEncoding(graphics);
+    await textures.prepare();
     const stage = textures.stage([material], upload);
-    await textures.uploadTiled([material], upload);
+    await textures.uploadImages([material], upload, (record) => fixtureImageBatch(graphics, record));
     native = new GpuNativeMaterialScene(
       graphics,
       [

@@ -67,17 +67,6 @@ export const oracles = Object.freeze([
     note: "Pinned local evaluation shaders only, not production vendor/adoption. Generate E1 fixtures first."
   }),
   Object.freeze({
-    name: "web-asset-u0",
-    file: "OEngine/tools/web-asset-u0/browser.mjs",
-    url: "/OEngine/tools/web-asset-u0/browser.mjs",
-    entry: "runWebAssetU0",
-    requiredFeatures: ["texture-compression-bc", "shader-f16"],
-    timeoutMs: 180000,
-    allowPrefixes: ["OEngine/tools/web-asset-u0/", ".local/web-asset-u0/", ".local/texture-design-spark/src/shaders/"],
-    description: "Isolated U0 Worker XUBC7, BC7 GPU consumption, unchanged Spark evaluation and compact geometry probes.",
-    note: "Reference-only feasibility; no production owner or source-adoption claim. Generate local fixtures first."
-  }),
-  Object.freeze({
     name: "scgi-gather-materials",
     file: "OEngine/tests/oracle/scgi-gather-materials-gpu.mjs",
     url: "/OEngine/tests/oracle/scgi-gather-materials-gpu.mjs",
@@ -104,7 +93,7 @@ export const oracles = Object.freeze([
     entry: "runScgiProductionGpuOracle",
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     timeoutMs: 180000,
-    allowPrefixes: ["OEngine/src/render/assets/", "OEngine/src/assets/web-cook/wasm/vendor/"],
+    allowPrefixes: [".local/extreme-web-asset/", "OEngine/src/render/assets/", "OEngine/src/assets/web-cook/wasm/vendor/"],
     description: "SCGI-8 public Renderer, Product, transport, field and Native consumption."
   }),
   Object.freeze({
@@ -132,6 +121,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/scgi-query-vt-gpu.mjs",
     url: "/OEngine/tests/oracle/scgi-query-vt-gpu.mjs",
     entry: "runScgiQueryVtGpuOracle",
+    allowPrefixes: [".local/extreme-web-asset/"],
     requiredFeatures: ["texture-compression-bc"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     timeoutMs: 120000,
@@ -204,32 +194,6 @@ export const oracles = Object.freeze([
     timeoutMs: 60000,
     description:
       "Real 65537-page overflow, lossless bitset recovery, wanted/used dedup and delayed full ring."
-  }),
-  Object.freeze({
-    name: "streaming-vt-filter",
-    file: "OEngine/tests/oracle/streaming-vt-filter-gpu.mjs",
-    url: "/OEngine/tests/oracle/streaming-vt-filter-gpu.mjs",
-    entry: "runStreamingVtFilterGpuOracle",
-    requiredFeatures: ["texture-compression-bc"],
-    requiredLimits: { maxStorageBuffersPerShaderStage: 16, maxSampledTexturesPerShaderStage: 19 },
-    timeoutMs: 180000,
-    description:
-      "Independent cold-tile reconstruction versus production VT lookup, filtering, wrap and fallback."
-  }),
-  Object.freeze({
-    name: "streaming-vt",
-    file: "OEngine/tests/oracle/streaming-vt-gpu.mjs",
-    url: "/OEngine/tests/oracle/streaming-vt-gpu.mjs",
-    entry: "runStreamingVtGpuOracle",
-    requiredFeatures: ["texture-compression-bc", "texture-formats-tier1"],
-    requiredLimits: { maxStorageBuffersPerShaderStage: 16, maxSampledTexturesPerShaderStage: 19 },
-    allowPrefixes: [
-      "OEngine/src/render/assets/textures/",
-      "OEngine/src/render/assets/sssr/",
-      "OEngine/src/assets/web-cook/wasm/vendor/"
-    ],
-    timeoutMs: 180000,
-    description: "Small real Native VT bootstrap, feedback, normal-frame refinement and full 16-SSBO shader."
   }),
   Object.freeze({
     name: "sssr-production",
@@ -313,6 +277,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     entry: "runFinalPixelSeedQualityGpuOracle",
+    allowPrefixes: [".local/extreme-web-asset/"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     requiredFeatures: ["texture-compression-bc", "texture-formats-tier1"],
     description:
@@ -344,6 +309,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
     url: "/OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
     entry: "runFinalPixelSeedEpochGpuOracle",
+    allowPrefixes: [".local/extreme-web-asset/"],
     description:
       "Real Seed producer/consumer and pending resize released on controlled device destruction, fresh invalid histories on two epochs.",
     timeoutMs: 120000
@@ -362,6 +328,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
     url: "/OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
     entry: "runFinalPixelPhase1GpuOracle",
+    allowPrefixes: [".local/extreme-web-asset/"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     requiredFeatures: ["texture-formats-tier1", "texture-compression-bc"],
     timeoutMs: 300000,
@@ -373,6 +340,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
     url: "/OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
     entry: "runFinalPixelPhase1GpuOracle",
+    allowPrefixes: [".local/extreme-web-asset/"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16, maxSampledTexturesPerShaderStage: 19 },
     requiredFeatures: ["texture-formats-tier1", "texture-compression-bc"],
     timeoutMs: 300000,
@@ -384,6 +352,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
     url: "/OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
     entry: "runFinalPixelBindingBoundaryGpuOracle",
+    allowPrefixes: [".local/extreme-web-asset/"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     description:
       "The old sampled-limit counterexample compiles with fused Sun at the negotiated minimum limit, without continuation.",
@@ -433,6 +402,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
     url: "/OEngine/tests/oracle/final-pixel-phase1-gpu.mjs",
     entry: "runFinalPixelTemporalWriterGpuOracle",
+    allowPrefixes: [".local/extreme-web-asset/"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     requiredFeatures: ["texture-compression-bc", "texture-formats-tier1"],
     timeoutMs: 180000,
@@ -568,7 +538,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",
     entry: "runNativeSurfaceAuthoredIblProductionGpuOracle",
-    allowPrefixes: ["OEngine/src/render/assets/", "validation/tools/dungeon-gpu-audit.mjs"],
+    allowPrefixes: [".local/extreme-web-asset/", "OEngine/src/render/assets/", "validation/tools/dungeon-gpu-audit.mjs"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     requiredFeatures: ["texture-formats-tier1"],
     description:
@@ -731,17 +701,6 @@ export const oracles = Object.freeze([
       "Production identity/coverage/jittered motion and shared conservative LOD anchor numeric contract."
   }),
   Object.freeze({
-    name: "pc-texture-residency",
-    file: "OEngine/tests/oracle/pc-texture-residency-gpu.mjs",
-    url: "/OEngine/tests/oracle/pc-texture-residency-gpu.mjs",
-    entry: "runPcTextureResidencyGpuOracle",
-    requiredFeatures: ["texture-compression-bc"],
-    requiredLimits: { maxSampledTexturesPerShaderStage: 19, maxStorageBuffersPerShaderStage: 10 },
-    description:
-      "T4.2 sole BC Residency, NPOT/R8/scalar routes, actual native sampling, abort/promotion/fenced zero.",
-    timeoutMs: 120000
-  }),
-  Object.freeze({
     name: "texture-renderer",
     file: "OEngine/tests/oracle/texture-renderer-gpu.mjs",
     url: "/OEngine/tests/oracle/texture-renderer-gpu.mjs",
@@ -752,36 +711,6 @@ export const oracles = Object.freeze([
       "OEngine/src/assets/web-cook/wasm/vendor/"
     ],
     description: "Complete small authored dungeon Renderer, original 25 textures, 1080p.",
-    timeoutMs: 1800000
-  }),
-  Object.freeze({
-    name: "pc-texture-recovery",
-    file: "OEngine/tests/oracle/pc-texture-product-gpu.mjs",
-    url: "/OEngine/tests/oracle/pc-texture-product-gpu.mjs",
-    entry: "runPcTextureRecoveryGpuOracle",
-    requiredFeatures: ["texture-compression-bc", "float32-filterable"],
-    description:
-      "T4.1 affected replay validation: controlled device destroy, fresh adapter, disk Product and exact coverage/native sampling.",
-    timeoutMs: 180000
-  }),
-  Object.freeze({
-    name: "pc-texture-import",
-    file: "OEngine/tests/oracle/pc-texture-import-gpu.mjs",
-    url: "/OEngine/tests/oracle/pc-texture-import-gpu.mjs",
-    entry: "runPcTextureImportGpuOracle",
-    requiredFeatures: ["texture-compression-bc"],
-    description:
-      "T4.1 real browser KTX Worker, ETC1S/UASTC/Zstd, full mips, compressed array decode and failed-import retry.",
-    timeoutMs: 180000
-  }),
-  Object.freeze({
-    name: "pc-texture-product",
-    file: "OEngine/tests/oracle/pc-texture-product-gpu.mjs",
-    url: "/OEngine/tests/oracle/pc-texture-product-gpu.mjs",
-    entry: "runPcTextureProductGpuOracle",
-    requiredFeatures: ["texture-compression-bc", "float32-filterable"],
-    description:
-      "T4.1 non-production BC product/full mips/NPOT/native evaluator/coverage/Worker and new-device replay.",
     timeoutMs: 1800000
   }),
   Object.freeze({
@@ -831,6 +760,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     entry: "runLocalLightIntegrationGpuOracle",
+    allowPrefixes: [".local/extreme-web-asset/"],
     requiredFeatures: ["texture-compression-bc", "texture-formats-tier1"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     description:
@@ -842,6 +772,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     entry: "runLocalLightEpochGpuOracle",
+    allowPrefixes: [".local/extreme-web-asset/"],
     requiredFeatures: ["texture-compression-bc", "texture-formats-tier1"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     description: "Local-light old epoch teardown, rejection and complete new device reconstruction.",
@@ -945,7 +876,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",
     entry: "runNativeSurfaceMultiProductProductionGpuOracle",
-    allowPrefixes: [
+    allowPrefixes: [".local/extreme-web-asset/",
       "OEngine/src/render/assets/",
       "OEngine/src/assets/web-cook/wasm/vendor/",
       "validation/tools/dungeon-gpu-audit.mjs"
@@ -973,7 +904,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",
     entry: "runNativeSurfaceProductProductionGpuOracle",
-    allowPrefixes: [
+    allowPrefixes: [".local/extreme-web-asset/",
       "OEngine/src/render/assets/",
       "OEngine/src/assets/web-cook/wasm/vendor/",
       "validation/tools/dungeon-gpu-audit.mjs"
@@ -989,7 +920,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",
     entry: "runNativeSurfaceProductionGpuOracle",
-    allowPrefixes: ["OEngine/src/render/assets/", "validation/tools/dungeon-gpu-audit.mjs"],
+    allowPrefixes: [".local/extreme-web-asset/", "OEngine/src/render/assets/", "validation/tools/dungeon-gpu-audit.mjs"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     requiredFeatures: ["texture-formats-tier1"],
     description:
@@ -1002,7 +933,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",
     entry: "runFinalPixelFeatureDemandGpuOracle",
-    allowPrefixes: ["OEngine/src/render/assets/", "validation/tools/dungeon-gpu-audit.mjs"],
+    allowPrefixes: [".local/extreme-web-asset/", "OEngine/src/render/assets/", "validation/tools/dungeon-gpu-audit.mjs"],
     description:
       "Actual no-Physical-Sun and capability-projected bounded Renderer demand/domain/retirement closure.",
     timeoutMs: 180000
@@ -1012,6 +943,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     entry: "runNativeSurfaceResourceProfileGpuOracle",
+    allowPrefixes: [".local/extreme-web-asset/"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     requiredFeatures: ["texture-compression-bc", "texture-formats-tier1"],
     description:
@@ -1023,6 +955,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     entry: "runNativeSurfaceDeviceEpochGpuOracle",
+    allowPrefixes: [".local/extreme-web-asset/"],
     description:
       "S1 controlled device destruction and native subsystem reconstruction on two independent device epochs.",
     timeoutMs: 120000
@@ -1044,6 +977,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     entry: "runNativeSurfaceCostGpuOracle",
+    allowPrefixes: [".local/extreme-web-asset/"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     requiredFeatures: ["texture-compression-bc", "texture-formats-tier1", "timestamp-query"],
     description: "S1 isolated 1080p native multi-route/Temporal/FSR cost; not production acceptance.",
@@ -1054,6 +988,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     entry: "runNativeSurfacePerspectiveGpuOracle",
+    allowPrefixes: [".local/extreme-web-asset/"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     requiredFeatures: ["texture-compression-bc", "texture-formats-tier1"],
     description: "S1 perspective reconstruction, physical sun math and real GPU exposure update.",
@@ -1073,6 +1008,7 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     entry: "runNativeSurfaceIntegrationGpuOracle",
+    allowPrefixes: [".local/extreme-web-asset/"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     requiredFeatures: ["texture-compression-bc", "texture-formats-tier1"],
     description: "S1 isolated native winner/material/HDR/Temporal/FSR chain; no production cutover.",

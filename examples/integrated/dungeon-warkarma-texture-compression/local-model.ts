@@ -84,7 +84,7 @@ export function dungeonLocalModel(examplesRoot: string): Plugin {
         for (const entry of await readdir(directory, { withFileTypes: true })) {
           const path = resolve(directory, entry.name);
           if (entry.isDirectory()) await emitDirectory(path);
-          else
+          else if (/\.(?:glb|gltf|oegpack|oescene|json|avif|png|bin|hdr|jpg|jpeg|webp)$/u.test(entry.name))
             this.emitFile({
               type: "asset",
               fileName: assetRoute.slice(1) + relative(root, path).replaceAll("\\", "/"),

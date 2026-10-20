@@ -6,21 +6,22 @@ import { resolve, relative, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { verifyTestBuild } from "../../tools/test-build.mjs";
-import { nativeBcCalls } from "./offline-bc-calls.mjs";
+import { resampleOfflineImage } from "./offline-image-resample.mjs";
 import { nativeCook } from "./extreme-web-asset/cook.mjs";
 import { imageMipCount } from "../.test-dist/assets/ImageTextureProduct.js";
 import {
   MATERIAL_TEXTURE_PROPERTIES,
   materialTextureSemantic,
+  materialTextureLeaves,
 } from "../.test-dist/assets/PcMaterialTextures.js";
 import { parseGltfMaterial } from "../.test-dist/loaders/gltf/gltfMaterials.js";
 import { textureFromGltf } from "../.test-dist/loaders/gltf/gltfTextures.js";
 import { ShadeImage } from "../.test-dist/texture/ShadeImage.js";
-import { ShadeTransparencyMode } from "../.test-dist/material/enums.js";
+import { compileCanonicalMaterial } from "../.test-dist/material/CanonicalMaterial.js";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const self = fileURLToPath(import.meta.url);
-const executable = resolve(root, ".local/t4-1-codec-build/bc-reference.exe");
+const executable = resolve(root, ".local/image-resample-build/image-resample.exe");
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const MiB = 1024 * 1024;
 const json = async (path) => JSON.parse(await readFile(path, "utf8"));
@@ -82,27 +83,18 @@ async function textureTask(taskPath) {
   }
   const provided = task.virtual || task.options.exactAlpha || semantic === "moment-xyz" || Math.max(base.width, base.height) > 2048;
   const inputs = [base];
+  let canonicalToolHash;
   if (provided) {
     const scratch = dirname(taskPath);
-    const native = nativeBcCalls(executable, scratch);
+    const filterBuild = await json(executable + ".json");
+    if (filterBuild.binaryHash !== hash(await readFile(executable))) {
+      throw new Error("Offline canonical resampler build identity mismatch");
+    }
+    canonicalToolHash = hash(JSON.stringify({ filterBuild,
+      wrapper: hash(await readFile(new URL("./offline-image-resample.mjs", import.meta.url))) }));
     for (let level = 1; level < imageMipCount(base.width, base.height); level++) {
       const previous = inputs.at(-1);
-      const width = Math.max(1, Math.floor(previous.width / 2));
-      const height = Math.max(1, Math.floor(previous.height / 2));
-      let src = 0, dst = 0;
-      try {
-        src = native._malloc(previous.rgba.length);
-        dst = native._malloc(width * height * 4);
-        native.HEAPU8.set(previous.rgba, src);
-        if (native._bc_resample(src, previous.width, previous.height, dst, width, height,
-            Number(color), Number(semantic === "normal-xy")) !== 1) {
-          throw new Error("Canonical mip resampler failed");
-        }
-        inputs.push({ width, height, rgba: native.HEAPU8.slice(dst, dst + width * height * 4) });
-      } finally {
-        if (src) native._free(src);
-        if (dst) native._free(dst);
-      }
+      inputs.push(resampleOfflineImage(executable, scratch, previous, color, semantic === "normal-xy"));
     }
   }
   // Provided XY chains retain the canonical normal direction at each level.
@@ -123,7 +115,7 @@ async function textureTask(taskPath) {
   const result = await nativeCook({
     semantic, quality: "high", mode: task.virtual ? "virtual" : "resident",
     mips: provided ? "provided" : "runtime", inputs,
-    addressU: task.options.addressU, addressV: task.options.addressV,
+    addressU: task.options.addressU, addressV: task.options.addressV, canonicalToolHash,
     ...(task.options.exactAlpha ? { exactCoverage: inputs } : {}), cellSize: 512
   }, dirname(task.output));
   const identity = hash(result.bytes);
@@ -176,9 +168,10 @@ async function cookScene(input, output, workers, tiled = false) {
   const tasks = new Map();
   const bindings = materials.map((material) => {
     const result = {};
+    const live = new Set(materialTextureLeaves(material));
     for (const property of MATERIAL_TEXTURE_PROPERTIES) {
       const texture = material[property];
-      if (!texture) continue;
+      if (!texture || !live.has(texture)) continue;
       const textureIndex = textureIndices.get(texture);
       const imageIndex = document.textures[textureIndex].source;
       const image = document.images[imageIndex];
@@ -188,8 +181,9 @@ async function cookScene(input, output, workers, tiled = false) {
 
       const options = {
         semantic,
-        exactAlpha:
-          property === "texture_albedo" && material.transparency_mode !== ShadeTransparencyMode.Opaque,
+        exactAlpha: compileCanonicalMaterial(material).appearance.samples.some(
+          (sample) => sample.binding.texture === texture && (sample.readMask & 8) !== 0
+        ),
         addressU: ["clamp-to-edge", "repeat", "mirror-repeat"][texture.wrapS],
         addressV: ["clamp-to-edge", "repeat", "mirror-repeat"][texture.wrapT],
       };
@@ -204,7 +198,9 @@ async function cookScene(input, output, workers, tiled = false) {
           mimeType: image.mimeType,
           options,
           output: join(output, uri),
-          virtual: tiled && !options.exactAlpha,
+          // The canonical glTF graph reads alpha independently: RGB may be
+          // virtual while its exact alpha plane remains fully resident.
+          virtual: tiled,
         });
       }
       result[property] = { textureIndex, uri };
@@ -214,10 +210,6 @@ async function cookScene(input, output, workers, tiled = false) {
   const cookedImages = new Set([...tasks.values()].map((task) => task.imageIndex));
   // Canonical glTF alpha uses its exact R8 plane. Custom graphs must supply their
   // actual coverage closure to ImageTextureCook, rather than infer it from names.
-  if (cookedImages.size !== document.images.length)
-    throw new Error(
-      `Material importer uses ${cookedImages.size}/${document.images.length} images; cannot claim complete cook`,
-    );
   await mkdir(join(output, "textures"), { recursive: true });
 
   // Split material domains without copying vertex/image payloads or changing the GLB.
@@ -377,6 +369,7 @@ async function cookScene(input, output, workers, tiled = false) {
       materials: materials.length,
       textures: document.textures.length,
       images: document.images.length,
+      cookedImages: cookedImages.size,
     },
     geometryManifest: "scene.oescene",
     geometryManifestHash: hash(await readFile(join(output, "scene.oescene"))),

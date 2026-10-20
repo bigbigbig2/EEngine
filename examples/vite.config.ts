@@ -1,4 +1,5 @@
 import { imageKernelsPlugin } from "./shared/image-kernels-plugin";
+import { helloImageAssetsPlugin } from "./shared/hello-image-assets-plugin";
 import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,7 +31,7 @@ function collectExamplePages(directory: string): Record<string, string> {
 
 export default defineConfig({
   root: examplesRoot,
-  plugins: [imageKernelsPlugin(examplesRoot), bistroLocalModel(examplesRoot), dungeonLocalModel(examplesRoot)],
+  plugins: [imageKernelsPlugin(examplesRoot), helloImageAssetsPlugin(examplesRoot), bistroLocalModel(examplesRoot), dungeonLocalModel(examplesRoot)],
   server: {
     port: 5173,
     headers: {

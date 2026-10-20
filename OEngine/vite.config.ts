@@ -110,7 +110,7 @@ function imageWorkerAssets(): Plugin {
       const assets = id.endsWith("/codec/ImageTextureResample.ts")
         ? ["image-resample/source.json", "image-resample/image_resample.wasm"]
         : id.endsWith("/codec/ImageTextureKtxImport.ts")
-          ? ["pc-texture/source.json", "pc-texture/ktx_pc.wasm", "image-import/source.json", "image-import/image_decode.wasm"]
+          ? ["image-ktx/source.json", "image-ktx/ktx_pc.wasm", "image-import/source.json", "image-import/image_decode.wasm"]
           : null;
       if (!assets) return null;
       let code = readFileSync(id, "utf8");

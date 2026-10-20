@@ -5,7 +5,8 @@ import { VT_MAX_MIP_LEVELS } from "../../.test-dist/gpu/VirtualTextureAbi.js";
 
 export async function checkVirtualImageDemand(graphics, owner, route) {
   const device = graphics.device;
-  const values = new Float32Array(VT_MAX_MIP_LEVELS * 7);
+  const uvOffset = VT_MAX_MIP_LEVELS * 7;
+  const values = new Float32Array(uvOffset + 2);
   for (let level = 0; level < VT_MAX_MIP_LEVELS; level++) {
     const mip = route.mips[Math.min(level, route.mips.length - 1)];
     values.set([mip.width, mip.height, mip.gridWidth, mip.base & 65535, mip.base >>> 16, ...mip.origin], level * 7);
@@ -26,7 +27,7 @@ ${VIRTUAL_TEXTURE_SAMPLE_WGSL}
 @compute @workgroup_size(1)
 fn main() {
   // Odd/outside-domain coordinates exercise cooked repeat gutters as well as demand.
-  let uv = vec2f(-0.07, 1.03);
+  let uv = vec2f(constants[${uvOffset}u], constants[${uvOffset + 1}u]);
   output[0] = native_vt_sample(page_table, atlas, filtering, 0u, 0u,
     ${route.mips.length}u, ${route.tailFirst}u, 5u, true,
     uv, vec2f(0.0001, 0.0), vec2f(0.0, 0.0001));
@@ -49,6 +50,10 @@ fn main() {
     const result = {};
     let frame = 0;
     for (const query of [false, true]) {
+      // Separate fine pages: query-only must cause new IO/encode/mapping rather
+      // than merely observe the page just published through primary feedback.
+      const uv = query ? [0.17, 0.83] : [-0.07, 1.03];
+      device.queue.writeBuffer(constants, uvOffset * 4, new Float32Array(uv));
       let reachedFine = false;
       for (let attempt = 0; attempt < 80; attempt++) {
         const command = ShadeGPUCommandContext.create(graphics, "Renderer/GpuRenderWorld/residency-transaction");
@@ -68,6 +73,9 @@ fn main() {
         const values = [...new Float32Array(readback.getMappedRange())];
         readback.unmap();
         assert.ok(values.every(Number.isFinite));
+        if (query && attempt === 0) {
+          assert.ok(values[4] > 0, "Query-only fine page was already resident before query demand");
+        }
         if (values[4] === 0 && values[6] > 0) {
           reachedFine = true;
           result[query ? "query" : "primary"] = { frames: attempt + 1, fineSlot: values[5] };

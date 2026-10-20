@@ -61,6 +61,17 @@ let lastTime = performance.now();
 let lastFpsTime = lastTime;
 let submittedFrameAtSample = 0;
 let activeAsset: Awaited<ReturnType<typeof load_oegpack_product>> | undefined;
+const imageSources = new Set<ImageTextureSource>();
+const loadAbort = new AbortController();
+
+function releaseScene(): void {
+  loadAbort.abort();
+  activeAsset?.release();
+  activeAsset = undefined;
+  renderer?.destroy();
+  for (const source of imageSources) source.close();
+  imageSources.clear();
+}
 
 function setPhase(message: string): void {
   phase.textContent = message;
@@ -76,6 +87,7 @@ function resize(): void {
 
 function fail(reason: unknown): void {
   running = false;
+  releaseScene();
   setPhase("初始化失败");
   errorOutput.textContent = reason instanceof Error ? reason.message : String(reason);
   console.error(reason);
@@ -128,8 +140,10 @@ async function start(): Promise<void> {
   if (!context) throw new Error("无法创建 WebGPU canvas context。");
 
   setPhase("初始化原生 HDR 管线");
+  const kernels = await exampleImageKernels();
+  loadAbort.signal.throwIfAborted();
   renderer = new Renderer({
-    imageTextureKernels: await exampleImageKernels(),
+    imageTextureKernels: kernels,
     autoExposure: false,
     fixedExposure: Number(exposure.value),
     enableVsm: false,
@@ -138,6 +152,10 @@ async function start(): Promise<void> {
     renderScale: 1
   });
   await renderer.initialize({ context });
+  if (loadAbort.signal.aborted) {
+    renderer.destroy();
+    loadAbort.signal.throwIfAborted();
+  }
   renderer.packed_visibility_hzb_enabled = false;
   renderer.packed_visibility_current_hzb_late_recheck_enabled = false;
   renderer.fsr3_enabled = false;
@@ -152,13 +170,17 @@ async function start(): Promise<void> {
     "/modules/hello-hdr-gltf/assets/venice_sunset_1k.hdr",
     ProjectionMappingType.Equirectangular
   );
+  loadAbort.signal.throwIfAborted();
 
   setPhase("打开离线 GeometryProduct / AVIF 纹理");
   const base = "/modules/hello-hdr-gltf/assets/cooked/";
-  const manifestResponse = await fetch(`${base}scene.materials.json`);
+  const manifestResponse = await fetch(`${base}scene.materials.json`, { signal: loadAbort.signal });
   if (!manifestResponse.ok) throw new Error(`无法读取预烘焙材质清单 (${manifestResponse.status})`);
   const manifest = await manifestResponse.json();
-  const sceneResponse = await fetch(`${base}${manifest.geometryManifest}`);
+  if (manifest.schema !== "oengine-image-scene-materials-v2") {
+    throw new Error("Expected schema4 image scene; recook required");
+  }
+  const sceneResponse = await fetch(`${base}${manifest.geometryManifest}`, { signal: loadAbort.signal });
   if (!sceneResponse.ok) throw new Error(`无法读取预烘焙场景清单 (${sceneResponse.status})`);
   const sceneBytes = await sceneResponse.arrayBuffer();
   const sceneManifest = parseOegPackSceneManifestV3(sceneBytes);
@@ -172,8 +194,15 @@ async function start(): Promise<void> {
   const products = new Map<string, ImageTextureSource>();
   await Promise.all(
     manifest.products.map(async (product: { uri: string; identity: string; byteLength: number }) => {
-      products.set(product.identity, await ImageTextureSource.open(
-        new URL(base + product.uri, location.href).href, product.identity, product.byteLength));
+      const source = await ImageTextureSource.open(
+        new URL(base + product.uri, location.href).href, product.identity, product.byteLength, loadAbort.signal);
+      if (disposed || loadAbort.signal.aborted) {
+        source.close();
+        loadAbort.signal.throwIfAborted();
+        throw new Error("Scene was disposed");
+      }
+      imageSources.add(source);
+      products.set(product.identity, source);
     })
   );
   for (const [materialIndex, material] of materials.entries()) {
@@ -195,6 +224,10 @@ async function start(): Promise<void> {
     kind: "http-range",
     url: `${base}${sceneManifest.packs[0]!.uri}`
   }, { manifest: sceneBytes, verifyPageSha256: false });
+  if (loadAbort.signal.aborted) {
+    asset.release();
+    loadAbort.signal.throwIfAborted();
+  }
   activeAsset = asset;
   setPhase("发布 Virtual Geometry");
   const mask = asset.pack.vertexFormats.reduce((value, format) => value | format.attributeMask, 0);
@@ -225,6 +258,7 @@ async function start(): Promise<void> {
       configuredBankBytes: 32 * 1024 * 1024
     }
   });
+  loadAbort.signal.throwIfAborted();
   void residency.settled().then(
     () => undefined,
     fail
@@ -253,8 +287,7 @@ window.addEventListener("pagehide", () => {
   disposed = true;
   running = false;
   orbit.dispose();
-  activeAsset?.release();
-  renderer?.destroy();
+  releaseScene();
 }, { once: true });
 
 void start().catch(fail);

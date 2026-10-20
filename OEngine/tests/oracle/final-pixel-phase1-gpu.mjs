@@ -483,10 +483,6 @@ ${loads}
           packedProducts: true
         });
         fixtures.push(materialFixture);
-        const promote = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
-        materialFixture.residency.promote(materialFixture.materials, promote, 0);
-        promote.finish();
-        await promote.gpuDone;
         materialFixture.sources = materialFixture.sources.map((source, slot) => {
           const input = {
             ...materialFixture.commonFor(materialFixture.materials[slot]),

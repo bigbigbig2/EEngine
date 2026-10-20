@@ -53,9 +53,6 @@ export async function importImageTexture(task: ImageTextureImportTask): Promise<
         width > 2048 || height > 2048) {
       throw new RangeError("Web image import requires a bounded 1..2048 source; larger inputs need offline provided mips");
     }
-    const canvas = new OffscreenCanvas(width, height);
-    const context = canvas.getContext("2d", { willReadFrequently: true });
-    if (!context) throw new Error("Web image canonical canvas is unavailable");
     let rgba: Uint8Array;
     if (imported) {
       rgba = imported[0]!.rgba;
@@ -68,11 +65,19 @@ export async function importImageTexture(task: ImageTextureImportTask): Promise<
         // Orientation may exchange dimensions, but never increase the admitted pixel count.
         if (bitmap.width !== height || bitmap.height !== width) throw new Error("Web image decode dimension mismatch");
         [width, height] = [height, width];
-        canvas.width = width;
-        canvas.height = height;
       }
-      context.drawImage(bitmap, 0, 0);
-      rgba = new Uint8Array(context.getImageData(0, 0, width, height).data.buffer);
+      // A 2D canvas round trip quantizes low-alpha RGB through premultiplication.
+      // VideoFrame's explicit RGBA copy retains the straight image representation.
+      const frame = new VideoFrame(bitmap, { timestamp: 0 });
+      try {
+        rgba = new Uint8Array(width * height * 4);
+        const layout = await frame.copyTo(rgba, { format: "RGBA", layout: [{ offset: 0, stride: width * 4 }] });
+        if (layout.length !== 1 || layout[0]!.offset !== 0 || layout[0]!.stride !== width * 4) {
+          throw new Error("Canonical Web image copy differs from its admitted RGBA layout");
+        }
+      } finally {
+        frame.close();
+      }
     } else {
       rgba = new Uint8Array(task.input);
       if (rgba.length !== width * height * 4) throw new Error("Web raw RGBA domain mismatch");
@@ -139,7 +144,7 @@ export async function importImageTexture(task: ImageTextureImportTask): Promise<
 
 /** PNG framing only; compression uses the browser's complete DEFLATE codec.
  * Avoid a canvas round trip that would quantize RGB through premultiplied alpha. */
-async function encodeCanonicalPng(input: CanonicalImageMip): Promise<Uint8Array> {
+export async function encodeCanonicalPng(input: CanonicalImageMip): Promise<Uint8Array> {
   const header = new Uint8Array(13);
   const view = new DataView(header.buffer);
   view.setUint32(0, input.width);

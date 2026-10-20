@@ -3,18 +3,12 @@ import test from "node:test";
 import { createServer } from "node:http";
 import { Worker } from "node:worker_threads";
 import { streamingProductFixture } from "../helpers/geometry-product-fixture.mjs";
-import { textureProduct } from "../fixtures/texture-product.mjs";
 import { CookedAssetPreparation } from "../../.test-dist/assets/codec/CookedAssetPreparation.js";
 import { cookedGeometrySpans } from "../../.test-dist/assets/codec/CookedAssetProtocol.js";
 import {
   releasePreparedPage,
   preparedResidentPage,
 } from "../../.test-dist/assets/geometry-product/GeometryProductResidentAttributes.js";
-import {
-  saveTextureProduct,
-  importCookedTextureReceipt,
-  assertValidatedTextureProduct,
-} from "../../.test-dist/assets/TextureProduct.js";
 import { isPageIntegrityPreverifiedV1 } from "../../.test-dist/assets/geometry-product/GeometryProductV1.js";
 import { VirtualGeometryResidency } from "../../.test-dist/gpu/VirtualGeometryResidency.js";
 import { CookedAssetCredit } from "../../.test-dist/assets/codec/CookedAssetCredit.js";
@@ -109,13 +103,11 @@ const waitUntil = async (predicate) => {
 
 test("Cooked Worker batch validates, transfers, cancels, re-registers and releases bounded results", async () => {
   const f = await fixture();
-  const product = await textureProduct();
-  const texture = new Uint8Array(await saveTextureProduct(product));
   let bytes = f.payload,
     delayed = false,
     requests = [];
   const server = createServer(async (request, response) => {
-    const data = request.url === "/texture" ? texture : bytes;
+    const data = bytes;
     if (request.method === "HEAD") {
       response.writeHead(200, { "content-length": data.length });
       response.end();
@@ -162,13 +154,7 @@ test("Cooked Worker batch validates, transfers, cancels, re-registers and releas
     assert.equal(preparation.evidence().credit.used.ready, 4 * 262144);
     pages.forEach(releasePreparedPage);
     assert.equal(preparation.evidence().credit.used.total, 0);
-    const imported = await preparation.readTexture(session, url + "/texture", product.identity);
-    assertValidatedTextureProduct(imported);
-    await assert.rejects(
-      importCookedTextureReceipt({ ok: true, kind: "texture", product: imported }, imported.identity),
-      /assigned asset Worker/,
-    );
-    await waitUntil(() => workers[0].detached.length >= 2);
+    await waitUntil(() => workers[0].detached.length >= 1);
     assert.ok(
       workers[0].detached.flat().every((length) => length === 0),
       "sender buffers really detach",
@@ -193,12 +179,6 @@ test("Cooked Worker batch validates, transfers, cancels, re-registers and releas
       assert.equal(preparation.evidence().credit.used.total, 0);
     }
     bytes = f.payload;
-    texture[texture.length - 1] ^= 1;
-    await assert.rejects(
-      preparation.readTexture(session, url + "/texture", product.identity),
-      /checksum|hash|integrity/i,
-    );
-    texture[texture.length - 1] ^= 1;
 
     delayed = true;
     const controller = new AbortController();

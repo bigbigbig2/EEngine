@@ -1685,8 +1685,8 @@ export class Renderer {
             streaming = new GeometryPageStreamingRuntimeV1(this.device, shard.residency);
           streaming?.registerProduct(source, shard.residency);
           let appendTiming: WebCookAppendPublicationTiming | undefined;
+          options.onMaterials?.(mapped.materials);
           if (parts.length === 1) {
-            options.onMaterials?.(mapped.materials);
             await this.uploadVirtualGeometryScene(scene, combined, shard.residency, streaming, undefined, {
               bindings: runtime.bindings(),
               assetCount: combined.assetCount,
@@ -2695,9 +2695,6 @@ export class Renderer {
         this._nativeTemporal.invalidate();
         this._fsr3.invalidate();
       }
-      // Fair bounded copies, including partial physical levels. Only complete
-      // levels advance the next Native publication's sampling clamp.
-      this._graphics.texture_residency.promote(runtime.materials, command);
       const finishScenePrepare = this._profiler.beginCpuSection("scene-prepare");
       const canRetainColor =
         temporalPolicy === this._temporalPolicy &&

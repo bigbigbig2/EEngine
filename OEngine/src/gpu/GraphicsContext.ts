@@ -97,6 +97,7 @@ export class GraphicsContext {
   private currentHzbRecheckValue: TemporalOcclusionWork | undefined;
   private textureResidencyValue: TextureResidency | undefined;
   private imageTranscoderValue: Promise<ImageTextureTranscoder> | undefined;
+  private imageTranscoderResolved: ImageTextureTranscoder | undefined;
   private readonly assetStoreOptions: Readonly<GpuAssetStoreOptions>;
   private timerIncrementValue = 0;
   private destroyed = false;
@@ -310,7 +311,14 @@ export class GraphicsContext {
       return Promise.reject(new Error("Image texture encoding requires explicitly scoped pinned Spark kernels"));
     }
     if (!this.imageTranscoderValue) {
-      const pending = ImageTextureTranscoder.create(this.device, this.imageKernelSource);
+      const pending = ImageTextureTranscoder.create(this.device, this.imageKernelSource).then((transcoder) => {
+        this.imageTranscoderResolved = transcoder;
+        if (this.destroyed) {
+          transcoder.dispose();
+          throw new Error("Image encoder initialization outlived GraphicsContext");
+        }
+        return transcoder;
+      });
       this.imageTranscoderValue = pending;
       void pending.catch(() => {
         if (this.imageTranscoderValue === pending) this.imageTranscoderValue = undefined;
@@ -362,6 +370,7 @@ export class GraphicsContext {
       (this.materialStoreValue?.evidence().allocatedBytes ?? 0) +
       (this.textureResidencyValue?.evidence().allocatedBytes ?? 0) +
       (this.textureResidencyValue?.virtualTextures?.evidence().allocatedBytes ?? 0) +
+      this.imageEncodingAllocatedBytes() +
       this.buffer_allocator_main.gpu_memory_usage +
       this.buffer_allocator_staging.gpu_memory_usage +
       this.allocator_textures.gpu_memory_usage +
@@ -386,6 +395,11 @@ export class GraphicsContext {
       bytes += (owners[owner]?.buffer ?? 0) + (owners[owner]?.texture ?? 0);
     }
     return bytes;
+  }
+
+  private imageEncodingAllocatedBytes(): number {
+    const encoding = this.imageTranscoderResolved?.evidence();
+    return (encoding?.rgbaBytes ?? 0) + (encoding?.scratchBytes ?? 0);
   }
 
   private localLightAllocatedBytes(): number {
@@ -446,6 +460,7 @@ export class GraphicsContext {
       buffers.cachedBytes +
       textures.cachedBytes;
     const transientPoolBytes =
+      this.imageEncodingAllocatedBytes() +
       buffers.allocatedBytes +
       textures.allocatedBytes +
       (this.frameInstancesValue?.allocatedBytes ?? 0) +
@@ -475,6 +490,11 @@ export class GraphicsContext {
           metadataCapacityBytes: geometryProducts.metadataBytes
         }),
         nativeSurfaceScratch: Object.freeze({ allocatedBytes: this.nativeSurfaceAllocatedBytes() }),
+        imageEncoding: Object.freeze({
+          allocatedBytes: this.imageEncodingAllocatedBytes(),
+          rgbaBytes: this.imageTranscoderResolved?.evidence().rgbaBytes ?? 0,
+          scratchBytes: this.imageTranscoderResolved?.evidence().scratchBytes ?? 0
+        }),
         localLightWork: Object.freeze({ allocatedBytes: this.localLightAllocatedBytes() }),
         finalPixelLighting: Object.freeze({ allocatedBytes: this.finalPixelLightingAllocatedBytes() }),
         appearance: Object.freeze({ ...appearance }),

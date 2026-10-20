@@ -4,14 +4,12 @@ state: history
 supersededBy: eengine-extreme-web-asset-compression-2026-10.md
 verifies:
   files:
-    - OEngine/tools/build-tiled-texture-codec.mjs
     - OEngine/vite.config.ts
     - OEngine/src/assets/codec/CookedAssetPreparation.ts
     - OEngine/src/assets/codec/CookedAssetProtocol.ts
     - OEngine/src/assets/codec/AssetWorkerPool.ts
     - OEngine/src/assets/codec/workers/cooked-asset-worker.ts
     - OEngine/tools/cook-offline-scene.mjs
-    - OEngine/tools/build-pc-texture-codec.mjs
     - OEngine/src/gpu/VirtualTextureAbi.ts
     - OEngine/src/gpu/VirtualTextureResidency.ts
     - OEngine/src/gpu/TextureResidency.ts

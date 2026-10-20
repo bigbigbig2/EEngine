@@ -2,8 +2,6 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import { attachTriangleQuerySection } from "../helpers/geometry-query-fixture.mjs";
-import { openTextureProduct, saveTextureProduct } from "../../.test-dist/assets/TextureProduct.js";
-import { textureProduct } from "../fixtures/texture-product.mjs";
 import { MemoryRangeReadablePackV3, openOegPackV3 } from "../../.test-dist/assets/OegPackV3.js";
 import {
   descriptorFromOegPack,
@@ -169,22 +167,6 @@ async function buildTwoPageOegPackV3() {
   pack.set(metadataDigest, 176);
   return pack;
 }
-
-test("openTextureProduct verifyHashes=false matches strict mode and still enforces identity/manifest contracts", async () => {
-  const authored = await textureProduct();
-  const archive = await saveTextureProduct(authored);
-
-  const strictProduct = await openTextureProduct(archive, { verifyHashes: true });
-  const fastProduct = await openTextureProduct(archive, { verifyHashes: false });
-
-  assert.equal(fastProduct.identity, strictProduct.identity);
-  assert.equal(fastProduct.recipeHash, strictProduct.recipeHash);
-  assert.deepEqual(fastProduct.metadata, strictProduct.metadata);
-  assert.deepEqual(fastProduct.evidence, strictProduct.evidence);
-  for (const [id, chunk] of strictProduct.chunks) {
-    assert.deepEqual(fastProduct.chunks.get(id), chunk);
-  }
-});
 
 test("OegPackV3 coalesced readPages merges contiguous bootstrap page reads and catches CRC32 corruption", async () => {
   const packBytes = await buildTwoPageOegPackV3();

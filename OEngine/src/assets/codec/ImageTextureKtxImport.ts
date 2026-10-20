@@ -1,4 +1,4 @@
-import createKtxPcModule from "./vendor/pc-texture/ktx_pc.js";
+import createKtxPcModule from "./vendor/image-ktx/ktx_pc.js";
 import createImageDecodeModule from "./vendor/image-import/image_decode.js";
 import { imageMipCount, imageTextureHash } from "../ImageTextureProduct.js";
 import type { CanonicalImageMip } from "./ImageTextureCook.js";
@@ -6,11 +6,11 @@ import type { CanonicalImageMip } from "./ImageTextureCook.js";
 /** libktx remains a cold container/import dependency, never a final BC source.
  * Authored complete chains survive the conversion to canonical image items. */
 export async function importCanonicalKtx(input: ArrayBuffer, color: boolean): Promise<CanonicalImageMip[]> {
-  const identityResponse = await fetch(new URL("./vendor/pc-texture/source.json", import.meta.url));
+  const identityResponse = await fetch(new URL("./vendor/image-ktx/source.json", import.meta.url));
   if (!identityResponse.ok) throw new Error("KTX import identity fetch failed");
   const identity = await identityResponse.json();
   if (identity.pins.ktx !== "4d6fc70eaf62ad0558e63e8d97eb9766118327a6") throw new Error("KTX revision mismatch");
-  const binaryResponse = await fetch(new URL("./vendor/pc-texture/ktx_pc.wasm", import.meta.url));
+  const binaryResponse = await fetch(new URL("./vendor/image-ktx/ktx_pc.wasm", import.meta.url));
   if (!binaryResponse.ok) throw new Error("KTX import binary fetch failed");
   const wasmBinary = await binaryResponse.arrayBuffer();
   if (await imageTextureHash(new Uint8Array(wasmBinary)) !== identity.hashes["ktx_pc.wasm"]) throw new Error("KTX binary hash mismatch");

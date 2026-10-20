@@ -27,8 +27,8 @@ The model is never copied into the example, the build or Git. The mount is
 dev-only and supports HEAD and byte ranges. A static build needs a separately
 served equivalent model URL; `vite preview` does not mount the local model.
 
-Development smoke check: append `?fixture=1` to use the existing small
-fixture cooked by `offline-scene-cook.test.mjs` (two materials, including MASK).
+Development smoke check: append `?fixture=1` to use the small offline
+fixture (two materials, including MASK), regenerated with the final schema in E5.
 `?fixture=1&mode=raw` uses `validation/public/assets/oengine/glb-web-product-v1.glb`. The heading and report
 identify this as a fixture. It does not count as Bistro acceptance.
 
@@ -59,8 +59,8 @@ not measurements of these new defaults.
 The latest public GLB route is `load_gltf()` -> `GlbRangeSource`/WebCook catalog
 and Geometry Products -> `createWebCookSceneSourceAsync()` -> encoded
 `ShadeImage`/`ShadeTexture` -> Renderer `prepareMaterialTextureProducts()` ->
-`PcTexturePreparation` -> `AssetWorkerPool` -> `pc-texture-worker` -> Basis direct
-BC -> schema3 `TextureProduct` -> `TextureResidency` array segments ->
+`CookedAssetPreparation` -> `AssetWorkerPool` -> canonical image import ->
+schema4 `ImageTextureSource` -> browser image decode -> GPU Spark encoding -> `TextureResidency` array segments ->
 `TextureBindingSet` -> TextureRef ABI3 -> `NativeMaterialBindings`/
 `GpuNativeMaterialScene` -> native Visibility / SurfaceV4 / VSM.
 
@@ -69,12 +69,14 @@ ArrayBuffer `load_gltf_packed`/GeometryAssetPackage route. `GltfLoader.ts`,
 `gltfTextures.ts` and `gltfMaterials.ts` remain useful importer source references,
 but that parser is not the public WebCook mapper used by this demo.
 
-Base color/emissive and specular color, when mapped, use BC7 sRGB. Normal and
-multi-channel linear maps use BC7 linear; scalar maps use BC4. MASK base color
-has a separate exact R8 coverage plane shared by native consumers. No RGBA
-material residency, BC5 normal, Spark encoder, ASTC, ETC2 or WebGL fallback is
-introduced. Whole GPUTexture allocation, initial tail upload and promotion in
-ordinary Renderer frames retain their existing owners.
+Base color/emissive and specular color use BC7 sRGB; multi-channel linear maps
+use BC7 linear, unit normal XY uses BC5 with explicit Z reconstruction, and
+scalar products use BC4. Live alpha reads use an exact R8 plane shared by native
+consumers. Offline deployment transmits AVIF/image items, not final BC blocks.
+Mandatory resident mips and protected VT tails are initialized in hidden scene
+batches before atomic publication. Normal-frame VT demand uses the existing
+frame command. Spark kernels are explicitly scoped; local evaluation does not
+grant production redistribution rights. Final scene recook and integration are E5.
 
 ## Known Importer And Asset Limitations
 
@@ -97,69 +99,34 @@ material fidelity. DirectX normal Y conversion is not patched. UI states:
 Cooked materials use the current `parseGltfMaterial()` importer, including
 `KHR_materials_specular`. Its behavior differs from the WebCook mapper described
 above; the source conversion limitations remain. Every source material texture
-slot is saved, including constant-dead slots. The runtime may allocate fewer
-Products because its native graph removes dead samples and residency deduplicates
-identities. Cooked artifact count and live GPU Product count are different metrics.
+slot that survives canonical graph dependency analysis is saved. Constant-dead
+slots do not create image products; residency also deduplicates identities.
+Source image count, cooked image count and live GPU Product count are different metrics.
 
 ## Offline Cook
 
-From the repository root, prerequisites are a current native geometry cooker,
-a current emitted TypeScript tree and the pinned native BC encoder. The native
-BC tool uses the unchanged scalar Basis C ABI, with byte parity checks against
-production WASM. No texture quality or resolution setting is overridden.
+Final full-scene cook, verification and deployment are E5 work, not per-stage gates.
+Prerequisites: current native geometry cooker and TypeScript output, pinned
+libavif/libaom tools from `tools/extreme-web-asset/`, and the independent
+canonical resampler (unchanged Basis revision
+`99f52d63aa6799cbdaecfe977111dc5ec3b31d47`). No CPU BC encoder is required.
 
-```powershell
-node OEngine/tools/build-native-cooker.mjs
-node tools/test-build.mjs
-node OEngine/tools/build-pc-texture-native.mjs
-node --test OEngine/tests/contract/offline-scene-cook.test.mjs
-node OEngine/tools/cook-offline-scene.mjs
-node OEngine/tools/verify-offline-scene.mjs
-```
+`cook-offline-scene.mjs [input.glb] [output-directory] [workers=4]` retains
+existing geometry production and emits schema4 directories, image/exact items,
+receipts and the schema-v2 material manifest. It derives canonical pixels from
+source images, never by decoding retired BC products. Mandatory mip/alpha
+filtering uses the pinned resampler. The final material manifest is published
+after complete products, with recipe/tool/content hashes for restart reuse.
 
-The BC build expects Basis revision `99f52d63aa6799cbdaecfe977111dc5ec3b31d47`
-at `.local/texture-design-basis` or `BASIS_SOURCE`. The offline PNG decoder is
-`pngjs@7.0.0`, installed with
-`npm install --prefix .local/offline-cook-deps pngjs@7.0.0 --no-audit --no-fund`.
-PNG pixels remain straight RGBA with no gamma adjustment. The existing
-`cookPcTextureRgba()` owns storage extents, full mip chains, normal resampling,
-BC7/BC4 encoding and exact R8 coverage; the native executable only supplies its
-existing C ABI operations. Products carry the native executable hash, not a
-fabricated WASM identity.
+`verify-offline-scene.mjs` checks standalone cook outputs and their local
+object domains. Composed playground roots are checked through their deployment
+owner in E5. Runtime opens `ImageTextureSource`, decodes image items in the
+shared Worker preparation owner, and encodes BC in bounded GPU batches before
+native scene publication. Cooked misses fail explicitly; no old-schema bridge
+or silent raw cook is retained. The dev mount serves the ignored cook output;
+Cooked mode does not fetch the source GLB.
 
-The CLI accepts `[input.glb] [output-directory] [workers=4]`, bounded to 1..8
-workers. Geometry shards target 64 MiB of decoded asset payload using the
-existing native `--shard-bytes` option; the geometry recipe remains unchanged.
-Defaults read the original local Bistro GLB and write only to
-`.local/models/bistro-cooked/`. It writes `scene.oescene`, `.oegpack`,
-`scene.materials.json`, individual `.textureproduct` archives and cook receipts.
-`geometry-input.gltf` is a small derived description referencing the original
-GLB buffer in place. It splits material domains into primitive assets, keeping
-all vertices, triangles, instance transforms and authored material ids. Neither
-the source GLB nor its PNG bytes are copied into tracked assets.
-
-Completed archives are hash/schema/recipe checked and reused on restart.
-`scene.materials.json` is published only after all textures complete. Missing or
-invalid cooked data fails explicitly; Cooked never starts a Raw cook on a miss.
-Runtime opens validated final blocks with `openTextureProduct()` and uses
-`GeometryProductMultiRuntimeV1` / `buildVirtualGeometrySceneSourceV1()` /
-`Renderer.uploadVirtualGeometryScene()`. Texture preparation finds final
-Products, then ordinary TextureResidency/native publication consumes them.
-Decode, encode, transcode, runtime mip generation, codec Workers and geometry
-cook are all absent from this loading branch. Ordinary geometry page streaming
-and texture tail/promotion retain their current production owners.
-
-Material factors, UV transforms, samplers and final texture bindings are carried
-by the material catalog. The runtime still creates native material objects with
-the current importer, compiles device-specific WebGPU pipelines and uploads GPU
-resources. This is not an offline GPU shader binary or pipeline cache.
-Cook receipt `wallMs` is the duration of that CLI invocation, including reused
-artifacts when resumed; it must not be reported as a fresh cold-cook duration.
-
-The dev-only mount `/assets/local-bistro/cooked/` serves this ignored directory.
-The runtime never fetches the original GLB in Cooked mode.
-
-## Current Bistro Result
+## Historical Bistro Result (Retired BC Product Route)
 
 Complete offline cook and validation: 405 source images, 405 archives / 202
 unique Product identities, 273 BC7 sRGB planes, 132 BC7 linear planes and 10 R8
@@ -192,7 +159,7 @@ actual browser adapter identity is reported separately. Driver actual VRAM is
 and ResourceAccounting are software ledgers and must not be summed blindly.
 
 Export downloads a JSON snapshot with real source counts, per-format plane
-counts, live/allocated/peak/retiring bytes, pending upload/promotion counts,
+counts, live/allocated/peak/retiring bytes, pending initialization counts and image encoding counters,
 segment capacities, neutral/free layer overhead, upload counters, cold cook
 wall/decode/encode timings, per-Product publication timings and failure phase.
 Batch wall timings can overlap; imageReadMs is a sum of read durations, not a

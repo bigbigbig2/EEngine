@@ -112,10 +112,6 @@ export async function runNativeSurfaceIntegrationGpuOracle(
     // Both packages are genuinely different texture owners with binding-set id 0
     // locally; the test scene maps those owners to global sets 0 and 1 explicitly.
     for (const fixture of materialFixtures) {
-      const command = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
-      fixture.residency.promote(fixture.materials, command, 0);
-      command.finish();
-      await command.gpuDone;
       fixture.bindings = fixture.compiledGraphs.map((graph, index) =>
         createNativeMaterialBindings({
           ...fixture.commonFor(fixture.materials[index]),

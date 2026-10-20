@@ -95,9 +95,6 @@ interface Entry {
   minMip: number;
   retirement: number;
   staging?: ShadeGPUCommandContext;
-  promotion?: ShadeGPUCommandContext;
-  /** Committed copy cursor for the next finer mip; never a sampling clamp. */
-  upload?: { mip: number; plane: number; row: number };
 }
 interface MaterialEntry {
   refs: number;
@@ -137,13 +134,8 @@ export class TextureResidency {
   private allocated = 0;
   private peak = 0;
   private uploadBytes = 0;
-  private progressiveBytes = 0;
-  private promotionCount = 0;
   private mipUploads = 0;
   private failures = 0;
-  private uploadCursor = 0;
-  private stagingBytes = 0;
-  private stagingPeakBytes = 0;
   private copyOperations = 0;
   private physicalCopyBytes = 0;
   private committedUploadBytes = 0;
@@ -250,7 +242,10 @@ export class TextureResidency {
                 }
               });
               this.mipUploads += destinations.length;
-              const bytes = profile.mips === "runtime" ? layout.bytesPerLayer : layout.levels[item.mip]!.bytes;
+              const block = profile.target === "r8" ? 1 : 4;
+              const blockBytes = profile.target === "r8" ? 1 : profile.target === "bc4-r" ? 8 : 16;
+              const bytes = profile.mips === "runtime" ? layout.bytesPerLayer
+                : Math.ceil(item.width / block) * Math.ceil(item.height / block) * blockBytes;
               this.uploadBytes += bytes;
               this.physicalCopyBytes += bytes;
               this.copyOperations += destinations.length;
@@ -274,7 +269,6 @@ export class TextureResidency {
     const counts = countMaterials(materials);
     const leaves = new Map<StandardShadeMaterial, readonly ShadeTexture[]>();
     const products = new Map<string, ResidentSource>();
-    const criticalProducts = new Set<string>();
     for (const material of counts.keys()) {
       const textures = materialTextureLeaves(material);
       leaves.set(material, textures);
@@ -289,7 +283,6 @@ export class TextureResidency {
                 image.directory.planes[0]!.mode === "virtual") {
               throw new Error("Alpha/UV dependency requires a resident primary plane; recook required");
             }
-            criticalProducts.add(image.identity);
           }
         }
       }
@@ -299,9 +292,6 @@ export class TextureResidency {
         const entry = this.entries.get(product.identity);
         if (entry?.staging && entry.staging !== command) {
           throw new Error("Texture has an uncommitted transaction");
-        }
-        if (entry?.promotion) {
-          throw new Error("Texture has an uncommitted promotion");
         }
       }
       const prior = this.materials.get(material);
@@ -688,14 +678,7 @@ export class TextureResidency {
     }
   }
 
-  /** No preview is published in the initial schema4 profile: all mandatory mips
-   * are prepared hidden. Frame refinement has no work until an explicit preview product. */
-  promote(_materials: readonly StandardShadeMaterial[], command: ShadeGPUCommandContext,
-    _minimumMip = 0, _maxBytes = 4 * 1024 ** 2): void {
-    this.assertCommand(command);
-  }
-  /** Retains the exact current allocations, not mutable material identity. The
-   * same queue orders finer-mip uploads; coverage uses its resident closure. */
+  /** Retains exact allocations through the final query-consumer fence. */
   retainQuery(materials: readonly StandardShadeMaterial[]): TextureQueryLease {
     this.assertAlive();
     const entries = new Set<Entry>();
@@ -841,7 +824,7 @@ export class TextureResidency {
   fullyResident(materials: readonly StandardShadeMaterial[]): boolean {
     for (const material of materials) {
       for (const entry of this.materials.get(material)?.entries ?? []) {
-        if (entry.minMip !== 0 || entry.staging || entry.promotion) {
+        if (entry.staging) {
           return false;
         }
       }
@@ -935,23 +918,16 @@ export class TextureResidency {
       };
     });
     return {
-      schemaVersion: 7 as const,
+      schemaVersion: 8 as const,
       virtual: this.virtualValue?.evidence() ?? null,
       textureCapacity: TEXTURE_HANDLE_MAX_SLOT,
       residentTextureCount: live.length,
       retiringTextureCount: retired.length,
       pendingTextureCount: live.filter((entry) => entry.staging).length,
-      pendingPromotionTextureCount: live.filter((entry) => entry.promotion).length,
-      refiningTextureCount: live.filter((entry) => entry.minMip > 0).length,
-      stagingBytes: this.stagingBytes,
-      stagingPeakBytes: this.stagingPeakBytes,
+      imageEncoding: this.transcoder?.evidence() ?? null,
       uploadCopyOperations: this.copyOperations,
       physicalCopyBytes: this.physicalCopyBytes,
       committedUploadBytes: this.committedUploadBytes,
-      frameUploadBudgetBytes: (4 * 1024 ** 2),
-      uploadInFlightBudgetBytes: (16 * 1024 ** 2),
-      bootstrapUploadBudgetBytes: (48 * 1024 ** 2),
-      maximumResidentMinimumMip: live.reduce((mip, entry) => Math.max(mip, entry.minMip), 0),
       quarantinedTextureCount: this.quarantined.size,
       allocatedBytes: this.allocated,
       allocatedPeakBytes: this.peak,
@@ -968,17 +944,8 @@ export class TextureResidency {
       ),
       uploadBytes: this.uploadBytes,
       copyBytes: this.uploadBytes,
-      transcodeBytes: 0,
-      directPackageCount: live.length,
-      workerTranscodeCount: 0,
-      uncompressedFallbackCount: 0,
       formatDistribution: [...distribution].map(([format, value]) => ({ format, ...value })),
-      resizeDispatchCount: 0,
-      runtimeMipGenerationCount: 0,
-      cookedRuntimeMipGenerationCount: 0,
-      bankCopyOperationCount: 0,
       bankGrowCount: this.nextSegmentId - 1,
-      abortedBankGrowCount: 0,
       cookedResidentTextureCount: live.length,
       compressedResidentTextureCount: live.filter((entry) =>
         entry.product.planes.some((plane) => plane.format.startsWith("bc")),
@@ -1017,8 +984,6 @@ export class TextureResidency {
         })),
       ),
       privateSubmitCount: 0,
-      progressiveMipUploadBytes: this.progressiveBytes,
-      mipPromotionCount: this.promotionCount,
       mipUploadCount: this.mipUploads,
     };
   }

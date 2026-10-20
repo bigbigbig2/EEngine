@@ -24,7 +24,7 @@ import { PointLight } from "../../.test-dist/light/PointLight.js";
 import { DirectionalLight } from "../../.test-dist/light/DirectionalLight.js";
 import { ShadeTexture, ShadeImage } from "../../.test-dist/texture/ShadeTexture.js";
 import { ShadeTransparencyMode, ShadeDrawSide } from "../../.test-dist/material/enums.js";
-import { fixtureTexture } from "./texture-fixture.mjs";
+import { fixtureTexture, evaluationImageKernels } from "./texture-fixture.mjs";
 import { PerspectiveCamera } from "../../.test-dist/camera/PerspectiveCamera.js";
 import { RenderDebugView } from "../../.test-dist/debug/RenderDebugView.js";
 import { decodeFloat16 } from "../../.test-dist/core/Float16.js";
@@ -97,7 +97,8 @@ export async function runFinalPixelFeatureDemandGpuOracle() {
           },
         })
       : actualDevice;
-    const renderer = new Renderer({ autoExposure: false, fixedExposure: 1 });
+    const renderer = new Renderer({ autoExposure: false, fixedExposure: 1,
+      imageTextureKernels: await evaluationImageKernels() });
     const actualContext = new OffscreenCanvas(192, 128).getContext("webgpu");
     // WebIDL requires the real device at the canvas boundary. All allocation
     // and encoding methods above likewise bind directly to the real device.
@@ -308,7 +309,8 @@ export async function runNativeSurfaceProductionGpuOracle(
 ) {
   const { installDungeonGpuAudit } = await import("../../../validation/tools/dungeon-gpu-audit.mjs");
   installDungeonGpuAudit();
-  let renderer = new Renderer({ autoExposure: false, fixedExposure: 1 });
+  let renderer = new Renderer({ autoExposure: false, fixedExposure: 1,
+    imageTextureKernels: await evaluationImageKernels() });
   const canvas = new OffscreenCanvas(384, 224);
   const context = canvas.getContext("webgpu");
   check(context !== null, "Production oracle needs a WebGPU canvas");
@@ -415,11 +417,11 @@ export async function runNativeSurfaceProductionGpuOracle(
   const occlusionCases = [];
   let arenaOwnerPeakBytes = 0;
   const WorkerClass = globalThis.Worker;
-  let textureWorkerCount = 0;
+  let coldImageImportCount = 0;
   globalThis.Worker = class extends WorkerClass {
-    constructor(url, options) {
-      super(url, options);
-      if (String(url).includes("pc-texture-worker")) textureWorkerCount++;
+    postMessage(value, ...args) {
+      if (value?.version === 5) coldImageImportCount++;
+      return super.postMessage(value, ...args);
     }
   };
   const instrument = () => {
@@ -2068,7 +2070,7 @@ export async function runNativeSurfaceProductionGpuOracle(
         "Recovered Scene unload retained texture residency",
       );
     }
-    check(textureWorkerCount === 0, "Cooked Renderer unexpectedly initialized a texture codec Worker");
+    check(coldImageImportCount === 0, "Cooked Renderer unexpectedly dispatched a cold image import");
     const textureEvidence = renderer.graphics.texture_residency.evidence();
     check(
       textureEvidence.resizeDispatchCount === 0 &&
@@ -2148,7 +2150,7 @@ export async function runNativeSurfaceProductionGpuOracle(
       initialization,
       synchronousFramePipelineCreation: 0,
       pipelineFailureRetainedStateAndExplicitRetry: preparationFailed,
-      cookedTextureWorkerCount: textureWorkerCount,
+      coldImageImportCount,
       textureEvidence,
       productGeometry,
       queryPublication,

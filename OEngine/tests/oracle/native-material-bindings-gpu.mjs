@@ -35,7 +35,7 @@ import {
   writeAppearanceAssetPackage,
   openAppearanceAssetPackage
 } from "../../.test-dist/assets/AppearanceAssetPackage.js";
-import { fixtureTexture } from "./texture-fixture.mjs";
+import { fixtureTexture, releaseFixtureTexture, prepareFixtureImageEncoding, fixtureImageBatch } from "./texture-fixture.mjs";
 import {
   lowerNativeMaterial,
   nativeMaterialDynamicInputs
@@ -126,8 +126,11 @@ export async function createNativeMaterialBindingFixture(
   const residency = new TextureResidency(graphics);
   let packedOwner;
   try {
+    await prepareFixtureImageEncoding(graphics);
+    await residency.prepare();
     const command = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
     const stage = residency.stage(materials, command);
+    await residency.uploadImages(materials, command, (record) => fixtureImageBatch(graphics, record));
     command.finish();
     await command.gpuDone;
     const material = materials[0];
@@ -286,11 +289,13 @@ export async function createNativeMaterialBindingFixture(
       destroy: () => {
         packedOwner?.destroy();
         residency.destroy();
+        for (const value of [normalTexture, ormTexture, texture]) releaseFixtureTexture(value);
       }
     };
   } catch (error) {
     packedOwner?.destroy();
     residency.destroy();
+    for (const value of [normalTexture, ormTexture, texture]) releaseFixtureTexture(value);
     throw error;
   }
 }
@@ -453,21 +458,16 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       );
     }
     const aborted = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
-    residency.promote(fixture.materials, aborted, 0);
-    aborted.abort(new Error("controlled native promotion abort"));
+    aborted.abort(new Error("controlled native transaction abort"));
     check(
-      stage.surfacePublications.get(fixture.normalTexture).currentMinimumMip === 6,
+      stage.surfacePublications.get(fixture.normalTexture).currentMinimumMip === 0,
       "Abort changed native route residency"
     );
-    const promotion = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
-    residency.promote(fixture.materials, promotion, 0);
-    promotion.finish();
-    await promotion.gpuDone;
     const fine = createNativeMaterialBindings({ ...common, graph, program: native });
-    check(tail.program.key === fine.program.key, "Mip promotion changed native topology");
+    check(tail.program.key === fine.program.key, "Aborted transaction changed native topology");
     check(
       tail.program.resourceRevision === fine.program.resourceRevision,
-      "Unrelated color/normal promotion invalidated exact coverage values"
+      "Aborted transaction invalidated exact coverage values"
     );
     const fineValues = await run(fine, makeInputs(native));
     const diffuseBuilder = new AppearanceGraphBuilder();
@@ -714,9 +714,9 @@ fn independent_reference(inputs: NativeMaterialInputs) -> array<f32, ${productNa
       status: "passed",
       actualTextureResidency: true,
       actualStaticResidency: true,
-      minMipTail: 6,
-      promotedMinMip: 0,
-      abortedPromotion: "retained tail",
+      minimumResidentMip: 0,
+      publishedMinMip: 0,
+      abortedTransaction: "retained complete resident chain",
       coverageAlpha: "matches native shading",
       productTextureCount: products.productTextureCount,
       maxProductError,

@@ -12,6 +12,19 @@ import { sparkPrecisionSource } from "../../.test-dist/gpu/ImageTextureTranscode
 import { AssetWorkerPool } from "../../.test-dist/assets/codec/AssetWorkerPool.js";
 
 const hash = "a".repeat(64);
+test("canonical tool identity invalidates a source recipe without changing decoded content identity", async () => {
+  const request = {
+    semantic: "data-rgb", quality: "high", mode: "resident", mips: "runtime",
+    toolHash: hash,
+    inputs: [{ width: 1, height: 1, rgba: new Uint8Array([10, 20, 30, 255]) }]
+  };
+  const sink = { encodeAvif: async () => new Uint8Array([1]), put: async () => "image.avif" };
+  const first = await cookImageTexture({ ...request, canonicalToolHash: "b".repeat(64) }, sink);
+  const second = await cookImageTexture({ ...request, canonicalToolHash: "c".repeat(64) }, sink);
+  assert.notEqual(first.directory.recipe, second.directory.recipe);
+  assert.equal(first.directory.sourceRevision, second.directory.sourceRevision);
+  await assert.rejects(cookImageTexture({ ...request, canonicalToolHash: "invalid" }, sink));
+});
 const base = {
   schemaVersion: 4,
   sourceRevision: hash,

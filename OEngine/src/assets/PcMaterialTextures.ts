@@ -2,7 +2,6 @@ import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js
 import { compileCanonicalMaterial } from "../material/CanonicalMaterial.js";
 import { snapshotAppearanceTexture } from "../material/AppearanceGraph.js";
 import { AppearanceMaterialDefinition } from "../material/AppearanceMaterialDefinition.js";
-import { ShadeTransparencyMode } from "../material/enums.js";
 import { ShadeTexture } from "../texture/ShadeTexture.js";
 import type { ShadeImage } from "../texture/ShadeImage.js";
 import { ImageTextureSource } from "./ImageTextureSource.js";
@@ -26,9 +25,6 @@ export const MATERIAL_TEXTURE_PROPERTIES = [
   "texture_clearcoat_normal"
 ] as const;
 type Property = (typeof MATERIAL_TEXTURE_PROPERTIES)[number];
-const preparedImages = new WeakMap<object, Map<string, Promise<ImageTextureSource>>>();
-const preparedTextures = new WeakMap<ShadeTexture, Map<string, ShadeTexture>>();
-const bitmapReplay = new WeakMap<ShadeImage, Uint8Array>();
 
 export function materialTextureSemantic(property: Property): Exclude<ImageTextureSemantic, "exact-r"> {
   if (property === "texture_albedo" || property === "texture_specular_color") {
@@ -56,14 +52,17 @@ export function materialTextureLeaves(material: StandardShadeMaterial): readonly
 }
 
 /** Cold producer. It commits CPU material replacements only when the complete
- * batch is ready; the returned immutable Products are the device-loss source. */
+ * batch is ready. Published materials own their image_source lifetime (close it
+ * after unload); it remains open across GPU device replacement. */
 export async function prepareMaterialTextureProducts(
   materials: readonly StandardShadeMaterial[],
   signal?: AbortSignal,
   onCooked?: (evidence: MaterialImagePreparationEvidence) => void
 ): Promise<void> {
   const changes: Array<() => void> = [];
-  const close = new Set<ImageBitmap>();
+  const preparedImages = new Map<object, Map<string, Promise<ImageTextureSource>>>();
+  const preparedTextures = new Map<ShadeTexture, Map<string, ShadeTexture>>();
+  const createdSources = new Set<ImageTextureSource>();
   const assertLive = () => {
     if (signal?.aborted) {
       throw signal.reason ?? new DOMException("Texture preparation aborted", "AbortError");
@@ -103,15 +102,20 @@ export async function prepareMaterialTextureProducts(
     }
     let pending = products.get(key);
     if (!pending) {
+      if (image.encoded_mime_type && (image.source as ArrayBuffer).byteLength > 16 * 1024 * 1024) {
+        throw new RangeError("Encoded Web image exceeds cold input capacity");
+      }
       const input = image.encoded_mime_type
         ? (image.source as ArrayBuffer).slice(0)
-        : imageRgba(image).buffer as ArrayBuffer;
+        : (await imageRgba(image)).buffer as ArrayBuffer;
+      assertLive();
       const address = (value: number) => value === 0 ? "clamp-to-edge" as const
         : value === 2 ? "mirror-repeat" as const : "repeat" as const;
       pending = ImageTextureSource.importWeb({
         input, mime: image.encoded_mime_type, width: image.width, height: image.height,
         semantic, exactAlpha, addressU: address(texture.wrapS), addressV: address(texture.wrapT)
       }, signal).then(({ source, decodeMs }) => {
+        createdSources.add(source);
         onCooked?.({ decodeMs, encodeMs: 0 });
         return source;
       });
@@ -143,9 +147,6 @@ export async function prepareMaterialTextureProducts(
       preparedTextures.set(texture, textures);
     }
     textures.set(key, result);
-    if (typeof ImageBitmap !== "undefined" && image.source instanceof ImageBitmap) {
-      close.add(image.source);
-    }
     return result;
   };
   try {
@@ -158,8 +159,9 @@ export async function prepareMaterialTextureProducts(
         }
         const semantic = materialTextureSemantic(property);
 
-        const exact =
-          property === "texture_albedo" && material.transparency_mode !== ShadeTransparencyMode.Opaque;
+        const exact = compileCanonicalMaterial(material).appearance.samples.some(
+          (sample) => sample.binding.texture === texture && (sample.readMask & 8) !== 0
+        );
         const result = await prepare(
           texture,
           semantic,
@@ -184,9 +186,7 @@ export async function prepareMaterialTextureProducts(
             nodes.push(node);
             continue;
           }
-          const exactAlpha =
-            material.transparency_mode !== ShadeTransparencyMode.Opaque &&
-            queries.some((sample) => (sample.readMask & 8) !== 0);
+          const exactAlpha = queries.some((sample) => (sample.readMask & 8) !== 0);
           const existing = b.texture.image_source;
           if (
             existing &&
@@ -223,17 +223,20 @@ export async function prepareMaterialTextureProducts(
     for (const commit of changes) {
       commit();
     }
-    for (const bitmap of close) {
-      bitmap.close();
-    }
   } catch (error) {
+    for (const source of createdSources) {
+      source.close();
+    }
     throw error;
   }
 }
 
-function imageRgba(image: ShadeImage): Uint8Array {
+async function imageRgba(image: ShadeImage): Promise<Uint8Array> {
   if (image.depth !== 1 || image.data_type !== "uint8") {
     throw new Error("Web material import requires a 2D uint8 image");
+  }
+  if (image.width < 1 || image.height < 1 || image.width > 2048 || image.height > 2048) {
+    throw new RangeError("Web material import requires a bounded 1..2048 image");
   }
   const source = image.source;
   if (
@@ -262,17 +265,19 @@ function imageRgba(image: ShadeImage): Uint8Array {
     }
     return rgba;
   }
-  const canvas = new OffscreenCanvas(image.width, image.height);
-  const replay = bitmapReplay.get(image);
-  if (replay) {
-    return replay.slice();
+  // Avoid the premultiplied 2D canvas round trip; the caller owns the bitmap.
+  const frame = new VideoFrame(source as ImageBitmap, { timestamp: 0 });
+  try {
+    const rgba = new Uint8Array(image.width * image.height * 4);
+    const layout = await frame.copyTo(rgba, {
+      format: "RGBA",
+      layout: [{ offset: 0, stride: image.width * 4 }]
+    });
+    if (layout.length !== 1 || layout[0]!.offset !== 0 || layout[0]!.stride !== image.width * 4) {
+      throw new Error("Material image copy differs from its admitted RGBA layout");
+    }
+    return rgba;
+  } finally {
+    frame.close();
   }
-  const context = canvas.getContext("2d", { willReadFrequently: true });
-  if (!context) {
-    throw new Error("PC texture decode needs a 2D canvas");
-  }
-  context.drawImage(source as ImageBitmap, 0, 0);
-  const pixels = new Uint8Array(context.getImageData(0, 0, image.width, image.height).data.buffer);
-  bitmapReplay.set(image, pixels);
-  return pixels.slice();
 }

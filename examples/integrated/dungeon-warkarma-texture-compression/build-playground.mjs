@@ -305,6 +305,9 @@ const dungeonRoot = resolve(demo, "assets/cooked"),
 await mkdir(destination, { recursive: true });
 const dungeon = await readJson(resolve(dungeonRoot, "scene.materials.json"));
 const playground = await readJson(resolve(output, "scene.materials.json"));
+if (dungeon.schema !== "oengine-image-scene-materials-v2" || playground.schema !== dungeon.schema) {
+  throw new Error("Playground composition requires schema4 image scenes; recook in E5");
+}
 const dungeonScene = await readJson(resolve(dungeonRoot, dungeon.geometryManifest));
 const playgroundScene = await readJson(resolve(output, playground.geometryManifest));
 if (dungeonScene.instanceSemantics !== playgroundScene.instanceSemantics)
@@ -337,7 +340,8 @@ const manifest = {
     triangles: dungeon.source.triangles + playground.source.triangles,
     meshes: dungeon.source.meshes + playground.source.meshes,
     primitives: dungeon.source.primitives + playground.source.primitives,
-    materials: dungeon.source.materials + playground.source.materials
+    materials: dungeon.source.materials + playground.source.materials,
+    cookedImages: dungeon.source.cookedImages + playground.source.cookedImages
   },
   geometryManifestHash: hash(sceneBytes),
   gltf: { ...dungeon.gltf, materials: [...dungeon.gltf.materials, ...playground.gltf.materials] },

@@ -1,4 +1,5 @@
 import { exampleImageKernels } from "../../shared/image-kernels";
+import { materialTextureLeaves } from "../../../OEngine/src/assets/PcMaterialTextures.ts";
 import {
   createDefaultWebCookWorker,
   load_gltf,
@@ -103,6 +104,7 @@ let lastSubmittedAt: number | null = null;
 let renderer: Renderer | undefined;
 let asset: WebCookRuntimeAsset | undefined;
 let handles: { settled: () => Promise<unknown> } | undefined;
+const coldMaterialBatches = new Set<readonly import("../../../OEngine/src/material/StandardShadeMaterial.ts").StandardShadeMaterial[]>();
 let loading: Promise<{ settled: () => Promise<unknown> }> | undefined;
 let cooked: Awaited<ReturnType<typeof loadCookedScene>> | undefined;
 let controls: OrbitControls | undefined;
@@ -289,10 +291,9 @@ function snapshot() {
     preparation: renderer?.texturePreparationEvidence() ?? null,
     upload: texture
       ? {
-          tailBytes: texture.uploadBytes - texture.progressiveMipUploadBytes,
-          promotionBytes: texture.progressiveMipUploadBytes,
+          mandatoryBytes: texture.uploadBytes,
           totalBytes: texture.uploadBytes,
-          promotionCount: texture.mipPromotionCount,
+          imageEncoding: texture.imageEncoding,
           virtualBytes: texture.virtual?.uploadBytes ?? 0,
           virtualCopyBytes: texture.virtual?.physicalCopyBytes ?? 0
         }
@@ -447,8 +448,8 @@ const rows: Array<[string, string]> = [
   ["Neutral / free bytes", "overhead"],
   ["Current min mip (max)", "mip"],
   ["Upload", ""],
-  ["Tail bytes", "tail"],
-  ["Promotion bytes", "promotion"],
+  ["Mandatory image bytes", "mandatory"],
+  ["Uploaded bytes", "uploaded"],
   ["Load / frame", ""],
   ["Raw preparation", "preparation"],
   ["First completed", "first"],
@@ -654,14 +655,14 @@ function refresh(): void {
     allocated: `${bytes(t?.allocatedBytes)} resident / ${bytes(t?.virtual?.allocatedBytes)} VT`,
     peak: `${bytes(t?.allocatedPeakBytes)} resident; VT staging ${bytes(t?.virtual?.stagingPeakBytes)}`,
     retiring: bytes(t?.retiringTextureBytes),
-    pending: `${t?.pendingTextureCount ?? 0} / ${t?.pendingPromotionTextureCount ?? 0} resident; ${t?.virtual?.pending ?? 0} VT pages${t?.virtual?.limited ? " (capacity limited)" : ""}`,
+    pending: `${t?.pendingTextureCount ?? 0} resident; ${t?.virtual?.pending ?? 0} VT pages${t?.virtual?.limited ? " (capacity limited)" : ""}`,
     segments: String(t?.segmentCount ?? 0),
     overhead: `${bytes(s.overhead.neutralBytes)} / ${bytes(s.overhead.freeBytes)}`,
     mip: t?.virtual?.sources
       ? `target ${t.virtual.demand.targetMip} / actual ${t.virtual.demand.actualMip}; missing ${t.virtual.demand.missing}`
-      : String(t?.maximumResidentMinimumMip ?? "UNKNOWN"),
-    tail: bytes(s.upload?.tailBytes),
-    promotion: `${bytes(s.upload?.promotionBytes)} resident / ${bytes(s.upload?.virtualBytes)} VT (${bytes(s.upload?.virtualCopyBytes)} padded copy)`,
+      : (t ? (t.pendingTextureCount ? "INITIALIZING" : "0 (complete resident chain)") : "UNKNOWN"),
+    mandatory: bytes(s.upload?.mandatoryBytes),
+    uploaded: `${bytes(s.upload?.totalBytes)} resident / ${bytes(s.upload?.virtualBytes)} VT (${bytes(s.upload?.virtualCopyBytes)} padded copy)`,
     preparation: time((p?.wallMs ?? 0) + (p?.activeElapsedMs ?? 0)),
     first: time(firstUsefulMs),
     full: time(fullQualityMs),
@@ -785,7 +786,10 @@ async function start(): Promise<void> {
         configuredCapacityBytes: geometryCapacityBytes,
         configuredBankBytes: geometryCapacityBytes / 4
       },
-      onMaterials: () => setPhase("Preparing BC Texture Products"),
+      onMaterials: (materials) => {
+        coldMaterialBatches.add(materials);
+        setPhase("Preparing image products / GPU encoding");
+      },
       onProductPublicationTiming: (value) => {
         publications.push(value);
         setPhase("Tail texture residency ready");
@@ -867,8 +871,8 @@ async function start(): Promise<void> {
               evidence &&
               (evidence.virtual?.sources
                 ? evidence.virtual.complete && !evidence.virtual.limited
-                : evidence.maximumResidentMinimumMip === 0) &&
-              !evidence.pendingPromotionTextureCount
+                : evidence.pendingTextureCount === 0) &&
+              !evidence.pendingTextureCount
             ) {
               fullQualityMs = performance.now() - started;
               fullFrame = renderer!.frame_count;
@@ -1048,6 +1052,12 @@ async function release(): Promise<void> {
     loading = undefined;
     asset?.dispose();
     renderer?.destroy();
+    for (const materials of coldMaterialBatches) {
+      for (const material of materials) {
+        for (const texture of materialTextureLeaves(material)) texture.image_source?.close();
+      }
+    }
+    coldMaterialBatches.clear();
   }
 }
 

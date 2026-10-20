@@ -56,7 +56,7 @@ npm install --prefix .local/offline-cook-deps pngjs@7.0.0 sharp@0.34.5 --no-audi
 node tools/test-build.mjs
 $env:CXX = (Resolve-Path .local/toolchains/llvm-mingw-20261006-ucrt-x86_64/bin/clang++.exe).Path
 node OEngine/tools/build-native-cooker.mjs
-node OEngine/tools/build-pc-texture-native.mjs
+node OEngine/tools/build-image-resampler-native.mjs
 node OEngine/tools/cook-offline-scene.mjs examples/integrated/dungeon-warkarma-texture-compression/assets/dungeon_warkarma.glb .local/models/dungeon-warkarma-cooked 4
 node OEngine/tools/verify-offline-scene.mjs .local/models/dungeon-warkarma-cooked
 ```

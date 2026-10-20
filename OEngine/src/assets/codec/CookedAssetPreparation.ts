@@ -88,7 +88,9 @@ export class CookedAssetPreparation {
       throw new RangeError("Cooked range concurrency must be in 1..8");
     }
     this.#io = new CookedAssetCredit({ total: maxRanges, encoded: 0, ready: 0 });
-    const temporaryBytes = options.maxTemporaryBytes ?? 256 * MiB;
+    // Cold KTX can retain libktx (96 MiB), decoder (64 MiB), resampler
+    // (64 MiB), canonical chains and PNG framing until its Worker retires.
+    const temporaryBytes = options.maxTemporaryBytes ?? 384 * MiB;
     const taskBytes = temporaryBytes;
     if (
       !Number.isSafeInteger(options.maxEncodedBytes ?? 16 * MiB) ||
@@ -511,13 +513,14 @@ export class CookedAssetPreparation {
     signal?: AbortSignal
   ): Promise<Extract<ImageTextureImportResult, { ok: true }> & { release(): void }> {
     const combined = this.#signal(session, signal);
-    const release = await this.#credit.acquire({ total: 256 * MiB, encoded: input.input.byteLength,
+    const peakBytes = input.mime === "image/ktx2" ? 384 * MiB : 256 * MiB;
+    const release = await this.#credit.acquire({ total: peakBytes, encoded: input.input.byteLength,
       ready: 48 * MiB }, 0, combined);
     let handedOff = false;
     try {
       const task: ImageTextureImportTask = { ...input, version: 5, session, task: ++this.#task };
       const result = await this.#pool.submit<ImageTextureImportTask, ImageTextureImportResult>({
-        request: task, transfer: [input.input], estimatedPeakBytes: 256 * MiB, priority: 0,
+        request: task, transfer: [input.input], estimatedPeakBytes: peakBytes, priority: 0,
         signal: combined, retireWorker: true
       });
       this.#assertSession(session, combined);

@@ -743,7 +743,18 @@ export class ImageTextureTranscoder {
     );
     const pitch = Math.ceil(item.width / 256) * 256;
     const size = pitch * item.height;
-    if (size > this.#blockLimit || this.#blockBytes + size > this.#blockLimit) {
+    if (size > this.#blockLimit || size > this.#device.limits.maxBufferSize) {
+      throw new RangeError("Exact plane staging exceeds negotiated capacity");
+    }
+    for (const slot of [...this.#slots]) {
+      if (this.#blockBytes + size <= this.#blockLimit) {
+        break;
+      }
+      if (!slot.busy) {
+        this.#retire(slot);
+      }
+    }
+    if (this.#blockBytes + size > this.#blockLimit) {
       throw new RangeError("Exact plane staging requires drain or exceeds capacity");
     }
     const buffer = this.#device.createBuffer({

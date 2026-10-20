@@ -1,16 +1,28 @@
 import assert from "node:assert/strict";
 import { open, readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { resolve, dirname, relative, isAbsolute } from "node:path";
 import { openOegPackV3 } from "../.test-dist/assets/OegPackV3.js";
 import { parseOegPackSceneManifestV3 } from "../.test-dist/assets/geometry-product/OegPackSceneManifestV3.js";
-import { openTextureProduct, textureProductHash } from "../.test-dist/assets/TextureProduct.js";
+import { readImageTextureDirectory, imageTextureHash } from "../.test-dist/assets/ImageTextureProduct.js";
+
+function localPath(base, uri) {
+  if (typeof uri !== "string" || /[?#\\]|^[a-z][a-z0-9+.-]*:/i.test(uri)) {
+    throw new Error("Offline product must reference an immutable local object");
+  }
+  const path = resolve(base, uri);
+  const child = relative(base, path);
+  if (isAbsolute(child) || child === ".." || child.startsWith("../") || child.startsWith("..\\")) {
+    throw new Error("Offline product reference escapes its owner directory");
+  }
+  return path;
+}
 
 const directory = resolve(process.argv[2] ?? ".local/models/bistro-cooked");
 const sceneBytes = await readFile(resolve(directory, "scene.oescene"));
 const scene = parseOegPackSceneManifestV3(sceneBytes);
 const packs = [];
 for (const reference of scene.packs) {
-  const file = await open(resolve(directory, reference.uri), "r");
+  const file = await open(localPath(directory, reference.uri), "r");
   try {
     const pack = await openOegPackV3({
       async read(offset, length) {
@@ -46,45 +58,57 @@ if (process.argv.includes("--geometry-only")) {
   console.log(JSON.stringify({ geometry }, null, 2));
 } else {
   const materials = JSON.parse(await readFile(resolve(directory, "scene.materials.json")));
-  assert.equal(materials.schema, "oengine-offline-scene-materials-v1");
-  assert.equal(materials.geometryManifestHash, await textureProductHash(sceneBytes));
-  assert.equal(materials.source.triangles, triangles);
+  assert.equal(materials.schema, "oengine-image-scene-materials-v2");
+  assert.equal(materials.geometryManifestHash, await imageTextureHash(sceneBytes));
   assert.equal(materials.instanceMaterials.length, scene.instances.length);
   assert.equal(materials.bindings.length, materials.gltf.materials.length);
   const images = new Set(),
     identities = new Set(),
     receipts = [];
   const byUri = new Map();
-  const formats = {};
+  const targets = {}, codecs = {}, objects = new Map();
   let payloadBytes = 0,
     packageBytes = 0;
   for (const entry of materials.products) {
-    const bytes = await readFile(resolve(directory, entry.uri));
-    const product = await openTextureProduct(
-      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
-    );
-    assert.equal(product.identity, entry.identity);
-    assert.equal(product.metadata.recipe.quality, "bc7e-scalar-6-bc4-hq");
-    assert.equal(product.metadata.recipe.revision, "99f52d63aa6799cbdaecfe977111dc5ec3b31d47");
-    const receipt = JSON.parse(await readFile(resolve(directory, entry.uri + ".json")));
-    assert.equal(receipt.identity, product.identity);
-    assert.equal(receipt.binaryHash, product.metadata.recipe.binaryHash);
+    const path = localPath(directory, entry.uri);
+    const bytes = await readFile(path);
+    assert.equal(bytes.length, entry.byteLength);
+    assert.equal(await imageTextureHash(bytes), entry.identity);
+    const product = readImageTextureDirectory(bytes);
+    const receipt = JSON.parse(await readFile(path + ".receipt.json"));
+    assert.equal(receipt.identity, entry.identity);
+    assert.deepEqual(receipt.directory, product);
     images.add(receipt.imageIndex);
-    identities.add(product.identity);
+    identities.add(entry.identity);
     receipts.push(receipt);
-    byUri.set(entry.uri, product.metadata);
-    payloadBytes += product.evidence.ownedPayloadBytes;
+    byUri.set(entry.uri, product);
     packageBytes += bytes.length;
-    for (const plane of product.metadata.planes) formats[plane.format] = (formats[plane.format] ?? 0) + 1;
+    for (const plane of product.planes) targets[plane.target] = (targets[plane.target] ?? 0) + 1;
+    for (const item of product.items) {
+      const object = localPath(dirname(path), item.uri);
+      let payload = objects.get(object);
+      if (!payload) {
+        payload = await readFile(object);
+        objects.set(object, payload);
+      }
+      assert.equal(BigInt(payload.length), BigInt(item.objectBytes));
+      const start = item.offset === null ? 0 : Number(BigInt(item.offset));
+      assert.equal(await imageTextureHash(payload.subarray(start, start + item.bytes)), item.sha256);
+      payloadBytes += item.bytes;
+      codecs[item.codec] = (codecs[item.codec] ?? 0) + 1;
+    }
   }
-  assert.equal(images.size, materials.source.images);
+  assert.equal(images.size, materials.source.cookedImages);
   let masks = 0;
   for (const [index, material] of materials.gltf.materials.entries()) {
     if (material.alphaMode !== "MASK") continue;
     masks++;
-    const metadata = byUri.get(materials.bindings[index].texture_albedo.uri);
-    assert.equal(metadata.exactAlpha, true);
-    assert.ok(metadata.planes.some((plane) => plane.role === "coverage" && plane.format === "r8unorm"));
+    const binding = materials.bindings[index].texture_albedo;
+    // Constant alpha has no image dependency or exact-plane allocation.
+    if (!binding) continue;
+    const metadata = byUri.get(binding.uri);
+    assert.ok(metadata, "MASK image binding is absent from its product catalog");
+    assert.ok(metadata.planes.some((plane) => plane.semantic === "exact-r" && plane.target === "r8" && plane.mode === "resident"));
   }
   console.log(
     JSON.stringify(
@@ -95,16 +119,16 @@ if (process.argv.includes("--geometry-only")) {
           products: materials.products.length,
           uniqueProducts: identities.size,
           sourceImages: images.size,
-          formats,
+          targets,
+          codecs,
           maskMaterials: masks,
           payloadBytes,
-          packageBytes,
-          encodeMsSum: receipts.reduce((sum, receipt) => sum + receipt.encodeMs, 0),
-          prepareMsSum: receipts.reduce((sum, receipt) => sum + receipt.prepareMs, 0),
-          decodeMsSum: receipts.reduce((sum, receipt) => sum + receipt.decodeMs, 0)
+          directoryBytes: packageBytes,
+          objectBytes: [...objects.values()].reduce((sum, bytes) => sum + bytes.length, 0),
+          wallMsSum: receipts.reduce((sum, receipt) => sum + receipt.wallMs, 0)
         },
         runtimeContract:
-          "Final blocks + full mips + exact coverage; browser consumption must be verified separately"
+          "Schema4 image/exact items; GPU encodes final BC; browser consumption is an E5 check"
       },
       null,
       2

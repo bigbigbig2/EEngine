@@ -1,0 +1,15 @@
+EEngine canonical image cold KTX2 import
+
+KTX-Software: https://github.com/KhronosGroup/KTX-Software
+Release v4.4.2, revision 4d6fc70eaf62ad0558e63e8d97eb9766118327a6.
+See KTX-LICENSE and KTX-LICENSES for Apache-2.0 and third-party notices.
+The read-only library includes its upstream Basis and Zstd dependencies.
+KTX1, GL/Vulkan upload, tools and ETC software unpack are disabled.
+
+Local glue: OEngine/tools/texture-codec/{KtxRead.cpp,CMakeLists.txt}.
+Build: node OEngine/tools/build-image-ktx-import.mjs
+The original generated ktx_pc module/export names are retained byte-for-byte;
+they are an internal read-only import ABI, not the retired texture product.
+source.json distinguishes retained build inputs from future rebuilds.
+Heap maximum: 96 MiB. No CPU BC encoder or final BC network product.
+No Spark shader/code is included in this distribution.

@@ -7,7 +7,6 @@ verifies:
     - project/workstreams/active/eengine-next-clean-rebuild.yaml
     - OEngine/src/assets/PcMaterialTextures.ts
     - OEngine/tools/texture-codec
-    - OEngine/tools/build-pc-texture-codec.mjs
     - OEngine/src/assets/RuntimeAssetManifestV2.ts
     - OEngine/src/assets/RuntimeAssetResidency.ts
     - OEngine/src/assets/codec

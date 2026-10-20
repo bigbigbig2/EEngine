@@ -25,7 +25,7 @@ verifies:
 
 日期：2026-10-20。唯一目标依据：[设计](../next-design/eengine-extreme-web-asset-compression-2026-10.md)。设计最初核对源码为`5f3f4153`，准备提交为`1f856ea0`，E0/E1提交为`eddb8669`；后续施工状态只读§12，不把初始快照当当前源码事实。
 
-**用户已追加授权实施E2；2026-10-20再次调整执行节奏。** P准备已提交为`1f856ea0`，E0/E1已提交为`eddb8669`，实际结果见§12。E0–E4以连续实现、设计对照和最小正确性检查为主，全部场景cook/recook、部署与全路径测试统一放到最后E5。旧路径随替换直接删除，不为中间阶段可运行保留兼容；E2尚未完成。本次调整不自动授权E3–E5，也不把旧U0的“完成/冻结”当作新计划状态。
+**用户已授权实施E2；2026-10-20按新节奏继续完成实现闭包。** P准备已提交为`1f856ea0`，E0/E1已提交为`eddb8669`，E2检查点为`510f4c55`；本轮续作尚未提交，实际结果见§12。E0–E4以连续实现、设计对照和最小正确性检查为主，全部场景cook/recook、部署与全路径测试统一放到最后E5。旧路径随替换直接删除，不为中间阶段可运行保留兼容；E2代码实现收口与最终集成资格分开。本次授权不自动跨入E3–E5，也不把旧U0的“完成/冻结”当作新计划状态。
 
 ## 1. 执行合同：连续实现，最后集中验证
 
@@ -68,7 +68,7 @@ verifies:
 | P：重建设计准备 | 中 | 新唯一设计/执行、来源映射与导航，删除旧主张，记录证据边界 | 已提交；实际结果见§12 |
 | E0：上游依赖与移植基线准备 | 中 | 固定编码工具/许可、donor完整路径、产品/能力细节与构建身份；无生产切换 | 已实施；实际结果与许可交付边界见§12 |
 | E1：忠实内核与新产品准备闭包 | 大 | 新图片产品、语义Cooker、浏览器decode/lease、GPU recorder、有限内存，覆盖RGB/RGBA/BC5/BC4和mip | 隔离闭包已实现并验证；本地evaluation来源边界及结果见§12 |
-| E2：纹理全链原子切换 | **很大，主工作项** | 普通/VT、材质/coverage/query、统一准备/缓存、加载/部署代码直接切换、旧产品与依赖删除；不跑场景recook | 已授权施工；只做设计核对与最小检查；尚未完成，见§12 |
+| E2：纹理全链原子切换 | **很大，主工作项** | 普通/VT、材质/coverage/query、统一准备/缓存、加载/部署代码直接切换、旧产品与依赖删除；不跑场景recook | 实现闭包及相关编译/最小检查完成；最终集成与许可边界见§12，停在E3 |
 | E3：离线极限码率与交付优化 | 大 | 实现双质量档有限搜索、最终GPU评价缓存、资产报告生成、VT cell布局与请求优化；不跑完整资产搜索/报告 | E2实现闭包后；待授权；仍只一个生产owner |
 | E4：几何紧凑ABI与无损传输原子切换 | 很大，独立资产类别闭包 | F32-exact SoA、Zstd/raw、全部Cooker/reader/query/lifecycle代码同切并删旧ABI；不跑场景recook | 公共准备合同在E2已定；待授权 |
 | E5：最终集中cook、全路径集成与成本收口 | 大 | 统一全量cook/recook与manifest发布、新鲜build、全部直接路径/示例部署、组合生命周期/上界/质量及粗成本 | E2/E3/E4实现后；待授权；全路径验证唯一阶段 |
@@ -303,6 +303,31 @@ node tools/gpu-oracle.mjs --list
 ## 12. 本轮P准备记录与后续实施结果
 
 本节是唯一详细状态入口，后续E0–E5结果在本节追加，不另建status/progress。workstream只导航，不复制单元完成表。
+
+### E2续作收口：2026-10-20新图片链与退休依赖
+
+**结论：E2实现闭包完成，停在待授权E3边界；不代表E5全路径通过，也不代表Spark生产分发许可或性能/质量资格已取得。** 本轮没有执行完整资产cook/recook、browser/GPU矩阵、整包部署或正式性能检查，旧失败/原始日志不改写。前两节施工检查点描述其当时事实，本节为本轮最新实施结果。
+
+#### 唯一代码路径与职责
+
+- 复核schema4 source/目录/owner索引→统一`CookedAssetPreparation/AssetWorkerPool`→image/exact lease→GPU assembly/Spark recorder→普通array及VT atlas/page table→Native、Surface、visibility/VSM exact alpha与query。完整resident链/protected tail由原scene owner有限隐藏批次准备后提交；正常frame VT编码沿现有command，不新增独立frame submit，不发布未初始化尾层。
+- 删除退休`vendor/pc-texture` BC encoder、`vendor/tiled-zstd`、专用native/WASM构建、BC/Zstd工具及U0纹理build/encoder/browser/worker/report执行入口。只保留原始结果/失败与独立几何参考；不恢复旧产品parser、Worker纹理协议、A/B桥或CPU BC生产fallback。按设计保留VT调度/映射和当前几何V3独立owner，不误删未替换的几何模块。
+- 只读libktx移至`vendor/image-ktx`并建立独立构建、完整许可树和原构建身份；原内部模块名保留。native canonical重采样从旧BC工具拆出，只调用原Pinned Basis tent滤波，无自写近似滤波或新BC encoder。离线recipe纳入canonical工具binary/receipt/wrapper身份；新AVIF仍从canonical而非旧BC反解生成。
+- 材质实际compiled sample readMask决定精确alpha；冷导入只在本批次共享source/texture，不保留全局promise/整图RGBA replay，取消/异常关闭未发布source且不提交部分材质。成功source由CPU材质/场景持有，unload关闭，device replacement保留其encoded来源。raw/bitmap分配前拒绝超2048域，bitmap/编码输入转RGBA不经过premultiplied canvas，调用方bitmap不擅自关闭。浏览器实际颜色/透明RGB语义完整矩阵归E5，不把API选项当实证。
+- 离线cook按live graph叶子生成产品，不因source存在未使用图片而保留无consumer输出；manifest区分source images与cookedImages。标准glTF的RGB仍可virtual，exact alpha独立resident，不因alpha读取把整张RGB强制降回resident。任意graph的alpha/UV依赖仍按真实closure要求resident，不省略通道。
+- 移除普通纹理旧promotion/no-op调度和伪零成本字段，evidence schema8报告实际image encoder/上传；GraphicsContext总分配和临时池计入encoder RGBA、block/uniform/exact staging。冷输入导入另预留256MiB，KTX384MiB（96+64+64MiB可能同存的WASM heap及canonical/PNG临时项），Worker任务完成退休；默认共享temporary信用384MiB、encoded16MiB、ready64MiB，local replay另≤64MiB。这是保守accounting/准入，不是每任务常驻分配、性能改善或进程RSS上界。
+- hello、Dungeon、Bistro加载/错误/销毁/evidence和静态nested image/exact资源路径改新合同；hello检查异步初始化/迟到source/geometry结果的销毁。playground只接受新schema组合，旧资产不作兼容。完整资产/manifest/静态HTTP部署仍由E5统一生成，阶段内示例资产尚非最终可发布资格。
+
+#### 最小检查、原失败与未执行项
+
+- 引擎`typecheck`和新鲜`build:test`通过；hello、Dungeon、Bistro相关TypeScript编译通过。首次示例检查发现退休minimumMip/tail/promotion evidence引用，修为mandatory/实际上传/完整resident readiness后重跑受影响编译通过，没有加兼容字段。改变的23个JS工具/检查入口通过`node --check`。
+- 新产品/准备/material批次检查**10/10通过**，包含canonical工具身份改变recipe、真实Worker exact16-owner来源、aggregate admission、失败/cancel/retry/source retirement和材质批次去重/取消不发布/关闭source/分配前容量拒绝。普通/VT驻留最小结构检查**7/7通过**，覆盖mandatory未完成拒绝发布、query引用、成功/失败fence、query fairness、隐藏producer取消等待、NPOT完整父级闭包与encoder失败回收slot。结构fake GPU不冒称真实GPU质量/成本验证；日志`e2-final-targeted.log`、`e2-residency-final-small.log`。
+- 新独立native resampler构建通过；17×9→8×4的linear、sRGB、normal三组与保留WASM逐字节一致，结果`checks/e2-native-resampler/result.json`。不是资产cook、多档码率搜索或全尺寸资格。KTX JS/WASM原构建收据逐字节核对；发现旧Git曾把JS从CRLF归一为LF，恢复收据对应原生成字节并加新目录`-text`，不改hash掩盖差异；未重建libktx或冒称新compiler字节等价。
+- 本轮早期小检查18项中15通过/3失败，归fixture缺ResourceAccounting；之后VT fixture补GPUBufferUsage及真实1045宽父级交集后3/3通过，原`e2-clean-cut-small-tests.log`及后续失败日志均保留。未通过放宽算法容差、删生命周期断言或恢复旧ABI解决。原U0工具套件15/16的无关fixture失败继续保留，不重跑整套。
+- 新fine-demand GPU oracle已改为primary和query-only独立fine页，必须先看到query页缺失再证明新需求抵达；原GPU consumer夹具迁至lossless image→真实新准备/encoder，registry补显式evaluation源路径。**本轮没有运行这些GPU oracle**；此前270组采样/9导入/24Native报告只属于当时源码，不能证明本轮新VideoFrame路径、query-only修改或最终质量已通过。全部采样/颜色/接缝/反馈/evict-reload/迟到IO/第三次重试失败/device loss矩阵仍明确归E5。
+- 文档首轮17 findings为历史文档仍verifies已删工具/测试，已删失效依赖声明而非恢复旧实现；修后`docs-verify`为209 documents、0 findings、86 historical warnings。原失败日志`checks/e2-docs-initial.log`保留；收口复核与diff空白检查不替代实际集成。
+
+Architecture review核对唯一生产owner/writer、完整层和精确面、输入/metadata/ready/GPU scratch容量、publication/abort/fence及退休依赖。Local NPOT逻辑滤波的最坏64次load与aligned hardware分支已记来源/成本，不伪称Spark/LibVT原样移植或“优化已达成”。Spark原完整kernel仍受显式local-evaluation范围约束；适用生产分发权必须在公开交付前解决，不能以实现收口越过许可。
 
 ### E2施工中：2026-10-20执行节奏纠正
 

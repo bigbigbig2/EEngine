@@ -232,6 +232,8 @@ BC5 增加的 target bank/format、绑定选择、材质 normal 重建必须贯�
 
 CPU 解码按保守至少 `2×4wh` 收费，RGBA mip 按 `4×Σ(w_l h_l)`，GPU 临时字节与最终显存分别收费；实际 VideoFrame/浏览器复制差异需记录，无法精确控制浏览器内部 decoder scratch，不能称此表为整个进程 RSS 硬上界。超过单 item encoded cap 由 Cooker 重新形成合法 item，不从网络收到后无界扩容。
 
+冷Web输入转canonical是另一个短期任务域，不把模块heap藏进普通AVIF item解码预算：当前实现raw/encoded导入预留256MiB，KTX导入预留384MiB，覆盖可能同存的libktx96MiB、冷block decoder64MiB、canonical resampler64MiB及canonical/PNG临时拷贝；任务结束退休Worker。共享total临时信用默认384MiB，较小配置在任务准入前明确拒绝不足，不建立另一codec fallback。它是保守预留而非实际常驻分配，和上表decoded/ready分类额度、encoded replay另≤64MiB分别记录；不据此承诺内存降低。成功本地source由CPU材质/场景显式持有，unload关闭；device replacement复用encoded来源，不用全局WeakMap保留无主session。
+
 VT 普通批量3×3的512² decoded邻域为9 MiB GPU RGBA输入；受限256²为2.25 MiB，CPU按至少双份分别计18/4.5 MiB。保守按16个最大cell预留时分别为16/4 MiB GPU输入、至少32/8 MiB CPU accounting；不能同时保留额外ready占满这一最小合法任务预算。单页128网格九依赖为0.5625 MiB GPU输入、至少1.125 MiB CPU accounting。混合尺寸按实际去重依赖逐项求和，不能用最小cell估算大邻居。装配页和block scratch另计，任务整体预留后仍要容纳现有帧临时资源。整个GPU总预算为最终纹理/VT工作集、几何、效果资源、准备临时池与增长双份之和；受限设备没有复杂场景/全效果保证。
 
 cache 只保留有界 encoded 源和正在复用的 decoded 依赖；不保留完整 native replay、完整 RGBA mip 或所有 victim 页。几何 Zstd module 固定内存计入每个活跃 Worker，懒加载，不沿用旧 U0 的每 Worker 两个 16 MiB 模块默认配置。HTTP cache 命中与应用 cache 分开统计，不实现默认 IndexedDB 大副本或压缩块 GPU readback 缓存。

@@ -33,7 +33,7 @@ verifies:
 
 ## 当前代码ownership
 
-2026-10-20：本页只记录当前E2施工检查点的源码接线，不代表E2完成、最终集成通过或性能资格。唯一目标和阶段要求由[workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)指向的设计/执行决定；不再把旧BC网络产品事实写成当前实现。
+2026-10-20：本页只记录当前源码ownership，不代表最终集成通过或性能资格。唯一目标和阶段要求由[workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)指向的设计/执行决定；不再把旧BC网络产品事实写成当前实现。
 
 普通与VT共用schema4图片目录和`ImageTextureSource`。目录/recipe/来源身份、逻辑mip、semantic/target、image/exact item由`ImageTextureProduct`定义；`ImageTexturePages`拥有immutable空间索引和完整页依赖。`ShadeTexture.fromImageSource`是cooked纹理入口，不再提供旧Product/tiled factory。source只拥有准备session，不创建长期GPU资源，close退休其CPU工作。
 
@@ -45,9 +45,13 @@ verifies:
 
 `VirtualTextureResidency`唯一拥有页表、format atlas、protected tail、主/query需求、父级闭包、pending、victim/eviction/rescue及mapping/退休；`VirtualTextureFeedback`保留延迟wanted/used/union和overflow恢复。新图片lease经GPU装配/编码进入真实slot/layer，不再下载最终BC+Zstd纹理页。VT同源尾层和普通exact plane沿现有材质publication接线；全部实际组合语义留最终集成验证，不据源码接线宣称画面通过。
 
-## 已退休表示与尚未闭合事项
+## 退休与交付边界
 
-旧`TextureProduct`、`TiledTextureProduct/Source`、旧texture cook/transport/cache/decoder生产入口和旧Worker纹理任务已删除；不存在以这些入口维持的双生产链。旧vendor、专用构建/历史可执行工具、部分测试/部署资产引用仍待E2清理，不能称“旧依赖已全删”。当前部分evidence字段仍有退休表示，不能据零值宣称没有编码/mip成本。
+旧`TextureProduct`、`TiledTextureProduct/Source`、旧texture cook/transport/cache/decoder生产入口、旧Worker纹理任务及专用BC/Zstd vendor/build工具已删除；不存在以这些入口维持的双生产链。旧表示测试删除，必要产品/准备/驻留/事务语义由新owner的定向检查承担，完整组合矩阵归E5。历史原始结果保留，不保留可运行的旧纹理全链。
+
+KTX只读decoder已独立归属`vendor/image-ktx`，原生成模块名不改变其冷导入职责；canonical tent resampler分别有独立WASM/native构建，不依赖旧BC encoder。材质冷准备只在本批次去重，失败/取消关闭未发布source；成功source由CPU材质/场景持有，unload后调用`image_source.close()`，不能在GPU device replacement时提前关闭。调用方原bitmap不由材质准备擅自关闭，也不建立全图RGBA replay缓存。
+
+Residency evidence schema8报告实际mandatory上传和image encoder计数，GraphicsContext总分配/临时池单独包含encoder RGBA及block/uniform staging。常规图片任务按实际尺寸收费；冷输入导入另预留256MiB，KTX为384MiB（包含96+64+64MiB模块上界及canonical/PNG临时项），任务结束退休Worker。默认全局临时信用384MiB、encoded 16MiB、ready 64MiB，local encoded replay另有64MiB上界；不是常驻分配，也不是浏览器RSS保证。
 
 示例加载代码已经改用图片source，hello已有一次提前生成的AVIF资产；这些不是E5最终资产资格。Bistro完整cook已按用户要求停止，未完成本地目录不可发布。E2继续直接删旧引用，不为暂时不可运行的示例恢复旧路径；最终普通/VT/几何cook、manifest、静态部署、画面和完整生命周期测试统一归E5。
 

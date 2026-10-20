@@ -18,8 +18,7 @@ import { FinalPixelLightingPublication } from "../../.test-dist/render/lighting/
 import { ShadeGPUCommandContext } from "../../.test-dist/framegraph/ShadeGPUCommandContext.js";
 import { ShadeTexture } from "../../.test-dist/texture/ShadeTexture.js";
 import { ShadeTransparencyMode } from "../../.test-dist/material/enums.js";
-import { sourceFixture } from "./streaming-vt-gpu.mjs";
-import { fixtureTexture } from "./texture-fixture.mjs";
+import { sourceFixture, fixtureTexture, evaluationImageKernels } from "./texture-fixture.mjs";
 import { nativeSurfaceBindingGroups } from "../../.test-dist/shaders/native_surface.js";
 
 /** Exact public Renderer/config/upload/render entry. No alternate GI producer. */
@@ -49,6 +48,7 @@ export async function runScgiProductionGpuOracle(options = {}) {
   });
   const context = new OffscreenCanvas(65, 49).getContext("webgpu");
   let renderer = new Renderer({
+    imageTextureKernels: await evaluationImageKernels(),
     enablePhysicalEnvironment: true,
     enableVsm: true,
     autoExposure: false,
@@ -85,7 +85,7 @@ export async function runScgiProductionGpuOracle(options = {}) {
   let scene = new Scene();
   const materials = Array.from({ length: 4 }, () => new StandardShadeMaterial());
   const tiled = await sourceFixture();
-  materials[0].texture_occlusion = ShadeTexture.fromTiled(tiled.source);
+  materials[0].texture_occlusion = ShadeTexture.fromImageSource(tiled.source);
   materials[0].transparency_mode = ShadeTransparencyMode.AlphaTested;
   materials[1].clearcoat_factor = 0.5;
   materials[2].is_unlit = true;
@@ -116,7 +116,7 @@ export async function runScgiProductionGpuOracle(options = {}) {
     );
   }
   for (const filter of [0, 1]) {
-    const texture = ShadeTexture.fromTiled(tiled.source);
+    const texture = ShadeTexture.fromImageSource(tiled.source);
     texture.minFilter = texture.magFilter = filter;
     baseColor = graphBuilder.operation(
       "add",

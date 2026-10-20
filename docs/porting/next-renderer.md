@@ -1880,7 +1880,7 @@ Local / Reuse：继续复用 `TiledTextureCook.#region` 的原始 BC 内区块�
 
 ### 旧U0实验的可引用范围
 
-原工具与`results.json`保留在`OEngine/tools/web-asset-u0/`；Basis `1706f948a2f0992d7a6dc2a909f35690b508571c` Apache-2.0、Zstd及vendor meshoptimizer的具体构建/hash仍在原快照。`Xubc7Encode.cpp/Xubc7Probe.cpp/GeometryProbe.cpp`与`worker.mjs/browser.mjs`仅为隔离reference，不成为新runtime依赖。
+原`results.json`保留在`OEngine/tools/web-asset-u0/`；Basis `1706f948a2f0992d7a6dc2a909f35690b508571c` Apache-2.0、Zstd及vendor meshoptimizer的具体构建/hash仍在原快照。E2删除仅服务旧纹理链的XUBC7 encoder/probe、build/browser/worker及report生成器，原源码由Git追溯，不保留第二套可执行纹理链。`GeometryProbe.cpp/geometry.mjs/common.mjs`仅是独立历史几何参考，不成为新runtime依赖。
 
 其有限样本的字节、往返、精确资格/SoA模型仍是历史事实；“Normal/ORM只能lossless WebP”“单RGBA kernel代表完整Spark”“submit完成等待就是shader成本”“默认XUBC7 Q100且否决图片路线”等推论已撤销，详见新执行§10。原失败、错误fixture/初始化/身份与baseRevision笔误不静默改写；它们不是新内核bug或新路线资格。本节不声称新全资产压缩比、许可授权、GPU性能或生产采用已完成。
 
@@ -1912,3 +1912,11 @@ VT assembly、schema4目录/receipt、有限依赖reservation与scene隐藏批�
 | `spark.js::encodeTexture`绑定/dispatch/block copy | `ImageTextureTranscoder::record/recordExact` | 私有submit/cache/runtime结构不移植；原EEngine command observer接收fence，输入/blocks保留至settlement。source/session/receipt/global credit仍为既有统一准备owner，不引入第二pool |
 
 schema4目录/rect sweep/AVIF固定profile admission/constant restore/lease/有界pool/metadata与原子manifest为Local工程。`tests/oracle/image-texture-transcode-gpu.mjs`以stock Spark宿主独立生成对应precision的expected BC，另作数据上传、straight-alpha、exact coverage和lifecycle检查；实际计数/原失败/未覆盖宿主见执行§12。原始source/hash、EULA与evaluation归因保留不等于取得生产分发权；E1真实隔离producer→consumer证据也不冒称E2 production消费已存在。
+
+### E2生产接线与保留依赖归属
+
+Local / Adapt：`ImageTextureSource/Pages`→统一准备/lease→`ImageTexturePageAssembly`→同一Spark recorder→普通/VT长期owner→Native、coverage、Surface/query。图片/精确段身份、NPOT owner邻域、隐藏初始化与最终原子publication、主/query调度及fence退休为本地工程；没有新增第二pool、最终BC网络parser或旧schema兼容入口。Spark内核仍只接显式local-evaluation来源，生产shader分发权未记录，不提升正式production adoption。
+
+Retained / Adapt：libktx `4d6fc70eaf62ad0558e63e8d97eb9766118327a6`的只读`KtxRead.cpp`桥及原JS/WASM逐字节移至`codec/vendor/image-ktx`；source.json区分原构建recipe和新`build-image-ktx-import.mjs`，保留license树。Basis `99f52d63aa6799cbdaecfe977111dc5ec3b31d47`的`basisu_resampler.cpp/basisu_resample_filters.cpp`及既有`CanonicalResample.cpp`继续用于完整canonical mip，独立native入口`CanonicalResampleNative.cpp`只做文件IO，不含BC编码；小输入linear/sRGB/normal三组native/WASM逐字节比较，不冒称全部尺寸/CPU架构资格。
+
+Reference / Original：重新核对上文固定LibVT `464397d9e2c655f72ad59cd1166b14e29e1bad3a` MIT `renderVT.frag::mipmapLevel`的梯度/各向异性LOD和物理过滤边界。新的`image_texture_sampling.ts`为本地数学实现，不称LibVT移植：padded BC无法沿每层真实NPOT域直接硬件采样，故使用J·Jᵀ特征轴、最多8个主轴tap及逐逻辑层双线性/三线性；aligned走原硬件路径。不是复制上游Pmax/Pmin近似，也不承诺与driver各向异性核逐bit一致。代价明确为nearest一次load或最坏8×2×4=64次load，完整斜足迹/接缝/LOD与成本矩阵归E5，不能把有限小检查升级为最终画质/性能。
