@@ -1,7 +1,7 @@
 ---
 id: eengine-v4-vt-transport-transcode-2026-10
 state: history
-supersededBy: eengine-web-asset-delivery-residency-2026-10.md
+supersededBy: eengine-extreme-web-asset-compression-2026-10.md
 verifies:
   files:
     - OEngine/src/assets/TiledTextureProduct.ts
@@ -32,7 +32,7 @@ verifies:
 
 # VT 细页无损传输压缩设计
 
-2026-10-20 后续授权说明：本文保留已实现 schema 2 BC/Zstd 模块的历史设计与原始依据，不再约束未来传输方案。当前目标见[Web 资产传输与 GPU 紧凑驻留设计](eengine-web-asset-delivery-residency-2026-10.md)；新文档进入导航不表示生产代码已经切换。
+2026-10-20 后续授权说明：本文保留已实现 schema 2 BC/Zstd 模块的历史设计与原始依据，不再约束未来传输方案。当前目标见[极致 Web 资产压缩设计](eengine-extreme-web-asset-compression-2026-10.md)；新文档进入导航不表示生产代码已经切换。
 
 本文全面替换前版含大量英文、选型未完成的设计。文件名保留便于既有链接定位，但**主方案不再是图片解码后 GPU 重编码，而是最终 BC 块的逐页 Zstd 无损压缩**。对应[执行文档](../next-execution/eengine-v4-vt-transport-transcode-execution-2026-10.md)。
 

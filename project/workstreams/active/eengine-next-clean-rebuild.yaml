@@ -11,8 +11,8 @@ roadmap:
   execution: docs/next-execution/eengine-feature-expansion-execution-2026-10.md
 # Only the selected module pair is the current authority; roadmap remains stable.
 authority:
-  design: docs/next-design/eengine-web-asset-delivery-residency-2026-10.md
-  execution: docs/next-execution/eengine-web-asset-delivery-residency-execution-2026-10.md
+  design: docs/next-design/eengine-extreme-web-asset-compression-2026-10.md
+  execution: docs/next-execution/eengine-extreme-web-asset-compression-execution-2026-10.md
 goal: >-
   Build an extreme-performance GPU-driven WebGPU-native AAA renderer for
   scalable GPUs, including measured low-memory profiles without a 4GB large-scene guarantee. Follow global V4 invariants
@@ -25,17 +25,19 @@ goal: >-
   historical measurements retain their original device and thermal-state identity.
 
 currentSlice:
-  id: web-asset-delivery-residency
-  title: Web asset delivery and compact GPU residency design
-  status: design-ready
+  id: extreme-web-asset-compression
+  title: Port-first extreme Web asset compression
+  status: in-progress
   goal: >-
-    Follow the user's 2026-10-20 authorization for final design and execution
-    preparation only. Separate network representation from compact GPU residency,
-    cover ordinary and virtual textures, and define complete geometry ABI cutovers.
-    Build new closures off the production boundary, switch all direct consumers
-    atomically, and delete replaced contracts without legacy bridges or fallbacks.
-    Implementation and recooking require subsequent authorization; unit details
-    live only in the execution document. Do not automatically resume other effects.
+    Follow the user's replacement-design authorization for port-first image
+    delivery and runtime GPU encoding across the complete LDR PBR texture set.
+    Cover ordinary textures, virtual textures and source-exact compact geometry;
+    use the authority pair for architecture and detailed execution state.
+    Build complete new closures before atomic ownership cutovers and immediate
+    retirement of replaced contracts, without legacy bridges or fallbacks.
+    The preparation changes are authorized for review and commit; production
+    implementation and recooking remain unstarted and require implementation
+    authorization. Do not start other renderer modules.
 
 pausedModules:
   - id: surface-cache-gi

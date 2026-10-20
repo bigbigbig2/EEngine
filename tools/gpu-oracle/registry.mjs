@@ -11,6 +11,17 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "web-asset-u0",
+    file: "OEngine/tools/web-asset-u0/browser.mjs",
+    url: "/OEngine/tools/web-asset-u0/browser.mjs",
+    entry: "runWebAssetU0",
+    requiredFeatures: ["texture-compression-bc", "shader-f16"],
+    timeoutMs: 180000,
+    allowPrefixes: ["OEngine/tools/web-asset-u0/", ".local/web-asset-u0/", ".local/texture-design-spark/src/shaders/"],
+    description: "Isolated U0 Worker XUBC7, BC7 GPU consumption, unchanged Spark evaluation and compact geometry probes.",
+    note: "Reference-only feasibility; no production owner or source-adoption claim. Generate local fixtures first."
+  }),
+  Object.freeze({
     name: "scgi-gather-materials",
     file: "OEngine/tests/oracle/scgi-gather-materials-gpu.mjs",
     url: "/OEngine/tests/oracle/scgi-gather-materials-gpu.mjs",

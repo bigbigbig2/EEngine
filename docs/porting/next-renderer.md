@@ -3,7 +3,7 @@ id: porting/next-renderer
 state: current
 verifies:
   files:
-    - docs/next-design/eengine-web-asset-delivery-residency-2026-10.md
+    - docs/next-design/eengine-extreme-web-asset-compression-2026-10.md
     - OEngine/src/assets/codec/PcTextureCook.ts
     - OEngine/src/assets/geometry-product/GeometryProductResidentAttributes.ts
     - OEngine/tools/oengine-asset-core/vendor/meshoptimizer/source.json
@@ -1842,24 +1842,44 @@ R3实施复核固定FidelityFX 1.1.4同revision的`FfxBrixelizerGISpawnScreenPro
 
 Local / Reuse：继续复用 `TiledTextureCook.#region` 的原始 BC 内区块与必要边界条带、现有目录/范围/shard 认证、Cooked Worker 池/信用/独占租约/缓存，以及唯一 `VirtualTextureResidency` 上传事务。schema 2、两种长度、受限帧包装与统计是本地工程；不改变现有 VT 的 LibVT/Wicked/Intel 来源范围。本地 `TiledZstd.c` → 静态 DCtx/帧头/帧长/精确解压；`TiledTextureDecoder` → 固定4 MiB与二进制hash；`TiledTextureTransport`/Cooked Worker → 范围认证后原生独占BC；`VirtualTextureResidency.copyTile` → 原有atlas/页表/Native/query。构建清单 `vendor/tiled-zstd/source.json` 固定源、glue、compiler与binary hashes。独立Node/WASM恶意帧及全8,550页新旧最终BC逐字节检查、真实GPU非零layer/abort/victim/query消费齐备；有界C合同/产品/记账为Local，上游帧解析/熵解码/LZ重建/checksum完整保留。合成页受限网络测量有收益，高速冷读有初始化税；不把来源复用自动提升为全场景提速。
 
-<a id="web-asset-delivery-2026-10-20"></a>
+<a id="extreme-web-asset-compression-2026-10-20"></a>
 
-## Web资产传输与紧凑驻留研究（2026-10-20）
+## 极致 Web 资产压缩：移植来源与本地映射（2026-10-20）
 
-本节属于[新目标设计](../next-design/eengine-web-asset-delivery-residency-2026-10.md)与[执行计划](../next-execution/eengine-web-asset-delivery-residency-execution-2026-10.md)的研究准备。上节只记录已完成BC/Zstd模块，不再限制新模块选型。**本节所有新codec/布局均为Reference或Planned Adapt；未实施、未测本项目收益、未提升来源adoption。**
+唯一目标/步骤见[新设计](../next-design/eengine-extreme-web-asset-compression-2026-10.md)与[新执行](../next-execution/eengine-extreme-web-asset-compression-execution-2026-10.md)。上一节BC/Zstd是已完成旧模块的来源历史，不再限制当前图片传输路线。本节是 **Reference / Planned Adapt**，不是已取得分发权、已移植或production adoption声明；后续在同一映射补真实函数、patch/build身份与必要消费结果，不另建进度文件。
 
-| 固定来源、日期与许可 | 已核对的入口、数据流与平台限制 | 本地映射与决定 |
+### 固定来源与可移植边界
+
+| 来源 / revision / 许可 | 核对入口与实际行为 | 当前选定范围 |
 | --- | --- | --- |
-| [Basis Universal 2.5](https://github.com/BinomialLLC/basis_universal/tree/1706f948a2f0992d7a6dc2a909f35690b508571c)，`1706f948a2f0992d7a6dc2a909f35690b508571c`，commit 2026-10-16；Apache-2.0，Zstd等依赖另列许可 | `encoder/basisu_xbc7_encode.h/.cpp::pack_options/pack_image/xbc7_pack_bc7_base_block/pack_stripe`：像素→bc7f或bc7e_scalar→canonicalize→可选RDO→DCT/DPCM与stripe/blob→Zstd→逐block自验证；公开签名只接像素，并非任意已有BC输入。默认fast encoder/weights/quality不能代表当前EEngine quality6；header仍标experimental，README/版本不等于长期稳定ABI | **Planned Adapt，主选待U0裁决。** 新canonical mip producer直接生成独立传输payload；显式bc7e6、Q100/RDO-off起步，不以BC先解码再重编码。新recipe、decoder与source identity整体替换Web产品合同，不能复用旧chunk身份 |
-| 同一Basis pin：`transcoder/basisu_xbc7_decoder.h/.inl`，`basisu_transcoder.cpp`及`webgl/transcoder/basis_wrappers.cpp` | `blob_stream_reader::init_internal`先累计/分配解压arena，默认上限1GiB；`image_unpacker::init`先blob reader再header，随后logical block图早于caller init callback分配。`decode_stripe/decode_all`读取已重建邻域、回调logical BC7，再由`bc7u::pack_bc7`打包。tiny marker与regular blob两种形态；低层`unpack_image_threaded/job_spawner`可分stripe，不代表高层JS接口直接并行 | **Planned Adapt。** 仅编译必要WASM解码/pack，分配前检查域/维度/展开长度并传显式上限或小patch，固定内存和OOM错误；小页由现有Worker池并行，不要求SharedArrayBuffer。native输出继续直接交新纹理Residency，不将整个offline encoder装入Worker |
-| [Basis XUBC7规格](https://github.com/BinomialLLC/basis_universal/wiki/XUBC7-File-Format)、[Usage Guide](https://github.com/BinomialLLC/basis_universal/wiki/XUBC7-Usage-Guide)，2026-10-20读取；wiki可变，行为以以上源码pin为准 | 独立image slice、blob超压缩、端点/模式/权重域；Q100相对于base BC结果的texel无额外损失，BC端点交换/权重反转可使物理字节变化。README公布码率与吞吐不等于144页、normal/ORM或WASM数据 | **Reference。** 冷reference核重建像素与最终渲染，transport hash与输出hash分开；损失档和独立gutter接缝待测，不把公开码率写成EEngine验收数字 |
-| [meshoptimizer](https://github.com/zeux/meshoptimizer/tree/f0a684f11ead064e176775c9b796f82a55910e92)，`f0a684f11ead064e176775c9b796f82a55910e92`，commit 2026-10-14，MIT | `src/quantization.cpp::meshopt_computePositionExponent`、README Cluster position quantization、`demo/main.cpp::encodeMeshletsDXR`：跨cluster共享指数、整数格点与anchor/delta；helper按24-bit signed格点与指定delta位宽求指数。hierarchical LOD需共享格点；不能逐meshlet独立scale/bias，也不能直接照搬DXR格式/mesh shader | **Reference / Planned Adapt。** 新geometry layout用共享格点域，CPU/WGSL先整数相加再重建；精确query和误差合同为Local。当前vendor `9e1f07b159d3cb777f1c67ed31fc11fd117986f4`已有该helper，不为新研究pin无差别升级所有meshoptimizer功能 |
-| 同一meshoptimizer研究pin；当前vendored source/license清单仍独立保留 | `src/vertexcodec.cpp`、`indexcodec.cpp`、`meshletcodec.cpp`，`js/meshopt_decoder.mjs`及JS README，`demo/meshletdec.slang`：CPU/WASM结构化传输；GPU例子每thread串行解一个meshlet topology/reference，32-bit输出，不解全部属性；byte storage/uint8需WGSL适配。vertex stride为4的倍数，triangle codec可能轮转corners，通用压缩可二次叠加但有税 | **Reference，待新resident布局后选。** 对自定义流和page定义有限codec，不照搬glTF扩展，不把6B position永久补成12B；source remap/barycentric需一致。默认CPU/WASM，不采用GPU entropy decoder或新增旧页适配器；上游native GB/s不作Web性能证据 |
-| [Spark.js](https://github.com/Ludicon/spark.js/tree/b9ea643a08cb9eef3a9ddc64564089bdd6fd0daf)，`b9ea643a08cb9eef3a9ddc64564089bdd6fd0daf`；JS MIT，shader另受[EULA](https://ludicon.com/sparkjs/eula.html)，2026-10-20读取 | `src/spark.js::encodeTexture/#loadPipeline`、`src/utils.js::loadImageDecoder`与BC7/BC4 shader：图片/bitmap输入→shader→STORAGE块buffer→texture copy；stock独立encoder/submit、layer0和mip/normal/auto分析不能直接进入帧。16×8组，每invocation一个块；144页dispatch为3×5组，1296有效/1920启动invocation。EULA对游戏引擎/工具/中间件分发有专门条件 | **Reference，图片路线竞争项。** U0可继续学习/评估；生产先核授权，只抽低层record进现有command。禁自submit、默认mip、normal改BC5、readback；精确输入尺寸、layer/origin、同输入复用和fence退休都由本地集成闭合，不声称已移植 |
-| [WebGPU规范](https://gpuweb.github.io/gpuweb/)、[WGSL规范](https://gpuweb.github.io/gpuweb/wgsl/)，2026-10-20读取living源码 | BC需协商对应feature；压缩格式非通用storage texture，使用block buffer→texture copy；encoder texture copy与queue.writeTexture行pitch规则不同。WGSL没有通用concrete i64/u64；不能假定mesh shader/DirectStorage/Cooperative Vector是生产WebGPU能力 | **Reference / Local integration。** 新shader只依赖已协商能力；限定整数域与显式u32 packed reads；不用draft/platform功能作为默认内核依据，能力失败在资源创建前报告 |
-| [AMD DGF SDK](https://github.com/GPUOpen-LibrariesAndSDKs/DGF-SDK/tree/d97e46493b92d7b2e4445f740fc9dcc7ff53aff3)，`d97e46493b92d7b2e4445f740fc9dcc7ff53aff3`；核读HLSL文件内MIT notice及仓库third-party licenses | `samples/SampleFramework/shaders/DGFDecompression.hlsl`、serial/wave mesh shader样例：块式位置/拓扑，涉及uint64/wave与D3D12/Vulkan接口，不自动适用于WebGPU，也不覆盖全部PBR属性/现有query合同 | **Reference only，不采用。** 可学习块边界/anchor和组织方式，不引入DGF硬件依赖，不声称已有WGSL移植 |
-| [NVIDIA RTXNTC](https://github.com/NVIDIA-RTX/RTXNTC/tree/0ffc32685134c50d6bd09689112fa756052c1b8c)与[LibNTC](https://github.com/NVIDIA-RTX/RTXNTC-Library/tree/35ec039503ef5e151c661beccc82390948dd5218)，分别`0ffc32685134c50d6bd09689112fa756052c1b8c` / `35ec039503ef5e151c661beccc82390948dd5218`；NVIDIA RTX SDK许可，非MIT | README on-load/on-feedback路径与`src/shaders/CompressBC7.hlsl`：神经latents/MLP→BC，有D3D12/Vulkan/CoopVec/DP4a平台假设；BC7 shader文件标NvidiaProprietary，含Wave/Group同步 | **Reference only，不采用。** 仅对照“传输/加载解码/常驻”分层；本轮不研究并部署神经训练/推理或移植proprietary BC算法 |
+| [Spark.js](https://github.com/Ludicon/spark.js/tree/b9ea643a08cb9eef3a9ddc64564089bdd6fd0daf) `b9ea643a08cb9eef3a9ddc64564089bdd6fd0daf`；JS MIT，WGSL另受[Spark EULA](https://ludicon.com/sparkjs/eula.html) | `src/three-gltf.js`用途分类；`src/spark.js::encodeTexture/#loadPipeline`按RGB/RGBA/RG/R选择BC7 RGB/RGBA、BC5、BC4；`src/utils.js`图片解码与`src/shaders/utils.wgsl` mip；编码正常路径submit但不逐图等待，计时另读回 | 全套常规LDR PBR图片→GPU BC路线。保留所选完整内核；宿主submit、auto readback、renderer与生命周期不照搬。生产复制/分发前解决适用授权，不把JS MIT说成shader MIT |
+| [gltf-tex](https://github.com/Ludicon/gltf-tex/tree/a05bd5950fb46fdffb813542f4258192ce6aa889) `a05bd5950fb46fdffb813542f4258192ce6aa889`；README/package声明MIT，具体notice在引入前取得 | `src/processors/avif.js::avifArgsForTexture/processTextureAVIF`：原生avifenc、10-bit、颜色IQ、normal/MR SSIM与Identity；单AO使用YUV400。颜色注释提444但argv未显式传444；灰度提取分支被禁用 | 忠实复现有效配置，再显式固定颜色444/数据无降采样与所用标量提取。不能把Sharp替代native路径或照搬禁用分支后仍称等价。normal XY只适用声明单位法线，不抹掉特殊XYZ/moment |
+| [Spark实际PBR示例](https://github.com/Ludicon/webgpu-clustered-shading/tree/42ba9b8e0db0707207c38a1c2d0bd5bc09bce37d) `42ba9b8e0db0707207c38a1c2d0bd5bc09bce37d`；复制具体文件前核notice | `mini-gltf2.js`用途、`js/webgpu-renderer/webgpu-renderer.js::initImage` channelMask、`shaders/pbr.js`法线Z重建 | Reference：证明上游PBR语义/目标格式接线实际存在；不复制整个renderer，不声称示例证明EEngine任意Material Graph、精确coverage或VT已正确 |
+| [libavif v1.3.0](https://github.com/AOMediaCodec/libavif/tree/1aadfad932c98c069a1204261b1856f81f3bc199) `1aadfad932c98c069a1204261b1856f81f3bc199`，BSD-2-Clause及依赖notice；[libaom v3.12.0](https://aomedia.googlesource.com/aom/+/3b624af45b86646a20b11a9ff803aeae588cdee6) `3b624af45b86646a20b11a9ff803aeae588cdee6`，BSD-2-Clause+PATENTS | avifenc完整encoder、codec option/bit depth/identity/range/quality；固定tag实际commit而非可变分支 | native离线工具。E0锁flags、依赖、binary hash/完整argv并确认tune可用；保留完整编码器，不生产自制AV1/WASM图片decoder |
+| 当前vendor [meshoptimizer](https://github.com/zeux/meshoptimizer/tree/9e1f07b159d3cb777f1c67ed31fc11fd117986f4) `9e1f07b159d3cb777f1c67ed31fc11fd117986f4`，MIT；本地`vendor/meshoptimizer/source.json` | 既有meshlet/LOD/重排、`meshopt_computePositionExponent`与vertex/index codecs参考；三角形codec可能变corner顺序 | 继续复用已有成熟几何生成，不无关升级；新主线F32-exact SoA+Zstd/raw，不把旧选组结果扩成全家族否决，不默许有损位置或corner变化 |
+| [Zstd v1.5.7](https://github.com/facebook/zstd/tree/f8745da6ff1ad1e7bab384bd1f9d742439278e99) `f8745da6ff1ad1e7bab384bd1f9d742439278e99`，选择BSD-3-Clause许可路径 | 完整native encoder；`ZSTD_getFrameHeader/findFrameCompressedSize/initStaticDCtx/decompressDCtx`及完整熵/LZ/checksum内核 | 几何/精确通道。受限单frame、无字典、已知输出/窗口上界；可复用既有内核，但新source/build/binary manifest必须指明实际来源，不能把Basis vendor误标为独立Zstd树构建 |
+| [WebGPU](https://gpuweb.github.io/gpuweb/) / [WGSL](https://gpuweb.github.io/gpuweb/wgsl/) living规范，2026-10-20核对 | BC feature、压缩块copy与256B pitch、external image queue顺序、WGSL精度/可选shader-f16；压缩格式不是通用storage texture | Local platform integration：先协商后创建；storage block buffer→texture，按真实layer/mip/origin；没有每图GPU→CPU控制，不假定draft能力或所有设备支持BC |
 
-Local / Original Source Map：新的传输产品身份/有限profile、ordinary/VT共同来源、CPU信用和独占租约、共享格点域与source-exact检查、query格式切换及command原子发布都是EEngine集成设计，不伪称来源库已有完整实现。新格式设计允许替换旧类/签名；沿用唯一职责不等于通过adapter保留旧owner。实施后再记录最终文件/函数和source patch哈希，设计阶段不提前制造adoption证据。
+### 阶段到本地owner的映射与不可简化点
 
-准备发现的两个关键事实：普通geometry payload已经由`VirtualGeometryResidency.#writeResidentPage`直写隐藏lease，`uploadRegions`主要承担地址等事务发布；新设计不能把不存在的payload staging作为优化收益。现有query source-exact和source remap也不能被有损位置量化悄悄替代，需新产品精度档与同一reader闭合，而非复制一份query专用F32几何。
+| 阶段 | 优先复用/移植的入口 | 本地owner、完整性与适配 |
+| --- | --- | --- |
+| 依赖/语义/通道 | Spark `three-gltf.js`、gltf-tex用途处理；既有EEngine依赖分析 | Cooker新recipe；真实Material Graph决定通道，不盲套glTF固定用途。常量/去alpha/去重、有限码率搜索为本地工程，不能删仍有consumer的通道 |
+| 原生AVIF | gltf-tex `avifArgsForTexture/processTextureAVIF`→完整libavif/libaom | 新离线producer；High/Extreme保留donor锚点再搜。XYZ/moment、精确coverage与HDR边界按新设计，不能用单一RGB PSNR替代全部语义 |
+| 浏览器解码 | Spark `utils.js::loadImageDecoder/loadImageFromBlob`及`encodeTexture`必要VideoFrame→ImageBitmap适配 | 同一准备体系/AssetWorkerPool内的image lease；decoder no color conversion不等于external copy无转换，数据通道按新设计§8分别控制与验证。保留orientation/premultiply语义，适配复制计账，取消/迟到close和信用为Local。不复制第二个网络池，不默认JS整图RGBA copy |
+| GPU mip | Spark `utils.wgsl`及对应JS配置：sRGB、alpha权重/scale、normal处理 | 新GPU recorder；完整保留选中数学与精度，扩展到合法完整1×1/NPOT链。provided XYZ/moment不normalize；专用mip沿canonical producer，不独立cell生成边缘错误mip |
+| BC7 RGB / RGBA | `spark_bc7_rgb.wgsl`、`spark_bc7_rgba.wgsl`对应完整选定variant | recorder→block scratch→Residency；保留候选/搜索/误差/端点/索引/打包、原执行组织。宿主重排不是mode6简化；sRGB/linear按真实语义 |
+| BC5 / BC4 | `spark_bc5_rg.wgsl`、`spark_bc4_r.wgsl`对应完整variant | BC5 normal XY及BC4标量bank；Native/coverage/shadow/query和任意通道读取同切。不能全用RGBA内核后声称验证了上游全部格式 |
+| command / copy / fence | Spark `encodeTexture`低层输入/dispatch/copy顺序；本仓GPU事务机制 | 删除上游私有submit/auto readback，record进现有command；外部queue copy不得覆盖未提交读，输入/scratch按fence复用；CPU对象close、GPU临时退休与最终资源发布分开 |
+| VT owner/cell/assembly | **Local / Original integration，Spark没有本地VT闭包可直接移植**；既有VT采样/映射规则复用 | 唯一decoded texel owner→有界邻域→完整144²页→原Spark kernel；包含地址模式/NPOT/重叠块/AVIF cell边界/fine-tail。不能声称gutter自动解决一切或原BC/Zstd路径仍是fallback |
+| 精确字节/几何传输 | 完整Zstd encoder/decoder；已有CPU WASM受限包装可直接复用必要机制 | exact-bytes/compact-geometry结果；单frame/长度/窗口/hash先检。不能删错误/熵解码步骤，不为raw例外保留旧几何ABI |
+| 几何生产与reader | 既有meshoptimizer/Nyx生成与EEngine共享source decoder | 新紧凑F32 SoA→全部CPU/GPU reader一次切换，保留source/corner/remap与现有属性精度。不另存query精确副本，不重复宣称已存在oct/half收益 |
+| 身份/信用/发布 | EEngine现有准备与Residency机制，按新产品重新闭合 | Local：有限tagged receipt、source/task/epoch、能力/容量、hidden/publication/abort/retry/loss、scene unload/growth。职责可复用，不通过旧schema adapter保留旧owner |
+
+保留完整选定profile不等于复制上游所有可选功能/renderer/线程池；合法删除的是未选定宿主职责，不是算法必要阶段。新移植的具体函数/patch和源码身份在实施时补，独立数值、生命周期与真实新production消费齐备后才提升adoption。
+
+### 旧U0实验的可引用范围
+
+原工具与`results.json`保留在`OEngine/tools/web-asset-u0/`；Basis `1706f948a2f0992d7a6dc2a909f35690b508571c` Apache-2.0、Zstd及vendor meshoptimizer的具体构建/hash仍在原快照。`Xubc7Encode.cpp/Xubc7Probe.cpp/GeometryProbe.cpp`与`worker.mjs/browser.mjs`仅为隔离reference，不成为新runtime依赖。
+
+其有限样本的字节、往返、精确资格/SoA模型仍是历史事实；“Normal/ORM只能lossless WebP”“单RGBA kernel代表完整Spark”“submit完成等待就是shader成本”“默认XUBC7 Q100且否决图片路线”等推论已撤销，详见新执行§10。原失败、错误fixture/初始化/身份与baseRevision笔误不静默改写；它们不是新内核bug或新路线资格。本节不声称新全资产压缩比、许可授权、GPU性能或生产采用已完成。
