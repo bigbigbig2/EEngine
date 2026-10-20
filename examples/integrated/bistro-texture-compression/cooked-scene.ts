@@ -22,7 +22,7 @@ import type {
   VirtualGeometrySceneSource,
 } from "../../../OEngine/src/gpu/GpuRenderWorld.ts";
 import { MATERIAL_TEXTURE_PROPERTIES } from "../../../OEngine/src/assets/PcMaterialTextures.ts";
-import { openTextureProduct, textureProductHash } from "../../../OEngine/src/assets/TextureProduct.ts";
+import { imageTextureHash } from "../../../OEngine/src/assets/ImageTextureProduct.ts";
 import { parseGltfMaterial } from "../../../OEngine/src/loaders/gltf/gltfMaterials.ts";
 import {
   textureFromGltf,
@@ -32,13 +32,13 @@ import {
 import type { GltfMaterial } from "../../../OEngine/src/loaders/gltf/GltfLoader.ts";
 import { ShadeImage } from "../../../OEngine/src/texture/ShadeImage.ts";
 import { ShadeTexture } from "../../../OEngine/src/texture/ShadeTexture.ts";
-import { TiledTextureSource } from "../../../OEngine/src/assets/TiledTextureSource.ts";
+import { ImageTextureSource } from "../../../OEngine/src/assets/ImageTextureSource.ts";
 
 const COOKED_TEXTURE_FETCH_CONCURRENCY = 8;
 
 type Property = (typeof MATERIAL_TEXTURE_PROPERTIES)[number];
 interface CookedManifest {
-  schema: "oengine-offline-scene-materials-v1";
+  schema: "oengine-image-scene-materials-v2";
   source: {
     path: string;
     bytes: number;
@@ -59,7 +59,7 @@ interface CookedManifest {
   products: {
     uri: string;
     identity: string;
-    tiled?: { uri: string; identity: string; byteLength: number };
+    byteLength: number;
   }[];
   evidence: Record<string, number | string>;
   framing?: { center: [number, number, number]; radius: number };
@@ -97,10 +97,10 @@ export async function loadCookedScene(
   const manifest = JSON.parse(
     new TextDecoder().decode(await fetchBytes("scene.materials.json")),
   ) as CookedManifest;
-  if (manifest.schema !== "oengine-offline-scene-materials-v1")
+  if (manifest.schema !== "oengine-image-scene-materials-v2")
     throw new Error("Offline material schema mismatch");
   const sceneBytes = await fetchBytes(manifest.geometryManifest);
-  if ((await textureProductHash(new Uint8Array(sceneBytes))) !== manifest.geometryManifestHash) {
+  if ((await imageTextureHash(new Uint8Array(sceneBytes))) !== manifest.geometryManifestHash) {
     throw new Error("Offline geometry/material manifest identity mismatch");
   }
   const geometryManifest = parseOegPackSceneManifestV3(sceneBytes);
@@ -121,7 +121,6 @@ export async function loadCookedScene(
   const localAbort = new AbortController();
   signal = AbortSignal.any([signal, localAbort.signal]);
   const preparation = cookedAssetPreparation();
-  const textureSession = preparation.openSession();
   // Start metadata IO before texture IO; the shared Worker/HTTP credits bound both.
   const geometryAssets = loadAssetBatch(
     geometryManifest.packs,
@@ -136,7 +135,7 @@ export async function loadCookedScene(
   );
   void geometryAssets.catch(() => undefined);
   const textureReady = (async () => {
-    const products = new Map<string, Awaited<ReturnType<typeof openTextureProduct>> | TiledTextureSource>();
+    const products = new Map<string, ImageTextureSource>();
     const coverageUris = new Set<string>();
     manifest.gltf.materials.forEach((material, index) => {
       const albedo = manifest.bindings[index]?.texture_albedo;
@@ -145,47 +144,34 @@ export async function loadCookedScene(
       }
     });
     const catalog = new Map(
-      manifest.products.map((entry) => [entry.tiled?.identity ?? entry.identity, entry]),
+      manifest.products.map((entry) => [entry.identity, entry]),
     );
     const { aliases: entries, reads: textureEntries } = uniqueCookedTextures(
       manifest.products.map((entry) => ({
         uri: entry.uri,
-        identity: entry.tiled?.identity ?? entry.identity,
+        identity: entry.identity,
       })),
       coverageUris,
     );
     initialization.textureAliases = entries.size;
     initialization.uniqueTextureProducts = textureEntries.length;
-    phase("Reading texture directories and native bootstrap; demanded fine pages use Worker Zstd");
+    phase("Reading AVIF image directories; GPU encoding prepares demanded pages");
     const loadedTextures = await loadAssetBatch(
       textureEntries,
       COOKED_TEXTURE_FETCH_CONCURRENCY,
       signal,
       async (entry, _index, batchSignal) => {
         const asset = catalog.get(entry.identity)!;
-        if (asset.tiled) {
-          const directory = await preparation.readTiledDirectory(
-            textureSession,
-            new URL(asset.tiled.uri, base).href,
-            asset.tiled.identity,
-            asset.tiled.byteLength,
-            batchSignal,
-          );
-          if (directory.metadata.sourceIdentity !== asset.identity) {
-            throw new Error("VT directory does not match the cooked material source");
-          }
-          return new TiledTextureSource(preparation, textureSession, directory);
-        }
-        return preparation.readTexture(
-          textureSession,
-          new URL(entry.uri, base).href,
-          entry.identity,
-          batchSignal,
-          entry.critical ? 0 : 2,
-        );
+        return ImageTextureSource.open(new URL(entry.uri, base).href, entry.identity,
+          asset.byteLength, batchSignal, preparation);
       },
+      (source) => source.close(),
     );
-    loadedTextures.forEach((product) => products.set(product.identity, product));
+    loadedTextures.forEach((product) => {
+      products.set(product.identity, product);
+      signal.addEventListener("abort", () => product.close(), { once: true });
+      if (signal.aborted) product.close();
+    });
     for (const [index, material] of materials.entries()) {
       const bindings = manifest.bindings[index]!;
       for (const property of MATERIAL_TEXTURE_PROPERTIES) {
@@ -199,10 +185,7 @@ export async function loadCookedScene(
         if (!product || !sampler || !entries.has(binding.uri) || material[property] !== sampler) {
           throw new Error(`Offline material ${index} invalid ${property} binding`);
         }
-        const texture =
-          product instanceof TiledTextureSource
-            ? ShadeTexture.fromTiled(product)
-            : ShadeTexture.fromProduct(product);
+        const texture = ShadeTexture.fromImageSource(product);
         for (const name of [
           "minFilter",
           "magFilter",
@@ -248,7 +231,6 @@ export async function loadCookedScene(
   let published = false;
   const dispose = () => {
     localAbort.abort();
-    preparation.closeSession(textureSession);
     for (const asset of assets) asset.release();
   };
   try {

@@ -27,6 +27,9 @@ export interface ImageTextureCookRequest {
   readonly toolHash: string;
   readonly scalarChannel?: 0 | 1 | 2 | 3;
   readonly exactCoverage?: readonly CanonicalImageMip[];
+  /** Production alpha dependencies stay resident even when RGB is virtual.
+   * Explicit virtual exact planes are available for non-coverage data consumers. */
+  readonly exactMode?: "resident" | "virtual";
   readonly cellSize?: 128 | 256 | 512;
   readonly addressU?: ImageTexturePlane["addressU"];
   readonly addressV?: ImageTexturePlane["addressV"];
@@ -34,6 +37,7 @@ export interface ImageTextureCookRequest {
 }
 
 export interface ImageTextureCookSink {
+  readonly imageCodec?: "avif" | "png";
   /** Complete pinned native encoder; no BC intermediate, no internal image resize. */
   encodeAvif(
     input: CanonicalImageMip,
@@ -153,7 +157,8 @@ export async function cookImageTexture(
   const planes: ImageTexturePlane[] = [plane];
   const items: ImageTextureItem[] = [];
   const emit = async (inputs: readonly CanonicalImageMip[], planeIndex: number, exact: boolean) => {
-    const cell = request.mode === "virtual" ? (request.cellSize ?? 512) : 2048;
+    const mode = planes[planeIndex]!.mode;
+    const cell = mode === "virtual" ? (request.cellSize ?? 512) : 2048;
     if (![128, 256, 512, 2048].includes(cell)) {
       throw new Error("Unsupported canonical owner grid");
     }
@@ -194,7 +199,7 @@ export async function cookImageTexture(
             width,
             height,
             kind: exact ? "exact" : "image",
-            codec: exact ? "raw" : "avif",
+              codec: exact ? "raw" : (sink.imageCodec ?? "avif"),
             bytes: payload.byteLength,
             decodedBytes: width * height * (exact ? 1 : 4),
             sha256,
@@ -212,6 +217,7 @@ export async function cookImageTexture(
       ...plane,
       semantic: "exact-r",
       target: "r8",
+      mode: request.exactMode ?? "resident",
       mips: "provided",
       constants: [null, 0, 0, 255]
     });
@@ -248,15 +254,16 @@ function canonicalize(
       rgba[index + 1] = scalar;
       rgba[index + 2] = scalar;
     } else if (semantic === "normal-xy") {
-      const x = input.rgba[index]! * (2 / 255) - 1;
-      const y = input.rgba[index + 1]! * (2 / 255) - 1;
-      const z = input.rgba[index + 2]! * (2 / 255) - 1;
-      const length = Math.hypot(x, y, z);
-      if (z < 0 || length < 1e-12) {
-        throw new Error("Unit tangent normal cannot discard negative hemisphere or zero direction");
-      }
-      // Read original XYZ together; do not repeat donor's sequential channel mutation.
       if (normalizeNormal) {
+        // Runtime base input is source XYZ; provided chains are already canonical XY.
+        // Their unused B=0 is not a negative source-Z hemisphere.
+        const x = input.rgba[index]! * (2 / 255) - 1;
+        const y = input.rgba[index + 1]! * (2 / 255) - 1;
+        const z = input.rgba[index + 2]! * (2 / 255) - 1;
+        const length = Math.hypot(x, y, z);
+        if (z < 0 || length < 1e-12) {
+          throw new Error("Unit tangent normal cannot discard negative hemisphere or zero direction");
+        }
         rgba[index] = Math.round(((x / length) * 0.5 + 0.5) * 255);
         rgba[index + 1] = Math.round(((y / length) * 0.5 + 0.5) * 255);
       }

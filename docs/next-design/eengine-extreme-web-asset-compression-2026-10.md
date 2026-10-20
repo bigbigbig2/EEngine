@@ -6,9 +6,9 @@ verifies:
     - docs/next-execution/eengine-extreme-web-asset-compression-execution-2026-10.md
     - docs/porting/next-renderer.md
     - project/workstreams/active/eengine-next-clean-rebuild.yaml
-    - OEngine/src/assets/TextureProduct.ts
-    - OEngine/src/assets/TiledTextureProduct.ts
-    - OEngine/src/assets/TiledTextureSource.ts
+    - OEngine/src/assets/ImageTextureProduct.ts
+    - OEngine/src/assets/ImageTextureSource.ts
+    - OEngine/src/assets/ImageTexturePages.ts
     - OEngine/src/assets/codec
     - OEngine/src/assets/GeometryAbiV3.ts
     - OEngine/src/assets/OegPackV3.ts
@@ -33,9 +33,9 @@ verifies:
 
 # 极致 Web 资产压缩：图片传输、GPU 编码与紧凑驻留
 
-日期：2026-10-20。源码 HEAD：`5f3f41533e25901cbbd1da9c3ae751c64bc0a9c9`，工作区另有未提交的旧 U0 工具与文档改动；本设计不把它们视为生产迁移。唯一配套文件：[执行文档](../next-execution/eengine-extreme-web-asset-compression-execution-2026-10.md)。
+日期：2026-10-20。设计初始源码快照为`5f3f4153`，不是当前实现状态；实际代码切换与未闭合事项只读唯一配套[执行文档](../next-execution/eengine-extreme-web-asset-compression-execution-2026-10.md)§12，不把旧U0实验当生产迁移。
 
-本文件与配套执行文档完全替换并删除上一对 Web asset delivery/residency 文档，不保留并行设计、旧参数冻结或第二份 progress。准备改动已提交为`1f856ea0`；用户随后授权E0及E1隔离闭包，尚未授权E2生产切换或示例recook。
+本文件与配套执行文档完全替换并删除上一对 Web asset delivery/residency 文档，不保留并行设计、旧参数冻结或第二份 progress。准备改动已提交为`1f856ea0`，E0/E1已提交为`eddb8669`；当前授权E2代码切换。按用户2026-10-20再次明确的节奏，前置阶段只连续实现、对照设计和最小正确性检查，全部场景cook/recook、部署与全路径集成测试集中到最后E5；不为中间阶段可运行保留旧路径兼容。
 
 ## 1. 已定方向，不重新做路线公投
 
@@ -43,14 +43,16 @@ verifies:
 2. **移植优先。** 以 Spark.js 全套对应编码内核、图片加载/mip 路径及 gltf-tex 语义编码策略为上游基线；先忠实接入，再做本地增量优化。不能先自写简化算法，再用它的失败否定上游。
 3. **网络表示不等于显存表示。** 普通纹理优先只传 base image 并在 GPU 生成 mip；VT 使用较大图片传输单元、确定性 decoded texel owner、GPU 页面装配/编码，仍按真实需求驻留。
 4. **追求给定质量与能力范围内的最小交付字节，而不是默认 Q100。** 使用 High / Extreme 两个离线质量档，最终质量评价经过真实 GPU 编码与材质消费。允许常规纹理有损，不允许丢通道、缩场景、静默缩分辨率或破坏精确 coverage。
-5. **一个生产产品合同、一套准备调度、唯一 GPU owner。** 完整新闭包实现后原子切换普通纹理与 VT 的全部生产消费者，立即删除旧 schema、旧回执/入口和旧依赖；没有 XUBC7 fallback、RGBA 常驻过渡或新旧双 runtime。
+5. **一个生产产品合同、一套准备调度、唯一 GPU owner。** 在同一实现单元直接改完普通纹理与 VT 的全部生产消费者，立即删除旧 schema、旧回执/入口和旧依赖；允许阶段内暂时断链，不等完整场景测试通过才删除旧代码。没有 XUBC7 fallback、兼容桥、RGBA 常驻过渡或新旧双 runtime；全量资产生成与部署验证统一归E5。
 6. **几何同步采用新紧凑可读 ABI 与成熟无损传输编码。** 位置保留 source-exact F32 合同，布局/元数据压紧、Zstd 离线高 effort；不因纹理允许有损就默许几何量化，不另存一套 query 精确几何。
 
 “比直接接入上游更好”是工程目标：完整继承其能力，再用常量消除、语义去重、离线码率搜索、mip 策略、请求合并和有界批处理获得增量。不是预先承诺所有资产/所有设备/大小、画质、时间三者都严格占优。验证只负责发现移植、集成和具体产品错误；不重新以失真的微测否决已经确定的路线。
 
-## 2. 当前源码事实与替换边界
+## 2. 初始替换依据与当前代码边界
 
-| 当前实现 | 源码事实 | 本轮替换 |
+下表是设计启动时的旧链快照，用于解释替换对象，不表示这些旧文件仍存在或必须保留。当前源码ownership已经进入schema4图片链，E2仍施工中；实现事实见[材质纹理域](../domains/materials-textures.md)，不以设计目标冒称完成。
+
+| 初始实现 | 设计启动时事实 | 替换目标 |
 | --- | --- | --- |
 | `TextureProduct.ts`、`codec/PcTextureCook.ts` | schema 3；离线完整 BC7/BC4/R8 mip；provided normal mip 可保留非单位 XYZ | 新图片产品与 recipe，移除产品必须等于最终 BC 全链的前提 |
 | `TiledTextureProduct.ts`、`codec/TiledTextureCook.ts` | schema 2；fine 为 BC+Zstd；128 interior+8 gutter=144；tail/部分 plane resident | 传输 cell 不再等于 GPU 页；保留正确的采样域、反馈和 mapping owner，重做 producer/网络合同 |
@@ -62,7 +64,13 @@ verifies:
 | `VirtualGeometryResidency` | payload 已 direct `queue.writeBuffer`；地址表另有 encoder publication/growth 顺序 | 不虚构“删除 staging copy”收益；保持隐藏 lease、地址发布与增长事务 |
 | query 与 Appearance | source primitive/corner/remap、精确位置；部分 normal/moment 有非单位含义 | 新 reader 全消费者同切；不得把精确改为“对有损产品精确”，不得把 moment 长度抹掉 |
 
-旧 source/API 名称只定位改动面，不要求保留签名。raw/procedural 的合法生产输入继续作为 canonical producer，直接进入新准备/GPU 路径，不转换回旧产品维持兼容。HDR 环境、IBL 预过滤与几何 LOD 算法不在本轮重写范围。
+旧 source/API 名称只定位删除对象，不保留其签名或兼容入口。raw/procedural 的合法生产输入继续作为 canonical producer，直接进入新准备/GPU 路径，不转换回旧产品维持兼容。HDR 环境、IBL 预过滤与几何 LOD 算法不在本轮重写范围。
+
+### 2.1 实现与验证时序
+
+E0–E4连续完成当阶段算法和全部直接consumer，替换时直接删旧owner/schema/专用依赖，只做设计对照、必要编译与少量最小正确性检查。允许阶段内暂时断链，不要求完整示例可运行才删除旧路径，不保留adapter、A/B或fallback。
+
+完整cook/recook、双质量档全资产搜索、最终manifest/部署、全部采样/reader与生命周期组合、画面/质量/成本检查只在E5集中执行。前置阶段实现对应代码和错误分支，不运行完整资产任务；检查延期不等于实现可以简化，真实已知错误当阶段修。设计中的“须验证/验收”描述最终正确性义务，执行时点统一为E5，最小检查不升级全路径或性能资格。
 
 ## 3. 来源与忠实移植合同
 
@@ -172,7 +180,7 @@ preview 是可选且确定的低分辨率产品；quality 档与全分辨率 rec
 
 同一源 owner 消除了“同一个 texel 两份有损重建”的矛盾，**不自动消除相邻 cell 内部侧的 AVIF 边界伪影**。这些通过离线全局边界评价、cell 大小/编码质量选择处理；不许声称单靠 gutter 已解决全部接缝。所有可能邻居组合都计入离线评价，不能只测单个 cell。
 
-fine 的 mip 由 canonical 全图语义先生成，再逐 mip 编码 cell；不对独立 cell 自动 mip，否则会产生过滤边界。tail 也用新图片产品准备后编码，不下载整套原生 BC tail 形成第二种普通纹理路径。fine/tail 重建差异、最后层过渡与各向异性是本单元验收内容；先准备 mandatory tail，再开放 fine mapping。
+fine 的 mip 由 canonical 全图语义先生成，再逐 mip 编码 cell；不对独立 cell 自动 mip，否则会产生过滤边界。tail 也用新图片产品准备后编码，不下载整套原生 BC tail 形成第二种普通纹理路径。先准备 mandatory tail，再开放 fine mapping；E2实现完整边界，fine/tail重建差异、最后层过渡与各向异性在E5集中验收。
 
 ### 7.3 cell 大小不是越大越好
 
@@ -196,7 +204,7 @@ ImageBitmap/VideoFrame 的关闭、GPU input/scratch 的释放和最终纹理的
 
 `shader-f16`不是硬前置：支持时用原f16内核，不支持时严格沿Spark `#loadPipeline`的五类机械替换移除enable/half标量/half向量/矩阵/half字面量，保留所有运算/控制/搜索，pipeline/cache键含precision。两种输出可有数值差别，分别与同能力donor对照，不冒称bit-identical。`texture-compression-unaligned`可选；未启用使用§6完整padded合同。每kernel固定16×8=128 invocation，8×8 mip；创建前核maxComputeInvocationsPerWorkgroup/各维、texture size/layers、buffer和storage binding容量。输入external copy texture需COPY_DST|RENDER_ATTACHMENT|TEXTURE_BINDING；compute mip再有STORAGE_BINDING，压缩目标只有合法COPY_DST|TEXTURE_BINDING，不能作为storage texture。
 
-浏览器有ImageDecoder且支持AVIF时可返回VideoFrame；数据语义优先no-conversion ImageBitmap，适用时VideoFrame→ImageBitmap；都不满足同表示语义/transfer则能力失败，不自动装另一个WASM图片decoder。浏览器srgb/storage alias问题沿donor的fragment mip路径作具名宿主profile，保留它与compute magic/box的实际差异；alpha/coverage不允许在fragment profile静默漏alpha weighting/scale，不能满足时provided chain或明确拒绝，不能冒称等价。E1需分别核真实产品；E0不把API存在性当GPU消费通过。
+浏览器有ImageDecoder且支持AVIF时可返回VideoFrame；数据语义优先no-conversion ImageBitmap，适用时VideoFrame→ImageBitmap；都不满足同表示语义/transfer则能力失败，不自动装另一个WASM图片decoder。浏览器srgb/storage alias问题沿donor的fragment mip路径作具名宿主profile，保留它与compute magic/box的实际差异；alpha/coverage不允许在fragment profile静默漏alpha weighting/scale，不能满足时provided chain或明确拒绝，不能冒称等价。E1实现并核对全部产品分支，E5集中验证真实组合；API存在性不是GPU消费通过。
 
 ### 8.2 两种命令入口与初始化活性
 
@@ -238,7 +246,7 @@ cache 只保留有界 encoded 源和正在复用的 decoded 依赖；不保留�
 
 现有 meshoptimizer/Nyx 的 LOD、meshlet、weld、source/corner/remap 规则继续复用。旧八组 semantic meshopt 样本不足以否定算法家族，但也不要求为了“采用更多库”额外叠加一个无净收益的 runtime 子流。主线确定为新 resident SoA+Zstd/raw；meshopt 继续承担其已存在的几何生产工作。
 
-新 major 必须一次贯通 native/portable/pthread Cooker、Web ABI、pack reader/validator、Worker/admission、GPU directory/bank、visibility/raster/Surface/VSM/query/motion 与部署 recook。默认源精度不变，旧 U16/U24 合格为0只是旧资格规则的结果，不证明所有精确压缩都不可能；本轮不预埋无用途量化 decoder，也不冒称 geometry 获得纹理同等倍数收益。
+新 major 必须在同一实现单元贯通 native/portable/pthread Cooker、Web ABI、pack reader/validator、Worker/admission、GPU directory/bank、visibility/raster/Surface/VSM/query/motion 与部署代码并删旧ABI；实际全量recook和全路径检查统一在E5执行。默认源精度不变，旧 U16/U24 合格为0只是旧资格规则的结果，不证明所有精确压缩都不可能；本轮不预埋无用途量化 decoder，也不冒称 geometry 获得纹理同等倍数收益。
 
 ## 11. Cost Card 与可检验的收益目标
 
@@ -255,16 +263,16 @@ BC7/BC5 为8 bpp，BC4为4 bpp；2048²基础 RGBA16 MiB、全链约21.33 MiB，
 
 设原同工作集传输为 `S`、新增冷模块/目录税为 `F`、实际节省比例为 `r`：0/50/100%收益分别为 `-F`、`0.5rS-F`、`rS-F`。网络收益约 `rS/B`，准备与下载可重叠；不把它直接减去 submit-to-completion 微测当净收益。VT 必须把 fetched overfetch 与重复请求加入 S，不能只算 useful 页。稳态没有新任务时不得无条件 dispatch/readback/分配。
 
-hello 现有15个纹理产品21,092,132 B、几何pack18,026,400 B，非完整场景总量且不是实网字节。旧U0颜色144页AVIF+RGBA内核5,663 B对XUBC7 Q10012,804 B，仅是不同最终质量的小样；旧Normal/ORM只测lossless WebP+RGBA内核，不具备路线否决资格。原始快照保留在 `OEngine/tools/web-asset-u0/results.json`。
+hello设计启动时15个旧纹理产品21,092,132 B、几何pack18,026,400 B，非当前最终场景总量，也不是实网字节。提前生成的新图片结果只记执行记录，最终数字在E5确认。旧U0颜色144页AVIF+RGBA内核5,663 B对XUBC7 Q10012,804 B，仅是不同最终质量的小样；旧Normal/ORM只测lossless WebP+RGBA内核，不具备路线否决资格。原始快照保留在 `OEngine/tools/web-asset-u0/results.json`。
 
 作者Sponza的AVIF HQ17.6 MB、LQ6.5 MB对UASTC56.7 MB是[上游案例](https://www.ludicon.com/castano/blog/2026/02/an-updated-sponza-gltf/)，不是本项目预测。目标是同条件不丢上游能力并在有收益的维度推进，不把“成熟上游”写成我们已经更快/更省内存。完整输出分网络大小、首屏、清晰度到达、流送帧成本、CPU峰、GPU峰、稳定帧、质量八项。
 
 ## 12. 不保留的路线与实施边界
 
 - 删除“全部 XUBC7 Q100 默认”“Normal/ORM 不进入图片路线”“普通页固定256²”“Spark 已被同质量实验否决”的旧冻结；不是仅在其后追加一个例外。
-- XUBC7 和旧 BC+Zstd 留作隔离历史 reference，不进入新生产 import、cache 或失败fallback。旧schema在资源创建前明确拒绝，发布必须recook。
+- XUBC7 和旧 BC+Zstd 不保留可运行旧全链或兼容入口；来源资料、历史结果/失败日志可追溯保留。只为旧路线服务的vendor/build/tool依赖删除，新路径确实使用的独立内核按新owner保留。旧schema在资源创建前明确拒绝，最终发布在E5统一recook。
 - 不同时下载AVIF与原生BC双份，不默认RGBA常驻，不通过降低分辨率/删mip/删材质/删query省字节。
 - 不复制上游独立线程池、renderer、自submit、auto readback 或任意 fallback；直接复用的是完整选定算法，不是整个宿主框架。
 - 不把成熟内核重新做一轮路线资格选举；真实数值/生命周期失败修适配根因，只有明确的许可/平台/产品合同冲突才上报具名缺口，不悄悄恢复旧架构。
 
-当前授权推进至E1，实际完成与具名未决事项只读配套执行§12。生产实施按闭包授权推进；模块结束停在边界，不自动进入HDR重构、神经压缩、SCGI或其它效果。
+当前授权推进至E2，实际完成与具名未决事项只读配套执行§12。生产实施按闭包授权推进；模块结束停在边界，不自动进入HDR重构、神经压缩、SCGI或其它效果。

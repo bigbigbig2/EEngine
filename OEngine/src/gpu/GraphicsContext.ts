@@ -35,6 +35,7 @@ import { FrameGeometryVertices } from "../render/FrameGeometryVertices.js";
 import { FrameGeometryArena } from "../render/FrameGeometryArena.js";
 import { TemporalOcclusionWork } from "../render/TemporalOcclusionWork.js";
 import { TextureResidency } from "./TextureResidency.js";
+import { ImageTextureTranscoder, type ImageKernelSource } from "./ImageTextureTranscoder.js";
 import { geometryProductGpuBudgetEvidence } from "./GeometryProductGpuBudget.js";
 import type { VirtualTextureSettings } from "./VirtualTextureAbi.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_STRIDE } from "./GpuMaterialVisibilityAbi.js";
@@ -95,6 +96,7 @@ export class GraphicsContext {
   private frameGeometryArenaValue: FrameGeometryArena | undefined;
   private currentHzbRecheckValue: TemporalOcclusionWork | undefined;
   private textureResidencyValue: TextureResidency | undefined;
+  private imageTranscoderValue: Promise<ImageTextureTranscoder> | undefined;
   private readonly assetStoreOptions: Readonly<GpuAssetStoreOptions>;
   private timerIncrementValue = 0;
   private destroyed = false;
@@ -104,7 +106,8 @@ export class GraphicsContext {
     profiler = new FrameProfiler(),
     assetStoreOptions: Readonly<GpuAssetStoreOptions> = {},
     private readonly frameGeometryOwnerMaxBytes?: number,
-    private readonly virtualTextureSettings?: Partial<VirtualTextureSettings>
+    private readonly virtualTextureSettings?: Partial<VirtualTextureSettings>,
+    private readonly imageKernelSource?: ImageKernelSource
   ) {
     this.device = device;
     this.profiler = profiler;
@@ -300,6 +303,20 @@ export class GraphicsContext {
 
   get texture_residency_if_created(): TextureResidency | undefined {
     return this.textureResidencyValue;
+  }
+
+  prepareImageTranscoder(): Promise<ImageTextureTranscoder> {
+    if (!this.imageKernelSource) {
+      return Promise.reject(new Error("Image texture encoding requires explicitly scoped pinned Spark kernels"));
+    }
+    if (!this.imageTranscoderValue) {
+      const pending = ImageTextureTranscoder.create(this.device, this.imageKernelSource);
+      this.imageTranscoderValue = pending;
+      void pending.catch(() => {
+        if (this.imageTranscoderValue === pending) this.imageTranscoderValue = undefined;
+      });
+    }
+    return this.imageTranscoderValue;
   }
 
   /** Lazily creates the bounded CPU Worker/WASM codec owner. */
@@ -529,6 +546,7 @@ export class GraphicsContext {
     this.materialStoreValue?.destroy();
     this.materialStoreValue = undefined;
     this.textureResidencyValue?.destroy();
+    void this.imageTranscoderValue?.then((transcoder) => transcoder.dispose(), () => undefined);
     this.textureResidencyValue = undefined;
     this.gpuSceneValue?.destroy();
     this.gpuSceneValue = undefined;

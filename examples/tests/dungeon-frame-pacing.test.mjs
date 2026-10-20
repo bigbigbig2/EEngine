@@ -113,14 +113,10 @@ test("interactive completion only retries a deferred RAF; repeated or stale wake
 test("quality reads immutable published samples once, invalidates on publication and release", () => {
   let reads = 0;
   const texture = {
-    texture_product: { identity: "base-color-product" },
-    texture_metadata: {
-      schemaVersion: 3,
-      semantic: "base-color-srgb",
-      storageWidth: 4,
-      storageHeight: 4,
-      planes: [{ format: "bc7-rgba-unorm-srgb", mips: [0, 1, 2] }]
-    }
+    image_source: { identity: "base-color-product", directory: {
+      schemaVersion: 4, width: 4, height: 4, mipCount: 3,
+      planes: [{ semantic: "color-rgb", target: "bc7-rgb", mips: "runtime" }]
+    } }
   };
   const program = {
     get samples() {

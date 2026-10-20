@@ -101,7 +101,8 @@ test("residency routes stay instance data; physical bank/sampler profiles define
   assert.equal(rebuilt >>> 0, encodeGpuTextureRef(0, 257, 1));
   assert.equal(a.entries[0].resource, f.source.bindingSet.textureBanks[5]);
   assert.equal(a.bankMask, 1);
-  assert.equal(a.routeConstantBytes, 40);
+  // Logical width/height are instance data for padded resident sampling.
+  assert.equal(a.routeConstantBytes, 48);
   assert.equal(a.group, 3);
   assert.notEqual(a.program.resourceRevision, b.program.resourceRevision);
   assert.equal(a.program.resourceRevision, createNativeMaterialBindings(f.source).program.resourceRevision);

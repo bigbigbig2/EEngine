@@ -1,11 +1,10 @@
 ---
 id: eengine-streaming-vt-2026-10
-state: current
+state: history
+supersededBy: ../next-design/eengine-extreme-web-asset-compression-2026-10.md
 verifies:
   files:
     - project/workstreams/active/eengine-next-clean-rebuild.yaml
-    - OEngine/src/assets/TextureProduct.ts
-    - OEngine/src/assets/TiledTextureProduct.ts
     - OEngine/src/assets/RuntimeAssetManifestV2.ts
     - OEngine/src/assets/RuntimeAssetPackage.ts
     - OEngine/src/assets/codec
@@ -40,6 +39,9 @@ verifies:
 ---
 
 # Streaming VT：按可见需求流送的压缩材质纹理
+
+> 历史设计/实施记录：原数值、失败与阶段结果保留，不再约束当前实现。当前唯一设计和执行由[workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)导航；旧路径不作为兼容保留。
+
 
 > 后续更新（2026-10-20）：本文保留原 VT 算法/提交/过滤与历史验证；传输表示已由[无损细页设计](../next-design/eengine-v4-vt-transport-transcode-2026-10.md)与[执行 §7](../next-execution/eengine-v4-vt-transport-transcode-execution-2026-10.md#7-实施与集中验证记录2026-10-20)更新为 schema 2 / Zstd fine / Worker 协议 3。原文“运行期无编解码”仅适用于原生 tail/resident/普通 Product，不再概括 fine。当前模块只读 workstream，旧下一模块边界不自动启动其它路线。
 

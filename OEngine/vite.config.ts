@@ -98,38 +98,38 @@ const preserveConsumerAssetUrls = {
   },
 };
 
-// Library-mode URL rewriting otherwise inlines WASM, bypassing the bounded
-// HTTP loader and duplicating the binary inside the generated Worker script.
-function tiledZstdWorkerAsset(): Plugin {
+// Preserve bounded canonical resampler HTTP assets in bundled Workers.
+function imageWorkerAssets(): Plugin {
   return {
-    name: "shade-tiled-zstd-worker-asset",
+    name: "shade-image-worker-assets",
     enforce: "pre",
     resolveFileUrl({ relativePath }) {
       return `new URL(${JSON.stringify(relativePath)}, import.meta.url).href`;
     },
     load(id) {
-      const decoder = id.endsWith("/codec/TiledTextureDecoder.ts");
-      const vendor = id.endsWith("/vendor/tiled-zstd/tiled_zstd.js");
-      if (!decoder && !vendor) return null;
-      const code = readFileSync(id, "utf8");
-      const expression = decoder
-        ? 'new URL("./vendor/tiled-zstd/tiled_zstd.wasm", import.meta.url)'
-        : 'new URL("tiled_zstd.wasm",import.meta.url).href';
-      if (!code.includes(expression)) throw new Error("Tiled Zstd WASM URL contract not found");
-      const asset = this.emitFile({
-        type: "asset",
-        name: "tiled_zstd.wasm",
-        source: readFileSync(path.resolve(root, "src/assets/codec/vendor/tiled-zstd/tiled_zstd.wasm")),
-      });
-      return code.replace(expression, `import.meta.ROLLUP_FILE_URL_${asset}`);
-    },
+      const assets = id.endsWith("/codec/ImageTextureResample.ts")
+        ? ["image-resample/source.json", "image-resample/image_resample.wasm"]
+        : id.endsWith("/codec/ImageTextureKtxImport.ts")
+          ? ["pc-texture/source.json", "pc-texture/ktx_pc.wasm", "image-import/source.json", "image-import/image_decode.wasm"]
+          : null;
+      if (!assets) return null;
+      let code = readFileSync(id, "utf8");
+      for (const name of assets) {
+        const expression = `new URL("./vendor/${name}", import.meta.url)`;
+        if (!code.includes(expression)) throw new Error("Canonical image Worker asset URL missing");
+        const asset = this.emitFile({ type: "asset", name,
+          source: readFileSync(path.resolve(root, "src/assets/codec/vendor/" + name)) });
+        code = code.replaceAll(expression, `import.meta.ROLLUP_FILE_URL_${asset}`);
+      }
+      return code;
+    }
   };
 }
 
 export default defineConfig({
   root,
   publicDir: false,
-  worker: { format: "es", plugins: () => [tiledZstdWorkerAsset()] },
+  worker: { format: "es", plugins: () => [imageWorkerAssets()] },
   plugins: [
     preserveConsumerAssetUrls,
     {

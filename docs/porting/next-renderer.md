@@ -4,7 +4,7 @@ state: current
 verifies:
   files:
     - docs/next-design/eengine-extreme-web-asset-compression-2026-10.md
-    - OEngine/src/assets/codec/PcTextureCook.ts
+    - OEngine/src/assets/codec/ImageTextureCook.ts
     - OEngine/src/assets/geometry-product/GeometryProductResidentAttributes.ts
     - OEngine/tools/oengine-asset-core/vendor/meshoptimizer/source.json
     - tools

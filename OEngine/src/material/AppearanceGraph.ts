@@ -47,15 +47,11 @@ export function snapshotAppearanceTexture(
     throw new RangeError("Appearance raw content version must be nonempty");
   return Object.freeze({
     texture,
-    source: texture.tiled_source ?? texture.texture_product ?? texture.image ?? texture,
+    source: texture.image_source ?? texture.image ?? texture,
     contentVersion:
-      texture.tiled_source !== undefined
-        ? `asset:${texture.tiled_source.identity}`
-        : texture.texture_product === undefined
-          ? rawVersion === undefined
-            ? null
-            : `raw:${rawVersion}`
-          : `asset:${texture.texture_product.identity}`,
+      texture.image_source !== undefined
+        ? `asset:${texture.image_source.identity}`
+        : rawVersion === undefined ? null : `raw:${rawVersion}`,
     decode,
     sampler: Object.freeze([
       texture.flags,

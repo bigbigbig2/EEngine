@@ -307,7 +307,8 @@ export class GpuRenderWorld {
     profiles: readonly Readonly<VirtualGeometryGeometryProfile>[],
     command: ShadeGPUCommandContext,
     physicalSun: boolean,
-    reflectionProfile: "off" | "sssr-base-coat" = "off"
+    reflectionProfile: "off" | "sssr-base-coat",
+    imageBatch: (record: (command: import("./ImageTextureTranscoder.js").ImageRecordCommand) => void) => Promise<void>
   ): VirtualMaterialPreparation {
     const textures = this.graphics.texture_residency.stage(materials, command);
     const association = createPackedSceneMaterialAssociationPlan(
@@ -341,7 +342,7 @@ export class GpuRenderWorld {
     );
     this.nativeMaterialss.add(native);
     native.onDestroyed(() => this.nativeMaterialss.delete(native));
-    const texturesReady = this.graphics.texture_residency.uploadTiled(materials, command);
+    const texturesReady = this.graphics.texture_residency.uploadImages(materials, command, imageBatch);
     const programsReady = Promise.all([
       native.ready,
       this.graphics.frame_instances.ready,
@@ -771,7 +772,8 @@ export class GpuRenderWorld {
     handle: GpuRenderWorldHandle,
     command: ShadeGPUCommandContext,
     physicalSun: boolean,
-    reflectionProfile: "off" | "sssr-base-coat" = "off"
+    reflectionProfile: "off" | "sssr-base-coat",
+    imageBatch: (record: (command: import("./ImageTextureTranscoder.js").ImageRecordCommand) => void) => Promise<void>
   ): Promise<void> {
     const preparation = this.nativePreparation.get(handle);
     if (preparation === undefined || preparation.command !== command || command.closed) {
@@ -797,7 +799,7 @@ export class GpuRenderWorld {
     const runtime = this.stagedRuntimes.get(handle);
     if (!runtime) throw new Error("Scene pipeline preparation requires its staged runtime");
     await Promise.all([
-      this.graphics.texture_residency.uploadTiled(runtime.materials, command),
+      this.graphics.texture_residency.uploadImages(runtime.materials, command, imageBatch),
       preparation.ready,
       this.graphics.frame_instances.ready,
       this.graphics.frame_vertices.ready,

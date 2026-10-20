@@ -4,8 +4,7 @@
 
 import { hashMix, hashOptional } from "../core/hashMix.js";
 import { hashString } from "../core/memoryUtils.js";
-import type { TextureProduct } from "../assets/TextureProduct.js";
-import type { TiledTextureSource } from "../assets/TiledTextureSource.js";
+import type { ImageTextureSource } from "../assets/ImageTextureSource.js";
 import { ShadeTextureFlags } from "./ShadeTextureFlags.js";
 import { TextureFilterType } from "./TextureFilterType.js";
 import { ShadeImage } from "./ShadeImage.js";
@@ -41,8 +40,7 @@ export class ShadeTexture {
   }
 
   #image: ShadeImage | undefined;
-  #textureProduct: TextureProduct | undefined;
-  #tiledSource: TiledTextureSource | undefined;
+  #imageSource: ImageTextureSource | undefined;
 
   get isShadeTexture(): boolean {
     return true;
@@ -53,17 +51,8 @@ export class ShadeTexture {
   }
 
   /** Device-independent cooked source consumed by TextureResidency. */
-  get texture_product(): TextureProduct | undefined {
-    return this.#textureProduct;
-  }
-
-  get tiled_source(): TiledTextureSource | undefined {
-    return this.#tiledSource;
-  }
-
-  /** Immutable source metadata, independent of complete versus paged payloads. */
-  get texture_metadata() {
-    return this.texture_product?.metadata ?? this.tiled_source?.metadata;
+  get image_source(): ImageTextureSource | undefined {
+    return this.#imageSource;
   }
 
   setFlag(flag: number): void {
@@ -104,17 +93,14 @@ export class ShadeTexture {
     return t;
   }
 
-  static fromProduct(source: TextureProduct): ShadeTexture {
+  static fromImageSource(source: ImageTextureSource): ShadeTexture {
     const texture = new ShadeTexture();
-    texture.#textureProduct = source;
+    texture.#imageSource = source;
     texture.flags = 0;
-    return texture;
-  }
-
-  static fromTiled(source: TiledTextureSource): ShadeTexture {
-    const texture = new ShadeTexture();
-    texture.#tiledSource = source;
-    texture.flags = 0;
+    const plane = source.directory.planes[0]!;
+    const address = (mode: string) => mode === "repeat" ? 1 : mode === "mirror-repeat" ? 2 : 0;
+    texture.wrapS = address(plane.addressU);
+    texture.wrapT = address(plane.addressV);
     return texture;
   }
 
@@ -122,8 +108,7 @@ export class ShadeTexture {
     return hashMix(
       this.appearance_content_version === undefined ? 0 : hashString(this.appearance_content_version),
       hashOptional(this.#image),
-      this.#textureProduct === undefined ? 0 : hashString(this.#textureProduct.identity),
-      this.#tiledSource === undefined ? 0 : hashString(this.#tiledSource.identity),
+      this.#imageSource === undefined ? 0 : hashString(this.#imageSource.identity),
       this.flags,
       this.minFilter,
       this.magFilter,
@@ -138,8 +123,7 @@ export class ShadeTexture {
     return (
       this.appearance_content_version === other.appearance_content_version &&
       this.#image === other.#image &&
-      this.#textureProduct === other.#textureProduct &&
-      this.#tiledSource === other.#tiledSource &&
+      this.#imageSource === other.#imageSource &&
       this.flags === other.flags &&
       this.minFilter === other.minFilter &&
       this.magFilter === other.magFilter &&

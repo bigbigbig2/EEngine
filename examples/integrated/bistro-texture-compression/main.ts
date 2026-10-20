@@ -1,3 +1,4 @@
+import { exampleImageKernels } from "../../shared/image-kernels";
 import {
   createDefaultWebCookWorker,
   load_gltf,
@@ -166,42 +167,29 @@ function snapshot() {
   const texture = renderer?.graphics?.texture_residency_if_created?.evidence() ?? null;
   const leaves = [...new Set(runtime?.materials.flatMap((m) => [...materialTextureLeaves(m)]) ?? [])];
   const products = new Map(
-    leaves.map((t) => [t.texture_product?.identity ?? t.tiled_source?.identity, t.texture_metadata])
+    leaves.map((t) => [t.image_source?.identity, t.image_source?.directory])
   );
   const masks =
     runtime?.materials.filter((m) => m.transparency_mode === ShadeTransparencyMode.AlphaTested) ?? [];
   const quality = {
     productCount: [...products.values()].filter(Boolean).length,
     textureLeafCount: leaves.length,
-    allLeavesHaveSchema3: leaves.every((t) => t.texture_metadata?.schemaVersion === 3),
+    allLeavesHaveSchema4: leaves.every((t) => t.image_source?.directory?.schemaVersion === 4),
     allFullMips: leaves.every((t) => {
-      const m = t.texture_metadata;
-      return (
-        !!m &&
-        m.planes.every(
-          (p) => p.mips.length === Math.floor(Math.log2(Math.max(m.storageWidth, m.storageHeight))) + 1
-        )
-      );
+      const m = t.image_source?.directory;
+      return !!m && m.mipCount === Math.floor(Math.log2(Math.max(m.width, m.height))) + 1;
     }),
     transferFunctions: leaves.every((t) => {
-      const m = t.texture_metadata;
-      if (!m) return false;
-      const srgb = m.semantic === "base-color-srgb" || m.semantic === "emissive-srgb";
-      const expected = srgb
-        ? "bc7-rgba-unorm-srgb"
-        : m.semantic === "occlusion-linear"
-          ? "bc4-r-unorm"
-          : m.semantic === "alpha-mask"
-            ? "r8unorm"
-            : "bc7-rgba-unorm";
-      return m.planes[0]?.format === expected;
+      const m = t.image_source?.directory;
+      return !!m && m.planes.every((p) => p.target ===
+        (p.semantic === "exact-r" ? "r8" : p.semantic === "normal-xy" ? "bc5-rg"
+          : p.semantic === "scalar-r" ? "bc4-r" : p.semantic === "color-rgba" ? "bc7-rgba" : "bc7-rgb"));
     }),
     maskMaterials: masks.length,
     exactMaskCoverage: masks.every(
       (m) =>
-        m.texture_albedo?.texture_metadata?.exactAlpha &&
-        m.texture_albedo?.texture_metadata?.planes.some(
-          (p) => p.role === "coverage" && p.format === "r8unorm"
+        m.texture_albedo?.image_source?.directory.planes.some(
+          (p) => p.semantic === "exact-r" && p.target === "r8" && p.mode === "resident"
         )
     ),
     nativeMaterialPublication: !!runtime?.nativeMaterials,
@@ -703,6 +691,7 @@ async function start(): Promise<void> {
     sourceBytes = Number(head.headers.get("content-length"));
   }
   renderer = new Renderer({
+    imageTextureKernels: await exampleImageKernels(),
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     enableVsm: true,
     enablePhysicalEnvironment: true,

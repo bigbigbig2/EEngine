@@ -25,6 +25,9 @@ export interface AssetWorkerTask<TRequest> {
   readonly estimatedPeakBytes: number;
   readonly priority: AssetCodecPriority;
   readonly signal?: AbortSignal;
+  /** Cold imports may load large native parsers/filter heaps. Retire that
+   * Worker after transferring its result rather than retaining hidden heaps. */
+  readonly retireWorker?: boolean;
   /** Immutable session metadata is cloned once per actual Worker, including replacements. */
   readonly registration?: { readonly key: string; readonly value: unknown };
 }
@@ -251,6 +254,7 @@ export class AssetWorkerPool {
       return;
     }
     this.release(slot);
+    if (entry.task.retireWorker) this.removeWorker(slot, true);
     this.consecutiveWorkerFailures = 0;
     if (typeof result === "object" && result !== null) successfulResults.add(result);
     entry.resolve(result);

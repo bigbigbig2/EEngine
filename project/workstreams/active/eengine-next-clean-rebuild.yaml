@@ -33,11 +33,17 @@ currentSlice:
     delivery and runtime GPU encoding across the complete LDR PBR texture set.
     Cover ordinary textures, virtual textures and source-exact compact geometry;
     use the authority pair for architecture and detailed execution state.
-    Build complete new closures before atomic ownership cutovers and immediate
-    retirement of replaced contracts, without legacy bridges or fallbacks.
-    The user has authorized E1 faithful kernels and the isolated new-product preparation closure.
-    Detailed unit results live in the execution authority. Production cutover,
-    example recooking and E2 onward require their implementation authorization.
+    Implement each complete closure and cut over every direct consumer in the
+    same unit; immediately delete replaced contracts and dedicated dependencies.
+    Temporary intermediate breakage is allowed, without legacy bridges or fallbacks.
+    The user has authorized E2, the complete atomic texture-chain cutover,
+    including ordinary/virtual consumers, loading/deployment code and retirement.
+    Follow the user's revised cadence: E0-E4 use design/source review and only
+    minimal relevant correctness checks. Do not retain legacy compatibility to
+    keep intermediate examples runnable. Full asset cook/recook, deployment and
+    full-path integration tests belong only to the final E5 unit.
+    Detailed unit results live in the execution authority. E3 onward requires
+    separate implementation authorization.
     Do not start other renderer modules.
 
 pausedModules:

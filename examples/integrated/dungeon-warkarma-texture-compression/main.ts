@@ -1,3 +1,4 @@
+import { exampleImageKernels } from "../../shared/image-kernels";
 import {
   createDefaultWebCookWorker,
   load_gltf,
@@ -174,9 +175,8 @@ function snapshot() {
     maskMaterials: masks.length,
     exactMaskCoverage: masks.every(
       (m) =>
-        m.texture_albedo?.texture_metadata?.exactAlpha &&
-        m.texture_albedo?.texture_metadata?.planes.some(
-          (p) => p.role === "coverage" && p.format === "r8unorm"
+        m.texture_albedo?.image_source?.directory.planes.some(
+          (p) => p.semantic === "exact-r" && p.target === "r8" && p.mode === "resident"
         )
     ),
     nativeMaterialPublication: !!runtime?.nativeMaterials,
@@ -703,6 +703,7 @@ async function start(): Promise<void> {
     sourceBytes = Number(head.headers.get("content-length"));
   }
   renderer = new Renderer({
+    imageTextureKernels: await exampleImageKernels(),
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     enableVsm: true,
     enablePhysicalEnvironment: true,

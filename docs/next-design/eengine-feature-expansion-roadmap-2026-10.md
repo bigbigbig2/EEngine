@@ -13,7 +13,7 @@ verifies:
     - OEngine/src/render/ao
     - OEngine/src/shaders/xegtao_main.ts
     - OEngine/src/shaders/native_surface.ts
-    - OEngine/src/assets/TextureProduct.ts
+    - OEngine/src/assets/ImageTextureSource.ts
     - OEngine/src/assets/PcMaterialTextures.ts
     - OEngine/src/assets/AssetLoadBatch.ts
     - OEngine/src/gpu/TextureResidency.ts

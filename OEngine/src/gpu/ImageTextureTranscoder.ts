@@ -4,8 +4,17 @@ import {
   type ImageTexturePlane,
   type ImageTextureSemantic
 } from "../assets/ImageTextureProduct.js";
-import { assertImageTextureLease, type ImageTextureLease } from "../assets/codec/ImageTexturePreparation.js";
+import {
+  assertImageTextureLease,
+  imageLeaseSource,
+  type ImageTextureLease
+} from "../assets/codec/ImageTexturePreparation.js";
 import type { CommandSubmissionObserver } from "../framegraph/ShadeGPUCommandContext.js";
+import {
+  IMAGE_PAGE_SIZE, imagePageSource, assertImageTailLevel,
+  type ImagePagePlan, type ImageTailLevel
+} from "../assets/ImageTexturePages.js";
+import { imagePageAssemblySource, imagePageExactSource } from "./ImageTexturePageAssembly.js";
 
 export type ImageEncoderVariant = "bc7-rgb" | "bc7-rgba" | "bc5-rg" | "bc4-r";
 export interface ImageKernelSource {
@@ -39,6 +48,7 @@ interface InputSlot {
   readonly key: string;
   readonly textures: GPUTexture[];
   readonly upload: GPUTexture;
+  readonly owners: readonly GPUTexture[];
   readonly blocks: GPUBuffer;
   readonly params: GPUBuffer;
   readonly rgbaBytes: number;
@@ -110,6 +120,8 @@ export class ImageTextureTranscoder {
   readonly #encoders: Readonly<Record<ImageEncoderVariant, GPUComputePipeline>>;
   readonly #mips: Readonly<Record<"magic" | "box", GPUComputePipeline>>;
   readonly #restore: GPUComputePipeline;
+  readonly #assembly: GPUComputePipeline;
+  readonly #pageExact: GPUComputePipeline;
   readonly #sampler: GPUSampler;
   readonly #fragmentMips: Readonly<Record<"rgba8unorm" | "rgba8unorm-srgb", GPURenderPipeline>>;
   readonly #mipProfile: "compute" | "fragment";
@@ -126,6 +138,8 @@ export class ImageTextureTranscoder {
   #mipDispatches = 0;
   #encodeDispatches = 0;
   #needsDrain = 0;
+  #assemblyDispatches = 0;
+  #ownerUploads = 0;
 
   private constructor(
     device: GPUDevice,
@@ -133,6 +147,8 @@ export class ImageTextureTranscoder {
     encoders: Record<ImageEncoderVariant, GPUComputePipeline>,
     mips: Record<"magic" | "box", GPUComputePipeline>,
     restore: GPUComputePipeline,
+    assembly: GPUComputePipeline,
+    pageExact: GPUComputePipeline,
     precision: "f16" | "f32",
     rgbaLimit: number,
     blockLimit: number,
@@ -143,6 +159,8 @@ export class ImageTextureTranscoder {
     this.#encoders = encoders;
     this.#mips = mips;
     this.#restore = restore;
+    this.#assembly = assembly;
+    this.#pageExact = pageExact;
     this.precision = precision;
     this.sourceScope = source.scope;
     this.#rgbaLimit = rgbaLimit;
@@ -220,6 +238,8 @@ export class ImageTextureTranscoder {
       box: await compile(source.shaders.utils, "mipmap", "Spark alpha box mip")
     };
     const restore = await compile(restoreSource, "main", "Canonical channel restore");
+    const assembly = await compile(imagePageAssemblySource, "main", "Image owner page assembly");
+    const pageExact = await compile(imagePageExactSource, "main", "Image exact page packing");
     const fragmentModule = device.createShaderModule({
       code: source.shaders.utils,
       label: "Spark fragment mip"
@@ -240,6 +260,8 @@ export class ImageTextureTranscoder {
       encoders,
       mips,
       restore,
+      assembly,
+      pageExact,
       precision,
       rgbaLimit,
       blockLimit,
@@ -257,13 +279,81 @@ export class ImageTextureTranscoder {
     destinations: readonly ImageEncodeDestination[],
     inspect?: (encoder: GPUCommandEncoder, upload: GPUTexture, logicalMips: readonly GPUTexture[]) => void
   ): "recorded" | "needs-drain" {
-    assertImageTextureLease(lease);
+    return this.#recordInputs(command, [lease], destinations, undefined, inspect);
+  }
+
+  /** Assemble one provided VT mip from its complete unique decoded owner set, then
+   * run the unchanged selected Spark encoder. No CPU RGBA mirror or private submit. */
+  recordPage(
+    command: ImageRecordCommand,
+    leases: readonly ImageTextureLease[],
+    page: ImagePagePlan,
+    destination: ImageEncodeDestination,
+    inspect?: (encoder: GPUCommandEncoder, upload: GPUTexture, logicalMips: readonly GPUTexture[]) => void
+  ): "recorded" | "needs-drain" {
+    return this.#recordInputs(command, leases, [destination], page, inspect);
+  }
+
+  recordTailLevel(
+    command: ImageRecordCommand,
+    leases: readonly ImageTextureLease[],
+    level: ImageTailLevel,
+    slot: ImageEncodeDestination
+  ): "recorded" | "needs-drain" {
+    assertImageTailLevel(level);
+    return this.#recordInputs(command, leases, [{ ...slot,
+      x: slot.x + level.origin[0], y: slot.y + level.origin[1]
+    }], level.page, undefined, [level.width, level.height]);
+  }
+
+  #recordInputs(
+    command: ImageRecordCommand,
+    leases: readonly ImageTextureLease[],
+    destinations: readonly ImageEncodeDestination[],
+    page?: ImagePagePlan,
+    inspect?: (encoder: GPUCommandEncoder, upload: GPUTexture, logicalMips: readonly GPUTexture[]) => void,
+    pageExtent: readonly [number, number] = [IMAGE_PAGE_SIZE, IMAGE_PAGE_SIZE]
+  ): "recorded" | "needs-drain" {
+    if (!leases.length) {
+      throw new Error("Image encoder requires live input owners");
+    }
+    for (const input of leases) {
+      assertImageTextureLease(input);
+    }
+    const lease = leases[0]!;
     if (this.#disposed) {
       throw new Error("Image transcoder is disposed/device lost");
     }
     const { item, directory, result } = lease;
     const plane = directory.planes[item.plane]!;
-    if (result.representation !== "decoded-image" || plane.target === "r8") {
+    if (page) {
+      const source = imagePageSource(page);
+      if (
+        plane.mode !== "virtual" ||
+        plane.mips !== "provided" ||
+        imageLeaseSource(lease) !== source ||
+        source.recipe !== directory.recipe ||
+        source.sourceRevision !== directory.sourceRevision ||
+        page.owners.length !== leases.length ||
+        new Set(page.owners).size !== leases.length ||
+        new Set(leases.map((input) => input.item.id)).size !== leases.length ||
+        leases.some(
+          (input) =>
+            input.directory !== directory ||
+            input.item.plane !== page.plane ||
+            input.item.mip !== page.mip ||
+            !page.owners.includes(input.item.id) ||
+            input.result.representation !== (plane.target === "r8" ? "exact-bytes" : "decoded-image")
+        )
+      ) {
+        throw new Error("Image page inputs do not cover the same provided source generation");
+      }
+      checkedImageInteger(page.logicalWidth, 1, 65536);
+      checkedImageInteger(page.logicalHeight, 1, 65536);
+      checkedImageInteger(page.x, 0, Math.ceil(page.logicalWidth / 128) - 1);
+      checkedImageInteger(page.y, 0, Math.ceil(page.logicalHeight / 128) - 1);
+    }
+    if (!page && (result.representation !== "decoded-image" || plane.target === "r8")) {
       throw new Error("BC recorder requires a decoded image receipt");
     }
     const mipCount = plane.mips === "runtime" ? directory.mipCount : 1;
@@ -279,30 +369,48 @@ export class ImageTextureTranscoder {
     if (destinations.length !== mipCount) {
       throw new Error("Image encode destinations must cover the complete admitted domain");
     }
-    const levels = layoutLevels(
-      item.width,
-      item.height,
-      mipCount,
-      plane.target === "bc4-r" ? 8 : 16,
-      this.#device.limits.minStorageBufferOffsetAlignment
-    );
+    const exactPage = page !== undefined && plane.target === "r8";
+    const levels = exactPage
+      ? [
+          {
+            width: pageExtent[0],
+            height: pageExtent[1],
+            offset: 0,
+            bytesPerRow: Math.ceil(pageExtent[0] / 256) * 256,
+            bytes: Math.ceil(pageExtent[0] / 256) * 256 * pageExtent[1]
+          }
+        ]
+      : layoutLevels(
+          page ? pageExtent[0] : item.width,
+          page ? pageExtent[1] : item.height,
+          mipCount,
+          plane.target === "bc4-r" ? 8 : 16,
+          this.#device.limits.minStorageBufferOffsetAlignment
+        );
     for (let mip = 0; mip < levels.length; mip++) {
       this.#validateDestination(destinations[mip]!, levels[mip]!, plane);
     }
-    const key = `${item.width}/${item.height}/${mipCount}/${plane.target}`;
+    const width = levels[0]!.width;
+    const height = levels[0]!.height;
+    const ownerDimensions = page ? leases.map((input) => [input.item.width, input.item.height] as const) : [];
+    const key = `${width}/${height}/${mipCount}/${plane.target}/${ownerDimensions.join(";")}`;
     let slot = this.#slots.find((candidate) => !candidate.busy && candidate.key === key);
     if (!slot) {
       const rgbaBytes =
-        4 * (item.width * item.height + levels.reduce((sum, level) => sum + level.width * level.height, 0));
+        4 *
+          ((page ? 0 : width * height) + levels.reduce((sum, level) => sum + level.width * level.height, 0)) +
+        ownerDimensions.reduce((sum, [w, h]) => sum + w * h * (exactPage ? 1 : 4), 0);
       const uniformBytes =
-        Math.max(256, this.#device.limits.minUniformBufferOffsetAlignment) * (mipCount + 1);
+        Math.max(256, this.#device.limits.minUniformBufferOffsetAlignment) *
+        Math.max(mipCount + 1, ownerDimensions.length + 1);
       const last = levels.at(-1)!;
       const blockBytes = last.offset + last.bytes + uniformBytes;
       if (
         rgbaBytes > this.#rgbaLimit ||
         blockBytes > this.#blockLimit ||
-        item.width > this.#device.limits.maxTextureDimension2D ||
-        item.height > this.#device.limits.maxTextureDimension2D ||
+        width > this.#device.limits.maxTextureDimension2D ||
+        height > this.#device.limits.maxTextureDimension2D ||
+        ownerDimensions.some(([w, h]) => Math.max(w, h) > this.#device.limits.maxTextureDimension2D) ||
         last.offset + last.bytes > this.#device.limits.maxBufferSize ||
         levels.some((level) => level.bytes > this.#device.limits.maxStorageBufferBindingSize)
       ) {
@@ -323,7 +431,7 @@ export class ImageTextureTranscoder {
         this.#needsDrain++;
         return "needs-drain";
       }
-      slot = this.#createSlot(key, levels, rgbaBytes, blockBytes, uniformBytes);
+      slot = this.#createSlot(key, levels, rgbaBytes, blockBytes, uniformBytes, ownerDimensions, exactPage);
     }
     slot.busy = true;
     const held = slot;
@@ -357,12 +465,37 @@ export class ImageTextureTranscoder {
       throw error;
     }
     try {
-      this.#device.queue.copyExternalImageToTexture(
-        { source: result.image, flipY: false },
-        { texture: held.upload, colorSpace: "srgb", premultipliedAlpha: false },
-        { width: item.width, height: item.height }
-      );
-      lease.close();
+      if (!page) {
+        if (result.representation !== "decoded-image") {
+          throw new Error("BC input requires decoded image backing");
+        }
+        this.#device.queue.copyExternalImageToTexture(
+          { source: result.image, flipY: false },
+          { texture: held.upload, colorSpace: "srgb", premultipliedAlpha: false },
+          { width: item.width, height: item.height }
+        );
+        lease.close();
+      } else {
+        for (let index = 0; index < leases.length; index++) {
+          const input = leases[index]!;
+          if (input.result.representation === "decoded-image") {
+            this.#device.queue.copyExternalImageToTexture(
+              { source: input.result.image, flipY: false },
+              { texture: held.owners[index]!, colorSpace: "srgb", premultipliedAlpha: false },
+              { width: input.item.width, height: input.item.height }
+            );
+          } else {
+            this.#device.queue.writeTexture(
+              { texture: held.owners[index]! },
+              input.result.bytes,
+              { bytesPerRow: input.item.width },
+              { width: input.item.width, height: input.item.height }
+            );
+          }
+          input.close();
+          this.#ownerUploads++;
+        }
+      }
       const stride = Math.max(256, this.#device.limits.minUniformBufferOffsetAlignment);
       const params = new ArrayBuffer(held.params.size);
       const values = new DataView(params);
@@ -381,26 +514,71 @@ export class ImageTextureTranscoder {
           true
         );
       }
+      if (page) {
+        const address = (mode: ImageTexturePlane["addressU"]) =>
+          mode === "repeat" ? 1 : mode === "mirror-repeat" ? 2 : 0;
+        for (let index = 0; index < leases.length; index++) {
+          const owner = leases[index]!.item;
+          const offset = (index + 1) * stride;
+          for (const [word, value] of [
+            page.logicalWidth,
+            page.logicalHeight,
+            page.x * 128 - 8,
+            page.y * 128 - 8,
+            owner.x,
+            owner.y,
+            address(plane.addressU),
+            address(plane.addressV),
+            ...plane.constants.map((constant) => constant ?? -1)
+          ].entries()) {
+            values.setInt32(offset + word * 4, value, true);
+          }
+        }
+      }
       this.#device.queue.writeBuffer(held.params, 0, params);
       const encoder = command.gpu_encoder;
-      const restore = encoder.beginComputePass({ label: "Image canonical restore" });
-      restore.setPipeline(this.#restore);
-      restore.setBindGroup(
-        0,
-        this.#device.createBindGroup({
-          layout: this.#restore.getBindGroupLayout(0),
-          entries: [
-            { binding: 0, resource: held.upload.createView() },
-            {
-              binding: 1,
-              resource: held.textures[0]!.createView({ usage: GPUTextureUsage.STORAGE_BINDING })
-            },
-            { binding: 2, resource: { buffer: held.params, offset: 0, size: 16 } }
-          ]
-        })
-      );
-      restore.dispatchWorkgroups(Math.ceil(item.width / 8), Math.ceil(item.height / 8));
-      restore.end();
+      if (page) {
+        const assembly = encoder.beginComputePass({ label: "Image unique-owner page assembly" });
+        assembly.setPipeline(this.#assembly);
+        for (let index = 0; index < leases.length; index++) {
+          assembly.setBindGroup(
+            0,
+            this.#device.createBindGroup({
+              layout: this.#assembly.getBindGroupLayout(0),
+              entries: [
+                { binding: 0, resource: held.owners[index]!.createView() },
+                {
+                  binding: 1,
+                  resource: held.textures[0]!.createView({ usage: GPUTextureUsage.STORAGE_BINDING })
+                },
+                { binding: 2, resource: { buffer: held.params, offset: (index + 1) * stride, size: 48 } }
+              ]
+            })
+          );
+          assembly.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8));
+          this.#assemblyDispatches++;
+        }
+        assembly.end();
+      } else {
+        const restore = encoder.beginComputePass({ label: "Image canonical restore" });
+        restore.setPipeline(this.#restore);
+        restore.setBindGroup(
+          0,
+          this.#device.createBindGroup({
+            layout: this.#restore.getBindGroupLayout(0),
+            entries: [
+              { binding: 0, resource: held.upload.createView() },
+              {
+                binding: 1,
+                resource: held.textures[0]!.createView({ usage: GPUTextureUsage.STORAGE_BINDING })
+              },
+              { binding: 2, resource: { buffer: held.params, offset: 0, size: 16 } }
+            ]
+          })
+        );
+        restore.dispatchWorkgroups(Math.ceil(item.width / 8), Math.ceil(item.height / 8));
+        restore.end();
+      }
       for (let level = 1; level < mipCount; level++) {
         const layout = levels[level]!;
         if (this.#mipProfile === "fragment") {
@@ -468,8 +646,10 @@ export class ImageTextureTranscoder {
         pass.end();
         this.#mipDispatches++;
       }
-      const pipeline = this.#encoders[plane.target];
-      const pass = encoder.beginComputePass({ label: `Spark ${plane.target}/${this.precision}` });
+      const pipeline = exactPage ? this.#pageExact : this.#encoders[plane.target as ImageEncoderVariant];
+      const pass = encoder.beginComputePass({
+        label: exactPage ? "Image exact page packing" : `Spark ${plane.target}/${this.precision}`
+      });
       pass.setPipeline(pipeline);
       for (let level = 0; level < mipCount; level++) {
         const layout = levels[level]!;
@@ -482,12 +662,27 @@ export class ImageTextureTranscoder {
                 binding: 0,
                 resource: held.textures[level]!.createView({ usage: GPUTextureUsage.TEXTURE_BINDING })
               },
-              { binding: 1, resource: this.#sampler },
-              { binding: 2, resource: { buffer: held.blocks, offset: layout.offset, size: layout.bytes } }
+              ...(exactPage
+                ? [
+                    {
+                      binding: 1,
+                      resource: { buffer: held.blocks, offset: layout.offset, size: layout.bytes }
+                    }
+                  ]
+                : [
+                    { binding: 1, resource: this.#sampler },
+                    {
+                      binding: 2,
+                      resource: { buffer: held.blocks, offset: layout.offset, size: layout.bytes }
+                    }
+                  ])
             ]
           })
         );
-        pass.dispatchWorkgroups(Math.ceil(layout.width / 64), Math.ceil(layout.height / 32));
+        pass.dispatchWorkgroups(
+          Math.ceil(layout.width / (exactPage ? 32 : 64)),
+          Math.ceil(layout.height / (exactPage ? 8 : 32))
+        );
         this.#encodeDispatches++;
       }
       pass.end();
@@ -509,7 +704,9 @@ export class ImageTextureTranscoder {
       return "recorded";
     } catch (error) {
       // Caller must abort this command; never recycle partially recorded resources here.
-      lease.close();
+      for (const input of leases) {
+        input.close();
+      }
       throw error;
     }
   }
@@ -602,11 +799,19 @@ export class ImageTextureTranscoder {
     checkedImageInteger(destination.layer, 0, texture.depthOrArrayLayers - 1);
     const width = Math.max(1, Math.floor(texture.width / 2 ** destination.mip));
     const height = Math.max(1, Math.floor(texture.height / 2 ** destination.mip));
-    checkedImageInteger(destination.x, 0, Math.ceil(width / 4) * 4 - Math.ceil(level.width / 4) * 4);
-    checkedImageInteger(destination.y, 0, Math.ceil(height / 4) * 4 - Math.ceil(level.height / 4) * 4);
+    const block = plane.target === "r8" ? 1 : 4;
+    checkedImageInteger(
+      destination.x,
+      0,
+      Math.ceil(width / block) * block - Math.ceil(level.width / block) * block
+    );
+    checkedImageInteger(
+      destination.y,
+      0,
+      Math.ceil(height / block) * block - Math.ceil(level.height / block) * block
+    );
     if (
-      destination.x % 4 ||
-      destination.y % 4 ||
+      (plane.target !== "r8" && (destination.x % 4 || destination.y % 4)) ||
       texture.format !== imageGpuFormat(plane.semantic) ||
       !(texture.usage & GPUTextureUsage.COPY_DST) ||
       texture.dimension !== "2d" ||
@@ -622,13 +827,29 @@ export class ImageTextureTranscoder {
     levels: readonly Level[],
     rgbaBytes: number,
     blockBytes: number,
-    uniformBytes: number
+    uniformBytes: number,
+    ownerDimensions: readonly (readonly [number, number])[] = [],
+    exactPage = false
   ): InputSlot {
     const textures: GPUTexture[] = [];
+    const owners: GPUTexture[] = [];
     let upload: GPUTexture | undefined;
     let blocks: GPUBuffer | undefined;
     let params: GPUBuffer | undefined;
     try {
+      for (const [width, height] of ownerDimensions) {
+        owners.push(
+          this.#device.createTexture({
+            label: "Image unique owner upload",
+            size: [width, height],
+            format: exactPage ? "r8unorm" : "rgba8unorm",
+            usage:
+              GPUTextureUsage.COPY_DST |
+              GPUTextureUsage.TEXTURE_BINDING |
+              (exactPage ? 0 : GPUTextureUsage.RENDER_ATTACHMENT)
+          })
+        );
+      }
       for (const level of levels) {
         textures.push(
           this.#device.createTexture({
@@ -644,16 +865,19 @@ export class ImageTextureTranscoder {
           })
         );
       }
-      upload = this.#device.createTexture({
-        label: "Image external upload",
-        size: [levels[0]!.width, levels[0]!.height],
-        format: "rgba8unorm",
-        usage:
-          GPUTextureUsage.COPY_DST |
-          GPUTextureUsage.COPY_SRC |
-          GPUTextureUsage.RENDER_ATTACHMENT |
-          GPUTextureUsage.TEXTURE_BINDING
-      });
+      upload =
+        ownerDimensions.length > 0
+          ? textures[0]!
+          : this.#device.createTexture({
+              label: "Image external upload",
+              size: [levels[0]!.width, levels[0]!.height],
+              format: "rgba8unorm",
+              usage:
+                GPUTextureUsage.COPY_DST |
+                GPUTextureUsage.COPY_SRC |
+                GPUTextureUsage.RENDER_ATTACHMENT |
+                GPUTextureUsage.TEXTURE_BINDING
+            });
       blocks = this.#device.createBuffer({
         label: "Image padded blocks",
         size: blockBytes - uniformBytes,
@@ -668,6 +892,7 @@ export class ImageTextureTranscoder {
         key,
         textures,
         upload,
+        owners,
         blocks,
         params,
         rgbaBytes,
@@ -683,7 +908,12 @@ export class ImageTextureTranscoder {
       for (const texture of textures) {
         texture.destroy();
       }
-      upload?.destroy();
+      if (upload && !textures.includes(upload)) {
+        upload.destroy();
+      }
+      for (const owner of owners) {
+        owner.destroy();
+      }
       blocks?.destroy();
       params?.destroy();
       throw error;
@@ -699,7 +929,12 @@ export class ImageTextureTranscoder {
     for (const texture of slot.textures) {
       texture.destroy();
     }
-    slot.upload.destroy();
+    if (!slot.textures.includes(slot.upload)) {
+      slot.upload.destroy();
+    }
+    for (const owner of slot.owners) {
+      owner.destroy();
+    }
     slot.blocks.destroy();
     slot.params.destroy();
     this.#rgbaBytes -= slot.rgbaBytes;
@@ -715,7 +950,9 @@ export class ImageTextureTranscoder {
       records: this.#records,
       mipDispatches: this.#mipDispatches,
       encodeDispatches: this.#encodeDispatches,
-      needsDrain: this.#needsDrain
+      needsDrain: this.#needsDrain,
+      assemblyDispatches: this.#assemblyDispatches,
+      ownerUploads: this.#ownerUploads
     };
   }
 

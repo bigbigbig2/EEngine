@@ -120,8 +120,7 @@ function snapshotMaterialInputs(material: StandardShadeMaterial): readonly unkno
     inputs.push(
       texture,
       texture?.image,
-      texture?.texture_product,
-      texture?.tiled_source,
+      texture?.image_source,
       texture?.appearance_content_version,
       texture?.flags,
       texture?.minFilter,

@@ -23,29 +23,55 @@ verifies:
 
 # 极致 Web 资产压缩：移植与 Clean-Cut 执行文档
 
-日期：2026-10-20。唯一目标依据：[设计](../next-design/eengine-extreme-web-asset-compression-2026-10.md)。源码 HEAD `5f3f41533e25901cbbd1da9c3ae751c64bc0a9c9`；工作区原有旧U0工具/规范等未提交改动保留，不归零或回退。
+日期：2026-10-20。唯一目标依据：[设计](../next-design/eengine-extreme-web-asset-compression-2026-10.md)。设计最初核对源码为`5f3f4153`，准备提交为`1f856ea0`，E0/E1提交为`eddb8669`；后续施工状态只读§12，不把初始快照当当前源码事实。
 
-**用户已追加授权实施E1。** P准备已提交为`1f856ea0`，E0与E1结果见§12；当前停在E2边界，无生产ownership切换或示例recook。新文档删除并替换旧设计/执行，旧U0的“完成/冻结”不成为新计划的完成状态。
+**用户已追加授权实施E2；2026-10-20再次调整执行节奏。** P准备已提交为`1f856ea0`，E0/E1已提交为`eddb8669`，实际结果见§12。E0–E4以连续实现、设计对照和最小正确性检查为主，全部场景cook/recook、部署与全路径测试统一放到最后E5。旧路径随替换直接删除，不为中间阶段可运行保留兼容；E2尚未完成。本次调整不自动授权E3–E5，也不把旧U0的“完成/冻结”当作新计划状态。
 
-## 1. 执行纪律与目标
+## 1. 执行合同：连续实现，最后集中验证
 
 主线已确定为“全套常规LDR PBR图片传输→GPU编码”，不是竞争实验候选；以完整上游为可工作的基线，移植与架构适配优先。验证检查忠实度、集成、安全、语义和成本，不再用单RGBA内核或错误计时淘汰整条路线。
 
-每个实现闭包包含producer→产品→准备→全部直接consumer→capacity/reset→提交/中止/重试/退休。先在非生产边界建立完整新闭包，再原子切换全部生产ownership并删除旧依赖；不按consumer渐进上线。可以保留纯离线reference，不允许新旧schema桥、旧owner fallback、两套资源管理/Worker调度或先上线RGBA再补BC。
+每个实现闭包包含producer→产品→准备→全部直接consumer→capacity/reset→提交/中止/重试/退休。原子切换是代码ownership约束，不是“先保持旧链可运行，完成全场景验证后才删除”的门禁。阶段内允许编译/示例暂时断链；在同一实现单元直接改完全部consumer并删除被替换的生产parser、writer、owner、vendor/build依赖、导出和兼容测试，不按consumer渐进上线。不得为中间可运行建立新旧schema桥、旧owner fallback、A/B开关、adapter或两套资源管理/Worker调度，也不先上线RGBA再补BC。
 
-按实际工程量划单元，不按文件数/天数估计。大单元内部连续施工，不每个helper跑全Renderer，不把每轮性能对比设为下一patch许可。GPU验证串行；单元末集中编译和少量独立检查，模块基本连通后集中组合接线/成本收口。停止点服从用户授权，不能自动越过当前模块。
+按实际工程量划单元，不按文件数/天数估计。大单元内部连续施工，不每个helper跑全Renderer，不把每轮性能对比设为下一patch许可。停止点服从用户授权，不能自动越过当前模块。
+
+### 1.1 唯一推进顺序
+
+`设计/源码 → 连续实现完整闭包 → 直接删除旧路径 → 设计对照 → 必要编译与少量最小测试 → 已授权下一阶段 → E5统一cook与全路径验收`。
+
+阶段内允许暂时断链；阶段退出前修复本阶段真实编译错误。不以完整场景可运行作为删除旧路径或继续实现的前提，也不为中间状态制造临时adapter。提交可以是明确未完成的施工检查点，不能把提交等同阶段完成。
+
+### 1.2 E0–E4统一退出条件
+
+1. 对照设计核对完整算法阶段、唯一owner、直接consumer、容量/错误路径与退休代码；实现不因测试延期而省步骤。
+2. 修改完成后集中做必要的相关编译/typecheck或shader编译，以及少量最小输入/输出、ABI或生命周期测试；不每patch重复执行，不扩大为整Renderer宿主。只有某个具体实现问题无法靠源码/小检查定位时，才运行能定位该问题的最小GPU检查。
+3. 不运行hello/Dungeon/Bistro等完整资产cook/recook，不运行全路径browser、整场景画面/质量/性能对照、完整组合生命周期或宽泛回归；这些只在E5集中执行。小型固定输入用于codec/API正确性不等于全量资产cook，不展开成多档搜索或资产报告。
+4. 已发现的真实错误立即修实现；未运行的集成检查明确留给E5，不冒称通过，也不作为拖住连续实现或恢复旧路径的理由。“实现单元完成”与“最终集成通过”分开记录。
+5. 仅为旧生产路线服务的离线reference/工具也删除，不以“历史参考”留下可运行旧全链。来源原文、原始日志/结果和确被新路径使用的独立canonical resampler/冷输入decoder可保留，但必须明确新owner和调用关系，不提供旧资产兼容入口。
+
+### 1.3 实现与验证分工
+
+| 工作 | E0–E4 | E5 |
+| --- | --- | --- |
+| 全部producer/consumer、算法分支、容量及生命周期代码 | 当阶段完整实现并按设计核对，不留简化替身 | 验证实际组合，发现错误局部修复 |
+| 旧schema/owner/兼容入口/专用vendor与工具 | 替换时直接删除，不等完整场景验证 | 只确认无遗漏，不负责拖到最后才删 |
+| 编译与少量最小字节/ABI/输入输出检查 | 阶段末集中执行；最小GPU仅用于具体实现疑点 | 最终新鲜构建及必要受影响检查 |
+| 完整cook/recook、多档资产搜索、报告、manifest/部署 | 只实现工具与引用代码，不执行完整资产任务 | 使用最终合同统一生成并检查部署 |
+| 全路径browser、画面、所有采样/reader组合、完整生命周期/成本 | 不运行，不当退出门禁 | 本模块唯一集中执行阶段 |
+
+几何在E4前仍由当前唯一几何owner承载，不是新几何ABI的兼容fallback；E4同切后删旧ABI。保留成熟VT反馈/驻留算法作为新图片路径唯一owner的能力，也不等于保留旧BC网络链。
 
 ## 2. 单元、依赖和当前状态
 
 | 单元 | 工程量 | 完整交付与稳定边界 | 依赖 / 当前状态 |
 | --- | --- | --- | --- |
-| P：重建设计准备 | 中 | 新唯一设计/执行、来源映射与导航，删除旧主张，记录证据边界 | 本轮文档准备；实际结果见§12 |
+| P：重建设计准备 | 中 | 新唯一设计/执行、来源映射与导航，删除旧主张，记录证据边界 | 已提交；实际结果见§12 |
 | E0：上游依赖与移植基线准备 | 中 | 固定编码工具/许可、donor完整路径、产品/能力细节与构建身份；无生产切换 | 已实施；实际结果与许可交付边界见§12 |
 | E1：忠实内核与新产品准备闭包 | 大 | 新图片产品、语义Cooker、浏览器decode/lease、GPU recorder、有限内存，覆盖RGB/RGBA/BC5/BC4和mip | 隔离闭包已实现并验证；本地evaluation来源边界及结果见§12 |
-| E2：纹理全链原子切换 | **很大，主工作项** | 普通/VT、材质/coverage/query、统一准备/缓存、全部加载/部署/recook、删除旧产品与依赖 | E1后；待授权；本单元内部不分两次上线 |
-| E3：离线极限码率与交付优化 | 大 | 双质量档的有限搜索、最终GPU评价缓存、完整资产报告、VT cell布局与预览/请求优化 | E2基础闭包后；待授权；仍只一个生产owner |
-| E4：几何紧凑ABI与无损传输原子切换 | 很大，独立资产类别闭包 | F32-exact SoA、Zstd/raw、所有Cooker/reader/query/lifecycle与部署一次切换 | 公共准备合同在E2已定；待授权 |
-| E5：模块集中集成与成本收口 | 中到大 | 新鲜构建、真实普通/VT/几何组合、生命周期/上界/质量和粗成本、删除余留 | E2/E3/E4后；待授权 |
+| E2：纹理全链原子切换 | **很大，主工作项** | 普通/VT、材质/coverage/query、统一准备/缓存、加载/部署代码直接切换、旧产品与依赖删除；不跑场景recook | 已授权施工；只做设计核对与最小检查；尚未完成，见§12 |
+| E3：离线极限码率与交付优化 | 大 | 实现双质量档有限搜索、最终GPU评价缓存、资产报告生成、VT cell布局与请求优化；不跑完整资产搜索/报告 | E2实现闭包后；待授权；仍只一个生产owner |
+| E4：几何紧凑ABI与无损传输原子切换 | 很大，独立资产类别闭包 | F32-exact SoA、Zstd/raw、全部Cooker/reader/query/lifecycle代码同切并删旧ABI；不跑场景recook | 公共准备合同在E2已定；待授权 |
+| E5：最终集中cook、全路径集成与成本收口 | 大 | 统一全量cook/recook与manifest发布、新鲜build、全部直接路径/示例部署、组合生命周期/上界/质量及粗成本 | E2/E3/E4实现后；待授权；全路径验证唯一阶段 |
 
 E1是即将接入生产的新模块，不是永久第二套runtime；生产入口在E2一次替换。E2必须带最基本的正确边界和资源预算，不能把接缝/缺页/失控容量当E3优化延期。E3不为优化另建ABI或再选一轮基础codec。E4不混入纹理切换以免最大闭包失控，但几何本身不得按reader分批迁移。
 
@@ -55,7 +81,7 @@ E1是即将接入生产的新模块，不是永久第二套runtime；生产入�
 
 ```powershell
 git status --short
-node tools/vibe.mjs context OEngine/src/assets/TextureProduct.ts
+node tools/vibe.mjs context OEngine/src/assets/ImageTextureSource.ts
 node tools/vibe.mjs context OEngine/src/gpu/VirtualGeometryResidency.ts
 ```
 
@@ -81,7 +107,7 @@ node tools/vibe.mjs context OEngine/src/gpu/VirtualGeometryResidency.ts
 - 建新版本目录/reader/writer与manifest recipe，按设计§4区分canonical、encoded、prepared、GPU表示；有限静态AVIF item和精确段，合法decoded大小先于分配检查。
 - 从canonical源直接生成AVIF，不先把旧BC解码再编码。复用donor原生avifenc路径；语义分类、通道消除/常量、Identity/linear与normal XY完整实现。
 - 单位normal与非单位XYZ/moment分开声明；所有provided mip不被自动normalize。标量真实通道提取，alpha/coverage独立，颜色空间元数据固定。
-- 普通runtime-mips/provided-mips与VT逐mip owner/cell/tail在同一产品合同内；先生成High/Extreme上游锚点，E3再深化有限码率搜索。
+- 普通runtime-mips/provided-mips与VT逐mip owner/cell/tail在同一产品合同内；实现High/Extreme上游锚点配置，E3实现有限码率搜索，完整资产输出归E5。
 - 路径、toolhash、recipe变动使旧收据失效。manifest写临时产物后校验、再原子替换引用；失败不发布半份目录。
 
 ### 4.2 浏览器解码与信用
@@ -90,48 +116,38 @@ node tools/vibe.mjs context OEngine/src/gpu/VirtualGeometryResidency.ts
 
 IO/hash校验、pixel/尺寸/CICP/静态profile检查后解码，转移独占ImageBitmap/VideoFrame或受支持的同表示结果；transfer失败明确关闭并报错，不默默增加JS RGBA整图copy。超时/cancel后继续计入未完成工作，stale reply关闭/释放；模块、decoder内部估算、backing复制与ready分别计账。
 
-浏览器API适配不得误改data通道：按设计§8单独控制decoder与external copy，normal/ORM/标量不执行隐式transfer/primaries变换。必要VideoFrame→ImageBitmap是同表示宿主适配而非旧路径fallback；先按实际backing保留双份信用，再交接/close。加入data ramp、透明边缘及Identity图片的解码后/上传后独立检查，不能仅凭`colorSpaceConversion:none`判断全链无转换。
+浏览器API适配不得误改data通道：按设计§8单独控制decoder与external copy，normal/ORM/标量不执行隐式transfer/primaries变换。必要VideoFrame→ImageBitmap是同表示宿主适配而非旧路径fallback；先按实际backing保留双份信用，再交接/close。实现对应检查入口，data ramp、透明边缘及Identity图片的完整独立检查集中归E5；不能仅凭`colorSpaceConversion:none`判断全链无转换。
 
 ### 4.3 GPU recorder与小闭包消费
 
 直接引入有权使用的对应完整内核；上游shader如为minified生成资产，保留vendor源/hash，使用可追溯机械格式化/构建方式，不手工改写数学。EEngine手写WGSL/glue保持可读。所选f16/f32路径按donor支持方式及真实device协商，不让缺shader-f16静默改变精度合同。
 
-新recorder在调用方command记录预处理/mip/编码/copy，不调用上游私有submit。外部图片copy、输入池复用、GPU fence与CPU对象close时机明确；BC7 RGB/RGBA/BC5/BC4均有真实采样消费，非零layer与origin/mip不能只测默认0。
+新recorder在调用方command记录预处理/mip/编码/copy，不调用上游私有submit。外部图片copy、输入池复用、GPU fence与CPU对象close时机明确；实现BC7 RGB/RGBA/BC5/BC4真实采样consumer以及非零layer/origin/mip，不用固定0的简化接线替代。
 
-独立检查只覆盖这次移植的关键点：
-
-| 输入 | 输出与独立检查 |
-| --- | --- |
-| RGB、RGBA、normal XY、标量、ORM | 与相同donor路径同输入比较；目标格式/通道与真实GPU采样；不再全用RGBA内核 |
-| sRGB梯度、透明边缘、normal mip | 上游过滤结果及最终材质语义；默认完整1×1链，NPOT/tiny无越界 |
-| 特殊XYZ/moment provided mip | 非单位长度和各层保持语义，不触发XY重建或再次normalize |
-| cancel、abort、迟到reply、OOM | 不发布部分输出，租约/credit回收，允许同session合法重试 |
-| 复用输入/输出scratch | 两个不同图片并发、前command未submit时不覆盖、fence后正确复用 |
-
-同device/同能力应在donor等价条件下比较；跨浏览器不要求BC物理字节恒等。额外oracle不能用同一被测shader生成expected；精确数据保持精确断言。只测一页不声称完整场景质量；也不因GPU等待微测很大否决上游。
+阶段末按设计核对所有variant、完整mip与输入/输出/退休分支，只挑少量最小输入输出检查，不按格式/精度/consumer逐个启动完整宿主。完整donor对照与采样/生命周期矩阵统一列在§8.3，E5集中执行。
 
 ### 4.4 退出
 
-新模块隔离可构建、所有选定内核和图片结果表示完整、最小真实GPU producer→consumer与失败回收成立；尚无生产入口切换。完成一次architecture review后进入E2，不为每helper增加多轮benchmark。缺少任一选定语义不能称“完整Spark路线已移植”。
+新模块隔离可构建、所有选定内核和图片结果表示完整；按§1做设计对照、必要编译和少量最小正确性检查，尚无生产入口切换。E1已运行的真实GPU结果保留为历史事实，不因文档调整重复跑。完整矩阵归E5；实现不得省略选定语义，最小检查通过也不自动提升生产adoption。
 
 ## 5. E2：纹理全链Clean-Cut，最大工作单元
 
 ### 5.1 同一闭包施工范围
 
-| 架构面 | 当前定位文件/目录，可整体重写 | 必须闭合 |
+| 架构面 | 当前新owner/入口 | 必须闭合 |
 | --- | --- | --- |
-| canonical、AVIF、部署 | `assets/codec/PcTextureCook.ts`、`TiledTextureCook.ts`、tools/texture-codec、`cook-offline-scene.mjs` | 新语义/目录/完整mip或base-only、tail、source/cache identity、离线/合法Web输入 |
-| 产品与公开来源 | `TextureProduct.ts`、`TiledTextureProduct.ts`、`TiledTextureSource.ts`、ShadeTexture及公开导出 | 新source/receipt/lifecycle；旧schema前置拒绝，无adapter |
+| canonical、AVIF、部署 | `ImageTextureCook/Import/KtxImport/Resample`、tools/texture-codec、`cook-offline-scene.mjs` | 新语义/目录/完整mip或base-only、tail、source/cache identity、离线/合法Web输入；只实现工具，不跑场景cook |
+| 产品与公开来源 | `ImageTextureProduct/Pages/Source`、ShadeTexture及公开导出 | 新source/receipt/lifecycle；旧schema前置拒绝，无adapter |
 | 统一准备层 | `codec/CookedAssetProtocol.ts`、`CookedAssetPreparation.ts`、Worker/pool/credit/cache | image/exact/geometry有限表示、transfer、去重请求/公平性、峰值/取消/重试 |
 | GPU转码 | 新recorder、pipeline/input/scratch owner、真实command接口 | 所有格式、mip、复制、层/区域、能力/容量、abort/fence |
 | 普通与VT Residency | `TextureResidency.ts`、`VirtualTextureResidency.ts`、texture refs/banks | mandatory/渐进、owner cell→页装配、mapping/victim、失效/退休 |
 | 材质与全部消费者 | native material graph/codegen、Surface、coverage、VSM/shadow、query/SCGI实际采样点 | BC5重建和通道含义一致，alpha/UV依赖完整，绑定/重置/neutral层正确 |
 | 帧和scene事务 | `FrameProgramLowering.ts`、`ShadeGPUCommandContext.ts`及真实scene publication owner | 正常提交顺序，不私有submit/等待GPU控制，不公开半初始化产品 |
-| 入口与部署 | hello、现有Dungeon/Bistro cooked入口、manifest/fixtures | 同一批recook与引用切换；hello仍普通纹理，不强开VT/VSM |
+| 入口与部署 | hello、现有Dungeon/Bistro cooked入口、manifest/fixtures | 加载/部署代码只认新合同，删除旧引用及旧资产部署入口；实际全量recook/生成manifest和部署验证放E5；hello不强开VT/VSM |
 
 ### 5.2 普通纹理子闭包
 
-实现完整基础图输入→GPU mip/压缩→最终array/layer→真实材质。preview和细层只在设计允许的依赖域发布；无preview则完整隐藏准备。大图按预算分片时使用正确provided mip/邻域，不独立生成错误边缘。可选unaligned能力前置协商；tiny/NPOT的block padding、逐层有效域、UV/address/显式导数与LOD贯通全部采样点，不拉伸源图。无unaligned能力时不能仅缩放UV：补齐后逐层尺寸不成比例、repeat/mirror跨缝与anisotropic/trilinear都要独立验证，实际额外采样/边缘存储列入成本。CPUready在upload接受后逐任务释放，GPU scratch按fence退还，scene未发布不阻止临时资源回收。
+实现完整基础图输入→GPU mip/压缩→最终array/layer→真实材质。preview和细层只在设计允许的依赖域发布；无preview则完整隐藏准备。大图按预算分片时使用正确provided mip/邻域，不独立生成错误边缘。可选unaligned能力前置协商；tiny/NPOT的block padding、逐层有效域、混合U/V寻址、显式导数与LOD贯通全部采样点，不拉伸源图。无unaligned能力时不能仅缩放UV：补齐后逐层尺寸不成比例，必须实现逐层过滤和跨缝/anisotropic/trilinear语义，实际额外采样/边缘存储列入成本；完整独立验证归E5。CPUready在upload接受后逐任务释放，GPU scratch按fence退还，scene未发布不阻止临时资源回收。
 
 BC5是新target布局，所有format bank/array分组、readMask/normal重建、neutral texture、采样导数/LOD、动态材质引用与销毁必须一起改。透明度或通用表达式依赖normal原RGB时保留/重建原语义；不能只修改一个PBR normal helper。
 
@@ -139,19 +155,19 @@ BC5是新target布局，所有format bank/array分组、readMask/normal重建、
 
 按设计唯一decoded owner建立空间索引、有限邻域依赖、Range与lease。支持128/256/512 owner布局，不把cell当驻留slot；128网格常见九依赖、NPOT极窄末格/repeat与混合布局按通用最多16依赖求实际集合，不误用四邻居上界。页请求需要的owner先整批容量准入，避免hold-and-wait；assembly保持wrap/clamp/mirror和NPOT数学，然后原内核压缩144²、复制真实非零slot/layer并原子更新mapping。
 
-本单元必须解决：相邻页重叠块一致、cell相接边界质量、fine/tail连续、trilinear/anisotropic/运动、query-only需求、victim/retry/abort、冷尾层与最小合法容量。不允许将已发现的错误写成“E3优化项”。大cell过取/邻域开销是可见计数，不因它存在就恢复原BC网络路径；在已定图片路线内用有限cell布局修正。
+本单元必须在实现上覆盖：相邻页重叠块一致、cell边界、fine/tail连续、trilinear/anisotropic/运动、query-only需求、victim/retry/abort、冷尾层与最小合法容量。阶段末对照设计和源码检查这些分支，挑必要的最小用例，不在E2运行全部路径/组合/画面检查；完整验证统一归E5。已发现的错误立即修，不能写成“E3优化项”。大cell过取/邻域开销保留可解释计数，不恢复原BC网络路径。
 
 ### 5.4 必须删除/迁移的东西
 
 - 旧schema3普通产品和schema2 tiled产品的生产parser、writer、收据、source桥与对应导出；旧资产必须recook，不自动升级。
 - “磁盘payload等于GPU native-ready”“必须完整BC product才能构造普通纹理”等假设。
-- 只为旧纹理路径服务的BC/Zstd decoder/vendor/build/初始化及native tile replay/cache；被几何、精确段或离线reference真实使用的内核只保留其明确owner，不误删共享依赖。
-- 旧XUBC7竞争路线生产占位；旧U0工具可作为隔离历史reference，不进入production import。
+- 只为旧纹理路径服务的BC/Zstd decoder/vendor/build/初始化及native tile replay/cache；被新canonical、合法冷输入、几何或精确段真实使用的独立内核只保留其明确owner，不以旧离线reference为由留整套旧链。
+- 旧XUBC7竞争路线生产占位，以及仅服务旧路线的可运行工具/构建依赖；只保留不执行的来源资料、历史结果/失败日志。新路径确实使用的独立内核按新owner保留，不保留旧全链入口。
 - 为旧ABI存在的测试表示、无消费者的compat flags；其normal、coverage、数值与生命周期语义迁移到新owner，不恢复旧实现跑绿旧测试。
 
 ### 5.5 原子切换与退出
 
-先完整构建新closure和独立直接检查，再在本单元一个稳定边界切换全部普通/VT消费者与manifest，删除旧依赖。相关TS/build/shader编译和少量关键产品/Worker/GPU/材质/生命周期检查通过。此时才可以说新路线接入production；完整组合与正式性能资格分别归E5/最终集成，不要求本阶段整Renderer先净提速。
+直接完成全部普通/VT生产consumer和加载/部署代码切换，立即删除旧生产owner/schema/parser/writer、专用vendor/build依赖、导出与兼容入口；不等待完整场景验证，也不保留旧路径使示例暂时可跑。按§1完成设计对照、相关编译和少量最小检查即可关闭E2实现。示例资产暂未生成或入口暂不可运行，明确归E5全量recook/部署，不为此回接旧owner。E2只声明“代码ownership已切换”，不声明全路径、画面、性能或公开分发资格通过。
 
 ## 6. E3：在忠实基线之上做极限压缩
 
@@ -169,11 +185,11 @@ BC5是新target布局，所有format bank/array分组、readMask/normal重建、
 
 Range合并有总字节/过取上限及同urgency约束；不能为吞吐延迟mandatory tail/coverage。decoded邻域LRU有界，无效需求取消/过期释放，不默认编码/驻留下载cell中所有页。preview起点和粗细切换要计入首屏/完成时间，不能把“画面出现”当“目标质量已达到”。
 
-### 6.3 完整资产与退出
+### 6.3 实现退出与最终资产检查归属
 
-先完整hello15个纹理，随后使用当前允许的Dungeon/Bistro真实资产，不将512²裁片外推为整场景。对照当前生产旧资产、donor完整图片路线、本地忠实适配与本地优化后四种身份，离线reference不恢复生产双路径。
+本阶段实现完整资产搜索/报告的代码与缓存身份，用少量固定输入检查候选选择、质量拒绝和结果发布；不运行完整hello/Dungeon/Bistro的cook、搜索或报告。E5再依次运行hello全部15纹理及当前允许的Dungeon/Bistro，不将裁片外推为整场景。对照旧路径使用已保存的资产/结果身份，不恢复旧生产链或旧可执行工具；donor、本地忠实适配和优化后的比较也集中到E5。
 
-报告High/Extreme在相同尺寸/功能下的全部下载字节（含module/目录/preview/精确段）、编码成本和最终质量；VT另给相同trace实际fetched。目标为不丢donor能力且在选定维度有增量；没有增量如实保留基线，不降低断言宣称“更好”。这是一轮产品优化，不重新进行基础路线淘汰。
+报告代码必须覆盖High/Extreme相同尺寸/功能下的全部下载字节（含module/目录/preview/精确段）、编码成本和最终质量；VT另含相同trace实际fetched。完整报告和实测在E5生成。E3以设计核对、必要编译和最小选择逻辑检查退出；没有整场景数字不阻塞实现，也不允许先声称“更好”。
 
 ## 7. E4：几何布局与传输一起切换
 
@@ -190,17 +206,21 @@ Zstd9/15/19离线有限比较，输出独立单frame无字典段，不省字节�
 | 全部Cooker | asset-core GeometryCooker/Recipe/ABI/Writer；native、portable、pthread、WebGeometryCooker ABI；source/build/hash |
 | 产品/准备 | OegPack/GeometryProduct/parser/admission、Worker/receipt/credit、内存provider/远程source/目录完整性 |
 | GPU与reader | shared byte bank/directory、visibility/hierarchy、软硬raster、Surface、VSM/shadow、query/BLAS/ray/picking/SCGI、motion |
-| 生命周期 | retain/evict、replacement/generation、bank growth/abort、地址发布、device loss、scene unload、部署recook |
+| 生命周期 | retain/evict、replacement/generation、bank growth/abort、地址发布、device loss、scene unload、部署代码；实际recook归E5 |
 
 全reader直接读新紧凑流，不将新产品展开为旧V3页，不另存精确query副本。payload沿原有效前缀direct write，publication沿encoder事务；保留growth双份峰与旧lease退休顺序。
 
 ### 7.3 检查与退出
 
-相关C++/WASM/TS编译，独立layout/byte/finite/extreme读数、source-exact bit往返、所有直接reader真实最小消费、corner/remap/UV/barycentric、bounds/SSE/motion、growth/abort/retry及资源上界。删除旧V3生产schema/reader/ABI与失效fixtures；精度合同不变，不能改成对量化产品精确。完整场景组合归E5。
+先实现并对照设计核对全部直接reader、corner/remap/UV/barycentric、bounds/SSE/motion、growth/abort/retry及资源上界；直接删除旧V3生产schema/reader/ABI与兼容入口。阶段末只集中做必要C++/WASM/TS编译及少量layout/byte/source-exact往返检查，不逐reader启动GPU宿主、不运行全量cook和完整生命周期组合。全部路径真实消费、极端输入和组合验证统一归E5。精度合同不变，不能改成对量化产品精确。
 
-## 8. E5：集中集成、质量和成本
+## 8. E5：最终集中cook、全路径集成、质量和成本
 
 ### 8.1 运行方式
+
+这是全模块唯一集中执行完整资产cook/recook、最终manifest/示例资产发布、部署与全路径测试的阶段。E2/E4只替换代码和删旧路径，E3只实现搜索/报告；不得因它们没有完整场景结果而反复把本阶段提前。先确认最终合同/工具/全部consumer已一致，再一次性生成普通/VT/几何资产，避免每个前置阶段重复重cook。已删除的旧owner不因测试需求恢复。
+
+顺序固定为：最终构建 → 全量cook/质量档搜索 → 校验目录/payload/manifest并原子发布 → 静态包/HTTP部署 → 全路径语义与生命周期 → 质量/资源/粗成本报告。失败保留后局部修复，只重跑受影响部分，不退回旧链。来源许可未满足则不公开分发kernel，不把本地evaluation通过当分发授权。
 
 ```powershell
 npm --prefix OEngine run typecheck
@@ -214,11 +234,23 @@ node tools/gpu-oracle.mjs --list
 ### 8.2 真实组合
 
 - hello：全部15纹理新来源、普通非VT、VSM保持示例设置，HDR单列；不是只替换颜色或只展示preview。
-- 当前允许的Dungeon/Bistro：VT fine/tail、普通plane、几何与Native/Surface/shadow/query组合；保持完整场景/材质/尺寸。
+- 当前允许的Dungeon/Bistro及其playground部署入口：使用最终合同完整recook，检查VT fine/tail、普通plane、几何与Native/Surface/shadow/query组合；保持完整场景/材质/尺寸。
 - cold/warm cache、持续移动/快速转向/teleport、稀疏页、evict/reload、Range错误/损坏、Worker替换、scene/source replacement/unload、device loss、增长双份峰与fence失败。
 - 正式browser/画面/FPS证据由独立validation宿主承担，不把example计时当formal runner；本模块必要的真实接线、语义、生命周期与粗成本不能延期成“最终性能”。
 
 ### 8.3 质量验收，不以错指标否定路线
+
+前置阶段实现下列全部分支，E5集中执行矩阵；不是逐阶段重跑的退出门禁：
+
+| 域 | 最终独立检查 |
+| --- | --- |
+| 完整donor与目标 | RGB/RGBA、normal XY、标量、ORM，f16/f32同能力同输入对照；完整目标格式、非零layer/origin/mip真实采样 |
+| 数值/颜色 | data ramp、straight alpha/透明边缘、CICP/transfer、normal方向/高光、provided非单位moment、exact coverage、任意graph原通道/UV依赖 |
+| 普通/VT采样 | tiny/NPOT、混合U/V、导数/LOD、bilinear/trilinear/anisotropic、cell重叠块/接缝、fine/tail、运动 |
+| VT与容量 | 主/query-only真实反馈→准备→编码→mapping→consumer、父级闭包、最小容量、稀疏页、victim/evict/reload、溢出/完整写域 |
+| 几何 | F32-exact bit、全部reader真实消费、corner/remap/UV/barycentric、bounds/SSE/motion、无展开副本 |
+| 生命周期 | 并发未提交输入/scratch、取消/abort/retry、迟到reply、OOM/损坏/Range错误、Worker替换、scene/source更换/unload、device loss、增长双份峰/fence失败 |
+| 部署 | 最终普通/VT/几何manifest与payload/hash、Worker/WASM/kernel路径及来源范围、实际HTTP；无旧ABI兼容入口 |
 
 固定源/工具/资产/构建/浏览器/设备/能力/尺寸/相机/曝光/热状态；High、Extreme与donor对应档分开。图像评价经过实际GPU编码；normal用方向/高光，ORM逐通道/BRDF，coverage精确，provided moment保长度；包含跨cell/fine-tail/anisotropic/导数/LOD/运动。
 
@@ -243,11 +275,11 @@ node tools/gpu-oracle.mjs --list
 
 每单元末一次architecture review：唯一owner/writer、全部consumer、能力前置、完整写域、信用与复制、cancel/abort/retry/loss/fence、retired依赖删除。新内核source mapping、独立检查和production消费齐备后才升级采用状态，不把上游成熟自动变成本项目adoption。
 
-`docs/domains/`在生产切换后更新真实事实，稳定ABI定型后写spec/contract；不在中间阶段造重复progress/evidence。中文commit标题与正文记录动机、范围、实际检查与未运行原因；本次用户已授权复核后提交准备改动，不由此推定E0以后已授权实施。
+`docs/domains/`在代码ownership变化后只更新实际事实，稳定ABI定型后写spec/contract；不在中间阶段造重复progress/evidence。实现完成、E5集成通过、来源adoption与正式性能资格分开。中文commit标题与正文记录动机、范围、实际检查与未运行原因；本次用户要求先重构文档并提交现有代码，E2仍按未完成检查点记录，不自动授权E3。
 
 ## 10. 旧U0证据的保留与结论撤销
 
-隔离工具保留在 `OEngine/tools/web-asset-u0/`，机器快照为[results.json](../../OEngine/tools/web-asset-u0/results.json)，原日志在 `.local/web-asset-u0/`；它们不是新计划状态或生产采用证据。旧快照`baseRevision`复制有笔误，实际P提交为本文件头部HEAD；不静默改写旧快照伪造实验身份。
+机器快照为[results.json](../../OEngine/tools/web-asset-u0/results.json)，原日志在 `.local/web-asset-u0/`；它们不是新计划状态或生产采用证据。按本次流程调整，`OEngine/tools/web-asset-u0/`内仅服务已退休路线的可执行工具/依赖随E2清理，历史JSON/来源/失败日志保留，不据此要求恢复旧CPU BC路径。旧快照`baseRevision`复制有笔误，实际P提交为本文件头部HEAD；不静默改写旧快照伪造实验身份。
 
 可以继续引用的有限事实：XUBC7构建/往返/有界内存、旧选样的码率/误差、geometry source-exact资格与SoA模型、所选group压缩和最小GPU读数。原报告记录279编码小样、36纹理Worker/GPU、15负例、2058几何读数、72transport往返等；这些计数不等于新模块检查已完成。
 
@@ -266,11 +298,29 @@ node tools/gpu-oracle.mjs --list
 
 本模块实现完成需要：新全套PBR/普通/VT产品与全部真实consumer已切换、旧依赖删除、合法来源/许可、质量档/边界/精确语义、容量与组合生命周期成立，成本如实报告。正式跨设备FPS/画质资格可按仓库节奏归最终集成，但已发现错误、漏工作与失控容量不能延期。
 
-当前停止在E2生产切换前，后续E2需另行授权。以后用户授权某单元就完成该单元，授权整模块则按依赖连续推进；不自动启动其它效果、HDR/神经压缩或有损几何精度变更。
+当前用户已授权E2纹理全链原子切换，结束停在E3边界。以后用户授权某单元就完成该单元，授权整模块则按依赖连续推进；不自动启动其它效果、HDR/神经压缩或有损几何精度变更。
 
 ## 12. 本轮P准备记录与后续实施结果
 
 本节是唯一详细状态入口，后续E0–E5结果在本节追加，不另建status/progress。workstream只导航，不复制单元完成表。
+
+### E2施工中：2026-10-20执行节奏纠正
+
+- 用户要求停止当前施工并先调整流程。本次已停止尚在运行的Bistro完整cook及其本轮子进程；不继续实现、启动GPU oracle或全路径检查。未完成cook的目录不能当作最终部署产物。
+- 源码核对：旧`TextureProduct.ts`、`TiledTextureProduct.ts`、`TiledTextureSource.ts`及旧texture cook/transport/cache/decoder生产入口已删除；新`ShadeTexture`、普通/VT residency以图片source为输入。未发现新旧纹理生产主链并联，但旧`vendor/pc-texture/basis_bc`、`vendor/tiled-zstd`、专用构建/历史可执行工具和部分测试/资产清理尚未完成，故E2不能称完成。
+- 新路径确有独立canonical resampler及KTX冷输入解码；它们不等于旧产品兼容桥，但其来源/部署/依赖边界仍须按E2新owner清理。几何V3在E4前仍是该资产类别唯一当前owner，不是新几何ABI的兼容fallback；E4同切时删除，不在本次流程调整中盲删未替换模块。
+- 此前hello和Dungeon完整recook及较多GPU检查已提前运行，属于执行节奏偏离，不据此要求重跑或追加前置全链验收。现有工作区改动/原始结果保留，不回滚、不冒称最终集成通过；最终资产和部署在E5按最终合同统一生成/核验。
+- 后续E2以新代码完整接线、旧路径/专用依赖直接删除、设计对照及少量最小检查收口；完整cook、全部采样/反馈/生命周期组合、示例画面和报告归E5。本次仅调整流程，不自动跨入E3，也不提高来源adoption/质量/性能状态。
+- 本次仅运行文档校验和diff空白检查，未新增cook/GPU执行。`git diff --check`通过；`docs-verify`返回24 findings、86 historical warnings（209 documents），当前输出为其它文档仍引用已删除的旧纹理文件。该失败按E2退休引用清理处理，不恢复旧文件、不扩展本次流程调整为全仓文档修复，也不冒称文档校验通过。
+
+### 文档重构与E2检查点提交：2026-10-20
+
+- 按用户“先重构文档，再提交代码”要求，重写执行顺序和阶段检查分工，消除E1/E2/E3/E4提前完整验收的条款；E5集中列出最终构建→cook/质量档搜索→manifest发布→部署→全路径语义/生命周期→成本报告。没有继续E2实现、启动cook或GPU检查。
+- 旧纹理/VT设计与执行六篇标记为history，保留原始结果和失败；删除其已退休verifies依赖。现行roadmap/初始化导航及来源账本修正新owner引用，材质纹理域改写为当前源码事实，不再声称BC+Zstd旧链仍是生产实现。
+- 本次提交保存当前E2代码/工具/检查和已经生成的hello AVIF资产，属于未完成施工检查点，不是E2完工。旧专用vendor/build/工具与部分测试/部署引用、evidence退休字段仍待清理；新增fine-demand oracle尚未运行，不能引用此前oracle结果冒称它通过。最终Bistro及playground等部署检查归E5。
+- 既有检查结果保留：引擎、hello、Dungeon、Bistro相关typecheck通过；最近GPU报告`e2-residency-encoded-inputs.json`包含270组逻辑域采样、9种Web导入、24个Native样本及protected tail/cancel-retry，限当时源码与local-evaluation身份。此前定向测试18项中16通过、2项旧预期失败（exact默认resident和route常量48字节）；对应测试已按新合同修改，未重跑，不记为通过。未执行本检查点完整package build、最终全路径或正式性能验证。
+- 文档重构后`node tools/docs-verify.mjs`为209 documents、0 findings、86 historical warnings；此前24 findings原日志保留，不改写为当时通过。`git diff --check`通过。提交前仅核对资源身份/依赖与暂存范围，不通过重跑完整测试拖住本轮文档交付。
+- 提交静态核对：hello现有15产品/65 items、payload 6,565,667 B的目录/图片/geometry manifest身份一致，非新cook或全路径测试。新增两份生成JS/WASM及source.json在暂存区逐字节hash一致；`.gitattributes`保留生成资产及上游NOTICE原字节，避免CRLF归一化破坏构建身份。`docs-verify --staged`同为0 findings，`git diff --cached --check`通过。
 
 ### P：2026-10-20重建设计准备
 

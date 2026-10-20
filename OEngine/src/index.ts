@@ -79,14 +79,10 @@ export type {
   Brick4LightMapPackageValidation
 } from "./assets/Brick4LightMapPackage.js";
 export type { Brick4LightMapEvidence } from "./gpu/Brick4LightMap.js";
-export { openTextureProduct, saveTextureProduct, validateTextureProduct } from "./assets/TextureProduct.js";
-export type {
-  TextureProduct,
-  TextureProductMetadata,
-  TextureProductPlane,
-  TextureSemanticV2
-} from "./assets/TextureProduct.js";
-export { PcTexturePreparation } from "./assets/codec/PcTexturePreparation.js";
+export { ImageTextureSource } from "./assets/ImageTextureSource.js";
+export { readImageTextureDirectory, writeImageTextureDirectory, validateImageTextureDirectory } from "./assets/ImageTextureProduct.js";
+export type { ImageTextureDirectory, ImageTexturePlane, ImageTextureItem, ImageTextureSemantic } from "./assets/ImageTextureProduct.js";
+export type { ImageKernelSource } from "./gpu/ImageTextureTranscoder.js";
 export { RuntimeAssetResidencyState } from "./assets/RuntimeAssetResidency.js";
 export {
   HttpRangeReadablePackV3,

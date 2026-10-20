@@ -1,0 +1,16 @@
+{
+  "revision": "99f52d63aa6799cbdaecfe977111dc5ec3b31d47",
+  "recipe": "OEngine/tools/build-image-import-decoder.mjs",
+  "hashes": {
+    "image_decode.js": "bde03e745a2dca94b9ff17eae06f25b65d05f5c40c17abf14119dd527c68a931",
+    "image_decode.wasm": "59cebf2ae88571a934d6ec5b776451f6bb68d8a36b4e68a66c64692a85c117a6"
+  },
+  "exports": [
+    "malloc",
+    "free",
+    "image_decode"
+  ],
+  "memoryMaximum": 67108864,
+  "scope": "Cold KTX BC4/BC7 to canonical RGBA only; no CPU encoder or final BC transport",
+  "license": "Apache-2.0; ../image-resample/LICENSE and NOTICE"
+}

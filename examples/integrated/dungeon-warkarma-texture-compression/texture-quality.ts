@@ -14,37 +14,28 @@ export function createTextureQualityReader() {
     );
     const products = new Map(
       [...leaves].map((texture) => [
-        texture.texture_product?.identity ?? texture.tiled_source?.identity,
-        texture.texture_metadata
+        texture.image_source?.identity,
+        texture.image_source?.directory
       ])
     );
-    let allLeavesHaveSchema3 = true;
+    let allLeavesHaveSchema4 = true;
     let allFullMips = true;
     let transferFunctions = true;
     for (const texture of leaves) {
-      const metadata = texture.texture_metadata;
-      allLeavesHaveSchema3 &&= metadata?.schemaVersion === 3;
-      allFullMips &&=
-        !!metadata &&
-        metadata.planes.every(
-          (plane) =>
-            plane.mips.length ===
-            Math.floor(Math.log2(Math.max(metadata.storageWidth, metadata.storageHeight))) + 1
-        );
-      const srgb = metadata?.semantic === "base-color-srgb" || metadata?.semantic === "emissive-srgb";
-      const expected = srgb
-        ? "bc7-rgba-unorm-srgb"
-        : metadata?.semantic === "occlusion-linear"
-          ? "bc4-r-unorm"
-          : metadata?.semantic === "alpha-mask"
-            ? "r8unorm"
-            : "bc7-rgba-unorm";
-      transferFunctions &&= !!metadata && metadata.planes[0]?.format === expected;
+      const metadata = texture.image_source?.directory;
+      allLeavesHaveSchema4 &&= metadata?.schemaVersion === 4;
+      allFullMips &&= !!metadata && metadata.mipCount ===
+        Math.floor(Math.log2(Math.max(metadata.width, metadata.height))) + 1;
+      transferFunctions &&= !!metadata && metadata.planes.every((plane) =>
+        plane.target === (plane.semantic === "exact-r" ? "r8"
+          : plane.semantic === "normal-xy" ? "bc5-rg"
+          : plane.semantic === "scalar-r" ? "bc4-r"
+          : plane.semantic === "color-rgba" ? "bc7-rgba" : "bc7-rgb"));
     }
     return Object.freeze({
       productCount: [...products.values()].filter(Boolean).length,
       textureLeafCount: leaves.size,
-      allLeavesHaveSchema3,
+      allLeavesHaveSchema4,
       allFullMips,
       transferFunctions
     });

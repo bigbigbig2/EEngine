@@ -6,8 +6,8 @@ export const VT_TABLE_WIDTH = 1024;
 export const VT_FEEDBACK_CAPACITY = 65_536;
 export const VT_FEEDBACK_HEADER_WORDS = 16;
 export const VT_MIP_WORDS = 7;
-/** TextureProduct admits at most 16384 texels per axis: log2(16384) + 1. */
-export const VT_MAX_MIP_LEVELS = 15;
+/** Schema4 logical dimensions reach 65536: log2(65536) + 1. */
+export const VT_MAX_MIP_LEVELS = 17;
 export const VT_FEEDBACK_MAILBOX_WORDS = 256;
 export const VT_MISSING = 0xffffffff;
 export const VT_WANTED = 0x40000000;

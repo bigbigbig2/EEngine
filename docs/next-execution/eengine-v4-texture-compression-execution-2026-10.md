@@ -1,12 +1,12 @@
 ---
 id: eengine-v4-texture-compression-execution-2026-10
-state: current
+state: history
+supersededBy: ../next-execution/eengine-extreme-web-asset-compression-execution-2026-10.md
 verifies:
   files:
     - project/workstreams/active/eengine-next-clean-rebuild.yaml
     - docs/next-design/eengine-v4-texture-compression-2026-10.md
     - OEngine/src/assets/PcMaterialTextures.ts
-    - OEngine/src/assets/TextureProduct.ts
     - OEngine/tools/texture-codec
     - OEngine/tools/build-pc-texture-codec.mjs
     - OEngine/src/assets/codec
@@ -72,6 +72,9 @@ verifies:
 ---
 
 # PC Texture Compression 执行计划
+
+> 历史设计/实施记录：原数值、失败与阶段结果保留，不再约束当前实现。当前唯一设计和执行由[workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)导航；旧路径不作为兼容保留。
+
 
 > 2026-10-20 范围限定：此执行记录的历史 cooked decode/codec Worker=0 描述普通完整 TextureProduct，不覆盖后来已实施的 tiled schema 2 fine Zstd 解压。tail/resident 保持 native，最终 BC、画质与 GPU 上传不变；新增实现与验证只读[VT 传输执行 §7](./eengine-v4-vt-transport-transcode-execution-2026-10.md#7-实施与集中验证记录2026-10-20)。不倒改当时结果或恢复旧细页格式。
 

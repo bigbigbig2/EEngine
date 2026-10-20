@@ -5,14 +5,6 @@ import type {
   GeometryPageDirectoryV3,
   VertexFormatRecordV3,
 } from "../GeometryAbiV3.js";
-import type { TextureProduct } from "../TextureProduct.js";
-import type { TiledTextureDirectory } from "../TiledTextureProduct.js";
-import type {
-  TiledTextureRegistration,
-  TiledTextureSpan,
-  TiledTexturePreparedPayload,
-} from "./TiledTextureTransport.js";
-
 export interface CookedGeometryRegistration {
   readonly descriptor: GeometryProductDescriptorV1;
   readonly pages: readonly GeometryPageDirectoryV3[];
@@ -36,32 +28,11 @@ export interface CookedTaskHeader {
   readonly task: number;
 }
 
-export type CookedAssetTask = CookedTaskHeader &
-  (
-    | {
-        readonly kind: "geometry";
-        readonly span: CookedRangeSpan;
-        readonly registration?: CookedGeometryRegistration;
-      }
-    | {
-        readonly kind: "texture";
-        readonly url: string;
-        readonly expectedIdentity: string;
-        readonly maxBytes: number;
-      }
-    | {
-        readonly kind: "tiled-directory";
-        readonly url: string;
-        readonly expectedHash: string;
-        readonly byteLength: number;
-      }
-    | {
-        readonly kind: "tiled-payload";
-        readonly registrationKey: string;
-        readonly span: TiledTextureSpan;
-        readonly registration?: TiledTextureRegistration;
-      }
-  );
+export type CookedAssetTask = CookedTaskHeader & {
+  readonly kind: "geometry";
+  readonly span: CookedRangeSpan;
+  readonly registration?: CookedGeometryRegistration;
+};
 
 export interface CookedPreparedPage {
   readonly pageId: number;
@@ -77,35 +48,6 @@ export type CookedAssetResult = CookedTaskHeader & { readonly decoderMemoryBytes
         readonly ok: true;
         readonly kind: "geometry";
         readonly pages: readonly CookedPreparedPage[];
-        readonly encodedBytes: number;
-        readonly ioMs: number;
-        readonly busyMs: number;
-      }
-    | {
-        readonly ok: true;
-        readonly kind: "tiled-directory";
-        readonly directory: TiledTextureDirectory;
-        readonly encodedBytes: number;
-        readonly ioMs: number;
-        readonly busyMs: number;
-      }
-    | {
-        readonly ok: true;
-        readonly kind: "tiled-payload";
-        readonly registrationKey: string;
-        readonly payloads: readonly TiledTexturePreparedPayload[];
-        readonly encodedBytes: number;
-        readonly ioMs: number;
-        readonly busyMs: number;
-        readonly decodeMs: number;
-        readonly decoderInitMs: number;
-        readonly usefulEncodedBytes: number;
-        readonly nativeBytes: number;
-      }
-    | {
-        readonly ok: true;
-        readonly kind: "texture";
-        readonly product: TextureProduct;
         readonly encodedBytes: number;
         readonly ioMs: number;
         readonly busyMs: number;

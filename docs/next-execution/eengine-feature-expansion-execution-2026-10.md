@@ -16,7 +16,7 @@ verifies:
     - OEngine/src/render/program/FrameProgram.ts
     - OEngine/src/render/program/FrameProgramLowering.ts
     - OEngine/src/render/ao
-    - OEngine/src/assets/TextureProduct.ts
+    - OEngine/src/assets/ImageTextureSource.ts
     - OEngine/src/gpu/TextureResidency.ts
     - OEngine/src/gpu/NativeMaterialBindings.ts
     - OEngine/src/gpu/GPUSceneEnvironmentContext.ts

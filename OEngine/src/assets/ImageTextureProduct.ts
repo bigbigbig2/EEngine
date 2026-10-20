@@ -1,4 +1,4 @@
-/** E1 internal product. Not exported or accepted by production texture loaders until E2. */
+/** Immutable image delivery contract shared by ordinary and virtual textures. */
 export type ImageTextureSemantic =
   "color-rgb" | "color-rgba" | "normal-xy" | "data-rgb" | "moment-xyz" | "scalar-r" | "exact-r";
 
@@ -19,7 +19,7 @@ export interface ImageTextureItem {
   readonly width: number;
   readonly height: number;
   readonly kind: "image" | "exact";
-  readonly codec: "avif" | "raw";
+  readonly codec: "avif" | "png" | "raw";
   readonly bytes: number;
   readonly decodedBytes: number;
   readonly sha256: string;
@@ -188,7 +188,7 @@ export function validateImageTextureDirectory(directory: ImageTextureDirectory):
     const exact = plane.semantic === "exact-r";
     if (
       item.kind !== (exact ? "exact" : "image") ||
-      item.codec !== (exact ? "raw" : "avif") ||
+      (exact ? item.codec !== "raw" : !["avif", "png"].includes(item.codec)) ||
       item.decodedBytes !== item.width * item.height * (exact ? 1 : 4)
     ) {
       throw new Error("Image item encoded/decoded domain mismatch");

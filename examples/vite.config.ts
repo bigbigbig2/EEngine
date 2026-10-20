@@ -1,3 +1,4 @@
+import { imageKernelsPlugin } from "./shared/image-kernels-plugin";
 import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,7 +30,7 @@ function collectExamplePages(directory: string): Record<string, string> {
 
 export default defineConfig({
   root: examplesRoot,
-  plugins: [bistroLocalModel(examplesRoot), dungeonLocalModel(examplesRoot)],
+  plugins: [imageKernelsPlugin(examplesRoot), bistroLocalModel(examplesRoot), dungeonLocalModel(examplesRoot)],
   server: {
     port: 5173,
     headers: {

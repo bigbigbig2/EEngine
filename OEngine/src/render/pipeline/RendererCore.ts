@@ -151,6 +151,7 @@ import {
   type AmbientOcclusionSettings,
 } from "../ao/AmbientOcclusionSettings.js";
 import { prepareMaterialTextureProducts } from "../../assets/PcMaterialTextures.js";
+import { compileCanonicalMaterial } from "../../material/CanonicalMaterial.js";
 import type { GraphicsMemoryEvidence, GraphicsOwnerCreationEvidence } from "../../gpu/GraphicsContext.js";
 import { PhysicalEnvironmentRuntime } from "../environment/PhysicalEnvironmentRuntime.js";
 import { Fsr3UpscalerRuntime } from "../passes/fsr3/Fsr3UpscalerRuntime.js";
@@ -725,6 +726,9 @@ export class Renderer {
     this.texturePreparationStarts.add(batch);
     this.texturePreparationStats.activeBatches++;
     try {
+      if (materials.some((material) => compileCanonicalMaterial(material).appearance.samples.length > 0)) {
+        await this._graphics.texture_residency.prepare();
+      }
       await prepareMaterialTextureProducts(materials, combined, (evidence) => {
         this.texturePreparationStats.cookedTasks++;
         this.texturePreparationStats.decodeMs += evidence.decodeMs;
@@ -743,6 +747,31 @@ export class Renderer {
       this.texturePreparationStarts.delete(batch);
     }
   }
+  private imagePreparationTail: Promise<void> = Promise.resolve();
+
+  /** Hidden scene work is serialized here, not privately submitted by a resource
+   * owner. The fence releases scratch before the next bounded image batch. */
+  private recordImageBatch = (
+    record: (command: import("../../gpu/ImageTextureTranscoder.js").ImageRecordCommand) => void
+  ): Promise<void> => {
+    const ready = this.imagePreparationTail.then(async () => {
+      if (this._destroyed || this._deviceLost) {
+        throw new Error("Image preparation belongs to an expired Renderer device");
+      }
+      const command = ShadeGPUCommandContext.create(this._graphics, "Renderer/hidden-image-batch");
+      try {
+        record(command);
+        command.finish();
+        await command.gpuDone;
+      } catch (error) {
+        if (!command.closed) command.abort(error);
+        throw error;
+      }
+    });
+    // Failure is returned to its scene transaction; unrelated queued scenes may retry.
+    this.imagePreparationTail = ready.then(() => undefined, () => undefined);
+    return ready;
+  };
   private _deviceLost = false;
   private _destroyed = false;
   private readonly texturePreparationAbort = new AbortController();
@@ -1201,6 +1230,7 @@ export class Renderer {
         command,
         this._environmentRuntime !== null,
         reflectionProfile,
+        this.recordImageBatch,
       );
       token = {
         ready: prepared.ready,
@@ -1265,7 +1295,8 @@ export class Renderer {
     const world = this._graphics.render_world;
     const runtime = world.previewStagedRuntime(handle);
     const reflectionProfile = this.initialReflectionProfile(runtime.materials);
-    await world.prepareNativeMaterials(handle, command, this._environmentRuntime !== null, reflectionProfile);
+    await world.prepareNativeMaterials(handle, command, this._environmentRuntime !== null, reflectionProfile,
+      this.recordImageBatch);
   }
 
   /**
@@ -2176,6 +2207,7 @@ export class Renderer {
       config.geometryResidency,
       config.frameGeometry?.ownerMaxBytes,
       config.virtualTextures,
+      config.imageTextureKernels,
     );
     await this._graphics.initialize();
     const canvas = context.canvas as HTMLCanvasElement;

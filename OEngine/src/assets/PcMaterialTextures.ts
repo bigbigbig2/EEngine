@@ -5,10 +5,13 @@ import { AppearanceMaterialDefinition } from "../material/AppearanceMaterialDefi
 import { ShadeTransparencyMode } from "../material/enums.js";
 import { ShadeTexture } from "../texture/ShadeTexture.js";
 import type { ShadeImage } from "../texture/ShadeImage.js";
-import { PcTexturePreparation } from "./codec/PcTexturePreparation.js";
-import type { PcTextureCookEvidence } from "./codec/PcTextureCook.js";
-import type { TextureSemanticV2 } from "./TextureProduct.js";
-import type { TextureProduct } from "./TextureProduct.js";
+import { ImageTextureSource } from "./ImageTextureSource.js";
+import type { ImageTextureSemantic } from "./ImageTextureProduct.js";
+
+export interface MaterialImagePreparationEvidence {
+  readonly decodeMs: number;
+  readonly encodeMs: number;
+}
 
 export const MATERIAL_TEXTURE_PROPERTIES = [
   "texture_albedo",
@@ -23,25 +26,25 @@ export const MATERIAL_TEXTURE_PROPERTIES = [
   "texture_clearcoat_normal"
 ] as const;
 type Property = (typeof MATERIAL_TEXTURE_PROPERTIES)[number];
-const preparedImages = new WeakMap<object, Map<string, Promise<TextureProduct>>>();
+const preparedImages = new WeakMap<object, Map<string, Promise<ImageTextureSource>>>();
 const preparedTextures = new WeakMap<ShadeTexture, Map<string, ShadeTexture>>();
 const bitmapReplay = new WeakMap<ShadeImage, Uint8Array>();
 
-export function materialTextureSemantic(property: Property): TextureSemanticV2 {
+export function materialTextureSemantic(property: Property): Exclude<ImageTextureSemantic, "exact-r"> {
   if (property === "texture_albedo" || property === "texture_specular_color") {
-    return "base-color-srgb";
+    return "color-rgba";
   }
   if (property === "texture_emissive") {
-    return "emissive-srgb";
+    return "color-rgb";
   }
   if (property === "texture_normal" || property === "texture_clearcoat_normal") {
-    return "normal-linear";
+    return "normal-xy";
   }
   // Multi-channel/alpha extension maps must preserve their authored channels.
   if (property === "texture_occlusion" || property === "texture_clearcoat") {
-    return "occlusion-linear";
+    return "data-rgb";
   }
-  return "orm-linear";
+  return "data-rgb";
 }
 
 /** All live graph leaves, including user-authored graphs. Constant-dead maps do
@@ -57,9 +60,8 @@ export function materialTextureLeaves(material: StandardShadeMaterial): readonly
 export async function prepareMaterialTextureProducts(
   materials: readonly StandardShadeMaterial[],
   signal?: AbortSignal,
-  onCooked?: (evidence: PcTextureCookEvidence) => void
+  onCooked?: (evidence: MaterialImagePreparationEvidence) => void
 ): Promise<void> {
-  let cooker: PcTexturePreparation | undefined;
   const changes: Array<() => void> = [];
   const close = new Set<ImageBitmap>();
   const assertLive = () => {
@@ -69,38 +71,27 @@ export async function prepareMaterialTextureProducts(
   };
   const prepare = async (
     texture: ShadeTexture,
-    semantic: TextureSemanticV2,
-    exactAlpha: boolean,
-    channel: 0 | 1 | 2 | 3 = 0
+    semantic: Exclude<ImageTextureSemantic, "exact-r">,
+    exactAlpha: boolean
   ) => {
     assertLive();
-    const existing = texture.texture_product ?? texture.tiled_source;
+    const existing = texture.image_source;
     if (existing) {
-      if (
-        existing.metadata.semantic !== semantic &&
-        !(semantic === "occlusion-linear" && existing.metadata.semantic === "orm-linear")
-      ) {
-        throw new Error(
-          `Texture Product semantic '${existing.metadata.semantic}' cannot serve '${semantic}' without recooking`
-        );
+      const actual = existing.directory.planes[0]!.semantic;
+      const colorCompatible = semantic.startsWith("color-") && actual.startsWith("color-");
+      if (actual !== semantic && !colorCompatible && !(semantic === "normal-xy" && actual === "moment-xyz")) {
+        throw new Error(`Image semantic '${actual}' cannot serve '${semantic}' without recooking`);
       }
-      if (
-        semantic === "occlusion-linear" &&
-        existing.metadata.semantic === semantic &&
-        existing.metadata.channel !== channel
-      ) {
-        throw new Error("Scalar Texture Product channel does not match the material interpretation");
-      }
-      if (exactAlpha && !existing.metadata.exactAlpha) {
-        throw new Error("Covered material requires an exact R8 coverage Product; recook the source");
+      if (exactAlpha && !existing.directory.planes.some((plane) => plane.semantic === "exact-r")) {
+        throw new Error("Covered material requires an exact R8 image plane; recook the source");
       }
       return texture;
     }
     const image = texture.image;
     if (!image) {
-      throw new Error("Material texture has no final BC Product or cold source");
+      throw new Error("Material texture has no image source or cold source");
     }
-    const key = JSON.stringify([semantic, exactAlpha, channel]);
+    const key = JSON.stringify([semantic, exactAlpha, texture.wrapS, texture.wrapT]);
     const known = preparedTextures.get(texture)?.get(key);
     if (known) {
       return known;
@@ -112,33 +103,18 @@ export async function prepareMaterialTextureProducts(
     }
     let pending = products.get(key);
     if (!pending) {
-      cooker ??= new PcTexturePreparation();
-      const sourceUri = texture.appearance_content_version ?? `image:${image.id}`;
-      const options = { semantic, exactAlpha, channel, sourceUri };
-      if (image.encoded_mime_type) {
-        const input = (image.source as ArrayBuffer).slice(0);
-        pending = (
-          image.encoded_mime_type === "image/ktx2"
-            ? cooker.importKtx(input, options, signal)
-            : cooker.cookImage(
-                input,
-                image.encoded_mime_type as "image/png" | "image/jpeg" | "image/webp",
-                options,
-                signal
-              )
-        ).then((result) => {
-          onCooked?.(result.evidence);
-          return result.product;
-        });
-      } else {
-        const rgba = imageRgba(image);
-        pending = cooker
-          .cookRgba(rgba.buffer as ArrayBuffer, image.width, image.height, options, signal)
-          .then((result) => {
-            onCooked?.(result.evidence);
-            return result.product;
-          });
-      }
+      const input = image.encoded_mime_type
+        ? (image.source as ArrayBuffer).slice(0)
+        : imageRgba(image).buffer as ArrayBuffer;
+      const address = (value: number) => value === 0 ? "clamp-to-edge" as const
+        : value === 2 ? "mirror-repeat" as const : "repeat" as const;
+      pending = ImageTextureSource.importWeb({
+        input, mime: image.encoded_mime_type, width: image.width, height: image.height,
+        semantic, exactAlpha, addressU: address(texture.wrapS), addressV: address(texture.wrapT)
+      }, signal).then(({ source, decodeMs }) => {
+        onCooked?.({ decodeMs, encodeMs: 0 });
+        return source;
+      });
       products.set(key, pending);
       pending.catch(() => {
         if (products!.get(key) === pending) {
@@ -148,7 +124,7 @@ export async function prepareMaterialTextureProducts(
     }
     const product = await pending;
     assertLive();
-    const result = ShadeTexture.fromProduct(product);
+    const result = ShadeTexture.fromImageSource(product);
     for (const name of [
       "minFilter",
       "magFilter",
@@ -173,16 +149,6 @@ export async function prepareMaterialTextureProducts(
     return result;
   };
   try {
-    // Sharing an image with ORM must keep all channels for the AO consumer.
-    const multichannel = new Set<object>();
-    for (const material of materials) {
-      for (const name of ["texture_orm", "texture_clearcoat_roughness", "texture_specular"] as const) {
-        const texture = material[name];
-        if (texture) {
-          multichannel.add(texture.image ?? texture);
-        }
-      }
-    }
     for (const material of new Set(materials)) {
       const live = new Set(materialTextureLeaves(material));
       for (const property of MATERIAL_TEXTURE_PROPERTIES) {
@@ -190,17 +156,14 @@ export async function prepareMaterialTextureProducts(
         if (!texture || !live.has(texture)) {
           continue;
         }
-        let semantic = materialTextureSemantic(property);
-        if (semantic === "occlusion-linear" && multichannel.has(texture.image ?? texture)) {
-          semantic = "orm-linear";
-        }
+        const semantic = materialTextureSemantic(property);
+
         const exact =
           property === "texture_albedo" && material.transparency_mode !== ShadeTransparencyMode.Opaque;
         const result = await prepare(
           texture,
           semantic,
-          exact,
-          property === "texture_clearcoat_roughness" ? 1 : 0
+          exact
         );
         changes.push(() => {
           material[property] = result;
@@ -224,16 +187,17 @@ export async function prepareMaterialTextureProducts(
           const exactAlpha =
             material.transparency_mode !== ShadeTransparencyMode.Opaque &&
             queries.some((sample) => (sample.readMask & 8) !== 0);
-          const existing = b.texture.texture_product ?? b.texture.tiled_source;
+          const existing = b.texture.image_source;
           if (
             existing &&
-            (b.decode === "srgb-rgb") !== existing.metadata.planes[0]!.format.endsWith("-srgb")
+            (b.decode === "srgb-rgb") !== existing.directory.planes[0]!.semantic.startsWith("color-")
           ) {
             throw new Error("Custom graph decode does not match Texture Product transfer function");
           }
           const semantic =
-            existing?.metadata.semantic ?? (b.decode === "srgb-rgb" ? "base-color-srgb" : "orm-linear");
-          const texture = await prepare(b.texture, semantic, exactAlpha, existing?.metadata.channel ?? 0);
+            existing?.directory.planes[0]!.semantic ?? (b.decode === "srgb-rgb" ? "color-rgba" : "data-rgb");
+          if (semantic === "exact-r") throw new Error("Exact-only image cannot serve a general graph texture");
+          const texture = await prepare(b.texture, semantic, exactAlpha);
           nodes.push({
             ...node,
             binding: snapshotAppearanceTexture(
@@ -262,14 +226,14 @@ export async function prepareMaterialTextureProducts(
     for (const bitmap of close) {
       bitmap.close();
     }
-  } finally {
-    cooker?.dispose();
+  } catch (error) {
+    throw error;
   }
 }
 
 function imageRgba(image: ShadeImage): Uint8Array {
   if (image.depth !== 1 || image.data_type !== "uint8") {
-    throw new Error("PC material cold cook requires a 2D uint8 image");
+    throw new Error("Web material import requires a 2D uint8 image");
   }
   const source = image.source;
   if (

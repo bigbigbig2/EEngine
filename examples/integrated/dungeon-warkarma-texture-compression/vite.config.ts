@@ -1,3 +1,4 @@
+import { imageKernelsPlugin } from "../../shared/image-kernels-plugin";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
@@ -11,7 +12,7 @@ export default defineConfig({
     __EENGINE_PERFORMANCE_DIAGNOSTICS__: process.env.EENGINE_PERFORMANCE_DIAGNOSTICS === "1"
   },
   root: examplesRoot,
-  plugins: [dungeonLocalModel(examplesRoot)],
+  plugins: [imageKernelsPlugin(examplesRoot), dungeonLocalModel(examplesRoot)],
   server: {
     port: 5176,
     headers: {

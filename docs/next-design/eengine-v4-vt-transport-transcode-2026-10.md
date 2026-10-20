@@ -4,15 +4,8 @@ state: history
 supersededBy: eengine-extreme-web-asset-compression-2026-10.md
 verifies:
   files:
-    - OEngine/src/assets/TiledTextureProduct.ts
-    - OEngine/src/assets/TiledTextureSource.ts
-    - OEngine/src/assets/codec/TiledTextureCook.ts
-    - OEngine/src/assets/codec/TiledTextureTransport.ts
-    - OEngine/src/assets/codec/TiledTextureCompression.ts
-    - OEngine/src/assets/codec/TiledTextureDecoder.ts
     - OEngine/tools/build-tiled-texture-codec.mjs
     - OEngine/vite.config.ts
-    - OEngine/src/assets/codec/TiledTextureCache.ts
     - OEngine/src/assets/codec/CookedAssetPreparation.ts
     - OEngine/src/assets/codec/CookedAssetProtocol.ts
     - OEngine/src/assets/codec/AssetWorkerPool.ts
@@ -31,6 +24,9 @@ verifies:
 ---
 
 # VT 细页无损传输压缩设计
+
+> 历史设计/实施记录：原数值、失败与阶段结果保留，不再约束当前实现。当前唯一设计和执行由[workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)导航；旧路径不作为兼容保留。
+
 
 2026-10-20 后续授权说明：本文保留已实现 schema 2 BC/Zstd 模块的历史设计与原始依据，不再约束未来传输方案。当前目标见[极致 Web 资产压缩设计](eengine-extreme-web-asset-compression-2026-10.md)；新文档进入导航不表示生产代码已经切换。
 

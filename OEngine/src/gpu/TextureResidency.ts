@@ -2,14 +2,9 @@ import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContex
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import { compileCanonicalMaterial } from "../material/CanonicalMaterial.js";
 import { materialTextureLeaves } from "../assets/PcMaterialTextures.js";
-import {
-  assertValidatedTextureProduct,
-  type TextureProduct,
-  type TextureProductPlane,
-  type TextureProductMip,
-  type TextureProductMetadata,
-} from "../assets/TextureProduct.js";
-import type { TiledTextureSource } from "../assets/TiledTextureSource.js";
+import type { ImageTextureSource } from "../assets/ImageTextureSource.js";
+import { imageTextureResidentLayout, type ImageTextureResidentLayout } from "./ImageTextureLayout.js";
+import { imageGpuFormat, type ImageRecordCommand, type ImageTextureTranscoder } from "./ImageTextureTranscoder.js";
 import { VirtualTextureResidency } from "./VirtualTextureResidency.js";
 import type { VirtualTextureRoute } from "./VirtualTextureAbi.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
@@ -28,7 +23,6 @@ import { textureBindingSetPolicy } from "./TextureBindingSetPolicy.js";
 import { encodeSamplerClass, GPU_MATERIAL_VISIBILITY_SAMPLER } from "./GpuMaterialVisibilityAbi.js";
 import { selectAppearanceProductProgram } from "../material/AppearanceGraphCompiler.js";
 import { ShadeTransparencyMode } from "../material/enums.js";
-import { loadAssetBatch } from "../assets/AssetLoadBatch.js";
 
 export const TEXTURE_RESIDENCY_MAX_SIZE = 16384;
 export const TEXTURE_RESIDENCY_BUDGET_BYTES = 2 * 1024 * 1024 * 1024;
@@ -71,7 +65,7 @@ export interface TextureResidencyDescriptor {
 interface Segment {
   readonly id: number;
   readonly key: string;
-  readonly plane: TextureProductPlane;
+  readonly plane: ImageTextureResidentLayout;
   readonly capacity: number;
   readonly bytes: number;
   texture?: GPUTexture;
@@ -82,15 +76,12 @@ interface Segment {
 interface PlaneAllocation {
   readonly segment: Segment;
   readonly layer: number;
+  readonly layout: ImageTextureResidentLayout;
 }
-/** Resident plane projection. This is not a partially validated TextureProduct:
- * tiled payloads are borrowed from provider leases only while copying. */
 interface ResidentSource {
   readonly identity: string;
-  readonly metadata: TextureProductMetadata;
-  readonly chunks: ReadonlyMap<string, Uint8Array>;
-  readonly evidence: Pick<TextureProduct["evidence"], "ownedPayloadBytes" | "rgbaEquivalentBytes">;
-  readonly tiled?: TiledTextureSource;
+  readonly source: ImageTextureSource;
+  readonly planes: readonly ImageTextureResidentLayout[];
 }
 interface Entry {
   readonly product: ResidentSource;
@@ -108,20 +99,6 @@ interface Entry {
   /** Committed copy cursor for the next finer mip; never a sampling clamp. */
   upload?: { mip: number; plane: number; row: number };
 }
-interface TextureCopy {
-  readonly entry: Entry;
-  readonly plane: number;
-  readonly mip: TextureProductMip;
-  readonly row: number;
-  readonly rows: number;
-  readonly rowBytes: number;
-  readonly pitch: number;
-}
-
-const TEXTURE_FRAME_UPLOAD_BYTES = 4 * 1024 ** 2;
-const TEXTURE_UPLOAD_IN_FLIGHT_BYTES = 16 * 1024 ** 2;
-const TEXTURE_BOOTSTRAP_UPLOAD_BYTES = 256 * 1024 ** 2;
-const TEXTURE_COPY_BYTES = 256 * 1024;
 interface MaterialEntry {
   refs: number;
   readonly entries: readonly Entry[];
@@ -148,7 +125,6 @@ export class TextureResidency {
   private readonly segments = new Set<Segment>();
   private readonly entries = new Map<string, Entry>();
   private readonly quarantined = new Set<Entry>();
-  private readonly refining = new Set<Entry>();
   private readonly materials = new Map<StandardShadeMaterial, MaterialEntry>();
   private readonly descriptors = new Map<number, Entry>();
   private readonly freeSlots: number[] = [];
@@ -173,53 +149,29 @@ export class TextureResidency {
   private committedUploadBytes = 0;
   private destroyed = false;
   private cachedBindings?: TextureResidencyBindings;
-  private readonly tiledSources = new WeakMap<TiledTextureSource, ResidentSource>();
+  private readonly imageSources = new WeakMap<ImageTextureSource, ResidentSource>();
+  private transcoder: ImageTextureTranscoder | undefined;
   private virtualValue: VirtualTextureResidency | null = null;
   get virtualTextures(): VirtualTextureResidency | null {
     return this.virtualValue;
   }
   private source(texture: ShadeTexture): ResidentSource {
-    const tiled = texture.tiled_source;
-    if (!tiled) {
-      const product = texture.texture_product;
-      if (!product) {
-        throw new Error("Material texture requires a final cooked source before GPU staging");
-      }
-      validateUpload(product, this.graphics.device.limits);
-      return product;
+    const image = texture.image_source;
+    if (!image) throw new Error("Material texture requires a schema4 image source before staging");
+    let product = this.imageSources.get(image);
+    if (!product) {
+      const planes = image.directory.planes.flatMap((plane, index) => plane.mode === "resident"
+        ? [imageTextureResidentLayout(image.directory, index, this.graphics.device.limits,
+            this.graphics.device.features.has("texture-compression-unaligned" as GPUFeatureName))]
+        : []);
+      product = { identity: image.identity, source: image, planes };
+      this.imageSources.set(image, product);
     }
-    let source = this.tiledSources.get(tiled);
-    if (!source) {
-      const planes = tiled.metadata.planes.filter((_, index) =>
-        tiled.directory.metadata.planes.some(
-          (profile) => profile.sourcePlane === index && profile.mode === "resident",
-        ),
-      );
-      if (
-        planes.some(
-          (plane) =>
-            plane.mips[0]!.physicalWidth > this.graphics.device.limits.maxTextureDimension2D ||
-            plane.mips[0]!.physicalHeight > this.graphics.device.limits.maxTextureDimension2D,
-        )
-      ) {
-        throw new RangeError("Mandatory resident texture exceeds device dimensions");
-      }
-      source = {
-        identity: tiled.identity,
-        metadata: { ...tiled.metadata, planes },
-        chunks: new Map(),
-        evidence: {
-          ownedPayloadBytes: 0,
-          rgbaEquivalentBytes: planes.reduce(
-            (sum, plane) => sum + plane.mips.reduce((n, mip) => n + mip.width * mip.height * 4, 0),
-            0,
-          ),
-        },
-        tiled,
-      };
-      this.tiledSources.set(tiled, source);
-    }
-    return source;
+    return product;
+  }
+
+  async prepare(): Promise<void> {
+    this.transcoder ??= await this.graphics.prepareImageTranscoder();
   }
   constructor(
     private readonly graphics: GraphicsContext,
@@ -235,172 +187,86 @@ export class TextureResidency {
   }
 
   private virtualRoute(texture: ShadeTexture, entry: Entry): VirtualTextureRoute | undefined {
-    const source = entry.product.tiled!;
-    const samplerAddress = encodeSamplerClass(texture).value & GPU_MATERIAL_VISIBILITY_SAMPLER.AddressMask;
-    const address = samplerAddress === 0 ? "clamp" : samplerAddress === 2 ? "mirror" : "repeat";
-    // The sampler ABI admits only matching S/T addressing; reject a cold
-    // recipe mismatch instead of sampling gutters for a different address.
-    const index = source.directory.metadata.planes.findIndex(
-      (profile) => profile.mode === "virtual" && profile.sourcePlane === 0 && profile.address === address,
-    );
-    const route = entry.virtual?.get(index);
-    if (!route) {
-      throw new Error(`VT directory lacks '${address}' source-plane profile; recook required`);
+    const source = entry.product.source;
+    const sampler = encodeSamplerClass(texture).value;
+    const address = (value: number) => value === 0 ? "clamp-to-edge" : value === 2 ? "mirror-repeat" : "repeat";
+    const expectedU = address(sampler & GPU_MATERIAL_VISIBILITY_SAMPLER.AddressMask);
+    const expectedV = address((sampler >> GPU_MATERIAL_VISIBILITY_SAMPLER.AddressVBits) & GPU_MATERIAL_VISIBILITY_SAMPLER.AddressMask);
+    const plane = source.directory.planes[0]!;
+    if (plane.addressU !== expectedU || plane.addressV !== expectedV) {
+      throw new Error("VT sampler and immutable image address recipe disagree; recook required");
     }
+    const route = entry.virtual?.get(0);
+    if (!route) throw new Error("Virtual primary image route is absent");
     return route;
   }
 
-  /** Mandatory planes and protected tails only. Fine pages never enter this
-   * preparation barrier. The caller submits the existing scene transaction. */
-  async uploadTiled(
+  /** The scene owner submits hidden bounded batches; this owner only records.
+   * Publication stays on the original scene command after every mandatory input. */
+  async uploadImages(
     materials: readonly StandardShadeMaterial[],
     command: ShadeGPUCommandContext,
+    batch: (record: (command: ImageRecordCommand) => void) => Promise<void>
   ): Promise<void> {
     const entries = new Set(materials.flatMap((material) => this.materials.get(material)?.entries ?? []));
-    const tasks: Promise<void>[] = [];
-    const pending: { entry: Entry; bootstrap: NonNullable<Entry["bootstrap"]> }[] = [];
+    if (entries.size === 0) return;
+    await this.prepare();
+    this.assertCommand(command);
     const abort = new AbortController();
     command.onAborted.addOne(() => abort.abort());
-    // Four entry jobs share the existing provider's IO/byte/Worker admission.
-    // GPU staging retains the same aggregate limit and scene transaction.
+    // Serial recording bounds shared scratch even for many simultaneous scene requests.
     for (const entry of entries) {
-      const source = entry.product.tiled;
-      if (!source || !entry.staging) {
-        continue;
-      }
+      if (!entry.staging) continue;
       if (entry.bootstrap) {
-        if (entry.bootstrap.command !== command) {
-          throw new Error("Tiled bootstrap belongs to another transaction");
-        }
-        tasks.push(entry.bootstrap.ready);
+        if (entry.bootstrap.command !== command) throw new Error("Image bootstrap belongs to another transaction");
+        await entry.bootstrap.ready;
         continue;
       }
       const bootstrap = { command, complete: false, ready: Promise.resolve() };
       entry.bootstrap = bootstrap;
-      command.onBeforeFinish.addOne(() => {
-        if (!bootstrap.complete) {
-          throw new Error("Scene cannot publish before mandatory texture/tail upload completes");
+      bootstrap.ready = (async () => {
+        const source = entry.product.source;
+        if (entry.virtual) {
+          await this.virtualValue!.bootstrap(source, command, batch, abort.signal);
         }
-      });
-      pending.push({ entry, bootstrap });
-    }
-    const ready = loadAssetBatch(pending, 4, abort.signal, async ({ entry, bootstrap }, _index, signal) => {
-      const source = entry.product.tiled!;
-      if (entry.virtual) {
-        await this.virtualValue!.bootstrap(source, command, signal);
-      }
-      for (const [index, plane] of entry.product.metadata.planes.entries()) {
-        const sourcePlane = source.metadata.planes.indexOf(plane);
-        const profile = source.directory.metadata.planes.find(
-          (value) => value.mode === "resident" && value.sourcePlane === sourcePlane,
-        )!;
-        for (const mip of plane.mips) {
-          const rowBytes = textureRowBytes(plane, mip);
-          const pitch = Math.ceil(rowBytes / 256) * 256;
-          const totalRows = mip.byteLength / rowBytes;
-          let row = 0;
-          let column = 0;
-          let slab: ReturnType<TextureResidency["residentSlab"]> | undefined;
-          for (const payload of profile.mips[mip.level]!.payloads) {
-            const lease = await source.read([payload], signal, 0);
+        for (const allocation of entry.planes) {
+          const layout = allocation.layout;
+          const profile = source.directory.planes[layout.plane]!;
+          const items = source.directory.items.filter((item) => item.plane === layout.plane);
+          for (const item of items) {
+            const leases = await source.read([item.id], abort.signal, 0);
+            const lease = leases[0]!;
             try {
-              if (command.closed || this.destroyed) {
-                throw new Error("Mandatory texture bootstrap was cancelled");
-              }
-              const bytes = new Uint8Array(lease.payloads[0]!.bytes);
-              let offset = 0;
-              while (offset < bytes.length) {
-                slab ??= this.residentSlab(
-                  command,
-                  Math.min(totalRows - row, Math.floor(TEXTURE_COPY_BYTES / pitch)),
-                  pitch,
-                );
-                const count = Math.min(rowBytes - column, bytes.length - offset);
-                slab.mapped.set(bytes.subarray(offset, offset + count), slab.row * pitch + column);
-                offset += count;
-                column += count;
-                if (column === rowBytes) {
-                  column = 0;
-                  slab.row++;
-                  row++;
-                  if (slab.row === slab.rows) {
-                    const block = plane.format === "r8unorm" ? 1 : 4;
-                    slab.buffer.unmap();
-                    command.copyBufferToTexture(
-                      { buffer: slab.buffer, bytesPerRow: pitch, rowsPerImage: slab.rows },
-                      {
-                        texture: entry.planes[index]!.segment.texture!,
-                        mipLevel: mip.level,
-                        origin: [0, (row - slab.rows) * block, entry.planes[index]!.layer],
-                      },
-                      [mip.physicalWidth, slab.rows * block, 1],
-                    );
-                    const size = slab.rows * rowBytes;
-                    this.uploadBytes += size;
-                    this.physicalCopyBytes += slab.rows * pitch;
-                    this.copyOperations++;
-                    command.onFinished.addOne(() => {
-                      this.committedUploadBytes += size;
-                    });
-                    slab = undefined;
-                  }
+              if (command.closed || this.destroyed) throw new Error("Image bootstrap was cancelled");
+              const destinations = (profile.mips === "runtime" ? layout.levels : [layout.levels[item.mip]!])
+                .map((level) => ({ texture: allocation.segment.texture!, mip: level.mip,
+                  layer: allocation.layer, x: item.x, y: item.y }));
+              await batch((hidden) => {
+                if (command.closed || this.destroyed) throw new Error("Image bootstrap was cancelled before recording");
+                if (profile.target === "r8") {
+                  this.transcoder!.recordExact(hidden, lease, destinations[0]!);
+                } else if (this.transcoder!.record(hidden, lease, destinations) !== "recorded") {
+                  throw new RangeError("Complete resident image cannot fit an empty hidden batch");
                 }
-              }
+              });
+              this.mipUploads += destinations.length;
+              const bytes = profile.mips === "runtime" ? layout.bytesPerLayer : layout.levels[item.mip]!.bytes;
+              this.uploadBytes += bytes;
+              this.physicalCopyBytes += bytes;
+              this.copyOperations += destinations.length;
             } finally {
-              lease.release();
+              for (const input of leases) input.close();
             }
           }
-          if (row !== totalRows || column !== 0 || slab) {
-            throw new Error("Mandatory fragments do not cover the complete mip");
-          }
-          this.mipUploads++;
         }
-      }
-      bootstrap.complete = true;
-    }).then(() => undefined);
-    for (const { bootstrap } of pending) {
-      bootstrap.ready = ready;
+        if (command.closed || this.destroyed) throw new Error("Image bootstrap was cancelled");
+        bootstrap.complete = true;
+        command.onFinished.addOne(() => {
+          this.committedUploadBytes += entry.product.planes.reduce((sum, plane) => sum + plane.bytesPerLayer, 0);
+        });
+      })();
+      await bootstrap.ready;
     }
-    tasks.push(ready);
-    await Promise.all(tasks);
-  }
-
-  private residentSlab(command: ShadeGPUCommandContext, rows: number, pitch: number) {
-    const size = rows * pitch;
-    if (!rows || size > TEXTURE_COPY_BYTES || this.stagingBytes + size > TEXTURE_BOOTSTRAP_UPLOAD_BYTES) {
-      throw new RangeError("Mandatory texture bootstrap staging capacity exceeded");
-    }
-    const buffer = this.graphics.device.createBuffer({
-      label: "TextureResidency/mandatory fragments",
-      size,
-      usage: GPUBufferUsage.COPY_SRC,
-      mappedAtCreation: true,
-    });
-    const accounting = this.graphics.resource_accounting?.created({
-      kind: "buffer",
-      category: "transient",
-      owner: "TextureResidency/mandatory",
-      bytes: size,
-    });
-    this.stagingBytes += size;
-    this.stagingPeakBytes = Math.max(this.stagingPeakBytes, this.stagingBytes);
-    let released = false;
-    const release = () => {
-      if (released) {
-        return;
-      }
-      released = true;
-      this.stagingBytes -= size;
-      buffer.destroy();
-      if (accounting) {
-        this.graphics.resource_accounting?.destroyed(accounting);
-      }
-    };
-    command.onAborted.addOne(release);
-    command.onFinished.addOne(() => {
-      void command.gpuDone.then(release, release);
-    });
-    return { buffer, mapped: new Uint8Array(buffer.getMappedRange()), rows, row: 0 };
   }
 
   stage(materials: readonly StandardShadeMaterial[], command: ShadeGPUCommandContext): TextureResidencyStage {
@@ -416,25 +282,14 @@ export class TextureResidency {
         const graph = compileCanonicalMaterial(material).appearance;
         const coverage = selectAppearanceProductProgram(graph, { alpha: graph.outputs.alpha! });
         for (const sample of coverage.samples) {
-          const tiled = sample.binding.texture.tiled_source;
-          if (tiled) {
-            const requiresPrimary =
-              (sample.readMask & 7) !== 0 ||
-              ((sample.readMask & 8) !== 0 &&
-                !tiled.metadata.planes.some((plane) => plane.role === "coverage"));
-            if (
-              requiresPrimary &&
-              tiled.directory.metadata.planes.some(
-                (profile) => profile.sourcePlane === 0 && profile.mode === "virtual",
-              )
-            ) {
-              throw new Error(
-                "Alpha/UV dependency requires a resident primary plane; recook with residentRoles",
-              );
+          const image = sample.binding.texture.image_source;
+          if (image) {
+            const coverage = image.directory.planes.some((plane) => plane.semantic === "exact-r");
+            if (((sample.readMask & 7) !== 0 || ((sample.readMask & 8) !== 0 && !coverage)) &&
+                image.directory.planes[0]!.mode === "virtual") {
+              throw new Error("Alpha/UV dependency requires a resident primary plane; recook required");
             }
-          }
-          if (sample.binding.texture.texture_product) {
-            criticalProducts.add(sample.binding.texture.texture_product.identity);
+            criticalProducts.add(image.identity);
           }
         }
       }
@@ -469,11 +324,11 @@ export class TextureResidency {
     const available = new Map([...this.segments].map((segment) => [segment, [...segment.free]]));
     const groups = new Map<
       string,
-      Array<{ product: ResidentSource; index: number; plane: TextureProductPlane }>
+      Array<{ product: ResidentSource; index: number; plane: ImageTextureResidentLayout }>
     >();
     for (const product of fresh) {
       assignments.set(product.identity, []);
-      product.metadata.planes.forEach((plane, index) => {
+      product.planes.forEach((plane, index) => {
         const key = segmentKey(plane),
           group = groups.get(key) ?? [];
         group.push({ product, index, plane });
@@ -488,7 +343,7 @@ export class TextureResidency {
         }
         while (free.length && position < group.length) {
           const item = group[position++]!;
-          assignments.get(item.product.identity)![item.index] = { segment, layer: free.pop()! };
+          assignments.get(item.product.identity)![item.index] = { segment, layer: free.pop()!, layout: item.plane };
         }
       }
       while (position < group.length) {
@@ -505,13 +360,13 @@ export class TextureResidency {
           key,
           plane,
           capacity: length + 1,
-          bytes: planeBytes(plane) * (length + 1),
+          bytes: plane.bytesPerLayer * (length + 1),
           free: Array.from({ length }, (_, index) => length - index),
         };
         plans.push(segment);
         for (let layer = 1; layer <= length; layer++) {
           const item = group[position++]!;
-          assignments.get(item.product.identity)![item.index] = { segment, layer };
+          assignments.get(item.product.identity)![item.index] = { segment, layer, layout: item.plane };
         }
       }
     }
@@ -537,50 +392,39 @@ export class TextureResidency {
       for (const sample of graph.samples) {
         const product = this.source(sample.binding.texture),
           planes = allocations.get(sample.binding.texture)!;
-        const mask = sample.readMask,
-          coverage = product.metadata.planes.findIndex((plane) => plane.role === "coverage");
-        if ((mask & 7) !== 0 || ((mask & 8) !== 0 && coverage < 0)) {
-          if (
-            planes[0] &&
-            !product.tiled?.directory.metadata.planes.some(
-              (profile) => profile.sourcePlane === 0 && profile.mode === "virtual",
-            )
-          ) {
-            used.add(planes[0].segment);
-          }
+        if ((sample.readMask & 8) !== 0 && product.source.directory.planes.some((plane) =>
+          plane.semantic === "exact-r" && plane.mode !== "resident")) {
+          throw new Error("Material exact alpha requires a resident coverage plane; recook required");
         }
-        if ((mask & 8) !== 0 && coverage >= 0) {
-          used.add(planes[coverage]!.segment);
+        const mask = sample.readMask;
+        const coverage = product.planes.findIndex((plane) => plane.format === "r8unorm");
+        const primary = product.planes.findIndex((plane) => plane.plane === 0);
+        if (((mask & 7) !== 0 || ((mask & 8) !== 0 && coverage < 0)) && primary >= 0) {
+          used.add(planes[primary]!.segment);
         }
-        if (
-          product.metadata.semantic === "occlusion-linear" &&
-          (mask & ~(1 << product.metadata.channel)) !== 0
-        ) {
-          throw new Error("Scalar Product lacks requested channel");
-        }
+        if ((mask & 8) !== 0 && coverage >= 0) used.add(planes[coverage]!.segment);
         const sampler = encodeSamplerClass({
           wrapS: sample.binding.sampler[4],
           wrapT: sample.binding.sampler[5],
           minFilter: sample.binding.sampler[1],
           magFilter: sample.binding.sampler[2],
-          texture_product: sample.binding.texture.texture_product,
+          image_source: sample.binding.texture.image_source,
         } as ShadeTexture);
         samplers.add(
           String(
             sampler.value &
-              (GPU_MATERIAL_VISIBILITY_SAMPLER.AddressMask | GPU_MATERIAL_VISIBILITY_SAMPLER.LinearBit),
+              (GPU_MATERIAL_VISIBILITY_SAMPLER.AddressMask |
+                (GPU_MATERIAL_VISIBILITY_SAMPLER.AddressMask << GPU_MATERIAL_VISIBILITY_SAMPLER.AddressVBits) |
+                GPU_MATERIAL_VISIBILITY_SAMPLER.LinearBit),
           ),
         );
       }
       const productTexture = graph.productReads?.some((read) => read.field.constant === undefined) ? 1 : 0;
       const virtualFormats = new Set(
         graph.samples.flatMap((sample) => {
-          const tiled = sample.binding.texture.tiled_source;
-          return (
-            tiled?.directory.metadata.planes
-              .filter((profile) => profile.mode === "virtual")
-              .map((profile) => tiled.metadata.planes[profile.sourcePlane]!.format) ?? []
-          );
+          const image = sample.binding.texture.image_source;
+          return image?.directory.planes.filter((plane) => plane.mode === "virtual")
+            .map((plane) => imageGpuFormat(plane.semantic)) ?? [];
         }),
       );
       if (
@@ -638,7 +482,6 @@ export class TextureResidency {
         }
       }
       for (const entry of created) {
-        this.refining.delete(entry);
         if (this.entries.get(entry.product.identity) === entry) {
           this.entries.delete(entry.product.identity);
         }
@@ -646,7 +489,16 @@ export class TextureResidency {
         this.quarantined.add(entry);
       }
       this.cachedBindings = undefined;
-      void this.graphics.device.queue.onSubmittedWorkDone().then(
+      // A publication abort does not stop an already submitted hidden batch.
+      // Do not return its destination layers while its producer is unwinding.
+      const producersStopped = Promise.all(created.map((entry) =>
+        entry.bootstrap?.ready.then(() => undefined, () => undefined)));
+      void producersStopped
+        .then(() => this.graphics.device.queue.onSubmittedWorkDone())
+        .then(() => Promise.all(created.map((entry) => entry.virtual
+          ? this.virtualValue?.release(entry.product.source, Promise.resolve())
+          : undefined)))
+        .then(
         () => {
           if (this.destroyed) {
             return;
@@ -667,12 +519,11 @@ export class TextureResidency {
     command.onAborted.addOne(rollback);
     try {
       for (const segment of plans) {
-        const base = segment.plane.mips[0]!;
         segment.texture = this.graphics.device.createTexture({
           label: `TextureResidency/${segment.id}/${segment.key}`,
-          size: [base.width, base.height, segment.capacity],
+          size: [segment.plane.width, segment.plane.height, segment.capacity],
           format: segment.plane.format,
-          mipLevelCount: segment.plane.mips.length,
+          mipLevelCount: segment.plane.mipCount,
           usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
         });
         this.segments.add(segment);
@@ -689,17 +540,16 @@ export class TextureResidency {
       }
       for (const product of fresh) {
         const planes = assignments.get(product.identity)!,
-          mips = product.metadata.planes[0]?.mips.length ?? 1;
+          mips = product.source.directory.mipCount;
         for (const plane of planes) {
           if (!plane.segment.free.includes(plane.layer)) {
             throw new Error("Texture reservation changed after admission");
           }
         }
-        const virtual = product.tiled?.directory.metadata.planes.some((profile) => profile.mode === "virtual")
-          ? (this.virtualValue ??= new VirtualTextureResidency(this.graphics, this.virtualSettings)).stage(
-              product.tiled!,
-              command,
-            )
+        if (!this.transcoder) throw new Error("Prepare image pipelines before staging scene resources");
+        const virtual = product.source.directory.planes.some((plane) => plane.mode === "virtual")
+          ? (this.virtualValue ??= new VirtualTextureResidency(this.graphics, this.transcoder, this.virtualSettings))
+              .stage(product.source, command)
           : undefined;
         const slot = this.freeSlots.pop()!;
         const entry: Entry = {
@@ -711,13 +561,10 @@ export class TextureResidency {
           refs: 0,
           retirement: 0,
           revision: this.nextRevision++,
-          minMip:
-            product.tiled || product.metadata.exactAlpha || criticalProducts.has(product.identity)
-              ? 0
-              : Math.min(6, mips - 1),
+          minMip: 0,
           staging: command,
         };
-        if (product.tiled) {
+        {
           command.onBeforeFinish.addOne(() => {
             if (!entry.bootstrap?.complete) {
               throw new Error("Scene cannot publish before mandatory texture/tail upload completes");
@@ -729,72 +576,8 @@ export class TextureResidency {
           plane.segment.free.splice(index, 1);
         }
         this.entries.set(product.identity, entry);
-        if (entry.minMip > 0) {
-          this.refining.add(entry);
-        }
         created.push(entry);
       }
-      const copies: TextureCopy[] = [];
-      for (const entry of created) {
-        if (entry.product.tiled) {
-          continue;
-        }
-        entry.product.metadata.planes.forEach((plane, index) => {
-          for (const mip of plane.mips) {
-            if (mip.level >= entry.minMip) {
-              const rowBytes = textureRowBytes(plane, mip);
-              copies.push({
-                entry,
-                plane: index,
-                mip,
-                row: 0,
-                rows: mip.byteLength / rowBytes,
-                rowBytes,
-                pitch: Math.ceil(rowBytes / 256) * 256,
-              });
-            }
-          }
-        });
-      }
-      const criticalPromotions = [...products.keys()].flatMap((identity) => {
-        const entry = this.entries.get(identity)!;
-        return !created.includes(entry) && criticalProducts.has(identity) && entry.minMip > 0 ? [entry] : [];
-      });
-      for (const entry of criticalPromotions) {
-        entry.promotion = command;
-        command.onAborted.addOne(() => {
-          entry.promotion = undefined;
-        });
-        const cursor = entry.upload ?? { mip: entry.minMip - 1, plane: 0, row: 0 };
-        entry.product.metadata.planes.forEach((plane, index) => {
-          for (const mip of plane.mips) {
-            if (mip.level > cursor.mip || (mip.level === cursor.mip && index < cursor.plane)) {
-              continue;
-            }
-            const rowBytes = textureRowBytes(plane, mip);
-            const row = mip.level === cursor.mip && index === cursor.plane ? cursor.row : 0;
-            copies.push({
-              entry,
-              plane: index,
-              mip,
-              row,
-              rows: mip.byteLength / rowBytes - row,
-              rowBytes,
-              pitch: Math.ceil(rowBytes / 256) * 256,
-            });
-          }
-        });
-      }
-      this.encodeTextureCopies(copies, command, TEXTURE_BOOTSTRAP_UPLOAD_BYTES);
-      command.onFinished.addOne(() => {
-        for (const entry of criticalPromotions) {
-          entry.minMip = 0;
-          entry.upload = undefined;
-          entry.promotion = undefined;
-          entry.revision = this.nextRevision++;
-          this.refining.delete(entry);
-        }
-      });
       for (const [material, count] of counts) {
         const prior = this.materials.get(material);
         if (prior && prior.refs > 0) {
@@ -847,7 +630,7 @@ export class TextureResidency {
         materialSets.set(material, owner.set.id);
         for (const texture of owner.textures) {
           const entry = this.entries.get(this.source(texture).identity)!,
-            primary = entry.planes[0];
+            primary = entry.planes.find((plane) => plane.layout.plane === 0);
           const bank = owner.set.bankDescriptors.findIndex(
             (descriptor) => descriptor.segment === primary?.segment.id,
           );
@@ -857,12 +640,12 @@ export class TextureResidency {
               ? encodeGpuTextureRef(
                   bank,
                   primary.layer,
-                  entry.product.metadata.semantic === "alpha-mask" ? 1 : 0,
+                  0,
                 )
               : GPU_TEXTURE_REF_INVALID,
           );
           refs.set(texture, encodeTextureHandle(entry.slot, entry.generation));
-          const ci = entry.product.metadata.planes.findIndex((plane) => plane.role === "coverage"),
+          const ci = entry.product.planes.findIndex((plane) => plane.format === "r8unorm"),
             coverage = ci < 0 ? undefined : entry.planes[ci]!;
           publications.set(
             texture,
@@ -875,9 +658,6 @@ export class TextureResidency {
                 return entry.revision;
               },
               get currentMinimumMip() {
-                if (entry.promotion === command && criticalProducts.has(entry.product.identity)) {
-                  return 0;
-                }
                 return entry.minMip;
               },
               ...(coverage ? { coverage: { segment: coverage.segment.id, layer: coverage.layer } } : {}),
@@ -908,205 +688,11 @@ export class TextureResidency {
     }
   }
 
-  promote(
-    materials: readonly StandardShadeMaterial[],
-    command: ShadeGPUCommandContext,
-    minimumMip = 0,
-    maxBytes = TEXTURE_FRAME_UPLOAD_BYTES,
-  ): void {
+  /** No preview is published in the initial schema4 profile: all mandatory mips
+   * are prepared hidden. Frame refinement has no work until an explicit preview product. */
+  promote(_materials: readonly StandardShadeMaterial[], command: ShadeGPUCommandContext,
+    _minimumMip = 0, _maxBytes = 4 * 1024 ** 2): void {
     this.assertCommand(command);
-    if (!Number.isInteger(minimumMip) || minimumMip < 0 || minimumMip > 6) {
-      throw new RangeError("Invalid mip target");
-    }
-    if (this.refining.size === 0) {
-      return;
-    }
-    const entries = [
-      ...new Set(materials.flatMap((material) => [...(this.materials.get(material)?.entries ?? [])])),
-    ];
-    if (!Number.isSafeInteger(maxBytes) || maxBytes < 65536 || maxBytes > TEXTURE_FRAME_UPLOAD_BYTES) {
-      throw new RangeError("Texture frame upload budget must be 64KiB..4MiB");
-    }
-    const budget = Math.min(maxBytes, TEXTURE_UPLOAD_IN_FLIGHT_BYTES - this.stagingBytes);
-    if (budget < 65536 || entries.length === 0) {
-      return;
-    }
-    const copies: TextureCopy[] = [];
-    const candidates = new Map<Entry, { mip: number; plane: number; row: number }>();
-    let bytes = 0;
-    let idle = 0;
-    // One physical block per turn. A large level cannot starve small textures.
-    while (copies.length < 128 && idle < entries.length) {
-      const entry = entries[this.uploadCursor % entries.length]!;
-      this.uploadCursor = (this.uploadCursor + 1) % entries.length;
-      const cursor = candidates.get(entry) ?? {
-        ...(entry.upload ?? {
-          mip: entry.minMip - 1,
-          plane: 0,
-          row: 0,
-        }),
-      };
-      if (entry.staging || entry.promotion || cursor.mip < minimumMip) {
-        idle++;
-        continue;
-      }
-      const plane = entry.product.metadata.planes[cursor.plane]!;
-      const mip = plane.mips[cursor.mip]!;
-      const rowBytes = textureRowBytes(plane, mip);
-      const pitch = Math.ceil(rowBytes / 256) * 256;
-      const totalRows = mip.byteLength / rowBytes;
-      const rows = Math.min(
-        totalRows - cursor.row,
-        Math.floor(Math.min(TEXTURE_COPY_BYTES, budget - bytes) / pitch),
-      );
-      if (rows === 0) {
-        idle++;
-        continue;
-      }
-      copies.push({ entry, plane: cursor.plane, mip, row: cursor.row, rows, rowBytes, pitch });
-      bytes += rows * pitch;
-      cursor.row += rows;
-      if (cursor.row === totalRows) {
-        cursor.row = 0;
-        cursor.plane++;
-        if (cursor.plane === entry.product.metadata.planes.length) {
-          cursor.plane = 0;
-          cursor.mip--;
-        }
-      }
-      candidates.set(entry, cursor);
-      idle = 0;
-    }
-    if (copies.length === 0) {
-      return;
-    }
-    const pending = [...candidates.keys()];
-    command.onAborted.addOne(() => {
-      for (const entry of pending) {
-        if (entry.promotion === command) {
-          entry.promotion = undefined;
-        }
-      }
-    });
-    try {
-      for (const entry of pending) {
-        entry.promotion = command;
-      }
-      this.encodeTextureCopies(copies, command, TEXTURE_UPLOAD_IN_FLIGHT_BYTES);
-      this.progressiveBytes += copies.reduce((sum, copy) => sum + copy.rowBytes * copy.rows, 0);
-      command.onFinished.addOne(() => {
-        if (this.destroyed) {
-          return;
-        }
-        let changed = false;
-        for (const [entry, cursor] of candidates) {
-          if (entry.promotion === command) {
-            entry.upload = cursor;
-            const completeMinimum = cursor.mip + 1;
-            if (completeMinimum < entry.minMip) {
-              entry.minMip = completeMinimum;
-              entry.revision = this.nextRevision++;
-              if (entry.minMip === 0) {
-                this.refining.delete(entry);
-              }
-              changed = true;
-            }
-            entry.promotion = undefined;
-          }
-        }
-        if (changed) {
-          this.promotionCount++;
-          this.onPublicationChanged.emit();
-        }
-      });
-    } catch (error) {
-      command.abort(error);
-      throw error;
-    }
-  }
-
-  /** Copies and their sampling publication share the caller's transaction.
-   * One exact-size mapped staging buffer, retired only by its owning fence. */
-  private encodeTextureCopies(
-    copies: readonly TextureCopy[],
-    command: ShadeGPUCommandContext,
-    limit: number,
-  ): void {
-    const size = copies.reduce((sum, copy) => sum + copy.pitch * copy.rows, 0);
-    if (size === 0) {
-      return;
-    }
-    if (size + this.stagingBytes > limit || size > this.graphics.device.limits.maxBufferSize) {
-      throw new RangeError("Texture critical/staging capacity exceeded before upload");
-    }
-    const buffer = this.graphics.device.createBuffer({
-      label: "TextureResidency/transaction upload",
-      size,
-      usage: GPUBufferUsage.COPY_SRC,
-      mappedAtCreation: true,
-    });
-    const accounting = this.graphics.resource_accounting?.created({
-      kind: "buffer",
-      category: "transient",
-      owner: "TextureResidency/upload",
-      bytes: size,
-    });
-    this.stagingBytes += size;
-    this.stagingPeakBytes = Math.max(this.stagingPeakBytes, this.stagingBytes);
-    let released = false;
-    const release = () => {
-      if (released) {
-        return;
-      }
-      released = true;
-      buffer.destroy();
-      this.stagingBytes -= size;
-      if (accounting) {
-        this.graphics.resource_accounting?.destroyed(accounting);
-      }
-    };
-    command.onAborted.addOne(release);
-    command.onFinished.addOne(() => {
-      this.committedUploadBytes += copies.reduce((sum, copy) => sum + copy.rowBytes * copy.rows, 0);
-      void command.gpuDone.then(release, release);
-    });
-    try {
-      const mapped = new Uint8Array(buffer.getMappedRange());
-      let offset = 0;
-      for (const copy of copies) {
-        const source = copy.entry.product.chunks.get(copy.mip.chunkId)!;
-        for (let row = 0; row < copy.rows; row++) {
-          const begin = (copy.row + row) * copy.rowBytes;
-          mapped.set(source.subarray(begin, begin + copy.rowBytes), offset + row * copy.pitch);
-        }
-        offset += copy.pitch * copy.rows;
-      }
-      buffer.unmap();
-      offset = 0;
-      for (const copy of copies) {
-        const plane = copy.entry.planes[copy.plane]!;
-        const block = plane.segment.plane.format === "r8unorm" ? 1 : 4;
-        command.copyBufferToTexture(
-          { buffer, offset, bytesPerRow: copy.pitch, rowsPerImage: copy.rows },
-          {
-            texture: plane.segment.texture!,
-            mipLevel: copy.mip.level,
-            origin: [0, copy.row * block, plane.layer],
-          },
-          { width: copy.mip.physicalWidth, height: copy.rows * block, depthOrArrayLayers: 1 },
-        );
-        offset += copy.pitch * copy.rows;
-        this.uploadBytes += copy.rowBytes * copy.rows;
-        this.copyOperations++;
-        this.physicalCopyBytes += copy.pitch * copy.rows;
-        if ((copy.row + copy.rows) * copy.rowBytes === copy.mip.byteLength) {
-          this.mipUploads++;
-        }
-      }
-    } catch (error) {
-      release();
-      throw error;
-    }
   }
   /** Retains the exact current allocations, not mutable material identity. The
    * same queue orders finer-mip uploads; coverage uses its resident closure. */
@@ -1272,17 +858,17 @@ export class TextureResidency {
     if (!plane) {
       return null;
     }
-    const metadata = entry.product.metadata;
+    const metadata = entry.product.source.directory;
     return {
       slot: entry.slot,
       generation: entry.generation,
       formatClass: plane.segment.plane.format,
-      sizeClass: metadata.storageWidth,
+      sizeClass: plane.segment.plane.width,
       segment: plane.segment.id,
       layer: plane.layer,
-      logicalSize: [metadata.sourceWidth, metadata.sourceHeight],
-      uvScaleBias: metadata.uvScaleBias,
-      residentMipRange: [entry.minMip, plane.segment.plane.mips.length - 1],
+      logicalSize: [metadata.width, metadata.height],
+      uvScaleBias: [1, 1, 0, 0],
+      residentMipRange: [entry.minMip, plane.segment.plane.mipCount - 1],
     };
   }
   private mipRanges(
@@ -1295,8 +881,7 @@ export class TextureResidency {
         if (entry) {
           result.set(texture, [
             entry.minMip,
-            (entry.product.tiled?.metadata.planes[0]?.mips.length ??
-              entry.product.metadata.planes[0]!.mips.length) - 1,
+            entry.product.source.directory.mipCount - 1,
           ]);
         }
       }
@@ -1310,15 +895,15 @@ export class TextureResidency {
     const bytes = (values: Entry[]) =>
       values.reduce(
         (sum, entry) =>
-          sum + entry.planes.reduce((total, plane) => total + planeBytes(plane.segment.plane), 0),
+          sum + entry.planes.reduce((total, plane) => total + plane.segment.plane.bytesPerLayer, 0),
         0,
       );
     const distribution = new Map<GPUTextureFormat, { residentTextureCount: number; residentBytes: number }>();
     for (const entry of live) {
-      for (const plane of entry.product.metadata.planes) {
+      for (const plane of entry.product.planes) {
         const value = distribution.get(plane.format) ?? { residentTextureCount: 0, residentBytes: 0 };
         value.residentTextureCount++;
-        value.residentBytes += planeBytes(plane);
+        value.residentBytes += plane.bytesPerLayer;
         distribution.set(plane.format, value);
       }
     }
@@ -1339,9 +924,9 @@ export class TextureResidency {
       return {
         segment: segment.id,
         format: segment.plane.format,
-        width: segment.plane.mips[0]!.width,
-        height: segment.plane.mips[0]!.height,
-        mipLevelCount: segment.plane.mips.length,
+        width: segment.plane.width,
+        height: segment.plane.height,
+        mipLevelCount: segment.plane.mipCount,
         allocatedCapacity: segment.capacity,
         residentTextureCount: resident,
         retiringTextureCount: retiring,
@@ -1363,9 +948,9 @@ export class TextureResidency {
       uploadCopyOperations: this.copyOperations,
       physicalCopyBytes: this.physicalCopyBytes,
       committedUploadBytes: this.committedUploadBytes,
-      frameUploadBudgetBytes: TEXTURE_FRAME_UPLOAD_BYTES,
-      uploadInFlightBudgetBytes: TEXTURE_UPLOAD_IN_FLIGHT_BYTES,
-      bootstrapUploadBudgetBytes: TEXTURE_BOOTSTRAP_UPLOAD_BYTES,
+      frameUploadBudgetBytes: (4 * 1024 ** 2),
+      uploadInFlightBudgetBytes: (16 * 1024 ** 2),
+      bootstrapUploadBudgetBytes: (48 * 1024 ** 2),
       maximumResidentMinimumMip: live.reduce((mip, entry) => Math.max(mip, entry.minMip), 0),
       quarantinedTextureCount: this.quarantined.size,
       allocatedBytes: this.allocated,
@@ -1378,7 +963,7 @@ export class TextureResidency {
       retiringBytes: bytes(retired),
       logicalResidentBytes: bytes(live),
       rgbaEquivalentResidentBytes: live.reduce(
-        (sum, entry) => sum + entry.product.evidence.rgbaEquivalentBytes,
+        (sum, entry) => sum + entry.product.source.directory.width * entry.product.source.directory.height * 4 * 4 / 3,
         0,
       ),
       uploadBytes: this.uploadBytes,
@@ -1396,7 +981,7 @@ export class TextureResidency {
       abortedBankGrowCount: 0,
       cookedResidentTextureCount: live.length,
       compressedResidentTextureCount: live.filter((entry) =>
-        entry.product.metadata.planes.some((plane) => plane.format.startsWith("bc")),
+        entry.product.planes.some((plane) => plane.format.startsWith("bc")),
       ).length,
       segmentCount: this.segments.size,
       bindingSetCount: this.sets.size,
@@ -1411,24 +996,24 @@ export class TextureResidency {
       textureLedger: entries.flatMap((entry) =>
         entry.planes.map((plane, index) => ({
           assetIdentity: entry.product.identity,
-          sourceUri: entry.product.metadata.sourceUri,
+          sourceUri: entry.product.source.url,
           state: entry.refs > 0 ? "resident" : "retiring",
           refCount: entry.refs,
           bankClass: index,
           segment: plane.segment.id,
           layer: plane.layer,
-          sourceWidth: entry.product.metadata.sourceWidth,
-          sourceHeight: entry.product.metadata.sourceHeight,
-          decodedWidth: entry.product.metadata.sourceWidth,
-          decodedHeight: entry.product.metadata.sourceHeight,
-          gpuWidth: plane.segment.plane.mips[0]!.width,
-          gpuHeight: plane.segment.plane.mips[0]!.height,
+          sourceWidth: entry.product.source.directory.width,
+          sourceHeight: entry.product.source.directory.height,
+          decodedWidth: entry.product.source.directory.width,
+          decodedHeight: entry.product.source.directory.height,
+          gpuWidth: plane.segment.plane.width,
+          gpuHeight: plane.segment.plane.height,
           format: plane.segment.plane.format,
-          mipLevelCount: plane.segment.plane.mips.length,
+          mipLevelCount: plane.segment.plane.mipCount,
           minimumResidentMip: entry.minMip,
-          logicalBytes: entry.product.evidence.rgbaEquivalentBytes,
-          residentBytes: planeBytes(plane.segment.plane),
-          allocatedBytes: planeBytes(plane.segment.plane),
+          logicalBytes: entry.product.source.directory.width * entry.product.source.directory.height * 4,
+          residentBytes: plane.segment.plane.bytesPerLayer,
+          allocatedBytes: plane.segment.plane.bytesPerLayer,
         })),
       ),
       privateSubmitCount: 0,
@@ -1448,7 +1033,6 @@ export class TextureResidency {
       this.destroySegment(segment);
     }
     this.entries.clear();
-    this.refining.clear();
     this.quarantined.clear();
     this.materials.clear();
     this.descriptors.clear();
@@ -1468,7 +1052,7 @@ export class TextureResidency {
           segments.map((segment, bindingSlot) => ({
             bindingSlot,
             formatClass: segment.plane.format,
-            sizeClass: segment.plane.mips[0]!.width,
+            sizeClass: segment.plane.width,
             segment: segment.id,
           })),
         ),
@@ -1492,15 +1076,14 @@ export class TextureResidency {
     }
   }
   private freeEntry(entry: Entry): void {
-    if (entry.product.tiled && entry.virtual && this.virtualValue) {
+    if (entry.virtual && this.virtualValue) {
       const virtual = this.virtualValue;
-      virtual.releaseCompleted(entry.product.tiled);
+      virtual.releaseCompleted(entry.product.source);
       if (virtual.sourceCount === 0 && this.virtualValue === virtual) {
         virtual.destroy();
         this.virtualValue = null;
       }
     }
-    this.refining.delete(entry);
     this.descriptors.delete(entry.slot);
     this.generations[entry.slot] = nextTextureHandleGeneration(entry.generation);
     this.freeSlots.push(entry.slot);
@@ -1564,33 +1147,9 @@ function countMaterials(materials: readonly StandardShadeMaterial[]) {
   }
   return counts;
 }
-function planeBytes(plane: TextureProductPlane) {
-  return plane.mips.reduce((sum, mip) => sum + mip.byteLength, 0);
-}
-function textureRowBytes(plane: TextureProductPlane, mip: TextureProductMip): number {
-  return mip.byteLength / (mip.physicalHeight / (plane.format === "r8unorm" ? 1 : 4));
-}
-function segmentKey(plane: TextureProductPlane) {
-  return `${plane.format}/${plane.mips[0]!.width}/${plane.mips[0]!.height}/${plane.mips.length}`;
+function segmentKey(plane: ImageTextureResidentLayout) {
+  return `${plane.format}/${plane.width}/${plane.height}/${plane.mipCount}`;
 }
 function sameTextures(a: readonly ShadeTexture[], b: readonly ShadeTexture[]) {
   return a.length === b.length && a.every((texture, index) => texture === b[index]);
-}
-function validateUpload(product: TextureProduct, limits: GPUSupportedLimits): void {
-  assertValidatedTextureProduct(product);
-  const metadata = product.metadata;
-  if (
-    metadata.schemaVersion !== 3 ||
-    metadata.storageWidth > Number(limits.maxTextureDimension2D) ||
-    metadata.storageHeight > Number(limits.maxTextureDimension2D)
-  ) {
-    throw new RangeError("Texture Product/device shape admission failed");
-  }
-  for (const plane of metadata.planes) {
-    for (const mip of plane.mips) {
-      if (product.chunks.get(mip.chunkId)?.byteLength !== mip.byteLength) {
-        throw new Error("Texture upload chunks missing/detached");
-      }
-    }
-  }
 }

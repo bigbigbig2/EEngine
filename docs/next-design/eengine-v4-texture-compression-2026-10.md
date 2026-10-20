@@ -1,11 +1,11 @@
 ---
 id: eengine-v4-texture-compression-2026-10
-state: current
+state: history
+supersededBy: ../next-design/eengine-extreme-web-asset-compression-2026-10.md
 verifies:
   files:
     - project/workstreams/active/eengine-next-clean-rebuild.yaml
     - OEngine/src/assets/PcMaterialTextures.ts
-    - OEngine/src/assets/TextureProduct.ts
     - OEngine/tools/texture-codec
     - OEngine/tools/build-pc-texture-codec.mjs
     - OEngine/src/assets/RuntimeAssetManifestV2.ts
@@ -35,6 +35,9 @@ verifies:
 ---
 
 # PC-First GPU Native Texture Compression
+
+> 历史设计/实施记录：原数值、失败与阶段结果保留，不再约束当前实现。当前唯一设计和执行由[workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)导航；旧路径不作为兼容保留。
+
 
 > 2026-10-20 范围限定：本文 cooked codec=0 指普通完整 BC TextureProduct；后续 Streaming VT 的 schema 2 fine 已采用 Worker Zstd 无损解压，原生 tail/resident 与所有最终 GPU BC 不变。新增模块唯一详细依据为[VT 传输设计](./eengine-v4-vt-transport-transcode-2026-10.md)，实际结果读其执行文档；不据旧概括恢复 schema 1 或增加 fallback。
 

@@ -16,9 +16,13 @@ import {
 } from "../gpu/GpuFrameGeometryArenaAbi.js";
 import { virtualTextureSettings, type VirtualTextureSettings } from "../gpu/VirtualTextureAbi.js";
 import { surfaceCacheGiSettings, type SurfaceCacheGiSettings } from "./gi/SurfaceCacheGiSettings.js";
+import type { ImageKernelSource } from "../gpu/ImageTextureTranscoder.js";
 
 /** Immutable Renderer capability and execution configuration. */
 export interface RendererConfig {
+  /** Pinned kernels supplied under the caller's applicable Spark rights. The engine
+   * does not download evaluation shaders or imply production redistribution rights. */
+  readonly imageTextureKernels?: ImageKernelSource;
   readonly surfaceCacheGi?: Partial<SurfaceCacheGiSettings>;
   /** Immutable atlas/metadata/upload ceilings, admitted before VT allocation.
    * No VT resources are created until a tiled material actually needs them. */

@@ -151,9 +151,10 @@ test("provided canonical owner domains split without overlap; exact coverage byt
   );
   validateImageTextureDirectory(result.directory);
   assert.equal(result.directory.items.filter((i) => i.mip === 0 && i.plane === 0).length, 2);
+  assert.equal(result.directory.planes[1].mode, "resident");
   assert.deepEqual(
     [...payloads.find((p) => p.kind === "exact").bytes],
-    Array.from({ length: 128 }, (_, i) => i)
+    Array.from({ length: 256 }, (_, i) => i)
   );
 });
 test("native generated AVIF metadata is admitted; malformed size, CICP and transform rejected", async () => {
@@ -222,7 +223,9 @@ test("provided XY and XYZ/moment inputs are never renormalized by the cooker", a
         mode: "resident",
         mips: "provided",
         toolHash: hash,
-        inputs: [{ width: 1, height: 1, rgba: new Uint8Array([140, 145, 160, 255]) }]
+        inputs: [
+          { width: 1, height: 1, rgba: new Uint8Array([140, 145, semantic === "normal-xy" ? 0 : 160, 255]) }
+        ]
       },
       sink
     );

@@ -6,18 +6,11 @@ verifies:
   files:
     - docs/next-design/eengine-v4-vt-transport-transcode-2026-10.md
     - docs/porting/next-renderer.md
-    - OEngine/src/assets/TiledTextureProduct.ts
-    - OEngine/src/assets/TiledTextureSource.ts
-    - OEngine/src/assets/codec/TiledTextureCook.ts
-    - OEngine/src/assets/codec/TiledTextureTransport.ts
-    - OEngine/src/assets/codec/TiledTextureCompression.ts
-    - OEngine/src/assets/codec/TiledTextureDecoder.ts
     - OEngine/src/assets/codec/vendor/tiled-zstd
     - OEngine/tools/texture-codec/TiledZstd.c
     - OEngine/tools/build-tiled-texture-codec.mjs
     - OEngine/tools/benchmark-tiled-texture.mjs
     - OEngine/vite.config.ts
-    - OEngine/src/assets/codec/TiledTextureCache.ts
     - OEngine/src/assets/codec/CookedAssetPreparation.ts
     - OEngine/src/assets/codec/CookedAssetProtocol.ts
     - OEngine/src/assets/codec/AssetWorkerPool.ts
@@ -41,6 +34,9 @@ verifies:
 ---
 
 # VT 细页无损传输压缩执行文档
+
+> 历史设计/实施记录：原数值、失败与阶段结果保留，不再约束当前实现。当前唯一设计和执行由[workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)导航；旧路径不作为兼容保留。
+
 
 2026-10-20 后续授权说明：本文保留已完成模块的实施、验证、成本与未运行范围，不再作为新模块执行入口。当前计划见[极致 Web 资产压缩执行](eengine-extreme-web-asset-compression-execution-2026-10.md)；旧结果不被追认为新方案结果。
 

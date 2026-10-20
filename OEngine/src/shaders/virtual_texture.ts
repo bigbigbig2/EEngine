@@ -83,12 +83,15 @@ fn native_vt_sample(table: texture_2d_array<u32>, atlas: texture_2d_array<f32>, 
   let raw = clamp(select(vec2f(0.0), original_uv, original_uv == original_uv), vec2f(-1e12), vec2f(1e12));
   var uv = clamp(raw, vec2f(0.0), vec2f(1.0));
   var direction = vec2f(1.0);
-  if address == 1u {
-    uv = fract(raw);
-  } else if address == 2u {
-    let wrapped = raw - floor(raw * 0.5) * 2.0;
-    uv = select(wrapped, 2.0 - wrapped, wrapped > vec2f(1.0));
-    direction = select(vec2f(1.0), vec2f(-1.0), wrapped > vec2f(1.0));
+  for (var axis = 0u; axis < 2u; axis++) {
+    let mode = (address >> (axis * 2u)) & 3u;
+    if mode == 1u {
+      uv[axis] = fract(raw[axis]);
+    } else if mode == 2u {
+      let wrapped = raw[axis] - floor(raw[axis] * 0.5) * 2.0;
+      uv[axis] = select(wrapped, 2.0 - wrapped, wrapped > 1.0);
+      direction[axis] = select(1.0, -1.0, wrapped > 1.0);
+    }
   }
   let first = u32(select(floor(lambda + 0.5), floor(lambda), linear));
   let a = native_vt_lookup(table, material, metadata, levels, tail, first, uv);

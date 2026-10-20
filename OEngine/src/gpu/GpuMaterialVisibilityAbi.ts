@@ -473,7 +473,7 @@ export function encodeSamplerClass(
   const v = addressMode(texture.wrapT);
   const nearest = texture.magFilter === 0 && texture.minFilter === 0;
   const linear = texture.magFilter === 1 && texture.minFilter === 1;
-  const fallback = u === null || v === null || u !== v || (!nearest && !linear);
+  const fallback = u === null || v === null || (!nearest && !linear);
   if (fallback) {
     return { value: GPU_MATERIAL_VISIBILITY_SAMPLER.Fallback, fallback: true };
   }
@@ -489,9 +489,9 @@ export function encodeSamplerClass(
 
 function mipClampCode(texture: ShadeTexture | null, residentMipRange?: readonly [number, number]): number {
   if (texture === null || residentMipRange === undefined) return GPU_MATERIAL_VISIBILITY_SAMPLER.FullMipCode;
-  const asset = texture.texture_product;
+  const asset = texture.image_source;
   if (asset === undefined) return GPU_MATERIAL_VISIBILITY_SAMPLER.FullMipCode;
-  const maxMip = asset.metadata.planes[0]!.mips.length - 1;
+  const maxMip = asset.directory.mipCount - 1;
   const availableMip = residentMipRange[0];
   if (!Number.isInteger(availableMip) || availableMip <= 0)
     return GPU_MATERIAL_VISIBILITY_SAMPLER.FullMipCode;
@@ -511,7 +511,7 @@ function addressMode(value: number): number | null {
 }
 
 export function isUsableTexture(texture: ShadeTexture): boolean {
-  if (texture.texture_metadata !== undefined) return true;
+  if (texture.image_source !== undefined || texture.image?.encoded_mime_type !== undefined) return true;
   const image = texture.image;
   return image !== undefined && image.width > 0 && image.height > 0 && image.depth <= 1;
 }

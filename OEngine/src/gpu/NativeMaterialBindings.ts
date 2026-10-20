@@ -6,6 +6,7 @@ import type { AppearanceStaticLease } from "./AppearanceStaticResidency.js";
 import type { NativeMaterialProducts } from "./NativeMaterialProducts.js";
 import { NATIVE_PACKED_PRODUCT_WGSL } from "../shaders/native_material_products.js";
 import { VIRTUAL_TEXTURE_SAMPLE_WGSL } from "../shaders/virtual_texture.js";
+import { IMAGE_TEXTURE_SAMPLE_WGSL } from "../shaders/image_texture_sampling.js";
 import { VT_MAX_MIP_LEVELS } from "./VirtualTextureAbi.js";
 import type { TextureBindingSet } from "./TextureResidency.js";
 import type { TextureSurfacePublication } from "./TextureSurfacePublication.js";
@@ -167,9 +168,9 @@ export function createNativeMaterialBindings(source: NativeMaterialBindingSource
     name = `native_material_bank_sample_${bankSelectors.size}`;
     bankSelectors.set(sampler, name);
     callbacks.push(`
-fn ${name}(reference: u32, sampler_class: u32, uv: vec2f, layer: i32, dx: vec2f, dy: vec2f) -> vec4f {
+fn ${name}(reference: u32, sampler_class: u32, uv: vec2f, layer: i32, dx: vec2f, dy: vec2f, logical: vec2f, anisotropy: f32) -> vec4f {
   switch oengine_texture_ref_bank(reference) {
-${bankTextures.map((texture, slot) => `    case ${slot}u: { return oengine_sample_texture_clamped(${texture}, ${sampler}, reference, sampler_class, uv, layer, dx, dy); }`).join("\n")}
+${bankTextures.map((texture, slot) => `    case ${slot}u: { return image_texture_sample(${texture}, ${sampler}, reference, sampler_class, uv, layer, dx, dy, logical, anisotropy); }`).join("\n")}
     default: { return vec4f(0.0); }
   }
 }`);
@@ -199,13 +200,10 @@ ${bankTextures.map((texture, slot) => `    case ${slot}u: { return oengine_sampl
         wrapT: binding.sampler[5],
         minFilter: binding.sampler[1],
         magFilter: binding.sampler[2],
-        texture_product: binding.texture.texture_product
+        image_source: binding.texture.image_source
       } as ShadeTexture,
       minimumMip === undefined ? undefined : [minimumMip, mipRange?.[1] ?? minimumMip]
     );
-    // Keep TextureResidency's existing finite sampler-class policy, including
-    // its admitted mixed-state default class. A native binding must not silently
-    // narrow the set of material snapshots accepted by the current owner.
     revisions.push(
       binding.contentVersion ?? "unversioned",
       sourceReference,
@@ -230,18 +228,20 @@ ${bankTextures.map((texture, slot) => `    case ${slot}u: { return oengine_sampl
       coverageSlot >= 0
         ? encodeGpuTextureRef(profileSlot(coverageSlot), Math.max(1, coverage!.layer))
         : GPU_TEXTURE_REF_INVALID;
-    const address = samplerClass.value & S.AddressMask;
-    const wrap = address === 0 ? "clamp-to-edge" : address === 2 ? "mirror-repeat" : "repeat";
+    const wrap = (address: number): GPUAddressMode =>
+      address === 0 ? "clamp-to-edge" : address === 2 ? "mirror-repeat" : "repeat";
+    const wrapU = wrap(samplerClass.value & S.AddressMask);
+    const wrapV = wrap((samplerClass.value >> S.AddressVBits) & S.AddressMask);
     const filter = (samplerClass.value & S.LinearBit) !== 0 ? "linear" : "nearest";
     const obtainMaterialSampler = (anisotropy: number): string =>
       resource(
-        `sampler/${wrap}/${filter}/${anisotropy}`,
-        `${wrap} ${filter} anisotropy ${anisotropy}`,
+        `sampler/${wrapU}/${wrapV}/${filter}/${anisotropy}`,
+        `${wrapU}/${wrapV} ${filter} anisotropy ${anisotropy}`,
         { sampler: { type: "filtering" } },
         () =>
           source.obtainSampler({
-            addressModeU: wrap,
-            addressModeV: wrap,
+            addressModeU: wrapU,
+            addressModeV: wrapV,
             minFilter: filter,
             magFilter: filter,
             mipmapFilter: filter,
@@ -255,10 +255,11 @@ ${bankTextures.map((texture, slot) => `    case ${slot}u: { return oengine_sampl
         : "";
     // Exact alpha must match Visibility/VSM sampling; only RGB gets anisotropy.
     const alphaSampler = needsAlpha ? obtainMaterialSampler(1) : sampler;
-    const metadata = binding.texture.texture_metadata;
+    const metadata = binding.texture.image_source?.directory;
+    const logical = `vec2f(${constant(metadata?.width ?? 1)}, ${constant(metadata?.height ?? 1)})`;
     let primarySample =
       needsColor && !virtual
-        ? `${bankSample(sampler)}(reference, u32(${samplerValue}), uv, i32(oengine_texture_ref_layer(reference)), dx, dy)`
+        ? `${bankSample(sampler)}(reference, u32(${samplerValue}), uv, i32(oengine_texture_ref_layer(reference)), dx, dy, ${logical}, 8.0)`
         : "vec4f(1.0)";
     if (virtual) {
       virtualTextures = true;
@@ -312,17 +313,16 @@ ${bankTextures.map((texture, slot) => `    case ${slot}u: { return oengine_sampl
         }
       }
       primarySample = `native_vt_sample(${table}, ${atlas}, ${atlasSampler}, material_base,
-        ${offset + 2}u, u32(${levels}), u32(${tail}), ${address}u,
+        ${offset + 2}u, u32(${levels}), u32(${tail}), ${samplerClass.value & 15}u,
         ${filter === "linear"}, uv, dx, dy)`;
     }
     let valueExpression = "oengine_texture_ref_apply_routing(reference, value)";
     if (virtual) {
       valueExpression = "value";
     }
-    if (metadata?.semantic === "occlusion-linear") {
-      const channels = ["0.0", "0.0", "0.0", "1.0"];
-      channels[metadata.channel] = "value.r";
-      valueExpression = `vec4f(${channels.join(", ")})`;
+    if (metadata?.planes[0]?.semantic === "normal-xy") {
+      // Reconstruct at the sample boundary, before arbitrary graph channel reads.
+      valueExpression = "vec4f(value.rg, 0.5 + 0.5 * sqrt(max(0.0, 1.0 - dot(value.rg * 2.0 - 1.0, value.rg * 2.0 - 1.0))), 1.0)";
     }
     let alphaSample = `return ${valueExpression};`;
     if (needsAlpha) {
@@ -331,7 +331,7 @@ ${bankTextures.map((texture, slot) => `    case ${slot}u: { return oengine_sampl
       const alphaLayer = constant(coverage?.layer ?? 0);
       alphaSample = `let alpha_reference = u32(${alphaLow}) | (u32(${alphaHigh}) << 16u);
   if alpha_reference != OENGINE_TEXTURE_REF_INVALID {
-    let alpha = ${bankSample(alphaSampler)}(alpha_reference, u32(${samplerValue}), uv, i32(${alphaLayer}), dx, dy).r;
+    let alpha = ${bankSample(alphaSampler)}(alpha_reference, u32(${samplerValue}), uv, i32(${alphaLayer}), dx, dy, ${logical}, 1.0).r;
     return vec4f((${valueExpression}).rgb, alpha);
   }
   return ${valueExpression};`;
@@ -461,6 +461,7 @@ const OENGINE_MATERIAL_SAMPLER_MIP_MASK: u32 = ${S.MipMask}u;
 const OENGINE_MATERIAL_SAMPLER_MIP_SHIFT: u32 = ${S.MipShift}u;
 const OENGINE_MATERIAL_SAMPLER_FULL_MIP_CODE: u32 = ${S.FullMipCode}u;
 ${GPU_TEXTURE_CLAMPED_SAMPLE_WGSL}
+${IMAGE_TEXTURE_SAMPLE_WGSL}
 `;
   const shader = `${declarations.join("\n")}\n${sampling}\n${virtualTextures ? VIRTUAL_TEXTURE_SAMPLE_WGSL : ""}\n${packedProductHelpers}\n${callbacks.join("\n")}\n${program.source}`;
   const boundProgram: NativeMaterialProgram = Object.freeze({
@@ -504,8 +505,8 @@ export function createNativeCoverageBindings(source: NativeMaterialBindingSource
     }
     if (
       (sample.readMask & 8) !== 0 &&
-      sample.binding.texture.texture_product?.metadata.planes.some((plane) =>
-        plane.format.startsWith("bc")
+      sample.binding.texture.image_source?.directory.planes.some((plane) =>
+        plane.target.startsWith("bc")
       ) &&
       source.texturePublications.get(sample.binding.texture)?.coverage === undefined
     ) {

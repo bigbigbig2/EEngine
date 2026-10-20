@@ -1,0 +1,19 @@
+{
+  "pins": {
+    "basis": "99f52d63aa6799cbdaecfe977111dc5ec3b31d47"
+  },
+  "recipe": "OEngine/tools/build-image-resampler.mjs",
+  "emscripten": "emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 6.0.9 (4e4223852a0835923411059a3929907d7df1232e)\r",
+  "memoryMaximum": 67108864,
+  "exports": [
+    "malloc",
+    "free",
+    "image_resample"
+  ],
+  "profile": "Unchanged Basis tent resampler; EEngine canonical sRGB/normal C ABI; no BC codec",
+  "glueHash": "a39204cafa6a524d75a01721149b34e4c547f07651dc97fe456e034bba508c56",
+  "hashes": {
+    "image_resample.js": "568ceba31ef607861fe40b55545263466eb07f5a6f4d418b017c80ba0548b12b",
+    "image_resample.wasm": "a691875f15d729ba8aff97c4b9c4cf1fff4785c91f9d5e8557198cbfaaa2acd8"
+  }
+}

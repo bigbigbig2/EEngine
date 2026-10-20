@@ -4,58 +4,45 @@ import {
   type CookedAssetResult,
   type CookedAssetTask,
   type CookedGeometryRegistration,
-  type CookedTaskHeader,
+  type CookedTaskHeader
 } from "./CookedAssetProtocol.js";
-import { importCookedTextureReceipt, PC_TEXTURE_INPUT_LIMIT } from "../TextureProduct.js";
 import { loadAssetBatch } from "../AssetLoadBatch.js";
 import {
   markPageIntegrityPreverifiedV1,
-  type GeometryPageProductV1,
+  type GeometryPageProductV1
 } from "../geometry-product/GeometryProductV1.js";
 import {
   importPreparedResidentPage,
-  releasePreparedPage,
+  releasePreparedPage
 } from "../geometry-product/GeometryProductResidentAttributes.js";
 import { CookedAssetCredit } from "./CookedAssetCredit.js";
 import {
-  TILED_TEXTURE_DIRECTORY_LIMIT,
-  assertTiledTextureDirectory,
-  validateTiledTextureMetadata,
-  type TiledTextureDirectory,
-} from "../TiledTextureProduct.js";
+  IMAGE_TEXTURE_LIMITS,
+  checkedImageHash,
+  checkedImageInteger,
+  imageTextureHash,
+  readImageTextureDirectory,
+  writeImageTextureDirectory,
+  type ImageTextureDirectory
+} from "../ImageTextureProduct.js";
 import {
-  tiledTextureSpans,
-  type TiledTextureRegistration,
-  type TiledTexturePreparedPayload,
-} from "./TiledTextureTransport.js";
-import { TiledTextureCache } from "./TiledTextureCache.js";
-import { TILED_ZSTD_MEMORY_BYTES } from "./TiledTextureCompression.js";
-import { TILED_ZSTD_WASM_BYTES } from "./vendor/tiled-zstd/identity.js";
-import { writeImageTextureDirectory, type ImageTextureDirectory } from "../ImageTextureProduct.js";
-import {
-  ImageTextureLease, closeImageTextureResult, imageTaskPeak, imageTextureTask,
-  type ImageTextureResult, type ImageTextureTask
+  ImageTextureLease,
+  closeImageTextureResult,
+  imageTaskPeak,
+  imageTextureTask,
+  registerImageDirectorySnapshot,
+  type ImageTextureResult,
+  type ImageTextureTask
 } from "./ImageTexturePreparation.js";
+import type { ImageTextureImportTask, ImageTextureImportResult } from "./ImageTextureImport.js";
 
 const MiB = 1024 * 1024;
-export interface TiledTexturePayloadLease {
-  /** Exclusive, exact-sized storage. release() invalidates/detaches these views. */
-  readonly payloads: readonly TiledTexturePreparedPayload[];
-  /** Call after copying/staging/discarding. Credit remains held until release or session cancellation. */
-  release(): void;
-}
-interface TiledDirectoryRegistration {
-  readonly session: string;
-  readonly key: string;
-  readonly registration: TiledTextureRegistration;
-  readonly charge: number;
-  readonly controller: AbortController;
-}
 interface ImageDirectoryRegistration {
   readonly directory: ImageTextureDirectory;
   readonly controller: AbortController;
   readonly leases: Set<ImageTextureLease>;
   readonly charge: number;
+  indexBytes: number;
 }
 
 /** Device-independent Cooked CPU owner. The pool never creates GPU objects.
@@ -67,14 +54,11 @@ export class CookedAssetPreparation {
   // Separate IO admission from Worker and byte capacity. A smaller Worker
   // profile may run fewer simultaneous requests, but never bypasses this cap.
   readonly #io: CookedAssetCredit;
-  readonly #tileCache: TiledTextureCache;
-  readonly #tiledDirectories = new Map<TiledTextureDirectory, TiledDirectoryRegistration>();
-  readonly #tileLeases = new Map<string, Set<() => void>>();
   readonly #imageLeases = new Map<string, Set<ImageTextureLease>>();
   readonly #imageDirectories = new Map<string, Map<ImageTextureDirectory, ImageDirectoryRegistration>>();
+  readonly #localImagePayloads = new Map<ImageTextureDirectory, ReadonlyMap<string, ArrayBuffer>>();
   #imageDirectoryBytes = 0;
-  #directoryBytes = 0;
-  #directoryReservedBytes = 0;
+  #localReplayBytes = 0;
   #task = 0;
   #disposed = false;
   readonly #sessions = new Map<string, AbortController>();
@@ -83,17 +67,6 @@ export class CookedAssetPreparation {
   #ioMs = 0;
   #busyMs = 0;
   #ranges = 0;
-  #textureReads = 0;
-  #tiledDirectoryReads = 0;
-  #tiledPayloadRanges = 0;
-  #tiledPayloadBytes = 0;
-  #tiledFetchedBytes = 0;
-  #tiledTaskFailures = 0;
-  #tiledNativeBytes = 0;
-  #tiledCacheHitBytes = 0;
-  #tiledDecodeMs = 0;
-  #tiledDecoderInitMs = 0;
-  readonly #decoderReservedBytes: number;
   readonly #sessionMetrics = new Map<string, { encodedBytes: number; ranges: number }>();
 
   constructor(
@@ -102,10 +75,8 @@ export class CookedAssetPreparation {
       maxConcurrentRanges?: number;
       maxTemporaryBytes?: number;
       createWorker?: () => Worker | Promise<Worker>;
-      maxTileCacheBytes?: number;
-      /** E1 isolated composition selects 16 MiB; production defaults stay unchanged until E2. */
       maxEncodedBytes?: number;
-    } = {},
+    } = {}
   ) {
     const maxRanges = options.maxConcurrentRanges ?? 4;
     const maxWorkers =
@@ -113,27 +84,28 @@ export class CookedAssetPreparation {
     if (!Number.isSafeInteger(maxWorkers) || maxWorkers < 1 || maxWorkers > 4) {
       throw new RangeError("Cooked Worker count must be in 1..4");
     }
-    this.#tileCache = new TiledTextureCache(options.maxTileCacheBytes);
     if (!Number.isSafeInteger(maxRanges) || maxRanges < 1 || maxRanges > 8) {
       throw new RangeError("Cooked range concurrency must be in 1..8");
     }
     this.#io = new CookedAssetCredit({ total: maxRanges, encoded: 0, ready: 0 });
     const temporaryBytes = options.maxTemporaryBytes ?? 256 * MiB;
-    this.#decoderReservedBytes = maxWorkers * (TILED_ZSTD_MEMORY_BYTES + 2 * TILED_ZSTD_WASM_BYTES);
-    const taskBytes = temporaryBytes - this.#decoderReservedBytes;
-    if (!Number.isSafeInteger(options.maxEncodedBytes ?? 32 * MiB) ||
-        (options.maxEncodedBytes ?? 32 * MiB) < 1 || (options.maxEncodedBytes ?? 32 * MiB) > 32 * MiB) {
-      throw new RangeError("Cooked encoded input credit must be in 1..32 MiB");
+    const taskBytes = temporaryBytes;
+    if (
+      !Number.isSafeInteger(options.maxEncodedBytes ?? 16 * MiB) ||
+      (options.maxEncodedBytes ?? 16 * MiB) < 1 ||
+      (options.maxEncodedBytes ?? 16 * MiB) > 16 * MiB
+    ) {
+      throw new RangeError("Cooked encoded input credit must be in 1..16 MiB");
     }
     if (!Number.isSafeInteger(temporaryBytes) || taskBytes < 4 * MiB) {
       throw new RangeError(
-        "Cooked budget cannot hold decoder reservations and one maximum resident fragment",
+        "Cooked budget cannot hold decoder reservations and one maximum resident fragment"
       );
     }
     this.#credit = new CookedAssetCredit({
       total: taskBytes,
-      encoded: options.maxEncodedBytes ?? 32 * MiB,
-      ready: 64 * MiB,
+      encoded: options.maxEncodedBytes ?? 16 * MiB,
+      ready: 64 * MiB
     });
     this.#pool = new AssetWorkerPool({
       maxWorkers,
@@ -145,7 +117,7 @@ export class CookedAssetPreparation {
       },
       retainedBytes: (result) => {
         const bytes = (result as { decoderMemoryBytes?: unknown } | null)?.decoderMemoryBytes;
-        if (bytes !== 0 && bytes !== TILED_ZSTD_MEMORY_BYTES) {
+        if (bytes !== 0) {
           throw new Error("Cooked Worker decoder memory receipt mismatch");
         }
         return bytes;
@@ -157,7 +129,7 @@ export class CookedAssetPreparation {
             throw new Error("Cooked assets require Dedicated Worker support");
           }
           return new Worker(new URL("./workers/cooked-asset-worker.js", import.meta.url), { type: "module" });
-        }),
+        })
     });
   }
 
@@ -168,7 +140,6 @@ export class CookedAssetPreparation {
     const session = crypto.randomUUID();
     this.#sessions.set(session, new AbortController());
     this.#readyLeases.set(session, new Set());
-    this.#tileLeases.set(session, new Set());
     this.#imageLeases.set(session, new Set());
     this.#imageDirectories.set(session, new Map());
     this.#sessionMetrics.set(session, { encodedBytes: 0, ranges: 0 });
@@ -189,21 +160,97 @@ export class CookedAssetPreparation {
       lease.cancel();
     }
     this.#readyLeases.delete(session);
-    for (const cancel of this.#tileLeases.get(session) ?? []) {
-      cancel();
-    }
-    this.#tileLeases.delete(session);
-    for (const [directory, value] of this.#tiledDirectories) {
-      if (value.session === session) {
-        this.releaseTiledDirectory(session, directory);
-      }
-    }
     this.#sessions.delete(session);
     this.#sessionMetrics.delete(session);
     this.#pool.forgetRegistration(session);
   }
 
-  /** E1 isolated entry. Shares the existing pool, IO admission, sessions and credits. */
+  /** Bounded metadata fetch shares the same global IO and byte admission as payload work. */
+  async readImageDirectory(
+    url: string,
+    identity: string,
+    byteLength: number,
+    signal?: AbortSignal
+  ): Promise<ImageTextureDirectory> {
+    checkedImageHash(identity);
+    checkedImageInteger(byteLength, 1, IMAGE_TEXTURE_LIMITS.directoryBytes);
+    const combined = AbortSignal.any([AbortSignal.timeout(30000), ...(signal ? [signal] : [])]);
+    const session = this.openSession();
+    const bounded = AbortSignal.any([combined, this.#sessions.get(session)!.signal]);
+    let release;
+    let releaseIo;
+    try {
+      release = await this.#credit.acquire(
+        { total: byteLength * 5, encoded: byteLength, ready: 0 },
+        0,
+        bounded
+      );
+      releaseIo = await this.#io.acquire({ total: 1, encoded: 0, ready: 0 }, 0, bounded);
+      return await this.#fetchImageDirectory(url, identity, byteLength, bounded);
+    } finally {
+      releaseIo?.();
+      release?.();
+      this.closeSession(session);
+    }
+  }
+
+  async #fetchImageDirectory(
+    url: string,
+    identity: string,
+    byteLength: number,
+    signal: AbortSignal
+  ): Promise<ImageTextureDirectory> {
+    checkedImageHash(identity);
+    checkedImageInteger(byteLength, 1, IMAGE_TEXTURE_LIMITS.directoryBytes);
+    const target = new URL(url);
+    if (!["http:", "https:"].includes(target.protocol)) {
+      throw new Error("Image texture directory requires immutable HTTP transport");
+    }
+    const combined = signal;
+    const response = await fetch(target, { signal: combined });
+    if (
+      response.status !== 200 ||
+      (response.headers.get("content-encoding") ?? "identity") !== "identity" ||
+      (response.headers.has("content-length") &&
+        response.headers.get("content-length") !== String(byteLength))
+    ) {
+      await response.body?.cancel();
+      throw new Error("Image directory transport status/length/encoding mismatch");
+    }
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error("Image directory body is missing");
+    }
+    const bytes = new Uint8Array(byteLength);
+    let offset = 0;
+    try {
+      while (true) {
+        const part = await reader.read();
+        if (part.done) {
+          break;
+        }
+        if (part.value.byteLength > bytes.length - offset) {
+          throw new RangeError("Image directory exceeds its declared byte domain");
+        }
+        bytes.set(part.value, offset);
+        offset += part.value.byteLength;
+      }
+    } finally {
+      try {
+        await reader.cancel();
+      } finally {
+        reader.releaseLock();
+      }
+    }
+    if (offset !== byteLength || (await imageTextureHash(bytes)) !== identity) {
+      throw new Error("Image directory byte count/SHA256 mismatch");
+    }
+    combined.throwIfAborted();
+
+    return readImageTextureDirectory(bytes);
+  }
+
+  /** One-item convenience entry; all image preparation shares the same byte owner. */
   async readImageItem(
     session: string,
     directory: ImageTextureDirectory,
@@ -212,7 +259,113 @@ export class CookedAssetPreparation {
     signal?: AbortSignal,
     priority: 0 | 1 | 2 = 1
   ): Promise<ImageTextureLease> {
+    const leases = await this.readImageItems(session, directory, [itemId], baseUrl, signal, priority);
+    return leases[0]!;
+  }
+
+  /** Sources register immutable metadata/index storage at open, not first payload
+   * demand, so dormant sources cannot bypass the shared directory capacity. */
+  registerImageSource(session: string, directory: ImageTextureDirectory, spatialIndexBytes: number): void {
+    checkedImageInteger(spatialIndexBytes, 0, 8 * MiB);
+    const registration = this.#registerImageDirectory(session, directory);
+    if (registration.indexBytes !== 0) {
+      throw new Error("Image source spatial index was already registered");
+    }
+    const extra = spatialIndexBytes;
+    if (this.#imageDirectoryBytes + extra > 8 * MiB) {
+      this.releaseImageDirectory(session, directory);
+      throw new RangeError("Image source/index global metadata credit exceeded");
+    }
+    this.#imageDirectoryBytes += extra;
+    registration.indexBytes += extra;
+  }
+
+  /** Reserve the entire deduplicated VT neighborhood before decoding its first owner.
+   * Child tasks only acquire IO slots. They cannot hold partial ready images while
+   * waiting for their own remaining byte credit. Failed siblings settle before release. */
+  async readImageItems(
+    session: string,
+    directory: ImageTextureDirectory,
+    itemIds: readonly number[],
+    baseUrl: string,
+    signal?: AbortSignal,
+    priority: 0 | 1 | 2 = 1
+  ): Promise<readonly ImageTextureLease[]> {
     this.#assertSession(session, signal);
+    if (itemIds.length < 1 || itemIds.length > 16) {
+      throw new RangeError("Image dependency batch must contain 1..16 item IDs");
+    }
+    const ids = [...new Set(itemIds)];
+    // Freeze the caller's complete generation before an asynchronous admission wait.
+    const snapshot = this.#registerImageDirectory(session, directory).directory;
+    const controller = new AbortController();
+    const registration = this.#imageDirectories.get(session)!.get(directory)!;
+    const combined = AbortSignal.any([
+      this.#signal(session, signal),
+      controller.signal,
+      registration.controller.signal,
+      AbortSignal.timeout(30000)
+    ]);
+    let peak = 0;
+    let encoded = 0;
+    let ready = 0;
+    for (const id of ids) {
+      if (!Number.isSafeInteger(id) || id < 0 || !snapshot.items[id]) {
+        throw new RangeError("Image dependency ID is outside its directory");
+      }
+      const item = snapshot.items[id]!;
+      peak += imageTaskPeak(item);
+      encoded += item.bytes;
+      ready += item.decodedBytes * 2;
+    }
+    const release = await this.#credit.acquire({ total: peak, encoded, ready }, priority, combined);
+    const charges = new Map<number, { total: number; encoded: number; ready: number }>();
+    for (const id of ids) {
+      const item = snapshot.items[id]!;
+      charges.set(id, { total: imageTaskPeak(item), encoded: item.bytes, ready: item.decodedBytes * 2 });
+    }
+    const shrink = (id: number, remaining = { total: 0, encoded: 0, ready: 0 }) => {
+      const held = charges.get(id)!;
+      peak -= held.total - remaining.total;
+      encoded -= held.encoded - remaining.encoded;
+      ready -= held.ready - remaining.ready;
+      charges.set(id, remaining);
+      release({ total: peak, encoded, ready });
+    };
+    const results = await Promise.allSettled(
+      ids.map(async (id) => {
+        try {
+          return await this.#readImageItem(session, directory, id, baseUrl, combined, priority, (remaining) =>
+            shrink(id, remaining)
+          );
+        } catch (error) {
+          controller.abort(error);
+          throw error;
+        }
+      })
+    );
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure?.status === "rejected" || combined.aborted) {
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          result.value.close();
+        }
+      }
+      release();
+      throw failure?.status === "rejected" ? failure.reason : combined.reason;
+    }
+    return Object.freeze(
+      results.map((result) => {
+        if (result.status !== "fulfilled") {
+          throw new Error("Image batch lost an admitted result");
+        }
+        return result.value;
+      })
+    );
+  }
+
+  #registerImageDirectory(session: string, directory: ImageTextureDirectory): ImageDirectoryRegistration {
+    this.#assertSession(session);
     const directories = this.#imageDirectories.get(session)!;
     let registration = directories.get(directory);
     if (!registration) {
@@ -233,41 +386,79 @@ export class CookedAssetPreparation {
       Object.freeze(snapshot.items);
       Object.freeze(snapshot.planes);
       Object.freeze(snapshot);
-      registration = { directory: snapshot, controller: new AbortController(), leases: new Set(), charge };
+      registerImageDirectorySnapshot(snapshot, directory);
+      registration = {
+        directory: snapshot,
+        controller: new AbortController(),
+        leases: new Set(),
+        charge,
+        indexBytes: 0
+      };
       directories.set(directory, registration);
       this.#imageDirectoryBytes += charge;
     }
+    return registration;
+  }
+
+  async #readImageItem(
+    session: string,
+    directory: ImageTextureDirectory,
+    itemId: number,
+    baseUrl: string,
+    signal: AbortSignal,
+    priority: 0 | 1 | 2,
+    release: (remaining?: { total: number; encoded: number; ready: number }) => void
+  ): Promise<ImageTextureLease> {
+    this.#assertSession(session, signal);
+    const registration = this.#registerImageDirectory(session, directory);
     const registered = registration;
     const combined = AbortSignal.any([
-      this.#signal(session, signal), registered.controller.signal, AbortSignal.timeout(30000)
+      this.#signal(session, signal),
+      registered.controller.signal,
+      AbortSignal.timeout(30000)
     ]);
     const admittedDirectory = registered.directory;
-    const task = imageTextureTask(admittedDirectory, itemId, baseUrl, session, ++this.#task);
+    let task = imageTextureTask(admittedDirectory, itemId, baseUrl, session, ++this.#task);
+    const local = this.#localImagePayloads.get(directory)?.get(task.item.sha256);
+    if (local) task = { ...task, input: local.slice(0) };
     const peak = imageTaskPeak(task.item);
     const ready = task.item.decodedBytes * 2;
-    const release = await this.#credit.acquire({ total: peak, encoded: task.item.bytes, ready }, priority, combined);
     let result: ImageTextureResult | undefined;
     let releaseIo: (() => void) | undefined;
     try {
       releaseIo = await this.#io.acquire({ total: 1, encoded: 0, ready: 0 }, priority, combined);
       result = await this.#pool.submit<ImageTextureTask, ImageTextureResult>({
-        request: task, transfer: [], estimatedPeakBytes: peak, priority, signal: combined
+        request: task,
+        transfer: task.input ? [task.input] : [],
+        estimatedPeakBytes: peak,
+        priority,
+        signal: combined
       });
       this.#assertSession(session, combined);
       assertAssetWorkerResult(result);
-      if (result.version !== 4 || result.session !== session || result.epoch !== task.epoch ||
-          result.task !== task.task || result.sourceRevision !== task.sourceRevision ||
-          result.recipe !== task.recipe || result.itemId !== itemId ||
-          (result.decoderMemoryBytes !== 0 && result.decoderMemoryBytes !== TILED_ZSTD_MEMORY_BYTES)) {
+      if (
+        result.version !== 4 ||
+        result.session !== session ||
+        result.epoch !== task.epoch ||
+        result.task !== task.task ||
+        result.sourceRevision !== task.sourceRevision ||
+        result.recipe !== task.recipe ||
+        result.itemId !== itemId ||
+        result.decoderMemoryBytes !== 0
+      ) {
         throw new Error("Image texture receipt provenance/domain mismatch");
       }
       if (!result.ok) {
         throw new Error(result.message);
       }
-      if (result.encodedBytes !== task.item.bytes ||
-          (task.item.kind === "image" ? result.representation !== "decoded-image" ||
-            result.image.width !== task.item.width || result.image.height !== task.item.height :
-            result.representation !== "exact-bytes" || result.bytes.byteLength !== task.item.decodedBytes)) {
+      if (
+        result.encodedBytes !== task.item.bytes ||
+        (task.item.kind === "image"
+          ? result.representation !== "decoded-image" ||
+            result.image.width !== task.item.width ||
+            result.image.height !== task.item.height
+          : result.representation !== "exact-bytes" || result.bytes.byteLength !== task.item.decodedBytes)
+      ) {
         throw new Error("Image texture receipt backing mismatch");
       }
       release({ total: ready, encoded: 0, ready });
@@ -304,7 +495,58 @@ export class CookedAssetPreparation {
       lease.close();
     }
     directories!.delete(directory);
-    this.#imageDirectoryBytes -= registered.charge;
+    this.#imageDirectoryBytes -= registered.charge + registered.indexBytes;
+    const local = this.#localImagePayloads.get(directory);
+    if (local) {
+      this.#localReplayBytes -= [...local.values()].reduce((sum, value) => sum + value.byteLength, 0);
+      this.#localImagePayloads.delete(directory);
+    }
+  }
+
+  /** Cold Web import shares the existing Worker/credit owner. The temporary
+   * registration lifetime includes immutable PNG/exact replay needed after loss. */
+  async importImage(
+    session: string,
+    input: Omit<ImageTextureImportTask, "version" | "session" | "task">,
+    signal?: AbortSignal
+  ): Promise<Extract<ImageTextureImportResult, { ok: true }> & { release(): void }> {
+    const combined = this.#signal(session, signal);
+    const release = await this.#credit.acquire({ total: 256 * MiB, encoded: input.input.byteLength,
+      ready: 48 * MiB }, 0, combined);
+    let handedOff = false;
+    try {
+      const task: ImageTextureImportTask = { ...input, version: 5, session, task: ++this.#task };
+      const result = await this.#pool.submit<ImageTextureImportTask, ImageTextureImportResult>({
+        request: task, transfer: [input.input], estimatedPeakBytes: 256 * MiB, priority: 0,
+        signal: combined, retireWorker: true
+      });
+      this.#assertSession(session, combined);
+      assertAssetWorkerResult(result);
+      if (result.version !== 5 || result.session !== session || result.task !== task.task) {
+        throw new Error("Web image import receipt provenance mismatch");
+      }
+      if (!result.ok) throw new Error(result.message);
+      const bytes = [...result.payloads.values()].reduce((sum, payload) => sum + payload.byteLength, 0);
+      if (bytes > 48 * MiB) throw new RangeError("Web image output exceeds its admitted receipt capacity");
+      release({ total: bytes, ready: bytes, encoded: 0 });
+      handedOff = true;
+      return { ...result, release };
+    } finally {
+      if (!handedOff) release();
+    }
+  }
+
+  registerLocalImagePayloads(session: string, directory: ImageTextureDirectory,
+    payloads: ReadonlyMap<string, ArrayBuffer>): void {
+    this.#registerImageDirectory(session, directory);
+    for (const item of directory.items) {
+      if (payloads.get(item.sha256)?.byteLength !== item.bytes) throw new Error("Local replay payload domain mismatch");
+    }
+    const bytes = [...payloads.values()].reduce((sum, value) => sum + value.byteLength, 0);
+    if (this.#localImagePayloads.has(directory)) throw new Error("Local replay already registered");
+    if (this.#localReplayBytes + bytes > 64 * MiB) throw new RangeError("Local image replay capacity exceeded");
+    this.#localReplayBytes += bytes;
+    this.#localImagePayloads.set(directory, payloads);
   }
 
   async readGeometry(
@@ -312,7 +554,7 @@ export class CookedAssetPreparation {
     registration: CookedGeometryRegistration,
     pageIds: ArrayLike<number>,
     signal?: AbortSignal,
-    priority: 0 | 1 | 2 = 1,
+    priority: 0 | 1 | 2 = 1
   ): Promise<readonly GeometryPageProductV1[]> {
     const spans = cookedGeometrySpans(registration.pages, pageIds, 8 * MiB);
     if (pageIds.length > 64) {
@@ -329,10 +571,10 @@ export class CookedAssetPreparation {
       {
         total: encodedBytes * 2 + decodedBytes * 3,
         encoded: encodedBytes,
-        ready: readyBytes,
+        ready: readyBytes
       },
       priority,
-      combined,
+      combined
     );
     const leases = this.#readyLeases.get(session);
     if (!leases || combined.aborted) {
@@ -351,7 +593,7 @@ export class CookedAssetPreparation {
           span.bytes * 2 + decodedBytes * 3,
           priority,
           batchSignal,
-          { key: session, value: registration },
+          { key: session, value: registration }
         );
         if (!result.ok || result.kind !== "geometry" || result.pages.length !== span.pageIds.length) {
           throw new Error("Cooked geometry receipt domain mismatch");
@@ -378,16 +620,16 @@ export class CookedAssetPreparation {
                 value.decodedPageHash128 === undefined
                   ? undefined
                   : Uint8Array.from(value.decodedPageHash128.slice(0, 32).match(/../gu)!, (s) =>
-                      parseInt(s, 16),
+                      parseInt(s, 16)
                     ),
               integrity: value.integrity,
-              bytes: value.bytes,
-            }),
+              bytes: value.bytes
+            })
           );
           const record = new DataView(
             descriptor.pageRecords.buffer,
             descriptor.pageRecords.byteOffset + pageId * 32,
-            32,
+            32
           );
           if (
             value.prepared.groupBegin !== record.getUint32(16, true) ||
@@ -413,299 +655,6 @@ export class CookedAssetPreparation {
     }
   }
 
-  async readTexture(
-    session: string,
-    url: string,
-    expectedIdentity: string,
-    signal?: AbortSignal,
-    priority: 0 | 1 | 2 = 2,
-  ) {
-    // HEAD does not allocate the response payload; admit the full declared
-    // container plus digest scratch before a Worker starts its GET.
-    const combined = this.#signal(session, signal);
-    const releaseHead = await this.#io.acquire({ total: 1, encoded: 0, ready: 0 }, priority, combined);
-    let response: Response;
-    try {
-      response = await fetch(url, { method: "HEAD", signal: combined });
-    } finally {
-      releaseHead();
-    }
-    if (!response.ok) {
-      throw new Error(`Cooked texture HEAD HTTP ${response.status}`);
-    }
-    const size = Number(response.headers.get("content-length"));
-    if (
-      !Number.isSafeInteger(size) ||
-      size <= 0 ||
-      size > PC_TEXTURE_INPUT_LIMIT ||
-      (response.headers.get("content-encoding") ?? "identity") !== "identity"
-    ) {
-      throw new RangeError("Cooked texture requires a bounded identity-encoded container");
-    }
-    const release = await this.#credit.acquire({ total: size * 2, encoded: 0, ready: 0 }, priority, combined);
-    try {
-      const result = await this.#submit(
-        { ...this.#header(session), kind: "texture", url, expectedIdentity, maxBytes: size },
-        size * 2,
-        priority,
-        signal,
-      );
-      const product = await importCookedTextureReceipt(result, expectedIdentity);
-      this.#assertSession(session, signal);
-      return product;
-    } finally {
-      release();
-    }
-  }
-
-  /** Manifest hash/length admit only metadata; no fine payload is fetched here.
-   * Bound to this session and URL until releaseTiledDirectory() or closeSession(). */
-  async readTiledDirectory(
-    session: string,
-    url: string,
-    expectedHash: string,
-    byteLength: number,
-    signal?: AbortSignal,
-    priority: 0 | 1 | 2 = 0,
-  ): Promise<TiledTextureDirectory> {
-    const combined = this.#signal(session, signal);
-    if (
-      !Number.isSafeInteger(byteLength) ||
-      byteLength < 1 ||
-      byteLength > TILED_TEXTURE_DIRECTORY_LIMIT ||
-      !/^[a-f0-9]{64}$/u.test(expectedHash)
-    ) {
-      throw new RangeError("Tiled directory manifest length invalid");
-    }
-    for (const [directory, value] of this.#tiledDirectories) {
-      if (
-        value.session === session &&
-        directory.identity === expectedHash &&
-        value.registration.directoryUrl === url &&
-        directory.directoryBytes === byteLength
-      ) {
-        return directory;
-      }
-    }
-    // Only the main owner retains the full directory. Worker registrations hold
-    // identity/pack routing; each task clones <=64 selected records, never all pages.
-    const reserved = byteLength * 4;
-    if (this.#directoryBytes + this.#directoryReservedBytes + reserved > 128 * MiB) {
-      throw new RangeError("Tiled directory metadata budget exceeded");
-    }
-    this.#directoryReservedBytes += reserved;
-    let release: (() => void) | undefined;
-    try {
-      release = await this.#credit.acquire(
-        { total: byteLength * 16, encoded: 0, ready: 0 },
-        priority,
-        combined,
-      );
-      const result = await this.#submit(
-        {
-          ...this.#header(session),
-          kind: "tiled-directory",
-          url,
-          expectedHash,
-          byteLength,
-        },
-        byteLength * 16,
-        priority,
-        combined,
-      );
-      if (
-        !result.ok ||
-        result.kind !== "tiled-directory" ||
-        result.directory.identity !== expectedHash ||
-        result.directory.directoryBytes !== byteLength
-      ) {
-        throw new Error("Tiled directory receipt identity mismatch");
-      }
-      const directory = validateTiledTextureMetadata(result.directory.metadata, expectedHash, byteLength);
-      this.#assertSession(session, combined);
-      const objects =
-        directory.metadata.payloads.length +
-        directory.metadata.planes.reduce((n, plane) => n + plane.mips.length * 2 + 1, 0) +
-        directory.metadata.source.planes.reduce((n, plane) => n + plane.mips.length + 1, 0);
-      const charge = reserved + objects * 128;
-      if (this.#directoryBytes + this.#directoryReservedBytes - reserved + charge > 128 * MiB) {
-        throw new RangeError("Tiled parsed directory metadata budget exceeded");
-      }
-      this.#tiledDirectories.set(directory, {
-        session,
-        key: `${session}:vt:${crypto.randomUUID()}`,
-        charge,
-        controller: new AbortController(),
-        registration: { identity: directory.identity, pack: directory.metadata.pack, directoryUrl: url },
-      });
-      this.#directoryBytes += charge;
-      return directory;
-    } finally {
-      this.#directoryReservedBytes -= reserved;
-      release?.();
-    }
-  }
-
-  /** Ends one asset registration without closing unrelated assets in the session.
-   * Cancels its in-flight/ready leases; late results cannot acquire the retired registration. */
-  releaseTiledDirectory(session: string, directory: TiledTextureDirectory): void {
-    const registered = this.#tiledDirectories.get(directory);
-    if (!registered) {
-      return;
-    }
-    if (registered.session !== session) {
-      throw new Error("Tiled directory belongs to another session");
-    }
-    registered.controller.abort(new DOMException("Tiled directory is released", "AbortError"));
-    this.#pool.forgetRegistration(registered.key);
-    this.#directoryBytes -= registered.charge;
-    this.#tiledDirectories.delete(directory);
-  }
-
-  /** Fetch at most 64 complete tiles/resident fragments. The caller owns a ready
-   * lease, never the replay cache; no GPU object or frame submit occurs here. */
-  async readTiledPayloads(
-    session: string,
-    directory: TiledTextureDirectory,
-    payloadIds: readonly number[],
-    signal?: AbortSignal,
-    priority: 0 | 1 | 2 = 1,
-  ): Promise<TiledTexturePayloadLease> {
-    const sessionSignal = this.#signal(session, signal);
-    assertTiledTextureDirectory(directory);
-    const registered = this.#tiledDirectories.get(directory);
-    if (registered?.session !== session) {
-      throw new Error("Tiled directory is not registered in this live session");
-    }
-    const combined = AbortSignal.any([sessionSignal, registered.controller.signal]);
-    // Validate the complete requested domain before taking any cache ownership.
-    tiledTextureSpans(directory, payloadIds);
-    const ids = [...new Set(payloadIds)];
-    const readyBytes = ids.reduce((n, id) => n + directory.metadata.payloads[id]!.nativeByteLength, 0);
-    const spans = tiledTextureSpans(directory, ids);
-    const encodedBytes = spans.reduce((n, span) => n + span.byteLength, 0);
-    const releaseCredit = await this.#credit.acquire(
-      {
-        total: encodedBytes * 2 + readyBytes * 2,
-        encoded: encodedBytes,
-        ready: readyBytes,
-      },
-      priority,
-      combined,
-    );
-    const leases = this.#tileLeases.get(session);
-    // Admission resolves asynchronously. The session or directory can retire
-    // before this continuation gets a chance to register its lease.
-    if (!leases || combined.aborted) {
-      releaseCredit();
-      combined.throwIfAborted();
-      throw new Error("Cooked asset session is closed");
-    }
-    const values = new Map<number, TiledTexturePreparedPayload>();
-    let active = true;
-    const finish = (cache: boolean) => {
-      if (!active) {
-        return;
-      }
-      active = false;
-      for (const value of values.values()) {
-        // A consumer may have already transferred its exclusive storage.
-        if (value.bytes.byteLength === 0) {
-          continue;
-        }
-        // Move storage out of caller views; a retained released lease cannot
-        // keep an unaccounted backing allocation alive.
-        const owned = structuredClone(value.bytes, { transfer: [value.bytes] });
-        if (cache && !this.#disposed) {
-          this.#tileCache.put(`${directory.identity}/${value.id}`, owned);
-        }
-      }
-      values.clear();
-      leases.delete(cancel);
-      combined.removeEventListener("abort", cancel);
-      releaseCredit();
-    };
-    const cancel = () => finish(false);
-    leases.add(cancel);
-    combined.addEventListener("abort", cancel, { once: true });
-    try {
-      combined.throwIfAborted();
-      for (const id of ids) {
-        const bytes = this.#tileCache.take(`${directory.identity}/${id}`);
-        if (bytes) {
-          values.set(id, {
-            id,
-            hash: directory.metadata.payloads[id]!.hash,
-            representation: "gpu-native",
-            bytes,
-          });
-          if (bytes.byteLength !== directory.metadata.payloads[id]!.nativeByteLength) {
-            throw new Error("Tiled native cache extent mismatch");
-          }
-          this.#tiledCacheHitBytes += bytes.byteLength;
-        }
-      }
-      const missing = ids.filter((id) => !values.has(id));
-      await loadAssetBatch(
-        tiledTextureSpans(directory, missing),
-        4,
-        combined,
-        async (span, _index, batchSignal) => {
-          const result = await this.#submit(
-            {
-              ...this.#header(session),
-              kind: "tiled-payload",
-              registrationKey: registered.key,
-              span,
-            },
-            span.byteLength * 2 + span.payloads.reduce((sum, p) => sum + p.nativeByteLength, 0) * 2,
-            priority,
-            batchSignal,
-            {
-              key: registered.key,
-              value: registered.registration,
-            },
-          );
-          if (
-            !result.ok ||
-            result.kind !== "tiled-payload" ||
-            result.registrationKey !== registered.key ||
-            result.payloads.length !== span.payloadIds.length
-          ) {
-            throw new Error("Tiled payload receipt domain mismatch");
-          }
-          if (!active) {
-            throw new Error("Tiled payload lease was cancelled");
-          }
-          for (let i = 0; i < result.payloads.length; i++) {
-            const value = result.payloads[i]!;
-            const id = span.payloadIds[i]!;
-            const expected = directory.metadata.payloads[id]!;
-            if (
-              value.id !== id ||
-              value.hash !== expected.hash ||
-              value.representation !== "gpu-native" ||
-              !(value.bytes instanceof ArrayBuffer) ||
-              value.bytes.byteLength !== expected.nativeByteLength
-            ) {
-              throw new Error("Tiled payload receipt identity/extent mismatch");
-            }
-            values.set(id, value);
-          }
-        },
-      );
-      this.#assertSession(session, combined);
-      releaseCredit({ total: readyBytes, encoded: 0, ready: readyBytes });
-      return Object.freeze({
-        payloads: Object.freeze(ids.map((id) => values.get(id)!)),
-        release: () => finish(true),
-      });
-    } catch (error) {
-      cancel();
-      throw error;
-    }
-  }
-
   evidence() {
     return {
       ...this.#pool.evidence(),
@@ -713,28 +662,12 @@ export class CookedAssetPreparation {
       ioMs: this.#ioMs,
       busyMs: this.#busyMs,
       ranges: this.#ranges,
-      textureReads: this.#textureReads,
-      tiledDirectoryReads: this.#tiledDirectoryReads,
-      tiledPayloadRanges: this.#tiledPayloadRanges,
       sessions: this.#sessions.size,
       credit: this.#credit.evidence(),
       imageDirectoryBytes: this.#imageDirectoryBytes,
+      localImageReplayBytes: this.#localReplayBytes,
       io: this.#io.evidence(),
-      tiled: {
-        fetchedBytes: this.#tiledFetchedBytes,
-        hashedPayloadBytes: this.#tiledPayloadBytes,
-        nativeOutputBytes: this.#tiledNativeBytes,
-        cacheHitBytes: this.#tiledCacheHitBytes,
-        decodeMs: this.#tiledDecodeMs,
-        decoderInitMs: this.#tiledDecoderInitMs,
-        decoderReservedBytes: this.#disposed ? 0 : this.#decoderReservedBytes,
-        overfetchBytes: this.#tiledFetchedBytes - this.#tiledPayloadBytes,
-        failedTasks: this.#tiledTaskFailures,
-        metadataBytes: this.#directoryBytes,
-        reservedMetadataBytes: this.#directoryReservedBytes,
-        directories: this.#tiledDirectories.size,
-        cache: this.#tileCache.evidence(),
-      },
+
     };
   }
 
@@ -747,7 +680,6 @@ export class CookedAssetPreparation {
     this.#disposed = true;
     for (const session of this.#sessions.keys()) this.closeSession(session);
     this.#pool.dispose();
-    this.#tileCache.clear();
   }
 
   #assertSession(session: string, signal?: AbortSignal): void {
@@ -771,7 +703,7 @@ export class CookedAssetPreparation {
     estimatedPeakBytes: number,
     priority: 0 | 1 | 2,
     signal?: AbortSignal,
-    registration?: { key: string; value: unknown },
+    registration?: { key: string; value: unknown }
   ): Promise<CookedAssetResult> {
     const combined = this.#signal(task.session, signal);
     const releaseIo = await this.#io.acquire({ total: 1, encoded: 0, ready: 0 }, priority, combined);
@@ -782,7 +714,7 @@ export class CookedAssetPreparation {
         estimatedPeakBytes,
         priority,
         signal: combined,
-        registration,
+        registration
       });
       this.#assertSession(task.session, signal);
       assertAssetWorkerResult(result);
@@ -805,38 +737,8 @@ export class CookedAssetPreparation {
       if (result.kind === "geometry") {
         this.#ranges++;
         metrics.ranges++;
-      } else if (result.kind === "texture") {
-        this.#textureReads++;
-      } else if (result.kind === "tiled-directory") {
-        this.#tiledDirectoryReads++;
-      } else {
-        this.#tiledPayloadRanges++;
-        this.#tiledFetchedBytes += result.encodedBytes;
-        const useful =
-          task.kind === "tiled-payload" ? task.span.payloads.reduce((n, p) => n + p.byteLength, 0) : -1;
-        const native = result.payloads.reduce((n, p) => n + p.bytes.byteLength, 0);
-        if (
-          result.usefulEncodedBytes !== useful ||
-          result.nativeBytes !== native ||
-          !Number.isFinite(result.decodeMs) ||
-          result.decodeMs < 0 ||
-          !Number.isFinite(result.decoderInitMs) ||
-          result.decoderInitMs < 0
-        ) {
-          throw new Error("Tiled Worker cost receipt domain mismatch");
-        }
-        this.#tiledPayloadBytes += useful;
-        this.#tiledNativeBytes += native;
-        this.#tiledDecodeMs += result.decodeMs;
-        this.#tiledDecoderInitMs += result.decoderInitMs;
-        metrics.ranges++;
       }
       return result;
-    } catch (error) {
-      if (task.kind === "tiled-directory" || task.kind === "tiled-payload") {
-        this.#tiledTaskFailures++;
-      }
-      throw error;
     } finally {
       releaseIo();
     }
@@ -847,7 +749,7 @@ export class CookedAssetPreparation {
 function geometryReadyLease(
   release: (remaining?: { total: number; encoded: number; ready: number }) => void,
   pageCount: number,
-  finished: () => void,
+  finished: () => void
 ) {
   let remaining = pageCount;
   let imported = false;
@@ -882,7 +784,7 @@ function geometryReadyLease(
         release();
         finished();
       }
-    },
+    }
   };
 }
 

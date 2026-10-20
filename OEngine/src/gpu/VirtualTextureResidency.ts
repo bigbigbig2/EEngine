@@ -1,5 +1,7 @@
-import type { TiledTextureSource } from "../assets/TiledTextureSource.js";
-import type { TiledTexturePayloadLease } from "../assets/codec/CookedAssetPreparation.js";
+import type { ImageTextureSource } from "../assets/ImageTextureSource.js";
+import type { ImageTextureLease } from "../assets/codec/ImageTexturePreparation.js";
+import type { ImagePagePlan, ImageTailPlan } from "../assets/ImageTexturePages.js";
+import { imageGpuFormat, type ImageTextureTranscoder, type ImageRecordCommand } from "./ImageTextureTranscoder.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
 import {
@@ -30,24 +32,27 @@ interface Pool {
   pinned: number;
 }
 interface Source {
-  readonly source: TiledTextureSource;
+  readonly source: ImageTextureSource;
   readonly generation: number;
   readonly allocation: MeshletRangeAllocation;
   readonly pages: readonly Page[];
   readonly routes: ReadonlyMap<number, VirtualTextureRoute>;
   readonly cpuBytes: number;
+  readonly abort: AbortController;
   live: boolean;
   bootstrap: Promise<void> | null;
+  retirement: Promise<void> | null;
 }
 interface Batch {
   readonly controller: AbortController;
   readonly pages: Page[];
-  lease: TiledTexturePayloadLease | null;
+  leases: readonly ImageTextureLease[] | null;
   remaining: number;
 }
 interface Page {
   readonly id: number;
-  readonly payload: number;
+  readonly plan: ImagePagePlan;
+  readonly tail?: ImageTailPlan;
   readonly source: Source;
   readonly profile: number;
   readonly level: number;
@@ -61,7 +66,7 @@ interface Page {
   generation: number;
   lastUsed: number;
   pending?: Batch;
-  ready?: ArrayBuffer;
+  ready?: readonly ImageTextureLease[];
   attempts: number;
   reserved?: { slot: number; generation: number };
   everResident: boolean;
@@ -86,7 +91,7 @@ export class VirtualTextureResidency {
   readonly feedback: VirtualTextureFeedback<readonly (Page | undefined)[]>;
   readonly ready: Promise<void>;
   private readonly allocator = new MeshletRangeAllocator(VT_PAGE_CAPACITY, 8192);
-  private readonly sources = new Map<TiledTextureSource, Source>();
+  private readonly sources = new Map<ImageTextureSource, Source>();
   private readonly pools = new Map<GPUTextureFormat, Pool>();
   private snapshot: (Page | undefined)[] = [];
   private snapshotShared = false;
@@ -136,6 +141,7 @@ export class VirtualTextureResidency {
 
   constructor(
     private readonly graphics: GraphicsContext,
+    private readonly transcoder: ImageTextureTranscoder,
     settings?: Partial<VirtualTextureSettings>
   ) {
     this.settings = virtualTextureSettings(settings);
@@ -197,36 +203,35 @@ export class VirtualTextureResidency {
   /** Cold source publication. Every profile has independent border identity;
    * the allocator provides contiguous mip domains without truncating IDs. */
   stage(
-    source: TiledTextureSource,
+    source: ImageTextureSource,
     command: ShadeGPUCommandContext
   ): ReadonlyMap<number, VirtualTextureRoute> {
     const known = this.sources.get(source);
-    if (known) return known.routes;
-    const profiles = source.directory.metadata.planes;
-    const count = profiles.reduce(
-      (n, p) =>
-        n +
-        (p.mode === "virtual"
-          ? p.mips.slice(0, p.tailFirst).reduce((s, mip) => s + mip.payloads.length, 0) + 1
-          : 0),
-      0
-    );
-    const routeBytes = profiles.reduce((n, p) => n + (p.mode === "virtual" ? p.mips.length * 7 * 4 : 0), 0);
-    // Include records, parent arrays, membership sets and in-flight snapshots.
-    // Directory parsing is separately admitted by the provider.
-    const cpuBytes = profiles.reduce(
-      (bytes, profile) =>
-        bytes +
-        (profile.mode === "virtual"
-          ? profile.mips
-              .slice(0, profile.tailFirst)
-              .reduce(
-                (sum, mip) => sum + mip.payloads.length * (320 + 32 * (profile.tailFirst - mip.level)),
-                320
-              )
-          : 0),
-      routeBytes * 4
-    );
+    if (known) {
+      if (!known.live) {
+        throw new Error("VT source is still retiring after cancellation");
+      }
+      return known.routes;
+    }
+    const profiles = source.directory.planes;
+    const tails = new Map(profiles.flatMap((plane, index) =>
+      plane.mode === "virtual" ? [[index, source.pages.tail(index)] as const] : []));
+    let count = 0;
+    let routeBytes = 0;
+    let cpuBytes = 0;
+    for (const [index, tail] of tails) {
+      routeBytes += source.directory.mipCount * 7 * 4;
+      count++;
+      cpuBytes += 320;
+      for (let mip = 0; mip < tail.first; mip++) {
+        const width = Math.max(1, Math.floor(source.directory.width / 2 ** mip));
+        const height = Math.max(1, Math.floor(source.directory.height / 2 ** mip));
+        const pages = Math.ceil(width / 128) * Math.ceil(height / 128);
+        count += pages;
+        cpuBytes += pages * (512 + 32 * (tail.first - mip));
+      }
+    }
+    cpuBytes += routeBytes * 4;
     if (
       this.stopped ||
       count < 1 ||
@@ -248,58 +253,43 @@ export class VirtualTextureResidency {
       pages,
       routes,
       cpuBytes,
+      abort: new AbortController(),
       live: true,
-      bootstrap: null
+      bootstrap: null,
+      retirement: null
     };
     let next = allocation.offset;
     try {
       for (const [index, profile] of profiles.entries()) {
         if (profile.mode !== "virtual") continue;
-        const pool = this.pool(source.metadata.planes[profile.sourcePlane]!.format);
+        const pool = this.pool(imageGpuFormat(profile.semantic));
         const mips: VirtualTextureMipRoute[] = [];
-        let tail = -1;
-        for (const mip of profile.mips) {
-          if (mip.level >= profile.tailFirst && tail >= 0) {
-            mips.push({
-              width: mip.width,
-              height: mip.height,
-              gridWidth: 1,
-              base: tail,
-              origin: mip.tailOrigin!
-            });
+        const tail = tails.get(index)!;
+        let tailId = -1;
+        for (let mip = 0; mip < source.directory.mipCount; mip++) {
+          const width = Math.max(1, Math.floor(source.directory.width / 2 ** mip));
+          const height = Math.max(1, Math.floor(source.directory.height / 2 ** mip));
+          const gridWidth = Math.ceil(width / 128);
+          if (mip > tail.first) {
+            mips.push({ width, height, gridWidth: 1, base: tailId,
+              origin: tail.levels[mip - tail.first]!.origin });
             continue;
           }
           const base = next;
-          const pinned = mip.level === profile.tailFirst;
-          if (pinned) tail = base;
-          for (const [tile, payload] of mip.payloads.entries()) {
-            const page: Page = {
-              id: next++,
-              payload,
-              source: record,
-              profile: index,
-              level: mip.level,
-              x: tile % mip.gridWidth,
-              y: Math.floor(tile / mip.gridWidth),
-              pool,
-              pinned,
-              parents: [],
-              refs: 0,
-              slot: VT_MISSING,
-              generation: 0,
-              lastUsed: -1,
-              attempts: 0,
-              everResident: false
-            };
-            pages.push(page);
+          const pinned = mip === tail.first;
+          if (pinned) tailId = base;
+          const pagesAtLevel = pinned ? 1 : gridWidth * Math.ceil(height / 128);
+          for (let tile = 0; tile < pagesAtLevel; tile++) {
+            const x = tile % gridWidth;
+            const y = Math.floor(tile / gridWidth);
+            pages.push({
+              id: next++, plan: source.pages.page(index, mip, x, y),
+              ...(pinned ? { tail } : {}), source: record, profile: index, level: mip,
+              x, y, pool, pinned, parents: [], refs: 0, slot: VT_MISSING,
+              generation: 0, lastUsed: -1, attempts: 0, everResident: false
+            });
           }
-          mips.push({
-            width: mip.width,
-            height: mip.height,
-            gridWidth: mip.gridWidth,
-            base,
-            origin: mip.tailOrigin ?? [0, 0]
-          });
+          mips.push({ width, height, gridWidth, base, origin: [0, 0] });
         }
         routes.set(
           index,
@@ -308,7 +298,7 @@ export class VirtualTextureResidency {
             tableView: this.tableView,
             atlas: pool.texture,
             atlasView: pool.view,
-            tailFirst: profile.tailFirst,
+            tailFirst: tail.first,
             mips: Object.freeze(mips)
           })
         );
@@ -364,7 +354,9 @@ export class VirtualTextureResidency {
       }
       this.routeBytes += routeBytes;
       this.cpuBytes += cpuBytes;
-      command.onAborted.addOne(() => this.remove(record));
+      command.onAborted.addOne(() => {
+        void this.retire(record, Promise.resolve());
+      });
       return routes;
     } catch (error) {
       for (const page of pages) {
@@ -388,33 +380,48 @@ export class VirtualTextureResidency {
   }
 
   async bootstrap(
-    source: TiledTextureSource,
-    command: ShadeGPUCommandContext,
+    source: ImageTextureSource,
+    publication: ShadeGPUCommandContext,
+    batch: (record: (command: ImageRecordCommand) => void) => Promise<void>,
     signal?: AbortSignal
   ): Promise<void> {
     const record = this.sources.get(source);
     if (!record) return;
+    if (!record.live || publication.closed || this.stopped) {
+      throw new Error("VT bootstrap was cancelled before preparation");
+    }
     if (record.bootstrap) return record.bootstrap;
     record.bootstrap = (async () => {
       await this.ready;
       const abort = new AbortController();
-      command.onAborted.addOne(() => abort.abort());
-      const combined = signal ? AbortSignal.any([abort.signal, signal]) : abort.signal;
+      publication.onAborted.addOne(() => abort.abort());
+      const combined = AbortSignal.any([record.abort.signal, abort.signal, ...(signal ? [signal] : [])]);
       for (const page of record.pages) {
-        if (!page.pinned) continue;
+        if (!page.tail) continue;
         const { slot, generation } = page.reserved!;
-        const lease = await source.read([page.payload], combined, 0);
-        try {
-          if (!record.live || command.closed || this.stopped) throw new Error("VT bootstrap was cancelled");
-          this.copyTile(page, slot, lease.payloads[0]!.bytes, command);
-          this.copyMapping(page.id, slot, generation, command);
-          command.onFinished.addOne(() => {
-            page.reserved = undefined;
-            this.publish({ page, slot, generation }, -1);
-          });
-        } finally {
-          lease.release();
+        const destination = this.destination(page, slot);
+        for (const level of page.tail.levels) {
+          const leases = await source.readPage(level.page, combined, 0);
+          try {
+            if (!record.live || publication.closed || this.stopped) throw new Error("VT bootstrap was cancelled");
+            await batch((command) => {
+              if (!record.live || publication.closed || this.stopped) throw new Error("VT bootstrap was cancelled before recording");
+              if (this.transcoder.recordTailLevel(command, leases, level, destination) !== "recorded") {
+                throw new RangeError("One complete protected tail level cannot fit an empty preparation batch");
+              }
+              this.countImageUpload(page, leases, level.width, level.height);
+            });
+          } finally {
+            for (const lease of leases) lease.close();
+          }
         }
+        combined.throwIfAborted();
+        if (!record.live || publication.closed || this.stopped) throw new Error("VT bootstrap was cancelled");
+        this.copyMapping(page.id, slot, generation, publication);
+        publication.onFinished.addOne(() => {
+          page.reserved = undefined;
+          this.publish({ page, slot, generation }, -1);
+        });
       }
     })();
     return record.bootstrap;
@@ -541,7 +548,11 @@ export class VirtualTextureResidency {
     // Install rollback before reserving slots or encoding any copy. A staging
     // allocation/copy failure midway through the loop must still be abortable.
     command.onAborted.addOne(() => {
-      for (const upload of selected) if (!upload.victim) upload.page.pool.free.push(upload.slot);
+      for (const upload of selected) {
+        if (!upload.victim) upload.page.pool.free.push(upload.slot);
+        // Recording consumed the exclusive decoded inputs; retry must refetch.
+        this.discard(upload.page);
+      }
     });
     const victims = new Map<Pool, Page[]>();
     const coldCandidates = (pool: Pool): Page[] => {
@@ -565,9 +576,10 @@ export class VirtualTextureResidency {
         this.discard(page);
         continue;
       }
-      const rowBytes = page.pool.texture.format === "bc4-r-unorm" ? 36 * 8 : 36 * 16;
+      const exact = page.pool.texture.format === "r8unorm";
+      const rowBytes = exact ? 144 : page.pool.texture.format === "bc4-r-unorm" ? 36 * 8 : 36 * 16;
       // Include both a possible victim invalidation and the new publication.
-      const cost = Math.ceil(rowBytes / 256) * 256 * 36 + 512;
+      const cost = Math.ceil(rowBytes / 256) * 256 * (exact ? 144 : 36) + 512;
       if (
         selected.length >= Math.floor(this.settings.copies / 3) ||
         bytes + cost > this.settings.uploadBytes ||
@@ -586,13 +598,24 @@ export class VirtualTextureResidency {
         }
         slot = victim.slot;
       }
+      try {
+        if (this.transcoder.recordPage(command, page.ready!, page.plan, this.destination(page, slot)) === "needs-drain") {
+          if (!victim) page.pool.free.push(slot);
+          break;
+        }
+        this.countImageUpload(page, page.ready!, 144, 144);
+      } catch (error) {
+        if (!victim) page.pool.free.push(slot);
+        this.discard(page);
+        throw error;
+      }
       const upload = { page, slot, generation: 0, victim };
       selected.push(upload);
       const generation = this.nextGeneration(page.pool, slot);
       upload.generation = generation;
       bytes += cost;
+      // Queue-ordered overwrite and mapping edits precede all consumers in this command.
       if (victim) this.copyMapping(victim.id, VT_MISSING, 0, command);
-      this.copyTile(page, slot, page.ready!, command);
       this.copyMapping(page.id, slot, generation, command);
     }
     if (selected.length !== 0) {
@@ -642,6 +665,16 @@ export class VirtualTextureResidency {
     }
     page.everResident = true;
     page.attempts = 0;
+  }
+  /** Cumulative recorded work, including commands later aborted. Input upload
+   * bytes and tight final texture copies are distinct from padded GPU scratch. */
+  private countImageUpload(page: Page, leases: readonly ImageTextureLease[], width: number, height: number): void {
+    for (const lease of leases) {
+      this.uploadedBytes += lease.item.decodedBytes;
+    }
+    const format = page.pool.texture.format;
+    this.physicalCopyBytes += format === "r8unorm" ? width * height
+      : Math.ceil(width / 4) * Math.ceil(height / 4) * (format === "bc4-r-unorm" ? 8 : 16);
   }
   private observe(value: VirtualTextureObservation<readonly (Page | undefined)[]>, query = false): void {
     if (this.stopped) return;
@@ -840,40 +873,21 @@ export class VirtualTextureResidency {
     while (this.batches.size < 4 && pending.length) {
       const first = pending.shift()!;
       const pages = [first];
-      for (let i = 0; i < pending.length && pages.length < 32; ) {
-        if (pending[i]!.source === first.source) pages.push(pending.splice(i, 1)[0]!);
-        else i++;
-      }
-      const batch: Batch = { controller: new AbortController(), pages, lease: null, remaining: pages.length };
+      const batch: Batch = { controller: new AbortController(), pages, leases: null, remaining: 1 };
       this.batches.add(batch);
-      for (const page of pages) page.pending = batch;
-      void first.source.source
-        .read(
-          pages.map((page) => page.payload),
-          batch.controller.signal
-        )
-        .then((lease) => {
-          if (!this.batches.has(batch) || this.stopped || batch.controller.signal.aborted) {
-            lease.release();
-            for (const page of pages) {
-              if (page.pending === batch) {
-                this.discard(page);
-              }
-            }
+      first.pending = batch;
+      void first.source.source.readPage(first.plan, batch.controller.signal)
+        .then((leases) => {
+          if (!this.batches.has(batch) || this.stopped || batch.controller.signal.aborted ||
+              !first.source.live || !this.admitted.has(first) || first.pending !== batch) {
+            for (const lease of leases) lease.close();
+            if (first.pending === batch) this.discard(first);
             return;
           }
-          batch.lease = lease;
-          this.receiptBytes += lease.payloads.reduce((n, payload) => n + payload.bytes.byteLength, 0);
-          for (const [index, page] of pages.entries()) {
-            if (!page.source.live || !this.admitted.has(page) || page.pending !== batch) {
-              if (page.pending === batch) {
-                this.discard(page);
-              }
-            } else {
-              page.ready = lease.payloads[index]!.bytes;
-              this.readyPages.add(page);
-            }
-          }
+          batch.leases = leases;
+          this.receiptBytes += first.plan.encodedBytes;
+          first.ready = leases;
+          this.readyPages.add(first);
         })
         .catch((error: unknown) => {
           for (const page of pages) {
@@ -901,28 +915,41 @@ export class VirtualTextureResidency {
     this.readyPages.delete(page);
     this.pumpDirty = true;
     if (batch && --batch.remaining === 0) {
-      if (!batch.lease) {
+      if (!batch.leases) {
         batch.controller.abort();
       }
-      batch.lease?.release();
+      for (const lease of batch.leases ?? []) lease.close();
       this.batches.delete(batch);
     }
   }
-  async release(source: TiledTextureSource, completion: Promise<void>): Promise<void> {
+  async release(source: ImageTextureSource, completion: Promise<void>): Promise<void> {
     const record = this.sources.get(source);
     if (!record) return;
+    await this.retire(record, completion);
+  }
+  private retire(record: Source, completion: Promise<void>): Promise<void> {
+    if (record.retirement) {
+      return record.retirement;
+    }
     record.live = false;
+    record.abort.abort();
     for (const batch of this.batches) {
       if (batch.pages[0]?.source === record) {
         batch.controller.abort();
       }
     }
-    await completion;
-    this.remove(record);
+    // A hidden batch can still own a tail destination after publication aborts.
+    // Settle the producer first, then fence its final queue prefix before reuse.
+    const producerStopped = record.bootstrap?.then(() => undefined, () => undefined) ?? Promise.resolve();
+    record.retirement = Promise.all([producerStopped, completion])
+      .then(() => this.graphics.device.queue.onSubmittedWorkDone())
+      .then(() => this.remove(record));
+    void record.retirement.catch((error) => this.fail(error));
+    return record.retirement;
   }
   /** Caller has already awaited the last consumer fence. Synchronous removal
    * permits immediate reacquisition without returning a retiring source. */
-  releaseCompleted(source: TiledTextureSource): void {
+  releaseCompleted(source: ImageTextureSource): void {
     const record = this.sources.get(source);
     if (record) {
       this.remove(record);
@@ -931,6 +958,7 @@ export class VirtualTextureResidency {
   private remove(record: Source): void {
     if (this.sources.get(record.source) !== record) return;
     record.live = false;
+    record.abort.abort();
     for (const batch of this.batches) {
       if (batch.pages[0]?.source === record) {
         batch.controller.abort();
@@ -971,15 +999,22 @@ export class VirtualTextureResidency {
   private pool(format: GPUTextureFormat): Pool {
     const prior = this.pools.get(format);
     if (prior) return prior;
-    const scalar = format === "bc4-r-unorm";
-    const bytesPerLayer = 16 * 16 * 36 * 36 * (scalar ? 8 : 16);
-    const budget = scalar
-      ? this.settings.scalarBytes
-      : format.endsWith("srgb")
-        ? this.settings.colorBytes
-        : this.settings.linearBytes;
+    const scalar = format === "bc4-r-unorm" || format === "r8unorm";
+    const bytesPerLayer = 16 * 16 * (format === "r8unorm" ? 144 * 144 : 36 * 36 * (scalar ? 8 : 16));
+    const category = (value: GPUTextureFormat) =>
+      value === "bc4-r-unorm" || value === "r8unorm" ? "scalar" : value.endsWith("srgb") ? "color" : "linear";
+    const group = category(format);
+    const budget = scalar ? this.settings.scalarBytes
+      : group === "color" ? this.settings.colorBytes : this.settings.linearBytes;
+    let allocated = 0;
+    for (const [otherFormat, pool] of this.pools) {
+      if (category(otherFormat) === group) allocated += pool.bytes;
+    }
+    // Share a class between its two formats, but a legal one-layer budget must
+    // still admit one atlas. Every allocation also checks actual aggregate use.
+    const share = group === "color" ? budget : Math.max(bytesPerLayer, Math.floor(budget / 2));
     const layers = Math.min(
-      Math.floor(budget / bytesPerLayer),
+      Math.floor(Math.min(share, budget - allocated) / bytesPerLayer),
       this.graphics.device.limits.maxTextureArrayLayers
     );
     if (layers < 1) throw new RangeError("VT physical format budget cannot hold one atlas layer");
@@ -1084,29 +1119,9 @@ export class VirtualTextureResidency {
       page += width * rows;
     }
   }
-  private copyTile(page: Page, slot: number, bytes: ArrayBuffer, command: ShadeGPUCommandContext): void {
-    const row = 36 * (page.pool.texture.format === "bc4-r-unorm" ? 8 : 16);
-    const pitch = Math.ceil(row / 256) * 256;
-    if (bytes.byteLength !== row * 36) throw new RangeError("VT receipt is not one complete compressed tile");
-    const buffer = this.staging(command, pitch * 36);
-    const logicalBytes = bytes.byteLength;
-    const copyBytes = pitch * 36;
-    const target = new Uint8Array(buffer.getMappedRange());
-    const source = new Uint8Array(bytes);
-    for (let y = 0; y < 36; y++) target.set(source.subarray(y * row, (y + 1) * row), y * pitch);
-    buffer.unmap();
-    command.copyBufferToTexture(
-      { buffer, bytesPerRow: pitch, rowsPerImage: 36 },
-      {
-        texture: page.pool.texture,
-        origin: [(slot % 16) * 144, Math.floor((slot % 256) / 16) * 144, Math.floor(slot / 256)]
-      },
-      [144, 144, 1]
-    );
-    command.onFinished.addOne(() => {
-      this.uploadedBytes += logicalBytes;
-      this.physicalCopyBytes += copyBytes;
-    });
+  private destination(page: Page, slot: number) {
+    return { texture: page.pool.texture, mip: 0, layer: Math.floor(slot / 256),
+      x: (slot % 16) * 144, y: Math.floor((slot % 256) / 16) * 144 };
   }
   state() {
     let pending = 0;
@@ -1135,7 +1150,8 @@ export class VirtualTextureResidency {
     let residentBytes = 0;
     let pinnedBytes = 0;
     for (const page of this.resident) {
-      const bytes = 36 * 36 * (page.pool.texture.format === "bc4-r-unorm" ? 8 : 16);
+      const bytes = page.pool.texture.format === "r8unorm" ? 144 * 144
+        : 36 * 36 * (page.pool.texture.format === "bc4-r-unorm" ? 8 : 16);
       residentBytes += bytes;
       if (page.pinned) {
         pinnedBytes += bytes;
@@ -1165,7 +1181,7 @@ export class VirtualTextureResidency {
       rescued: this.rescued,
       demand: this.lastDemand,
       receiptBytes: this.receiptBytes,
-      provider: this.sources.values().next().value?.source.preparation.evidence().tiled ?? null,
+      provider: this.sources.values().next().value?.source.evidence() ?? null,
       feedback: this.feedback.evidence(),
       queryFeedback: this.queryFeedback?.evidence() ?? null
     };
@@ -1176,9 +1192,13 @@ export class VirtualTextureResidency {
   destroy(): void {
     if (this.stopped) return;
     this.stopped = true;
+    for (const record of this.sources.values()) {
+      record.live = false;
+      record.abort.abort();
+    }
     for (const batch of this.batches) {
       batch.controller.abort();
-      batch.lease?.release();
+      for (const lease of batch.leases ?? []) lease.close();
     }
     this.batches.clear();
     this.table.destroy();

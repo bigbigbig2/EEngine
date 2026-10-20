@@ -1,3 +1,4 @@
+import { exampleImageKernels } from "../../shared/image-kernels";
 import {
   buildVirtualGeometrySceneSourceV1,
   load_oegpack_product,
@@ -9,7 +10,7 @@ import {
   Renderer,
   Scene
 } from "../../../OEngine/src/index.ts";
-import { openTextureProduct } from "../../../OEngine/src/assets/TextureProduct.ts";
+import { ImageTextureSource } from "../../../OEngine/src/assets/ImageTextureSource.ts";
 import { MATERIAL_TEXTURE_PROPERTIES } from "../../../OEngine/src/assets/PcMaterialTextures.ts";
 import { parseGltfMaterial } from "../../../OEngine/src/loaders/gltf/gltfMaterials.ts";
 import { textureFromGltf } from "../../../OEngine/src/loaders/gltf/gltfTextures.ts";
@@ -128,6 +129,7 @@ async function start(): Promise<void> {
 
   setPhase("初始化原生 HDR 管线");
   renderer = new Renderer({
+    imageTextureKernels: await exampleImageKernels(),
     autoExposure: false,
     fixedExposure: Number(exposure.value),
     enableVsm: false,
@@ -151,7 +153,7 @@ async function start(): Promise<void> {
     ProjectionMappingType.Equirectangular
   );
 
-  setPhase("打开离线 GeometryProduct / BC 纹理");
+  setPhase("打开离线 GeometryProduct / AVIF 纹理");
   const base = "/modules/hello-hdr-gltf/assets/cooked/";
   const manifestResponse = await fetch(`${base}scene.materials.json`);
   if (!manifestResponse.ok) throw new Error(`无法读取预烘焙材质清单 (${manifestResponse.status})`);
@@ -167,12 +169,11 @@ async function start(): Promise<void> {
     textureFromGltf(texture, images, manifest.gltf.samplers)
   );
   const materials = manifest.gltf.materials.map((material: any) => parseGltfMaterial(material, textures));
-  const products = new Map<string, Awaited<ReturnType<typeof openTextureProduct>>>();
+  const products = new Map<string, ImageTextureSource>();
   await Promise.all(
-    manifest.products.map(async (product: { uri: string; identity: string }) => {
-      const response = await fetch(`${base}${product.uri}`);
-      if (!response.ok) throw new Error(`无法读取预烘焙纹理 ${product.uri} (${response.status})`);
-      products.set(product.identity, await openTextureProduct(await response.arrayBuffer()));
+    manifest.products.map(async (product: { uri: string; identity: string; byteLength: number }) => {
+      products.set(product.identity, await ImageTextureSource.open(
+        new URL(base + product.uri, location.href).href, product.identity, product.byteLength));
     })
   );
   for (const [materialIndex, material] of materials.entries()) {
@@ -184,7 +185,7 @@ async function start(): Promise<void> {
       const product = identity ? products.get(identity) : undefined;
       const sampler = textures[binding.textureIndex];
       if (!product || !sampler) throw new Error(`预烘焙材质 ${materialIndex} 缺少 ${property} 纹理`);
-      const texture = ShadeTexture.fromProduct(product);
+      const texture = ShadeTexture.fromImageSource(product);
       for (const name of ["minFilter", "magFilter", "mipmapFilter", "wrapS", "wrapT", "wrapR", "dimensions"] as const)
         texture[name] = sampler[name];
       material[property] = texture;

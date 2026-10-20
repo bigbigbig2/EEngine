@@ -16,6 +16,8 @@ export interface ImageTextureTask {
   /** Bounded per-item records avoid transferring the complete product directory. */
   readonly item: ImageTextureItem;
   readonly plane: ImageTexturePlane;
+  /** Local Web import only; exclusive task copy, never a second replay cache. */
+  readonly input?: ArrayBuffer;
 }
 
 export type ImageTextureResult = Omit<ImageTextureTask, "baseUrl" | "item" | "plane" | "kind"> & {
@@ -47,6 +49,29 @@ export type ImageTextureLeaseDirectory = Pick<
   ImageTextureDirectory,
   "planes" | "mipCount" | "recipe" | "sourceRevision"
 >;
+const directoryOrigins = new WeakMap<ImageTextureLeaseDirectory, ImageTextureDirectory>();
+
+/** Only the shared preparation owner registers its frozen snapshot. The original
+ * immutable directory identity is used for O(1) page/source matching, not JSON
+ * serialization or source-texel walks during command recording. */
+export function registerImageDirectorySnapshot(
+  snapshot: ImageTextureDirectory,
+  source: ImageTextureDirectory
+): void {
+  if (!Object.isFrozen(snapshot)) {
+    throw new Error("Image receipt snapshot must be immutable");
+  }
+  directoryOrigins.set(snapshot, source);
+}
+
+export function imageLeaseSource(lease: ImageTextureLease): ImageTextureDirectory {
+  assertImageTextureLease(lease);
+  const source = directoryOrigins.get(lease.directory);
+  if (!source) {
+    throw new Error("Image receipt directory was not registered by its preparation owner");
+  }
+  return source;
+}
 
 /** Exclusive CPU ready backing. close is idempotent; a released lease cannot be recorded again. */
 export class ImageTextureLease {
@@ -159,6 +184,11 @@ export async function prepareImageTextureTask(task: ImageTextureTask): Promise<I
     const started = performance.now();
     const item = task.item;
     const offset = item.offset === null ? null : checkedImageU64(item.offset);
+    let encoded: Uint8Array<ArrayBuffer>;
+    if (task.input) {
+      if (task.input.byteLength !== item.bytes) throw new Error("Local image item length mismatch");
+      encoded = new Uint8Array(task.input);
+    } else {
     const headers =
       offset === null ? undefined : { Range: `bytes=${offset}-${offset + BigInt(item.bytes) - 1n}` };
     const url = new URL(item.uri, task.baseUrl);
@@ -182,7 +212,7 @@ export async function prepareImageTextureTask(task: ImageTextureTask): Promise<I
     if (!reader) {
       throw new Error("Image item body is missing");
     }
-    const encoded = new Uint8Array(item.bytes);
+    encoded = new Uint8Array(item.bytes);
     let used = 0;
     try {
       while (true) {
@@ -203,7 +233,11 @@ export async function prepareImageTextureTask(task: ImageTextureTask): Promise<I
         reader.releaseLock();
       }
     }
-    if (used !== item.bytes || (await imageTextureHash(encoded)) !== item.sha256) {
+    if (used !== item.bytes) {
+      throw new Error("Image item length mismatch");
+    }
+    }
+    if ((await imageTextureHash(encoded)) !== item.sha256) {
       throw new Error("Image item length/SHA256 mismatch");
     }
     const ioMs = performance.now() - started;
@@ -214,13 +248,14 @@ export async function prepareImageTextureTask(task: ImageTextureTask): Promise<I
         ok: true,
         representation: "exact-bytes",
         bytes: encoded.buffer,
-        encodedBytes: used,
+        encodedBytes: item.bytes,
         ioMs,
         busyMs: performance.now() - busy
       };
     }
-    validateImageAvif(encoded, item, task.plane.semantic);
-    const blob = new Blob([encoded], { type: "image/avif" });
+    if (item.codec === "avif") validateImageAvif(encoded, item, task.plane.semantic);
+    const mime = item.codec === "avif" ? "image/avif" : "image/png";
+    const blob = new Blob([encoded], { type: mime });
     // ImageDecoder is absent from older DOM declarations. Its surface stays local and checked.
     const Decoder = (
       globalThis as unknown as {
@@ -238,10 +273,10 @@ export async function prepareImageTextureTask(task: ImageTextureTask): Promise<I
         };
       }
     ).ImageDecoder;
-    if (Decoder && (await Decoder.isTypeSupported("image/avif"))) {
+    if (Decoder && (await Decoder.isTypeSupported(mime))) {
       const decoder = new Decoder({
         data: encoded.buffer,
-        type: "image/avif",
+        type: mime,
         colorSpaceConversion: "none",
         preferAnimation: false
       });
@@ -275,7 +310,7 @@ export async function prepareImageTextureTask(task: ImageTextureTask): Promise<I
       ok: true,
       representation: "decoded-image",
       image,
-      encodedBytes: used,
+      encodedBytes: item.bytes,
       ioMs,
       busyMs: performance.now() - busy
     };

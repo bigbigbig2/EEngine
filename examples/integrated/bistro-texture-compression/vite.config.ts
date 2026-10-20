@@ -1,3 +1,4 @@
+import { imageKernelsPlugin } from "../../shared/image-kernels-plugin";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
@@ -7,7 +8,7 @@ const examplesRoot = fileURLToPath(new URL("../../", import.meta.url));
 
 export default defineConfig({
   root: examplesRoot,
-  plugins: [bistroLocalModel(examplesRoot)],
+  plugins: [imageKernelsPlugin(examplesRoot), bistroLocalModel(examplesRoot)],
   server: {
     port: 5174,
     headers: {

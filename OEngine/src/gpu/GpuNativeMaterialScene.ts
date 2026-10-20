@@ -747,8 +747,8 @@ export class GpuNativeMaterialScene {
         publication?.currentRevision ?? publication?.revision,
         publication?.currentMinimumMip,
         publication?.virtual,
-        texture.texture_metadata?.storageWidth,
-        texture.texture_metadata?.storageHeight
+        texture.image_source?.directory.width,
+        texture.image_source?.directory.height
       );
     }
     const previous = this.materialBindings[index];

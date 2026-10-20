@@ -9,7 +9,7 @@ verifies:
     - OEngine/src/gpu/GpuNativeMaterialScene.ts
     - OEngine/src/assets/AssetLoadBatch.ts
     - OEngine/src/assets/OegPackV3.ts
-    - OEngine/src/assets/TextureProduct.ts
+    - OEngine/src/assets/ImageTextureSource.ts
     - OEngine/src/assets/RuntimeAssetPackage.ts
     - OEngine/src/assets/RuntimeAssetManifestV2.ts
     - OEngine/src/assets/codec/AssetWorkerPool.ts

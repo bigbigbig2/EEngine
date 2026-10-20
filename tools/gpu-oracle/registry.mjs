@@ -11,6 +11,40 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "image-texture-residency",
+    file: "OEngine/tests/oracle/image-texture-residency-gpu.mjs",
+    url: "/OEngine/tests/oracle/image-texture-residency-gpu.mjs",
+    entry: "runImageTextureResidencyGpu",
+    requiredFeatures: ["texture-compression-bc"],
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+    allowPrefixes: [".local/extreme-web-asset/"],
+    timeoutMs: 180000,
+    description: "Schema4 actual resident/VT owners, native BC5 consumption and protected-tail publication.",
+    note: "Local evaluation kernels only; GPU jobs run serially."
+  }),
+  Object.freeze({
+    name: "image-texture-page-f16",
+    file: "OEngine/tests/oracle/image-texture-page-gpu.mjs",
+    url: "/OEngine/tests/oracle/image-texture-page-gpu.mjs",
+    entry: "runImageTexturePageGpuF16",
+    requiredFeatures: ["texture-compression-bc", "shader-f16"],
+    allowPrefixes: [".local/extreme-web-asset/"],
+    timeoutMs: 180000,
+    description: "E2 same complete unique-owner assembly and stock donor BC with original f16 kernels.",
+    note: "Local evaluation only; run serially with other GPU jobs."
+  }),
+  Object.freeze({
+    name: "image-texture-page",
+    file: "OEngine/tests/oracle/image-texture-page-gpu.mjs",
+    url: "/OEngine/tests/oracle/image-texture-page-gpu.mjs",
+    entry: "runImageTexturePageGpu",
+    requiredFeatures: ["texture-compression-bc"],
+    allowPrefixes: [".local/extreme-web-asset/"],
+    timeoutMs: 180000,
+    description: "E2 unique AVIF owners, complete reservation, NPOT/mirror/repeat GPU assembly and stock donor BC.",
+    note: "Local evaluation only, no production cutover. Generate page-fixtures.mjs first."
+  }),
+  Object.freeze({
     name: "image-texture-transcode-f16",
     file: "OEngine/tests/oracle/image-texture-transcode-gpu.mjs",
     url: "/OEngine/tests/oracle/image-texture-transcode-gpu.mjs",
