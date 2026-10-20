@@ -746,7 +746,37 @@ export async function runNativeSurfaceProductionGpuOracle(
           },
         );
       } else {
-        await renderer.uploadCookedSceneProduct(scene, product);
+        const prepare = () => renderer.prepareVirtualGeometryMaterials(
+          product.canonicalization.materials,
+          product.canonicalization.profiles,
+        );
+        const rejectedMaterials = await prepare();
+        let rejectedInitialProvider = false;
+        try {
+          await renderer.uploadProductScene(scene, {
+            async *revisions() { throw new Error("injected initial provider failure"); },
+          }, () => { throw new Error("Failed provider must not map a scene"); }, {
+            materials: rejectedMaterials,
+          });
+        } catch (error) {
+          check(error.message.includes("injected initial provider failure"), error.message);
+          rejectedInitialProvider = true;
+        }
+        check(rejectedInitialProvider, "Failed initial provider unexpectedly published a scene");
+        check(!renderer._preparedMaterials.has(rejectedMaterials),
+          "Failed Product admission retained its one-shot material transaction");
+        const preparedMaterials = await prepare();
+        await renderer.uploadProductScene(scene, product.provider, ({ descriptor }) => {
+          const mapped = buildVirtualGeometrySceneSourceV1(
+            descriptor,
+            product.canonicalization.profiles,
+            product.canonicalization.instances,
+            product.canonicalization.materials,
+          );
+          return { materials: mapped.materials, source: { ...mapped.source, meshes } };
+        }, { materials: preparedMaterials });
+        check(!renderer._preparedMaterials.has(preparedMaterials),
+          "Published Product did not consume its one-shot material transaction");
       }
     } else {
       const adapted = createPackedSceneSourceFromScene(scene, [{ geometry, asset: cooked.asset }]);

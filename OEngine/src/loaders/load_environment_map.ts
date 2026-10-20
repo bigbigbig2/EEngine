@@ -12,9 +12,15 @@ import { reprojectEquirectToOctahedral } from "./octahedralReproject.js";
 export async function load_environment_map(
   url: string,
   projection: number = ProjectionMappingType.Equirectangular,
+  signal?: AbortSignal,
 ): Promise<ShadeTexture> {
-  const n = await fetch(url);
+  const n = await fetch(url, { signal });
+  if (!n.ok) {
+    await n.body?.cancel();
+    throw new Error(`Environment map load failed: HTTP ${n.status}`);
+  }
   const r = await n.arrayBuffer();
+  signal?.throwIfAborted();
 
   let sampler: Sampler2D;
 

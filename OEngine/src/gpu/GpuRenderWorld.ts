@@ -802,7 +802,7 @@ export class GpuRenderWorld {
       this.graphics.texture_residency.uploadImages(runtime.materials, command, imageBatch),
       preparation.ready,
       this.graphics.frame_instances.ready,
-      this.graphics.frame_vertices.ready,
+      this.graphics.frame_vertices.preparePipelines(runtime.virtualGeometry !== null),
       ...(runtime.virtualGeometry ? [this.graphics.current_hzb_recheck.ready] : [])
     ]);
   }

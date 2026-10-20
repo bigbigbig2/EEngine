@@ -4,7 +4,6 @@
 
 import { GPUTextureManager } from "./GPUTextureManager.js";
 import { GPUSamplerCache } from "./GPUSamplerCache.js";
-import { STATIC_GRAPHICS_ENGINE_ASSETS } from "../render/STATIC_GRAPHICS_ENGINE_ASSETS.js";
 import { GPUBufferAllocator, GPUNativeBufferAllocator } from "./GPUBufferAllocator.js";
 import { GPUTextureAllocator } from "./GPUTextureAllocator.js";
 import { GPUStagingBufferAllocator } from "./GPUStagingBufferAllocator.js";
@@ -327,10 +326,9 @@ export class GraphicsContext {
     return this.imageTranscoderValue;
   }
 
-  /** Lazily creates the bounded CPU Worker/WASM codec owner. */
-
   async initialize(): Promise<void> {
-    await STATIC_GRAPHICS_ENGINE_ASSETS.init();
+    // Renderer owners prepare their resources on actual demand. The optional
+    // exported static asset catalog is not a dependency of this device owner.
   }
 
   encodeFrameMaintenance(command: ShadeGPUCommandContext, sampleCollectionLimits = false): void {

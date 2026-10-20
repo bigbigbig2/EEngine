@@ -510,6 +510,20 @@ E3收口：新增/修改MJS均经`node --check`；`docs-verify`为209 documents�
 
 #### 正在执行与未关闭项
 
-- Dungeon High VT完整25纹理/1500候选正在`.local/extreme-web-asset/e5-dungeon-high`执行，日志`e5-dungeon-high.log`。完整几何已生成：72137三角形、798源primitives、1187页；没有发布未完成图片目录。单候选native AVIF高effort及全域GPU评价为分钟级，当前不能承诺整个矩阵很快完成，也不删候选规避耗时。
+- Dungeon High VT完整25纹理/1500候选曾在`.local/extreme-web-asset/e5-dungeon-high`执行，日志`e5-dungeon-high.log`；2026-10-21为优先处理用户当前加载优化请求，中止本次未完成cook，保留编码/评价缓存与原日志，未发布半成品。中止时首图完成18/60候选，25图完整搜索未完成。完整几何已生成：72137三角形、798源primitives、1187页；没有发布未完成图片目录。单候选native AVIF高effort及全域GPU评价为分钟级，当前不能承诺整个矩阵很快完成，也不删候选规避耗时。
 - hello Extreme、Dungeon Extreme、Bistro High/Extreme、完整playground发布、完整Dungeon validation、Worker-inclusive HTTP/冷暖与网络/启动/内存显存/steady-state成本矩阵仍未关闭。前述local GPU/语义检查不能替代这些结果。Spark许可边界保持本地evaluation；公开生产分发需要调用方合法授权配置。
 - 初始化源码预审已定位待实测候选：GraphicsContext无条件加载vec1/2/3 STBN与split-sum；hello初始化之后才关闭FSR/bloom；HDR→目录→VG activation cut→材质准备有串行等待，现有prepared-material token可用于保持单一事务下重叠；VG根页按64页批次准备/逐页发布。它们目前只是候选，尚未修改生产行为，不据静态分析声称已经提速。
+
+### E5检查点与加载优化（2026-10-21）
+
+`25c813c0`仅保存已验证集成修复及hello High产物，不代表E5完成；Dungeon/Bistro/Extreme及完整验收仍未关闭。根据用户反复强调初始化/VG加载性能，本轮优先进行独立加载优化，不启动其它效果模块、不缩场景/尺寸/mip/选优域。
+
+**实际改变：** GraphicsContext不再等待无内部consumer的导出静态catalog（STBN vec1/2/3与split-sum）；VSM、SSSR等保留其真实owner加载。VG材质准备只编译Product顶点profile，不再同时编译ordinary的5个PSO。hello在initialize之前设置原有FSR/bloom/HZB关闭值，不改变效果选择；HDR和catalog/VG目录读取并行，真实schema/hash/完整元数据检查保持。ProductSceneOptions接一次性PreparedSceneMaterials，在现有GPU Render World单事务验证实际材料/profile再消费，admission失败取消token，提交前检查abort。两个受统一credit约束的纹理CPU读取槽与现有串行hidden GPU batch重叠；失败取消兄弟任务、等待清理，迟到lease不再提交。没有增加GPU并行scratch、帧submit、第二Worker pool或兼容owner。环境图增加HTTP状态与AbortSignal检查。
+
+**Cost Card：** 删除无consumer约6.3MB响应/CPU静态图和ordinary的5个无用编译；零新增常驻GPU产品/稳定帧dispatch。两个CPU槽而非全场景prefetch，最多两个正在消费的完整item/VT邻域；总encoded/decoded/ready信用及原容量上界不增加，实际峰值可能在既有预算内升高，不宣称RSS更低。单item峰值仍为2×encoded+4×decoded；GPU scratch仍串行持有至fence。0/50/100%可重叠IO对应零/部分/全部相关IO隐藏，质量工作不减少，单item/信用压力下收益可为零；无新增帧热路径队列。hello两份观测首帧均约124377154B已注册GPU分配（不是驱动VRAM/RSS），不宣称显存改善。简单调度/胶水为Local；Spark、AVIF和几何算法不改、不冒称新移植。
+
+**测量口径：** 同Chrome155、本机硬件、1280×720、完整hello High固定场景，静态HTTP服务器对全部response body（含Dedicated Worker）共享100Mbps/10ms节流；不含TLS/header，未压缩JS、非公网/CDN benchmark。冷/暖各3次，首个queue完成帧与原有SceneRefinement.view-settled分别计时；不把粗层首帧冒充精细模型完成。baseline使用25c813c0源码隔离构建，仅加同一收敛观测，不切换工作区或恢复旧production owner。完整报告/请求hash在.local/extreme-web-asset/loading-{baseline-settled,optimized-settled}.json；截图检查收敛完整模型，原首帧粗层截图亦保留。数值由实际报告更新，不将3样本宣称正式P50/P95性能资格。
+
+**实测结果与检查：** 冷启动首个完成帧中位24286→11357ms（约53.2%更短），当前视角目标收敛25061→12007ms（约52.1%）；暖启动首帧9069→5901ms（约34.9%），收敛9774→6693ms（约31.5%）。全部响应body冷31351219→25043003B，减少6308216B（约20.1%）；暖两边7750387B，几何完整收敛Range同为7750387B，未减少必需几何。非JS/HTML共享资源含纹理/几何的响应hash一致。首帧pipeline completed57→41，active/queued/failed均0。hello提示区分基础层发布与view-settled完整目标，不提前报完整就绪。
+
+12项直接CPU检查通过，覆盖两个读取槽、同任务不重复、失败取消/等待清理、迟到lease不record、顶点profile、材质准备和统一信用/Range生命周期。真实GPU串行image-texture-residency通过；native-surface-product-production新增initial provider失败取消token、重新prepare、真实消费/退休检查，并保留原winner/HDR/Temporal/abort/resize/device-recovery断言，最终passed。该oracle预期注入empty replacement abort在pageErrors保留，属于已断言负控制，不是hello页面错误；最初运行遇到stale test build后新鲜构建重跑，原文件保留。新CPU夹具初次缺features/ChangeSignal已修夹具，未改生产降级。engine typecheck/build:test、hello typecheck/static build通过，docs-verify为209documents/0finding/86historicalwarnings。完整E5场景矩阵仍未完成，不因加载优化实测提升最终验收/生产许可资格。

@@ -206,13 +206,15 @@ export class TextureResidency {
     this.assertCommand(command);
     const abort = new AbortController();
     command.onAborted.addOne(() => abort.abort());
-    // Serial recording bounds shared scratch even for many simultaneous scene requests.
-    for (const entry of entries) {
-      if (!entry.staging) continue;
+    const pending = [...entries];
+    let next = 0;
+    const upload = async (entry: Entry): Promise<void> => {
+      abort.signal.throwIfAborted();
+      if (!entry.staging) return;
       if (entry.bootstrap) {
         if (entry.bootstrap.command !== command) throw new Error("Image bootstrap belongs to another transaction");
         await entry.bootstrap.ready;
-        continue;
+        return;
       }
       const bootstrap = { command, complete: false, ready: Promise.resolve() };
       entry.bootstrap = bootstrap;
@@ -229,11 +231,13 @@ export class TextureResidency {
             const leases = await source.read([item.id], abort.signal, 0);
             const lease = leases[0]!;
             try {
+              abort.signal.throwIfAborted();
               if (command.closed || this.destroyed) throw new Error("Image bootstrap was cancelled");
               const destinations = (profile.mips === "runtime" ? layout.levels : [layout.levels[item.mip]!])
                 .map((level) => ({ texture: allocation.segment.texture!, mip: level.mip,
                   layer: allocation.layer, x: item.x, y: item.y }));
               await batch((hidden) => {
+                abort.signal.throwIfAborted();
                 if (command.closed || this.destroyed) throw new Error("Image bootstrap was cancelled before recording");
                 if (profile.target === "r8") {
                   this.transcoder!.recordExact(hidden, lease, destinations[0]!);
@@ -261,6 +265,25 @@ export class TextureResidency {
         });
       })();
       await bootstrap.ready;
+    };
+    // Two bounded CPU readers overlap fetch/decode with the scene owner's
+    // serialized GPU batches. Shared preparation credit still admits each item;
+    // no unbounded ready queue or simultaneous scratch recording is introduced.
+    const consume = async (): Promise<void> => {
+      try {
+        while (next < pending.length) {
+          await upload(pending[next++]!);
+        }
+      } catch (error) {
+        abort.abort(error);
+        throw error;
+      }
+    };
+    const results = await Promise.allSettled([consume(), consume()]);
+    for (const result of results) {
+      if (result.status === "rejected") {
+        throw result.reason;
+      }
     }
   }
 

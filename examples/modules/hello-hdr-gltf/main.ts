@@ -10,6 +10,7 @@ import {
   Renderer,
   Scene
 } from "../../../OEngine/src/index.ts";
+import type { PreparedSceneMaterials } from "../../../OEngine/src/index.ts";
 import { ImageTextureSource } from "../../../OEngine/src/assets/ImageTextureSource.ts";
 import { imageTextureHash } from "../../../OEngine/src/assets/ImageTextureProduct.ts";
 import { MATERIAL_TEXTURE_PROPERTIES } from "../../../OEngine/src/assets/PcMaterialTextures.ts";
@@ -62,6 +63,7 @@ let lastTime = performance.now();
 let lastFpsTime = lastTime;
 let submittedFrameAtSample = 0;
 let activeAsset: Awaited<ReturnType<typeof load_oegpack_product>> | undefined;
+let pendingMaterials: PreparedSceneMaterials | undefined;
 const imageSources = new Set<ImageTextureSource>();
 const loadAbort = new AbortController();
 const startupMarks: Record<string, number> = {};
@@ -73,6 +75,8 @@ function markStartup(name: string): void {
 
 function releaseScene(): void {
   loadAbort.abort();
+  pendingMaterials?.cancel();
+  pendingMaterials = undefined;
   activeAsset?.release();
   activeAsset = undefined;
   renderer?.destroy();
@@ -93,6 +97,7 @@ function resize(): void {
 }
 
 function fail(reason: unknown): void {
+  if (disposed) return;
   running = false;
   releaseScene();
   setPhase("初始化失败");
@@ -132,6 +137,20 @@ function frame(time: number): void {
   lastTime = time;
   orbit.update(delta);
   renderer.render(camera, scene, delta);
+  if (!canvas.dataset.refinement) {
+    const refinement = renderer.sceneRefinementEvidence(scene);
+    if (refinement?.phase === "view-settled") {
+      markStartup("view-settled");
+      setPhase("就绪 · 拖动旋转，滚轮缩放");
+      canvas.dataset.refinement = JSON.stringify({
+        marks: startupMarks,
+        refinement,
+        renderer: renderer.initializationEvidence(scene),
+        geometry: activeAsset?.evidence(),
+        memory: renderer.memoryEvidence()
+      });
+    }
+  }
   if (time - lastFpsTime >= 500) {
     const elapsed = time - lastFpsTime;
     const submitted = renderer.frame_count - submittedFrameAtSample;
@@ -147,6 +166,49 @@ async function start(): Promise<void> {
   const context = canvas.getContext("webgpu");
   if (!context) throw new Error("无法创建 WebGPU canvas context。");
 
+  const base = "/modules/hello-hdr-gltf/assets/cooked/";
+  const environmentReady = load_environment_map(
+    "/modules/hello-hdr-gltf/assets/venice_sunset_1k.hdr",
+    ProjectionMappingType.Equirectangular,
+    loadAbort.signal
+  ).then((environment) => {
+    markStartup("hdr-ready");
+    return environment;
+  });
+  const catalogReady = (async () => {
+    const response = await fetch(`${base}scene.materials.json`, { signal: loadAbort.signal });
+    if (!response.ok) throw new Error(`无法读取预烘焙材质清单 (${response.status})`);
+    const manifest = await response.json();
+    if (manifest.schema !== "oengine-image-scene-materials-v2") {
+      throw new Error("Expected schema4 image scene; recook required");
+    }
+    const sceneResponse = await fetch(`${base}${manifest.geometryManifest}`, { signal: loadAbort.signal });
+    if (!sceneResponse.ok) throw new Error(`无法读取预烘焙场景清单 (${sceneResponse.status})`);
+    const sceneBytes = await sceneResponse.arrayBuffer();
+    if ((await imageTextureHash(new Uint8Array(sceneBytes))) !== manifest.geometryManifestHash) {
+      throw new Error("Geometry manifest hash mismatch");
+    }
+    const sceneManifest = parseOegPackSceneManifestV4(sceneBytes);
+    markStartup("scene-catalog-ready");
+    return { manifest, sceneManifest, sceneBytes };
+  })();
+  const geometryReady = catalogReady.then(async ({ sceneManifest, sceneBytes }) => {
+    const asset = await load_oegpack_product({
+      kind: "http-range",
+      url: `${base}${sceneManifest.packs[0]!.uri}`,
+      init: { signal: loadAbort.signal }
+    }, { manifest: sceneBytes, signal: loadAbort.signal, verifyPageSha256: false });
+    if (loadAbort.signal.aborted) {
+      asset.release();
+      loadAbort.signal.throwIfAborted();
+    }
+    activeAsset = asset;
+    markStartup("geometry-directory-ready");
+    return asset;
+  });
+  // Observe concurrent failures immediately; the original promises retain their
+  // rejection and publication still awaits every required input.
+  void Promise.all([environmentReady, catalogReady, geometryReady]).catch(fail);
   setPhase("初始化原生 HDR 管线");
   const kernels = await exampleImageKernels();
   markStartup("kernels-ready");
@@ -160,45 +222,23 @@ async function start(): Promise<void> {
     ambientOcclusion: { enabled: false },
     renderScale: 1
   });
+  renderer.packed_visibility_hzb_enabled = false;
+  renderer.packed_visibility_current_hzb_late_recheck_enabled = false;
+  renderer.fsr3_enabled = false;
+  renderer.temporal_jitter_enabled = false;
+  renderer.bloom_enabled = false;
   await renderer.initialize({ context });
   markStartup("renderer-ready");
   if (loadAbort.signal.aborted) {
     renderer.destroy();
     loadAbort.signal.throwIfAborted();
   }
-  renderer.packed_visibility_hzb_enabled = false;
-  renderer.packed_visibility_current_hzb_late_recheck_enabled = false;
-  renderer.fsr3_enabled = false;
-  renderer.temporal_jitter_enabled = false;
-  renderer.bloom_enabled = false;
   renderer.setToneMapping(toneMapping.value as "engine" | "neutral" | "aces" | "reinhard");
 
   resize();
 
-  setPhase("解码 Venice Sunset HDR");
-  scene.lights.environment = await load_environment_map(
-    "/modules/hello-hdr-gltf/assets/venice_sunset_1k.hdr",
-    ProjectionMappingType.Equirectangular
-  );
-  markStartup("hdr-ready");
-  loadAbort.signal.throwIfAborted();
-
   setPhase("打开离线 GeometryProduct / AVIF 纹理");
-  const base = "/modules/hello-hdr-gltf/assets/cooked/";
-  const manifestResponse = await fetch(`${base}scene.materials.json`, { signal: loadAbort.signal });
-  if (!manifestResponse.ok) throw new Error(`无法读取预烘焙材质清单 (${manifestResponse.status})`);
-  const manifest = await manifestResponse.json();
-  if (manifest.schema !== "oengine-image-scene-materials-v2") {
-    throw new Error("Expected schema4 image scene; recook required");
-  }
-  const sceneResponse = await fetch(`${base}${manifest.geometryManifest}`, { signal: loadAbort.signal });
-  if (!sceneResponse.ok) throw new Error(`无法读取预烘焙场景清单 (${sceneResponse.status})`);
-  const sceneBytes = await sceneResponse.arrayBuffer();
-  if ((await imageTextureHash(new Uint8Array(sceneBytes))) !== manifest.geometryManifestHash) {
-    throw new Error("Geometry manifest hash mismatch");
-  }
-  const sceneManifest = parseOegPackSceneManifestV4(sceneBytes);
-  markStartup("scene-catalog-ready");
+  const { manifest, sceneManifest } = await catalogReady;
   const images = Array.from({ length: manifest.source.images }, () =>
     ShadeImage.fromEncodedImage(new ArrayBuffer(0), "image/png")
   );
@@ -236,16 +276,18 @@ async function start(): Promise<void> {
       material[property] = texture;
     }
   }
-  const asset = await load_oegpack_product({
-    kind: "http-range",
-    url: `${base}${sceneManifest.packs[0]!.uri}`
-  }, { manifest: sceneBytes, verifyPageSha256: false });
+  const prepared = await renderer.prepareVirtualGeometryMaterials(
+    materials, manifest.instanceProfiles, loadAbort.signal
+  );
   if (loadAbort.signal.aborted) {
-    asset.release();
+    prepared.cancel();
     loadAbort.signal.throwIfAborted();
   }
-  activeAsset = asset;
-  markStartup("geometry-directory-ready");
+  pendingMaterials = prepared;
+  markStartup("materials-started");
+  const asset = await geometryReady;
+  scene.lights.environment = await environmentReady;
+  loadAbort.signal.throwIfAborted();
   setPhase("发布 Virtual Geometry");
   const mask = asset.pack.vertexFormats.reduce((value, format) => value | format.attributeMask, 0);
   const profile = {
@@ -269,12 +311,15 @@ async function start(): Promise<void> {
       fitBase: [0, 0, 0]
     });
   }, {
+    signal: loadAbort.signal,
+    materials: pendingMaterials,
     residency: {
       requestedProfile: "HighEnd",
       configuredCapacityBytes: 128 * 1024 * 1024,
       configuredBankBytes: 32 * 1024 * 1024
     }
   });
+  pendingMaterials = undefined;
   markStartup("scene-published");
   loadAbort.signal.throwIfAborted();
   void residency.settled().then(
@@ -301,7 +346,7 @@ async function start(): Promise<void> {
     }, fail);
   });
   requestAnimationFrame(frame);
-  setPhase("就绪 · 拖动旋转，滚轮缩放");
+  setPhase("基础层就绪 · 正在细化几何");
   sceneState.textContent = "Venice Mask · Venice Sunset HDR";
 }
 

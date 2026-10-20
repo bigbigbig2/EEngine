@@ -294,6 +294,9 @@ export interface ProductSceneSourceMapper {
 export interface ProductSceneOptions {
   readonly signal?: AbortSignal;
   readonly stream?: boolean;
+  /** One-shot preparation for the initial revision only. Actual material/profile
+   * identity is checked at publication; failure cancels the unsubmitted token. */
+  readonly materials?: PreparedSceneMaterials;
   /** Physical residency profile; Product/Page ABI and cook output are unchanged. */
   readonly residency?: VirtualGeometryResidencyOptionsV1;
   /** Runs after the revision is mapped and before GPU publication. */
@@ -1335,7 +1338,9 @@ export class Renderer {
     if (publication.assetCount !== source.assetCount) {
       throw new RangeError("Virtual Product source assetCount does not match its descriptor");
     }
-    await this.prepareTextureProducts(source.materials);
+    if (!publication.materials) {
+      await this.prepareTextureProducts(source.materials);
+    }
     if (streamingRuntime !== null && publication.registerStreaming !== false) {
       streamingRuntime.registerProduct(residency.sourceForStreaming());
     }
@@ -1435,8 +1440,14 @@ export class Renderer {
               residency,
               streaming,
               () => {
+                options.signal?.throwIfAborted();
                 if (candidate.state !== "ready-to-activate")
                   throw new Error("Product candidate was cancelled before Scene submit");
+              },
+              {
+                bindings: residency.bindings(),
+                assetCount: residency.descriptor.assetRecords.byteLength / 128,
+                materials: options.materials,
               },
             );
             candidate.markSceneSubmitted();
@@ -1482,7 +1493,13 @@ export class Renderer {
     });
     const consuming = admission.consume(provider, options.signal);
     consuming.catch(() => undefined);
-    await waitForActiveProduct(admission, options.signal);
+    try {
+      await waitForActiveProduct(admission, options.signal);
+    } catch (error) {
+      options.materials?.cancel();
+      admission.cancel(error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    }
     const active = admission.active;
     if (!active || active.state !== "active") throw new Error("Geometry Product admission did not activate");
     if (!state || !firstHandle)
