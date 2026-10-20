@@ -15,6 +15,8 @@ export interface AssetWorkerPoolOptions {
   readonly maxConsecutiveWorkerFailures?: number;
   readonly createWorker: () => Worker | Promise<Worker>;
   readonly retainedBytes?: (result: unknown) => number;
+  /** Close transferred objects delivered after task retirement, including a late terminated Worker. */
+  readonly discardResult?: (result: unknown) => void;
 }
 
 export interface AssetWorkerTask<TRequest> {
@@ -229,7 +231,10 @@ export class AssetWorkerPool {
 
   private finish(slot: WorkerSlot, result: unknown): void {
     const entry = slot.entry;
-    if (entry === null) return;
+    if (entry === null) {
+      this.options.discardResult?.(result);
+      return;
+    }
     try {
       const retainedBytes = this.options.retainedBytes?.(result) ?? 0;
       if (retainedBytes < slot.retainedBytes) {
@@ -241,6 +246,7 @@ export class AssetWorkerPool {
         this.workers.reduce((sum, worker) => sum + worker.retainedBytes, 0),
       );
     } catch (error) {
+      this.options.discardResult?.(result);
       this.failWorker(slot, error instanceof Error ? error : new Error(String(error)));
       return;
     }

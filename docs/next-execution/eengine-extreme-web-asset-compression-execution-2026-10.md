@@ -25,7 +25,7 @@ verifies:
 
 日期：2026-10-20。唯一目标依据：[设计](../next-design/eengine-extreme-web-asset-compression-2026-10.md)。源码 HEAD `5f3f41533e25901cbbd1da9c3ae751c64bc0a9c9`；工作区原有旧U0工具/规范等未提交改动保留，不归零或回退。
 
-**当前授权范围为重建设计/执行、复核并提交准备改动。** P为本轮准备单元；E0及以后为详细施工计划，尚未启动生产移植或recook。新文档删除并替换旧设计/执行，旧U0的“完成/冻结”不成为新计划的完成状态。
+**用户已追加授权实施E1。** P准备已提交为`1f856ea0`，E0与E1结果见§12；当前停在E2边界，无生产ownership切换或示例recook。新文档删除并替换旧设计/执行，旧U0的“完成/冻结”不成为新计划的完成状态。
 
 ## 1. 执行纪律与目标
 
@@ -40,8 +40,8 @@ verifies:
 | 单元 | 工程量 | 完整交付与稳定边界 | 依赖 / 当前状态 |
 | --- | --- | --- | --- |
 | P：重建设计准备 | 中 | 新唯一设计/执行、来源映射与导航，删除旧主张，记录证据边界 | 本轮文档准备；实际结果见§12 |
-| E0：上游依赖与移植基线准备 | 中 | 固定编码工具/许可、donor完整路径、产品/能力细节与构建身份；无生产切换 | P后；待授权 |
-| E1：忠实内核与新产品准备闭包 | 大 | 新图片产品、语义Cooker、浏览器decode/lease、GPU recorder、有限内存，覆盖RGB/RGBA/BC5/BC4和mip | E0后；待授权；只在隔离边界可达 |
+| E0：上游依赖与移植基线准备 | 中 | 固定编码工具/许可、donor完整路径、产品/能力细节与构建身份；无生产切换 | 已实施；实际结果与许可交付边界见§12 |
+| E1：忠实内核与新产品准备闭包 | 大 | 新图片产品、语义Cooker、浏览器decode/lease、GPU recorder、有限内存，覆盖RGB/RGBA/BC5/BC4和mip | 隔离闭包已实现并验证；本地evaluation来源边界及结果见§12 |
 | E2：纹理全链原子切换 | **很大，主工作项** | 普通/VT、材质/coverage/query、统一准备/缓存、全部加载/部署/recook、删除旧产品与依赖 | E1后；待授权；本单元内部不分两次上线 |
 | E3：离线极限码率与交付优化 | 大 | 双质量档的有限搜索、最终GPU评价缓存、完整资产报告、VT cell布局与预览/请求优化 | E2基础闭包后；待授权；仍只一个生产owner |
 | E4：几何紧凑ABI与无损传输原子切换 | 很大，独立资产类别闭包 | F32-exact SoA、Zstd/raw、所有Cooker/reader/query/lifecycle与部署一次切换 | 公共准备合同在E2已定；待授权 |
@@ -266,7 +266,7 @@ node tools/gpu-oracle.mjs --list
 
 本模块实现完成需要：新全套PBR/普通/VT产品与全部真实consumer已切换、旧依赖删除、合法来源/许可、质量档/边界/精确语义、容量与组合生命周期成立，成本如实报告。正式跨设备FPS/画质资格可按仓库节奏归最终集成，但已发现错误、漏工作与失控容量不能延期。
 
-当前停止在设计准备边界。以后用户授权某单元就完成该单元，授权整模块则按依赖连续推进；不自动启动其它效果、HDR/神经压缩或有损几何精度变更。
+当前停止在E2生产切换前，后续E2需另行授权。以后用户授权某单元就完成该单元，授权整模块则按依赖连续推进；不自动启动其它效果、HDR/神经压缩或有损几何精度变更。
 
 ## 12. 本轮P准备记录与后续实施结果
 
@@ -288,3 +288,72 @@ node tools/gpu-oracle.mjs --list
 - 重新运行docs-verify：209 documents、0 finding、86 historical warnings；diff whitespace检查及旧authority/anchor引用清理通过。两次owner导航均指向新文档。
 - 对7个U0 JS工具与oracle registry执行`node --check`；`gpu-oracle --list`和reference registry存在性/entry/features/prefix检查通过；旧快照11个工具SHA256与实际源码全部匹配，原快照未重生成，baseRevision笔误继续按§10注明。
 - 未重跑旧U0 native/WASM/GPU实验或生产编译/benchmark：本次只修改准备文档/导航，旧工具原样保存，新生产代码未改；以上静态完整性检查不提升旧实验或新路线资格。Spark shader适用授权与新浏览器数据链验证仍为E0/E1具名工作，不冒称已解决。
+
+### E0：2026-10-20依赖与移植基线准备
+
+**结论：E0准备交付完成，停在E1边界；没有生产切换、recook或自动提交。** 技术路线不重选。完成指工具可用、来源/许可状态明确、完整阶段和实际合同已细化，不表示Spark生产再分发授权或E1 GPU移植已完成。
+
+#### 已落地的工具与来源
+
+- `OEngine/tools/extreme-web-asset/prepare.mjs`、`sources.json`取回8个精确revision：Spark、gltf-tex、真实PBR示例、libavif、libaom及zlib/png/jpeg依赖。每个checkout核HEAD/无tracked改动，完整tracked tree与来源/许可文件SHA256写本地source identity。未执行npm安装脚本、未复制shader到production。
+- libavif1.3.0/libaom3.12.0完整native encoder/decoder，MSVC19.51.36257.0、CMake4.4.2、NASM2.16.03，Release/x64、完整SIMD、aom encode/decode。png/jpeg/zlib从固定源链接本地static依赖；libyuv明确OFF，使用完整libavif自身RGB/YUV转换，不伪称已验证有libyuv的吞吐。libavif默认LOCAL会取aom3.12.1，故采用显式本地SYSTEM查找并核CMakeCache实际路径，未混用版本。
+- `native-profiles.mjs`明确High80/Extreme50、speed4锚点和speed2候选、IQ/SSIM、10-bit、444/400、full/CICP及alpha策略。`native-smoke.mjs`分别跑donor原始argv与本地显式配置，18组编码→元数据→native解码通过，1组非法tune明确拒绝；它只证明工具配置，不是AVIF材质质量/浏览器上传结果。
+- 最新`avifenc.exe` SHA256为`c2b8e632f6c8cf85ce953316eb6405f276eeb70958cb89dc6d5691f315761d32`；`avifdec.exe`为`1f7f31eb6f9effe11c23d02ca8273bce1f234fbfee5cbb42da9986e96392055e`。有限身份快照为`OEngine/tools/extreme-web-asset/e0-baseline.json`；完整commands/flags、compiler/cache/binary和license/PATENTS哈希在`.local/extreme-web-asset/native-build.json`、`sources.json`、`native-smoke.json`。后续重建可能因MSVC构建身份变化得到不同exe，须更新实际hash并重做受影响smoke，不要求跨构建位相等。
+
+#### 许可交付边界
+
+2026-10-20取回Spark EULA与Commercial网页，SHA256分别为`c60e4a134f140a6e48bb5b729a48136248f414c633b7d27ec32412d9a7305f88`、`2a849f1aaa40f0124a121a66503ba88d4d313c9a2b05d57ca8a43a4b4bd50e66`。仓库JS MIT不覆盖shader；当前EULA引擎/工具例外限evaluation并有下游/attribution条件，生产分发权未记录。Commercial还要求相应项目和下游条件，不能凭页面存在宣称已购买/授权。本轮不联系第三方/不购买/不向公开包复制shader。E1可以继续合法宿主/产品工作，实际vendor/分发选定shader前必须满足适用权利，不能自写近似版绕过。
+
+gltf-tex固定pin只有package/README MIT声明，无独立版权notice；本轮研究完整处理路径、复现有效CLI配置而不直接vendor实现。需要代码复制时取得适用notice；若只按native工具参数和本地canonical合同接入，必须继续标Reference/Local，不能冒称源码port。libavif/aom及相关依赖的license/third-party/PATENTS保留在本地工具license目录，未来公开交付再随实际包附带。
+
+#### E1可直接施工的合同
+
+- 设计§4固定纹理目录schema4/准备协议4；普通与VT共享根合同，GPU与网络四域分开、三种成功receipt/失败分支、u64范围/u32索引与先验容量。E2几何仍显式major3，E4才切major4，不通过错标签假装原子完成。
+- 设计§5明确canonical前置、normal XY解码后恢复B常量、scalar精确提通道、XYZ/moment不归一化；provided chain与coverage独立。normal XY mip相对旧XYZ滤波是显式语义变化，不能称数学等价。
+- 设计§8.1固定BC7 RGB/RGBA、BC5、BC4/R8 bank语义、donor f16/机械f32精度profile、可选unaligned、API/limits/usage前置；保留compute magic/alpha box和browser fragment路径的真实差异。E1要核data上传和alpha/mip语义，不能按上游项目名自动通过。
+- 设计§8.2明确FrameCoordinator唯一frame command、scene owner的隐藏准备批次与最后原子publication、observeSubmission/abort/fence退休。修正“持有整场景未提交command却等待scratch fence”的活性缺口；不是transcoder每图私有submit，不增加独立frame submit。
+- 来源账本已补源阶段/条件→本地owner与不可简化边界；VT assembly/receipt/容量/scene批次为Local，Spark完整所选编码kernel尚未vendor/编译/生产消费，不提升adoption。
+
+#### 实际检查、原失败与未运行项
+
+- native构建及上面18+1 smoke通过；新增定向TestsStream为3 passed、0 failed/cancelled/skipped/todo。3个新增JS工具及定向测试均通过`node --check`；有限快照与当前recipe、来源manifest、8个来源tree、2个exe、许可页面及18+1结果身份一致。
+- 收口运行`node tools/docs-verify.mjs`：209 documents、0 finding、86 historical warnings；`git diff --check`通过。普通纹理与几何各一次`vibe context`均路由当前唯一设计/执行。architecture review核对完整donor阶段、颜色/alpha双阶段、normal常量恢复、唯一command owner及scratch退休活性；本轮只新增隔离工具/检查并细化文档/导航，未改production src、资产、依赖lockfile或既有生产ownership。
+- 按现有`CHECK_RUNNERS['tooling-suites']`运行完整工具套件，两次均16 tests、15 passed/1 failed：`tools/tests/test-build.test.mjs`临时repo只创建codec夹具，但`tools/test-build.mjs`还必需复制`src/render/assets/sssr`（后续还有STBN）；真实repo资源存在，失败是旧临时fixture不完整，不是E0 native或GPU故障。没有改生产build脚本跳过资源、没有放宽/删除断言；原失败保存在`.local/extreme-web-asset/checks/tooling-suites.json`。不将整套工具验证写成通过，修该无关夹具不作为E0开工反复中断项。
+- 构建准备原失败保留：首次fetch末尾Node24.1 libuv shutdown断言（改为自然结束后未复现）；PowerShell展开archive的args传参错误（改明确literal路径）；libaom缺Perl（固定Git Perl/允许EENGINE_PERL）；上游zlib CMake重命名tracked zconf.h导致清洁检查拒绝（核原blob一致后只恢复该工具变更，改在独立build-source副本构建并逐文件核hash）。原日志未删，后续原构建/受影响smoke已重跑通过；未通过删SIMD、改codec或省算法步骤“解决”。
+- 未运行新GPU/browser、全Renderer TS/build/画质/FPS与整场景压缩测量：本轮不改production src，也未授权E1。E1拥有新GPU最小输入→输出/lease回收、E2拥有生产全消费者接线、E5拥有组合检查，不把native smoke冒称这些结果。
+
+### E1：2026-10-20忠实内核与新产品准备闭包
+
+**结论：E1的隔离新产品→共享准备→真实GPU编码/采样闭包完成，停在E2边界。** 此处完成的是文档允许的本地evaluation实现，不是Spark生产shader分发授权、正式production adoption或普通/VT全消费者切换；没有公开导出新入口、recook现有示例或提交代码。
+
+#### 实际产品与producer
+
+- 新`ImageTextureProduct.ts`统一resident/virtual schema4，明确完整逻辑mip、semantic/target、channel常量、address、alphaScale和有限image/raw-exact item；u64十进制范围、encoded/decoded/元数据上界、完整item索引、无洞/无重叠owner sweep与source范围检查。128网格/NPOT尾格支持provided owner；页依赖/VT assembly和逐层采样元数据归E2，不冒称已实现。
+- `ImageTextureCook.ts`从已定向/canonical RGBA8直接生成native AVIF：全6类语义、原XYZ同时计算单位normal XY、标量真实提通道、精确常量、全opaque去alpha；provided XY不再次normalize，XYZ/moment保持长度，coverage独立提alpha为raw精确段。无consumer删除/全材质依赖分析与跨资产调度是E2接线，不在隔离Cooker猜测不存在的consumer。
+- `tools/extreme-web-asset/cook.mjs`核实际avifenc哈希，recipe包含binary/native profile/Cooker/glue身份，content-addressed payload先写，最终directory最后原子替换。运行时不搜索质量、不装WASM图片decoder，不把旧BC反解为canonical。raw是设计允许的精确段基线，不伪称已经有新通用Zstd精确段优化。
+- `fixtures.mjs`实际生成14个产品（6语义×High/Extreme及7×5/1×1）、另一个straight-alpha独立产品。文件只在`.local/extreme-web-asset/e1-fixtures/`；不是hello/Dungeon/Bistro recook，不报告整场景压缩率。
+
+#### 统一准备、能力与生命周期
+
+- 在**原有**`CookedAssetPreparation`/`AssetWorkerPool`/cooked worker增加显式version4 image-item入口，不新增pool/IO/Worker调度owner，不把旧schema包装为新产品。单目录验证/冻结注册，全局目录accounting≤8MiB，逐任务只传选中item/plane；source release/session close销毁ready并取消未完成任务。
+- 读取前整任务encoded/decoded/ready容量准入，HTTP状态/Range/Content-Range/Content-Encoding/长度和SHA检查，静态AVIF箱体/主图/alpha关联/direct extent/10-bit/444或400/CICP/方向/尺寸在browser decode前拒绝不符profile。该parser只是固定native产物admission，不称通用AVIF parser或AV1 decoder。
+- ImageDecoder优先、同表示ImageBitmap宿主路径；VideoFrame→ImageBitmap双backing收费、frame/decoder finally close、transfer失败显式报错。仅已分配pool任务结果签发一次lease，release后不能再编码；迟到/retained receipt失败关闭图片。30秒任务timeout按同一pool取消/Worker退休处理，不继续后台无信用运行。
+- encoded/decoded/ready沿共享credit；E1 composition选16MiB encoded，CPU峰值保守`2×encoded+4×decoded`，ready至少双份；浏览器未知内部内存不是RSS硬上界。生产旧构造默认预算在E2统一切换，不在本单元提前改变旧消费者。
+- 新`ImageTextureTranscoder.ts`调用方command encode-only，支持完整原始BC7 RGB/RGBA、BC5、BC4、canonical常量恢复、完整1×1 mip、R8 exact copy。没有finish/submit/readback权、最终texture分配权或长期Residency所有权。按实际logical mip各建精确尺寸scratch，physical block copy不resize原图；非零mip/layer/origin通过真实消费。
+- pipeline按设备/precision初始化；GPU RGBA默认≤48MiB，block/params默认≤16MiB，完整任务和实际limits先检查。槽按尺寸/层数/target分组，queue external copy之前独占至fence；不足返回needs-drain，不等自身未提交command。abort、failed fence、dispose与device loss退休；exact staging单独同域计费。
+- compute magic/alpha box完整保留；fragment mip直接使用donor fullscreen/mipmap_fs完整函数。在core宿主可显式选择；Firefox自动选择该宿主profile。fragment未实现alpha weighting/scale时明确要求provided chain，不静默当等价。Compatibility mode不属于当前Renderer core binding profile，创建前拒绝；本轮实测Chrome，不声称已验证Firefox/Safari。
+
+#### 忠实来源与许可
+
+四个BC WGSL与完整utils均从E0固定checkout读取并核SHA256，未复制进src/vendor/公开dist；f32严格沿上游五种机械替换，f16用原kernel。本地oracle页面保留Spark attribution/EULA链接及evaluation下游条件。原始Spark JS作为独立donor宿主；本地glue不执行其私有submit，诊断oracle可正常提交/回读，不进入production hot path。JS参考实现与Local canonical/产品/容量/lease明确分开，不假称所有代码源码移植。
+
+**Spark生产shader再分发权仍未记录。** E2可以继续合法产品/消费者工作，但实际公开集成前仍需适用权利；本轮本地evaluation通过不升级为生产采用，也不自写近似版规避许可。
+
+#### 实际检查与原失败
+
+- `npm --prefix OEngine run build:test`、`typecheck`及完整`build`通过；Vite保留既有Emscripten `node:module` browser externalization warning，无新增构建错误。
+- 定向TestsStream：image新产品6项，加直接受影响cooked/tiled worker回归7项，合计**13 passed，0 failed/cancelled/skipped/todo**。记录`.local/extreme-web-asset/e1-targeted-final.json`。
+- 真实GPU串行跑`image-texture-transcode`和`image-texture-transcode-f16`，Chrome155.0.8059.84、NVIDIA Turing硬件，分别无shader-f16的f32与启用shader-f16的f16。每条14产品/22图片item，**56个donor block/mip逐字节比较、682个coverage精确字节**通过；全部所选格式真实采样。7×5/1×1不冒称stock resize等价，只核完整logical输出、无越界及实际消费。
+- decoder→upload独立data/color-rgb字节检查、常量恢复、BC5半球重建、provided非单位moment、完整1×1链、两个不同未提交图片逆序submit、needs-drain保留lease/abort重试、超容量拒绝、损坏源、source/session retirement和真实独立device destroy检查通过。最后CPU credit/GPU scratch归零；完整报告在`.local/extreme-web-asset/e1-gpu-f32-final.json`与`e1-gpu-f16-final.json`。
+- 原失败保留：首次donor输出诊断回读漏COPY_SRC（修oracle显式outputTexture，不改算法）；随后RGBA诊断把VideoFrame.copyTo透明RGB取整结果当ImageBitmap上传位相等oracle（原失败JSON保留，确认两种诊断转换舍入不一致后拆正确断言：alpha保持精确，独立恒定[255,0,0,128] straight RGB/alpha逐值检查，donor同输入BC仍逐字节比较）。不是放宽normal/ORM/coverage或BC对照容差；原`first/second/third`结果不改写为通过。初次TS错误为discard回调插入assign而非finish，修本地接线后新鲜编译通过。
+- 本轮没有重跑E0完整tooling-suites，原15/16旧fixture失败继续保留。没有运行正式整场景画质/FPS/压缩率/VT接缝或生产publication，归E2/E3/E5，不用隔离最小GPU结果代替。收口`docs-verify`为209 documents、0 finding、86 historical warnings；`git diff --check`通过。

@@ -31,6 +31,11 @@ import {
 import { TiledTextureCache } from "./TiledTextureCache.js";
 import { TILED_ZSTD_MEMORY_BYTES } from "./TiledTextureCompression.js";
 import { TILED_ZSTD_WASM_BYTES } from "./vendor/tiled-zstd/identity.js";
+import { writeImageTextureDirectory, type ImageTextureDirectory } from "../ImageTextureProduct.js";
+import {
+  ImageTextureLease, closeImageTextureResult, imageTaskPeak, imageTextureTask,
+  type ImageTextureResult, type ImageTextureTask
+} from "./ImageTexturePreparation.js";
 
 const MiB = 1024 * 1024;
 export interface TiledTexturePayloadLease {
@@ -46,6 +51,12 @@ interface TiledDirectoryRegistration {
   readonly charge: number;
   readonly controller: AbortController;
 }
+interface ImageDirectoryRegistration {
+  readonly directory: ImageTextureDirectory;
+  readonly controller: AbortController;
+  readonly leases: Set<ImageTextureLease>;
+  readonly charge: number;
+}
 
 /** Device-independent Cooked CPU owner. The pool never creates GPU objects.
  * Temporary work is admitted before fetch; immutable returned/replay bytes are
@@ -59,6 +70,9 @@ export class CookedAssetPreparation {
   readonly #tileCache: TiledTextureCache;
   readonly #tiledDirectories = new Map<TiledTextureDirectory, TiledDirectoryRegistration>();
   readonly #tileLeases = new Map<string, Set<() => void>>();
+  readonly #imageLeases = new Map<string, Set<ImageTextureLease>>();
+  readonly #imageDirectories = new Map<string, Map<ImageTextureDirectory, ImageDirectoryRegistration>>();
+  #imageDirectoryBytes = 0;
   #directoryBytes = 0;
   #directoryReservedBytes = 0;
   #task = 0;
@@ -89,6 +103,8 @@ export class CookedAssetPreparation {
       maxTemporaryBytes?: number;
       createWorker?: () => Worker | Promise<Worker>;
       maxTileCacheBytes?: number;
+      /** E1 isolated composition selects 16 MiB; production defaults stay unchanged until E2. */
+      maxEncodedBytes?: number;
     } = {},
   ) {
     const maxRanges = options.maxConcurrentRanges ?? 4;
@@ -105,6 +121,10 @@ export class CookedAssetPreparation {
     const temporaryBytes = options.maxTemporaryBytes ?? 256 * MiB;
     this.#decoderReservedBytes = maxWorkers * (TILED_ZSTD_MEMORY_BYTES + 2 * TILED_ZSTD_WASM_BYTES);
     const taskBytes = temporaryBytes - this.#decoderReservedBytes;
+    if (!Number.isSafeInteger(options.maxEncodedBytes ?? 32 * MiB) ||
+        (options.maxEncodedBytes ?? 32 * MiB) < 1 || (options.maxEncodedBytes ?? 32 * MiB) > 32 * MiB) {
+      throw new RangeError("Cooked encoded input credit must be in 1..32 MiB");
+    }
     if (!Number.isSafeInteger(temporaryBytes) || taskBytes < 4 * MiB) {
       throw new RangeError(
         "Cooked budget cannot hold decoder reservations and one maximum resident fragment",
@@ -112,12 +132,17 @@ export class CookedAssetPreparation {
     }
     this.#credit = new CookedAssetCredit({
       total: taskBytes,
-      encoded: 32 * MiB,
+      encoded: options.maxEncodedBytes ?? 32 * MiB,
       ready: 64 * MiB,
     });
     this.#pool = new AssetWorkerPool({
       maxWorkers,
       maxInFlightEstimatedBytes: taskBytes,
+      discardResult: (result) => {
+        if ((result as { version?: number } | null)?.version === 4) {
+          closeImageTextureResult(result as ImageTextureResult);
+        }
+      },
       retainedBytes: (result) => {
         const bytes = (result as { decoderMemoryBytes?: unknown } | null)?.decoderMemoryBytes;
         if (bytes !== 0 && bytes !== TILED_ZSTD_MEMORY_BYTES) {
@@ -144,12 +169,22 @@ export class CookedAssetPreparation {
     this.#sessions.set(session, new AbortController());
     this.#readyLeases.set(session, new Set());
     this.#tileLeases.set(session, new Set());
+    this.#imageLeases.set(session, new Set());
+    this.#imageDirectories.set(session, new Map());
     this.#sessionMetrics.set(session, { encodedBytes: 0, ranges: 0 });
     return session;
   }
 
   closeSession(session: string): void {
     this.#sessions.get(session)?.abort();
+    for (const lease of this.#imageLeases.get(session) ?? []) {
+      lease.close();
+    }
+    this.#imageLeases.delete(session);
+    for (const directory of this.#imageDirectories.get(session)?.keys() ?? []) {
+      this.releaseImageDirectory(session, directory);
+    }
+    this.#imageDirectories.delete(session);
     for (const lease of this.#readyLeases.get(session) ?? []) {
       lease.cancel();
     }
@@ -166,6 +201,110 @@ export class CookedAssetPreparation {
     this.#sessions.delete(session);
     this.#sessionMetrics.delete(session);
     this.#pool.forgetRegistration(session);
+  }
+
+  /** E1 isolated entry. Shares the existing pool, IO admission, sessions and credits. */
+  async readImageItem(
+    session: string,
+    directory: ImageTextureDirectory,
+    itemId: number,
+    baseUrl: string,
+    signal?: AbortSignal,
+    priority: 0 | 1 | 2 = 1
+  ): Promise<ImageTextureLease> {
+    this.#assertSession(session, signal);
+    const directories = this.#imageDirectories.get(session)!;
+    let registration = directories.get(directory);
+    if (!registration) {
+      const bytes = writeImageTextureDirectory(directory);
+      const charge = bytes.byteLength * 4 + directory.items.length * 128;
+      if (this.#imageDirectoryBytes + charge > 8 * MiB) {
+        throw new RangeError("Image directory global metadata credit exceeded");
+      }
+      const snapshot = structuredClone(directory);
+      for (const plane of snapshot.planes) {
+        Object.freeze(plane.constants);
+        Object.freeze(plane.alphaScales);
+        Object.freeze(plane);
+      }
+      for (const item of snapshot.items) {
+        Object.freeze(item);
+      }
+      Object.freeze(snapshot.items);
+      Object.freeze(snapshot.planes);
+      Object.freeze(snapshot);
+      registration = { directory: snapshot, controller: new AbortController(), leases: new Set(), charge };
+      directories.set(directory, registration);
+      this.#imageDirectoryBytes += charge;
+    }
+    const registered = registration;
+    const combined = AbortSignal.any([
+      this.#signal(session, signal), registered.controller.signal, AbortSignal.timeout(30000)
+    ]);
+    const admittedDirectory = registered.directory;
+    const task = imageTextureTask(admittedDirectory, itemId, baseUrl, session, ++this.#task);
+    const peak = imageTaskPeak(task.item);
+    const ready = task.item.decodedBytes * 2;
+    const release = await this.#credit.acquire({ total: peak, encoded: task.item.bytes, ready }, priority, combined);
+    let result: ImageTextureResult | undefined;
+    let releaseIo: (() => void) | undefined;
+    try {
+      releaseIo = await this.#io.acquire({ total: 1, encoded: 0, ready: 0 }, priority, combined);
+      result = await this.#pool.submit<ImageTextureTask, ImageTextureResult>({
+        request: task, transfer: [], estimatedPeakBytes: peak, priority, signal: combined
+      });
+      this.#assertSession(session, combined);
+      assertAssetWorkerResult(result);
+      if (result.version !== 4 || result.session !== session || result.epoch !== task.epoch ||
+          result.task !== task.task || result.sourceRevision !== task.sourceRevision ||
+          result.recipe !== task.recipe || result.itemId !== itemId ||
+          (result.decoderMemoryBytes !== 0 && result.decoderMemoryBytes !== TILED_ZSTD_MEMORY_BYTES)) {
+        throw new Error("Image texture receipt provenance/domain mismatch");
+      }
+      if (!result.ok) {
+        throw new Error(result.message);
+      }
+      if (result.encodedBytes !== task.item.bytes ||
+          (task.item.kind === "image" ? result.representation !== "decoded-image" ||
+            result.image.width !== task.item.width || result.image.height !== task.item.height :
+            result.representation !== "exact-bytes" || result.bytes.byteLength !== task.item.decodedBytes)) {
+        throw new Error("Image texture receipt backing mismatch");
+      }
+      release({ total: ready, encoded: 0, ready });
+      const leases = this.#imageLeases.get(session)!;
+      const lease = ImageTextureLease.import(admittedDirectory, task.item, result, () => {
+        leases.delete(lease);
+        registered.leases.delete(lease);
+        release();
+      });
+      leases.add(lease);
+      registered.leases.add(lease);
+      return lease;
+    } catch (error) {
+      if (result) {
+        closeImageTextureResult(result);
+      }
+      release();
+      throw error;
+    } finally {
+      releaseIo?.();
+    }
+  }
+
+  /** End this immutable source generation, including in-flight IO/ready objects, without
+   * cancelling unrelated products. A later registration gets new task/lease identities. */
+  releaseImageDirectory(session: string, directory: ImageTextureDirectory): void {
+    const directories = this.#imageDirectories.get(session);
+    const registered = directories?.get(directory);
+    if (!registered) {
+      return;
+    }
+    registered.controller.abort(new DOMException("Image source retired", "AbortError"));
+    for (const lease of registered.leases) {
+      lease.close();
+    }
+    directories!.delete(directory);
+    this.#imageDirectoryBytes -= registered.charge;
   }
 
   async readGeometry(
@@ -579,6 +718,7 @@ export class CookedAssetPreparation {
       tiledPayloadRanges: this.#tiledPayloadRanges,
       sessions: this.#sessions.size,
       credit: this.#credit.evidence(),
+      imageDirectoryBytes: this.#imageDirectoryBytes,
       io: this.#io.evidence(),
       tiled: {
         fetchedBytes: this.#tiledFetchedBytes,

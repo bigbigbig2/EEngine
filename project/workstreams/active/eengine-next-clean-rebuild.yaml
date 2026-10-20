@@ -35,9 +35,10 @@ currentSlice:
     use the authority pair for architecture and detailed execution state.
     Build complete new closures before atomic ownership cutovers and immediate
     retirement of replaced contracts, without legacy bridges or fallbacks.
-    The preparation changes are authorized for review and commit; production
-    implementation and recooking remain unstarted and require implementation
-    authorization. Do not start other renderer modules.
+    The user has authorized E1 faithful kernels and the isolated new-product preparation closure.
+    Detailed unit results live in the execution authority. Production cutover,
+    example recooking and E2 onward require their implementation authorization.
+    Do not start other renderer modules.
 
 pausedModules:
   - id: surface-cache-gi

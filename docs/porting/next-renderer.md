@@ -1883,3 +1883,32 @@ Local / Reuse：继续复用 `TiledTextureCook.#region` 的原始 BC 内区块�
 原工具与`results.json`保留在`OEngine/tools/web-asset-u0/`；Basis `1706f948a2f0992d7a6dc2a909f35690b508571c` Apache-2.0、Zstd及vendor meshoptimizer的具体构建/hash仍在原快照。`Xubc7Encode.cpp/Xubc7Probe.cpp/GeometryProbe.cpp`与`worker.mjs/browser.mjs`仅为隔离reference，不成为新runtime依赖。
 
 其有限样本的字节、往返、精确资格/SoA模型仍是历史事实；“Normal/ORM只能lossless WebP”“单RGBA kernel代表完整Spark”“submit完成等待就是shader成本”“默认XUBC7 Q100且否决图片路线”等推论已撤销，详见新执行§10。原失败、错误fixture/初始化/身份与baseRevision笔误不静默改写；它们不是新内核bug或新路线资格。本节不声称新全资产压缩比、许可授权、GPU性能或生产采用已完成。
+
+### E0取回与阶段映射细化
+
+本轮使用`OEngine/tools/extreme-web-asset/sources.json`固定8个真实checkout，完整tracked tree hash及选中文件hash由`prepare.mjs`写入`.local/extreme-web-asset/sources.json`；有限机器快照`e0-baseline.json`锁原生工具/源码/许可页面身份，不是进度或adoption记录。工具直接构建libavif1.3.0+libaom3.12.0，另锁zlib1.3.1 `51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf`（Zlib）、libpng1.6.47 `872555f4ba910252783af1507f9e7fe1653be252`（libpng-2.0）、libjpeg-turbo3.1.0 `20ade4dea9589515a69793e447a6c6220b464535`（IJG/BSD/Zlib）、NASM2.16.03 archive SHA256。完整license/third-party/PATENTS副本只随本地工具保存，公开分发时仍须随实际依赖交付，不由账本替代。
+
+Spark LICENSE明确JS MIT、shader另受EULA；2026-10-20取回EULA/Commercial页面hash在快照。EULA的引擎/工具分发例外为evaluation且附下游/attribution等条件，不是通用生产授权；Commercial还有项目/下游条件，本轮没有购买/联系/确认授权，不复制shader到生产。gltf-tex所选pin只提供MIT声明、未找到独立版权notice，因此复现argv/研究处理阶段，但不将其源码直接vendor为MIT完整交付。不能以这些具名事项技术否决路线，也不称已获得权利。
+
+| donor阶段 / 关键条件 | 已核清的本地适配决定 | E1须保持及对照 |
+| --- | --- | --- |
+| Spark `#loadPipeline`：无shader-f16时移除enable、f16/half向量/矩阵/字面量，五类机械替换 | 两个precision profile，cache键区分；不是自写另一个低质量encoder | 每个BC7 RGB/RGBA/BC5/BC4原完整kernel，分别同能力donor对照；不删搜索或改mode |
+| `#generateMipmaps`：默认magic；alpha选box、权重和每层alphaScale；fragment browser profile另有行为差异 | 先按真实浏览器/语义选择compute或fragment；不能把fragment未做的alpha权重/scale称已有 | 完整1×1/tiny/NPOT；必要provided chain保特殊语义。B=0必须在有损AVIF解码后由recipe恢复再触发XY分支，不能依赖AVIF恰好还原0 |
+| gltf-tex native normal/MR SSIM Identity、AO400、colorIQ；normal预处理逐通道`-fx` | EEngine canonical normal一次读取原XYZ计算，避免R修改后G再使用已修改R；这是具名修正而非原样移植声明。scalar精确提R，XYZ/moment不归一化 | `native-profiles.mjs`固定显式CICP/444/400/full与alpha参数；工具smoke只证明参数有效，不证明材质画质 |
+| `utils.js::loadImageFromBlob`→VideoFrame/ImageBitmap；`encodeTexture`Firefox VideoFrame适配；external copy | decoder/上传颜色处理分别控制，双backing计账，data ramp/alpha在解码后和上传后检查 | 不因no-conversion参数就假定queue copy无转换；保持关闭/transfer/cancel与orientation |
+| `encodeTexture` exact-size input cache、block布局/256B pitch、非默认mip | 本地input池必须按真实尺寸/格式/mip隔离，不能用大纹理旧数据污染边块；target由唯一Residency传入 | layer/origin、tiny边块、跨mip和abort，不能沿用上游默认layer0或自动resize |
+| stock私有submit与全局临时缓存 | 低层record挂当前command；`observeSubmission`回收input/scratch | 正常帧唯一submit；scene大准备按原scene owner隐藏批次drain，最后一次原子发布。不能保持整场景未提交command又等待自己的fence |
+
+VT assembly、schema4目录/receipt、有限依赖reservation与scene隐藏批次属于Local，不假称上游实现。固定上游已经取回与配置smoke通过不提升GPU/生产采用；实际结果及未运行/具名依赖仅在新执行§12记录。
+
+### E1隔离接线映射（非production adoption）
+
+| 固定源入口 | 本地对应 | 保留与适配边界 |
+| --- | --- | --- |
+| Spark `src/shaders/spark_bc7_rgb.wgsl`、`spark_bc7_rgba.wgsl`、`spark_bc5_rg.wgsl`、`spark_bc4_r.wgsl` | `gpu/ImageTextureTranscoder.ts::create/record`；oracle从E0本地checkout按SHA读取 | 原完整内核，16×8、纹理gather、256B block pitch；f16不改，f32沿`#loadPipeline`五种机械替换。没有shader进入production vendor/dist；scope为local-evaluation |
+| `utils.wgsl::magic_mipmap/mipmap/fullscreen_vs/mipmap_fs`、`spark.js::#generateMipmaps/#generateMipLevel` | 相同recorder逐logical level、每task独占uniform | compute magic/alpha box权重及alphaScale保留；fragment实际差异保留，alpha不足要求provided chain。逻辑层分离纹理避免NPOT物理padding改变滤波源，不采用donor resize当语义等价 |
+| `utils.js::loadImageFromBlob/loadImageDecoder`、Firefox VideoFrame适配 | `codec/ImageTexturePreparation.ts::prepareImageTextureTask` | 先做有限profile/来源admission，再ImageDecoder或同表示ImageBitmap，独立控制no-conversion/straight-alpha；VideoFrame适配双backing收费/关闭，不复制donor网络owner |
+| gltf-tex `src/processors/avif.js::avifArgsForTexture/normal预处理` | `codec/ImageTextureCook.ts`、`tools/extreme-web-asset/native-profiles.mjs/cook.mjs` | Reference/Local，不vendor无notice代码；用真实native IQ/SSIM/10-bit/Identity，normal从原XYZ同时计算；provided XY/XYZ不再normalize、scalar真实提取、exact coverage raw |
+| `spark.js::encodeTexture`绑定/dispatch/block copy | `ImageTextureTranscoder::record/recordExact` | 私有submit/cache/runtime结构不移植；原EEngine command observer接收fence，输入/blocks保留至settlement。source/session/receipt/global credit仍为既有统一准备owner，不引入第二pool |
+
+schema4目录/rect sweep/AVIF固定profile admission/constant restore/lease/有界pool/metadata与原子manifest为Local工程。`tests/oracle/image-texture-transcode-gpu.mjs`以stock Spark宿主独立生成对应precision的expected BC，另作数据上传、straight-alpha、exact coverage和lifecycle检查；实际计数/原失败/未覆盖宿主见执行§12。原始source/hash、EULA与evaluation归因保留不等于取得生产分发权；E1真实隔离producer→consumer证据也不冒称E2 production消费已存在。

@@ -16,6 +16,7 @@ import {
   type TiledTextureRegistration,
 } from "../TiledTextureTransport.js";
 import { loadTiledTextureDecoder } from "../TiledTextureDecoder.js";
+import { prepareImageTextureTask, type ImageTextureTask } from "../ImageTexturePreparation.js";
 
 let decoder: Awaited<ReturnType<typeof loadTiledTextureDecoder>> | undefined;
 async function getDecoder() {
@@ -23,7 +24,7 @@ async function getDecoder() {
 }
 
 const scope = self as unknown as {
-  onmessage: (event: MessageEvent<CookedAssetTask | { forget: string }>) => void;
+  onmessage: (event: MessageEvent<CookedAssetTask | ImageTextureTask | { forget: string }>) => void;
   postMessage: (value: unknown, transfer: Transferable[]) => void;
 };
 const registrations = new Map<string, CookedGeometryRegistration>();
@@ -34,7 +35,26 @@ scope.onmessage = (event) => {
     tiledRegistrations.delete(event.data.forget);
     return;
   }
-  void prepare(event.data);
+  if (event.data.version === 4) {
+    void prepareImageTextureTask(event.data).then((result) => {
+      const transfer: Transferable[] = result.ok
+        ? [result.representation === "decoded-image" ? result.image : result.bytes]
+        : [];
+      try {
+        scope.postMessage({ ...result, decoderMemoryBytes: decoder?.memoryBytes ?? 0 }, transfer);
+      } catch (error) {
+        if (result.ok && result.representation === "decoded-image") {
+          result.image.close();
+        }
+        scope.postMessage({ version: result.version, session: result.session, epoch: result.epoch,
+          task: result.task, sourceRevision: result.sourceRevision, recipe: result.recipe,
+          itemId: result.itemId, decoderMemoryBytes: decoder?.memoryBytes ?? 0,
+          ok: false, message: `Image receipt transfer failed: ${String(error)}` }, []);
+      }
+    });
+  } else {
+    void prepare(event.data);
+  }
 };
 
 async function prepare(task: CookedAssetTask): Promise<void> {

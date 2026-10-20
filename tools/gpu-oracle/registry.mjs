@@ -11,6 +11,28 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "image-texture-transcode-f16",
+    file: "OEngine/tests/oracle/image-texture-transcode-gpu.mjs",
+    url: "/OEngine/tests/oracle/image-texture-transcode-gpu.mjs",
+    entry: "runImageTextureTranscodeGpuF16",
+    requiredFeatures: ["texture-compression-bc", "shader-f16"],
+    allowPrefixes: [".local/extreme-web-asset/"],
+    timeoutMs: 180000,
+    description: "E1 same complete local evaluation closure with faithful f16 upstream kernels.",
+    note: "No production shader redistribution/adoption. Run serially with f32."
+  }),
+  Object.freeze({
+    name: "image-texture-transcode",
+    file: "OEngine/tests/oracle/image-texture-transcode-gpu.mjs",
+    url: "/OEngine/tests/oracle/image-texture-transcode-gpu.mjs",
+    entry: "runImageTextureTranscodeGpu",
+    requiredFeatures: ["texture-compression-bc"],
+    allowPrefixes: [".local/extreme-web-asset/"],
+    timeoutMs: 180000,
+    description: "E1 schema4 native AVIF, real shared Worker leases, faithful Spark BC7/BC5/BC4 and mip/abort/fence.",
+    note: "Pinned local evaluation shaders only, not production vendor/adoption. Generate E1 fixtures first."
+  }),
+  Object.freeze({
     name: "web-asset-u0",
     file: "OEngine/tools/web-asset-u0/browser.mjs",
     url: "/OEngine/tools/web-asset-u0/browser.mjs",

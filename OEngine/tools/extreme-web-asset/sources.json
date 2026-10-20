@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "sources": {
+    "spark": { "url": "https://github.com/Ludicon/spark.js.git", "ref": "b9ea643a08cb9eef3a9ddc64564089bdd6fd0daf", "revision": "b9ea643a08cb9eef3a9ddc64564089bdd6fd0daf", "license": "JS MIT; shaders Spark EULA, production authorization not recorded" },
+    "gltf-tex": { "url": "https://github.com/Ludicon/gltf-tex.git", "ref": "a05bd5950fb46fdffb813542f4258192ce6aa889", "revision": "a05bd5950fb46fdffb813542f4258192ce6aa889", "license": "MIT declared in package/README; no standalone notice at this revision" },
+    "spark-pbr": { "url": "https://github.com/Ludicon/webgpu-clustered-shading.git", "ref": "42ba9b8e0db0707207c38a1c2d0bd5bc09bce37d", "revision": "42ba9b8e0db0707207c38a1c2d0bd5bc09bce37d", "license": "reference only; individual-file permissions required before copying" },
+    "libavif": { "url": "https://github.com/AOMediaCodec/libavif.git", "ref": "v1.3.0", "revision": "1aadfad932c98c069a1204261b1856f81f3bc199", "license": "BSD-2-Clause and third-party notices" },
+    "aom": { "url": "https://aomedia.googlesource.com/aom", "ref": "v3.12.0", "revision": "3b624af45b86646a20b11a9ff803aeae588cdee6", "license": "BSD-2-Clause, PATENTS and third-party notices" },
+    "zlib": { "url": "https://github.com/madler/zlib.git", "ref": "v1.3.1", "revision": "51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf", "license": "Zlib" },
+    "libpng": { "url": "https://github.com/pnggroup/libpng.git", "ref": "v1.6.47", "revision": "872555f4ba910252783af1507f9e7fe1653be252", "license": "libpng-2.0" },
+    "jpeg": { "url": "https://github.com/libjpeg-turbo/libjpeg-turbo.git", "ref": "3.1.0", "revision": "20ade4dea9589515a69793e447a6c6220b464535", "license": "IJG, Modified BSD and Zlib; see LICENSE.md" }
+  },
+  "nasm": {
+    "url": "https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-win64.zip",
+    "sha256": "3ee4782247bcb874378d02f7eab4e294a84d3d15f3f6ee2de2f47a46aa7226e6",
+    "version": "2.16.03",
+    "license": "BSD-2-Clause; retain archive license"
+  }
+}

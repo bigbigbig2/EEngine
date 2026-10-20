@@ -1,0 +1,163 @@
+{
+  "scope": "E0 pinned native tool and source preparation; no runtime adoption or browser/GPU/performance qualification",
+  "baseRevision": "1f856ea0",
+  "nativeBuildSha256": "6c112049368bfe2b17cdb31e7d5fc0921194d888f31e2db5c31a699437f996e3",
+  "recipeSha256": "1538c0e824ed3594d64d5f5c98e4a13dcf91042e5cd302028fb18a68d8fd7853",
+  "sourceManifestSha256": "d72266182b52ab383fbaa2098d163671fc643c67d3e4809f95aad3d8fdcc31c0",
+  "compiler": {
+    "path": "D:/devTool/vs2026/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe",
+    "sha256": "315a654ea116864516a1674858e587e535e3bc3045ff32ed2f2739a2c1ec5640",
+    "configurationSha256": "9465c0696e5c5c03991cd8d195bbf2d56a9e7b9973a7c3e42a8d18d4bf0f09fc",
+    "version": "19.51.36257.0"
+  },
+  "cmake": "cmake version 4.4.2\n\nCMake suite maintained and supported by Kitware (kitware.com/cmake).",
+  "nasm": {
+    "url": "https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-win64.zip",
+    "sha256": "3ee4782247bcb874378d02f7eab4e294a84d3d15f3f6ee2de2f47a46aa7226e6",
+    "version": "2.16.03",
+    "license": "BSD-2-Clause; retain archive license"
+  },
+  "perl": {
+    "path": "D:\\devTool\\Git\\usr\\bin\\perl.exe",
+    "sha256": "ed45197b8c2681834c56b6a52cabe3711fb1b8ba44e94916e511b42387c22714",
+    "version": "This is perl 5, version 38, subversion 2 (v5.38.2) built for x86_64-msys-thread-multi\n\nCopyright 1987-2023, Larry Wall\n\nPerl may be copied only under the terms of either the Artistic License or the\nGNU General Public License, which may be found in the Perl 5 source kit.\n\nComplete documentation for Perl, including FAQ lists, should be found on\nthis system using \"man perl\" or \"perldoc perl\".  If you have access to the\nInternet, point your browser at https://www.perl.org/, the Perl Home Page."
+  },
+  "binaries": {
+    "avifenc.exe": {
+      "path": ".local/extreme-web-asset/native/bin/avifenc.exe",
+      "sha256": "c2b8e632f6c8cf85ce953316eb6405f276eeb70958cb89dc6d5691f315761d32",
+      "version": "Version: 1.3.0 (aom [enc/dec]:v3.12.0)\r\nlibyuv : unavailable"
+    },
+    "avifdec.exe": {
+      "path": ".local/extreme-web-asset/native/bin/avifdec.exe",
+      "sha256": "1f7f31eb6f9effe11c23d02ca8273bce1f234fbfee5cbb42da9986e96392055e",
+      "version": "Version: 1.3.0 (aom [enc/dec]:v3.12.0)\r\nlibyuv : unavailable"
+    }
+  },
+  "sourceTrees": {
+    "spark": {
+      "revision": "b9ea643a08cb9eef3a9ddc64564089bdd6fd0daf",
+      "trackedTreeSha256": "4baac9699ed522241f3e814c58ebb0e92257be02cd88f241e4ce0f616fddea20",
+      "license": "JS MIT; shaders Spark EULA, production authorization not recorded"
+    },
+    "gltf-tex": {
+      "revision": "a05bd5950fb46fdffb813542f4258192ce6aa889",
+      "trackedTreeSha256": "568d3cfa0d711f5a6511894ae1536a658a5ff5581cb856df3c0449f98148c4eb",
+      "license": "MIT declared in package/README; no standalone notice at this revision"
+    },
+    "spark-pbr": {
+      "revision": "42ba9b8e0db0707207c38a1c2d0bd5bc09bce37d",
+      "trackedTreeSha256": "3c9a4e977d2c641ecf4bc9e200a498474724f5e27dc876c2f2c75ce15395bfd8",
+      "license": "reference only; individual-file permissions required before copying"
+    },
+    "libavif": {
+      "revision": "1aadfad932c98c069a1204261b1856f81f3bc199",
+      "trackedTreeSha256": "2bb7a76c6eae9eb2a27d4a99e62e7191690cda2cfdd093f0650f1d36283904ba",
+      "license": "BSD-2-Clause and third-party notices"
+    },
+    "aom": {
+      "revision": "3b624af45b86646a20b11a9ff803aeae588cdee6",
+      "trackedTreeSha256": "e335d00bf170f83364ad5b3174115193836fee31f7f7a052a67aafc82eba35df",
+      "license": "BSD-2-Clause, PATENTS and third-party notices"
+    },
+    "zlib": {
+      "revision": "51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf",
+      "trackedTreeSha256": "ebf5ff429046ed9c8282ad89177e0eccddc61bf5d4378ff5bbdbfc85c5a802fe",
+      "license": "Zlib"
+    },
+    "libpng": {
+      "revision": "872555f4ba910252783af1507f9e7fe1653be252",
+      "trackedTreeSha256": "61869461accc958115f2f753ffd697c8280b2bdd7e74d92cb4bc8c19e963499a",
+      "license": "libpng-2.0"
+    },
+    "jpeg": {
+      "revision": "20ade4dea9589515a69793e447a6c6220b464535",
+      "trackedTreeSha256": "2de1debf19c3dbdb085b2cb5ca02d21927e6a4168b51b7feebe0fbf2cba98947",
+      "license": "IJG, Modified BSD and Zlib; see LICENSE.md"
+    }
+  },
+  "sparkFiles": {
+    "LICENSE": "e0e87a90e61cbe399cdb8600543ee9e17113229b76858061a766cd3ffcf4ef8c",
+    "src/index.d.ts": "2c498bda556bc159f02c2fa7163147be364abad89cbe1105fa9ad6b9bdb541c3",
+    "src/index.js": "c0b1ef9c45a021ad744c1bb192b839269e50aadcb56625e309871e129eb7c54a",
+    "src/shaders/glsl-shaders.js": "279907dbfee03953911d6aaf6fc8fd473abd5c4a6f53c6d2188b822a88c8b63e",
+    "src/shaders/spark_astc_rgb.glsl": "6f4a4ce02fcdca714b062240740ad7b6f17c49011f25657c618032b07314cc57",
+    "src/shaders/spark_astc_rgb.wgsl": "50d72c26d0e3eb5cb4180744061bd9d858e041bd6640cfe5c9c89c02338d7744",
+    "src/shaders/spark_astc_rgba.glsl": "8dc4460d04bc66c5a3136a88c75bbdc56fe612adabd8dc0765f7052b7ecaaefb",
+    "src/shaders/spark_astc_rgba.wgsl": "df7e3381d5f4bc6a3d11eb1b2aac23f85f702916401f986be8335e613c43bf9a",
+    "src/shaders/spark_bc1_rgb.glsl": "d19271c046803fb21989362777300b0915a67225f0e1a7376daa06f2ca9019cb",
+    "src/shaders/spark_bc1_rgb.wgsl": "227ce42e88eacdc88f04f8629ebce242b54b5d73bd2ee51afa1b7254b1f211c9",
+    "src/shaders/spark_bc4_r.glsl": "7f0d3c66bd17f5cd74e1d36c8bef65ffb6ba657e954270554440b48b4aa8cd33",
+    "src/shaders/spark_bc4_r.wgsl": "43606b5b0f54b4de01bbc307812aed67d2f4d10256ddf4f67b065a61c5007024",
+    "src/shaders/spark_bc5_rg.glsl": "f9385f58567a02011477dda47ec380b8d95e5477273b91ddee95d92c8b3a3436",
+    "src/shaders/spark_bc5_rg.wgsl": "d48044aa25375c216186bcf30c3bcce01fb771c8d7c247020da422f3fad6d8f4",
+    "src/shaders/spark_bc7_rgb.glsl": "e6cb7b5d3db105bff5426f3309f664046884f92beb41a3948e31d9735dc5bf83",
+    "src/shaders/spark_bc7_rgb.wgsl": "41a7df8c69bc254bfe0decadbaee7013433cb0c6d16a3ce6e27feeffb7ad37bb",
+    "src/shaders/spark_bc7_rgba.glsl": "34d578c6bb0651ed65134a40a06f3a626fb21c1a741fc34ab21f07cd24b141e1",
+    "src/shaders/spark_bc7_rgba.wgsl": "5220cd06787b1aeb1092df53be3db5f95436fcaaaffa7b449eaff7ecb773fe27",
+    "src/shaders/spark_eac_r.glsl": "a32dd4d9f940e35650df56780f1b182d522f7b07d5944a68bf2148b4ef9678e0",
+    "src/shaders/spark_eac_r.wgsl": "5ea228a6ab9678fb0b67404c4c5772247024081652214dc3bb358cbbee792a2c",
+    "src/shaders/spark_eac_rg.glsl": "35263df0b7d64c2d17fe1993d861664804791551357443170b7f759308624797",
+    "src/shaders/spark_eac_rg.wgsl": "2d1c14bdf7ca483454e5cd6e2c4cedc983ff47adad43f835fff65955df19170f",
+    "src/shaders/spark_etc2_rgb.glsl": "822748d913aacc3954d6f790b7533fdcf25aef1892644b49df0e6fe7fe6c89c5",
+    "src/shaders/spark_etc2_rgb.wgsl": "1af353d686a7a9fd240ffa604405588d5b1eb63300fa326c4c222f7be10d5c6b",
+    "src/shaders/utils.wgsl": "7007da01dff41c9a07d91dffd75dd4a4b1fa721a2c365cbf56046a645aaaceb7",
+    "src/shaders/wgsl-shaders.js": "726a81034cad69aa49d2c9f444e5c0165c9b1b80488c3e79129a114c95a157d4",
+    "src/spark-gl.js": "5bd6df2c98e99c0c99f3da2db1e911402f70ad2c1ffe535cf25832dbb80098b5",
+    "src/spark.js": "7d3cfe62db69ac317d8288ec6820fc896ab5a39731aa8f6802d34151e69dc469",
+    "src/three-gltf.d.ts": "ad3ee344286c6e4aa511761cc2926a7491cc8beb39f73a93aaed200db34bce1b",
+    "src/three-gltf.js": "78cf8cd5d113b9cf4d63d78d4e92faa7097817b37cb16e47d673e5d08a7defad",
+    "src/utils.js": "8fa5c321921382e2a8543896b544fa952698a8d13db27845dcbed9942078f328"
+  },
+  "legalPages": {
+    "sparkEula": {
+      "url": "https://ludicon.com/sparkjs/eula.html",
+      "sha256": "c60e4a134f140a6e48bb5b729a48136248f414c633b7d27ec32412d9a7305f88",
+      "path": ".local/extreme-web-asset/licenses/sparkEula.html",
+      "retrievedAt": "2026-10-20T08:22:57.767Z"
+    },
+    "sparkCommercial": {
+      "url": "https://ludicon.com/sparkjs/license.html",
+      "sha256": "2a849f1aaa40f0124a121a66503ba88d4d313c9a2b05d57ca8a43a4b4bd50e66",
+      "path": ".local/extreme-web-asset/licenses/sparkCommercial.html",
+      "retrievedAt": "2026-10-20T08:22:58.193Z"
+    }
+  },
+  "notices": {
+    "spark/LICENSE": "e0e87a90e61cbe399cdb8600543ee9e17113229b76858061a766cd3ffcf4ef8c",
+    "spark-pbr/js/third-party/gl-matrix/LICENSE.md": "51eca09f84d678a3f73fb69ff3e515ad87f2638d6370abd9a4fcc614f60a338a",
+    "libavif/LICENSE": "6aaa88e4054f8bf2c4fa926cacc3a97fa3e0ec72d2ffc2e4cdaca6bb0eb16ec1",
+    "aom/LICENSE": "bf4a52612302050351bb2712f997bb0e2b1dc48c62d68bef64126a8c8249fb4e",
+    "aom/PATENTS": "3ce8b2cc54e6c2245bfbf607ba1cc1fd9ce0d7c03e8d559da3b64c3d37068c8a",
+    "aom/third_party/SVT-AV1/LICENSE.md": "cd194fd72a4ba0378a843457879c6a5299c9934e049a697ec51f6d43a241fc43",
+    "aom/third_party/SVT-AV1/PATENTS.md": "e0ceb644e386248cb12d3e757637cc27aa2df1c0a7e6ecd218377daf16ca16e4",
+    "aom/third_party/fastfeat/LICENSE": "592dee6bf39640ab2ed80c7f739947d1bac76bb3a6f81daf50506af0e34350b2",
+    "aom/third_party/googletest/src/LICENSE": "46c35a3c9ac8ef63c16ca69b5cf0166df9fcdb789e318175c92a219de517b8e7",
+    "aom/third_party/libwebm/LICENSE.TXT": "17c029a902ad45a199dfe8e3a1c39305ab28d302b0703360c4a27351a4673dcb",
+    "aom/third_party/libwebm/PATENTS.TXT": "d578b7a471d48406a16c64e3c6a8685e66292f3c6709214c49ca55b2f22ed7cd",
+    "aom/third_party/libyuv/LICENSE": "91b2be0a4696a7f98e38ec95d53fb3c1e8a476ce7246f54390276f94d9508ec2",
+    "aom/third_party/vector/LICENSE": "00998186557b91a97de6cadffe0e625a447a1a86552768fbaf94fa1c7968a631",
+    "aom/third_party/x86inc/LICENSE": "82ce590310c9ebdbe383764ce6f1756db6a408b584d6bc1ec89f3e75da5a4de9",
+    "zlib/LICENSE": "18dbd37f0ab175c37877e9053ff870a7de2809a3e9b9673b2696aa5009264638",
+    "zlib/contrib/dotzlib/LICENSE_1_0.txt": "36266a8fd073568394cb81cdb2b124f7fdae2c64c1a7ed09db34b4d22efa2951",
+    "libpng/LICENSE": "8d0a6513b85553bf05ed1cd388d514abd7477f22563a9ea593298747786b5555",
+    "libpng/ci/LICENSE_MIT.txt": "9eb6f69d48a1dd764e8a33f14a584f460d3cec653477c136a95dd6df9c249211",
+    "libpng/contrib/gregbook/COPYING": "f77926ade9d6c7c3e48c3868ceedd5c9fc4bc79cfa186bb0001d067f59492af8",
+    "libpng/contrib/gregbook/LICENSE": "e2eb2ac0e798b3903a8f23b245c7c188e2e1378b3ad5d73680aba890083f6575",
+    "libpng/contrib/pngexif/LICENSE_MIT.txt": "9eb6f69d48a1dd764e8a33f14a584f460d3cec653477c136a95dd6df9c249211",
+    "libpng/contrib/pngminus/LICENSE.txt": "f2fbaf5100c0eece13c353792ab71cf27ba20643c685105ffef6beb9c14e699d",
+    "jpeg/LICENSE.md": "be2b2b5ab168bce87bc3e31f2a5c5adba4b7f6e9e51d618e958d1d46972ebd95",
+    "jpeg/java/doc/legal/ADDITIONAL_LICENSE_INFO": "2be95e456091b5b296d604e845fdf07e5c7df283cea0190479ebe41e2c47e842",
+    "jpeg/java/doc/legal/LICENSE": "b71b9ac72f1b646d1baf99ebe68c2afa040c8874d76f7c393e92a02287b90e8e",
+    "jpeg/release/License.rtf": "5db1db6eb9dba2a5ad3edc01c90a45294b928f8af3757ebb727c3a8809c9e3cd"
+  },
+  "nativeSmokeSha256": "69714fbbe8f002f1158b5b512f5011404b3c8826d27373da6d13ba5876aadfbf",
+  "smoke": {
+    "successCases": 18,
+    "invalidOptionsRejected": 1
+  },
+  "authorization": {
+    "sparkProduction": "not recorded; no shader copied to production",
+    "gltfTexNotice": "MIT declaration only; no standalone notice at pinned revision"
+  }
+}

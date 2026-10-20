@@ -26,6 +26,7 @@ verifies:
     - OEngine/tools/oengine-asset-core
     - OEngine/tools/oengine-web-geometry-cooker
     - OEngine/tools/texture-codec
+    - OEngine/tools/extreme-web-asset
     - OEngine/tools/cook-offline-scene.mjs
     - examples/modules/hello-hdr-gltf/main.ts
 ---
@@ -34,7 +35,7 @@ verifies:
 
 日期：2026-10-20。源码 HEAD：`5f3f41533e25901cbbd1da9c3ae751c64bc0a9c9`，工作区另有未提交的旧 U0 工具与文档改动；本设计不把它们视为生产迁移。唯一配套文件：[执行文档](../next-execution/eengine-extreme-web-asset-compression-execution-2026-10.md)。
 
-本文件与配套执行文档完全替换并删除上一对 Web asset delivery/residency 文档，不保留并行设计、旧参数冻结或第二份 progress。初始授权是重新完成详细设计/执行准备；随后用户授权复核并提交这批准备改动，尚未启动生产移植、依赖发布或recook。
+本文件与配套执行文档完全替换并删除上一对 Web asset delivery/residency 文档，不保留并行设计、旧参数冻结或第二份 progress。准备改动已提交为`1f856ea0`；用户随后授权E0及E1隔离闭包，尚未授权E2生产切换或示例recook。
 
 ## 1. 已定方向，不重新做路线公投
 
@@ -94,6 +95,10 @@ Spark 的 shader 许可是独立依赖交付事项，不是技术路线拒绝项
 
 三种准备结果是有限 tagged union，不是无限 codec registry：`decoded-image`、`exact-bytes`、`compact-geometry`。每种都携带 source/session/task/epoch、逻辑域和独占释放权；不能按 byteLength 猜表示。GPU texture/buffer 永远不从 Worker 返回，也不由 Loader 长期拥有。
 
+E0冻结新纹理目录`schemaVersion:4`、准备协议`version:4`，ordinary/VT同一产品根合同，用`plane.mode`区分，不复用旧普通3/tiled2产品身份；几何major4在E4切换，E2期间geometry分支仍明确声明其当前major3，不得把旧几何bytes标成新major。目录包含source/recipe SHA256、逻辑尺寸与mip数、plane语义/通道/target family、items和有限依赖索引。item按明确`image`或`exact`类型声明，具有itemId、mip/有效rect、encoded长度/hash、精确decoded尺寸/字节数与source位置。offset使用受检u64（JS侧bigint），单段长度与GPU索引为受检u32；目录索引与owner rect须不重叠/完整覆盖，所有乘法先用安全整数验证。目录/encoded cap按§9，单目录最多65,536 items、每个page最多16 owner；超过上限离线分包并计入总目录预算，不以无界JSON或隐式递归引用绕过容量。
+
+成功receipt保留`protocol/sourceRevision/session/task/epoch/itemId`，`decoded-image`携带ImageBitmap/VideoFrame实际类型、width/height、orientation/alpha/encoding事实与ready charge；`exact-bytes`携带独占ArrayBuffer及exact role/尺寸/stride；`compact-geometry`携带新major页和完整checked section描述。失败是独立`ok:false`加具名错误，不伪装零长度成功。只有当前pool任务可签发有效receipt，GPU层再次核对epoch/recipe/域并接收或释放；lease不是可复制的用户自填JSON。取消和错误重试生成新task，source revision不变也不能复用已释放的结果对象。
+
 AVIF item 自身可解码；pack 仅组织独立图片，不依赖浏览器对整个 pack 解码。HTTP Range 基于稳定字节对象，禁止透明 Content-Encoding 改变偏移；不支持 Range 的服务必须在下载前选择明确的有界外部图片部署形式，不能收完整大包后假称按需。有限 LDR profile 只接受静态单图、已支持 bit depth/颜色元数据和确定方向，不开放动画/任意辅助图/无界 item 链。
 
 ## 5. Cooker：先消无用数据，再做语义编码和码率搜索
@@ -117,6 +122,10 @@ AVIF item 自身可解码；pack 仅组织独立图片，不依赖浏览器对�
 | 精确 coverage / 标识 | 精确通道 → Zstd/raw 有界独立段；字节精确 | R8 或既定精确布局，必要时原子携带关联 plane |
 
 AVIF 编码 10 bit 不代表当前浏览器→RGBA8→Spark 全程 10 bit。产品只承诺选定解码路径实际交付的精度，不把 decoder 内部位深当材质精度。unit normal 的 XY 合同先检查源范围/半球和下游用途，不能把一般三维向量误分类；normalize 影响与原有语义在 cook 中显式处理。
+
+E0实际原生配置由`OEngine/tools/extreme-web-asset/native-profiles.mjs`唯一表达：颜色显式444/full/CICP1/13/6、IQ；XY/ORM/XYZ显式444/full/1/8/0、SSIM；标量先精确提取R再400/full/1/8/6、SSIM。忽略ICC/Exif/XMP只对已经转到canonical域、方向已应用的中间PNG成立，不允许对任意源图直接剥metadata假装完成颜色转换。gltf-tex donor原始argv另外复现，不将本地显式配置冒称上游原样代码。带alpha显式qalpha与qcolor同档起步；coverage仍独立精确。
+
+normal-xy的已声明B=0是**解码后预处理也必须恢复的常量**，不能要求有损AVIF重建恰好保持0后才触发Spark `normalize_vec4` 的XY分支。GPU预处理按recipe恢复无consumer通道/opaque alpha后再生成mip；XYZ/moment不走该分支。保留donor XY mip算法不等于它等价于原EEngine XYZ归一化滤波：该表示变化按最终normal/高光评价明确验收，provided非单位moment不改变既有数学。
 
 ### 5.3 两个质量档与有限离线搜索
 
@@ -181,6 +190,20 @@ fine 的 mip 由 canonical 全图语义先生成，再逐 mip 编码 cell；不�
 
 ImageBitmap/VideoFrame 的关闭、GPU input/scratch 的释放和最终纹理的发布是三个不同事件。CPU 对象在允许关闭且 upload 已接受后结束，GPU 临时资源保留到相应 command fence，最终资源归 Residency。编码 command abort 后隐藏输出销毁或重新完整覆盖；不把未执行的 copy 当已上传。
 
+### 8.1 E0冻结的能力与目标配置
+
+必需`texture-compression-bc`及完整当前Renderer binding profile；BC7 RGB/RGBA共用BC7格式bank但保留不同encoder variant/recipe，BC5 RG与BC4 R为独立format class，R8为exact plane。format class沿既有binding-set policy分配，不能因添加BC5突破实际采样绑定数或偷偷去掉材质通道。normal XY重建作为显式sample语义传播到Material Graph/Native/coverage/query，不由format名字全局猜测。
+
+`shader-f16`不是硬前置：支持时用原f16内核，不支持时严格沿Spark `#loadPipeline`的五类机械替换移除enable/half标量/half向量/矩阵/half字面量，保留所有运算/控制/搜索，pipeline/cache键含precision。两种输出可有数值差别，分别与同能力donor对照，不冒称bit-identical。`texture-compression-unaligned`可选；未启用使用§6完整padded合同。每kernel固定16×8=128 invocation，8×8 mip；创建前核maxComputeInvocationsPerWorkgroup/各维、texture size/layers、buffer和storage binding容量。输入external copy texture需COPY_DST|RENDER_ATTACHMENT|TEXTURE_BINDING；compute mip再有STORAGE_BINDING，压缩目标只有合法COPY_DST|TEXTURE_BINDING，不能作为storage texture。
+
+浏览器有ImageDecoder且支持AVIF时可返回VideoFrame；数据语义优先no-conversion ImageBitmap，适用时VideoFrame→ImageBitmap；都不满足同表示语义/transfer则能力失败，不自动装另一个WASM图片decoder。浏览器srgb/storage alias问题沿donor的fragment mip路径作具名宿主profile，保留它与compute magic/box的实际差异；alpha/coverage不允许在fragment profile静默漏alpha weighting/scale，不能满足时provided chain或明确拒绝，不能冒称等价。E1需分别核真实产品；E0不把API存在性当GPU消费通过。
+
+### 8.2 两种命令入口与初始化活性
+
+正常帧沿`FrameCoordinator`唯一command，在render消费前记录有界ready批次；pipeline/decode异步准备在录制前，不在帧中await GPU。scene初始化沿`RendererCore`现有residency transaction，由composition root接收同一个encode-only recorder；transcoder没有finish/submit权。`ShadeGPUCommandContext.observeSubmission`提供submitted/aborted/failed，fence只负责退休，不回读工作控制。
+
+当前scene准备会长时间持有未提交command；若全部纹理编码后才允许submit，而scratch必须等fence退还，大场景会死锁。新scene事务必须可由原scene owner按预算提交**不公开scene的隐藏准备批次**：每批record→原owner正常submit→异步fence回收，最后publication command只发布完整必需域。并非transcoder每图自submit，不新增frame submit；render运行时准备并入正常frame command。无frame且离线scene bootstrap由原scene owner驱动有界批次，不能等不存在的下一帧。取消已提交批次的输出继续隐藏并fence退休，最后publication可原子中止；scratch不足但当前批已有工作时返回needs-drain，不拿住未提交command等待自己的fence。
+
 BC5 增加的 target bank/format、绑定选择、材质 normal 重建必须贯通 native/coverage/shadow/query 所有实际消费者。不能只改主图 shader；任意图表达式若读取原 RGB，要通过新语义重建或选择保持原语义的 plane，不能读到 BC5 默认 B=0。FrameGraph 只声明宏依赖与寿命，不调度 shader 内部端点搜索。
 
 热路径不调用 Spark 的 `format:auto` GPU readback、不每图等待 `onSubmittedWorkDone`，不把 `getTimeElapsed()` 放生产路径。保留 16×8 等 donor 执行方式起步，不先改成 megakernel 或简易 mode6。timestamp 查询只在测量工具里使用；相关 API 按当前 WebGPU 规范适配，不照搬上游旧计时拼写。
@@ -244,4 +267,4 @@ hello 现有15个纹理产品21,092,132 B、几何pack18,026,400 B，非完整�
 - 不复制上游独立线程池、renderer、自submit、auto readback 或任意 fallback；直接复用的是完整选定算法，不是整个宿主框架。
 - 不把成熟内核重新做一轮路线资格选举；真实数值/生命周期失败修适配根因，只有明确的许可/平台/产品合同冲突才上报具名缺口，不悄悄恢复旧架构。
 
-当前只完成设计准备。生产实施按配套执行文档分闭包授权推进；模块结束停在边界，不自动进入HDR重构、神经压缩、SCGI或其它效果。
+当前授权推进至E1，实际完成与具名未决事项只读配套执行§12。生产实施按闭包授权推进；模块结束停在边界，不自动进入HDR重构、神经压缩、SCGI或其它效果。
