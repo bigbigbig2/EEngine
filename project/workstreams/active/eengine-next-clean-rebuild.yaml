@@ -11,8 +11,8 @@ roadmap:
   execution: docs/next-execution/eengine-feature-expansion-execution-2026-10.md
 # Only the selected module pair is the current authority; roadmap remains stable.
 authority:
-  design: docs/next-design/eengine-surface-cache-gi-2026-10.md
-  execution: docs/next-execution/eengine-surface-cache-gi-execution-2026-10.md
+  design: docs/next-design/eengine-v4-vt-transport-transcode-2026-10.md
+  execution: docs/next-execution/eengine-v4-vt-transport-transcode-execution-2026-10.md
 goal: >-
   Build an extreme-performance GPU-driven WebGPU-native AAA renderer for
   scalable GPUs, including measured low-memory profiles without a 4GB large-scene guarantee. Follow global V4 invariants
@@ -25,19 +25,21 @@ goal: >-
   historical measurements retain their original device and thermal-state identity.
 
 currentSlice:
-  id: surface-cache-gi
-  title: Complete Surface Cache GI and WebGPU world query
-  status: implementing
+  id: vt-lossless-transport
+  title: VT fine-page lossless transport compression
+  status: completed
   goal: >-
-    Follow the selected mother design with source-backed corrections and the sole
-    detailed design/execution pair. Implement only the explicitly authorized unit,
-    validate its concrete lifecycle and stop at the following unit boundary.
-    Preserve the complete sparse directional cache, software query, native material,
-    alpha, dynamic geometry, full lighting, multi-bounce, filtering and screen gather
-    scope. Implementation unit states live only in the execution document.
-    Do not claim production adoption or a 4GB complex-scene guarantee.
+    Follow the user's explicit authorization for the two VT transport units.
+    Keep one schema-2 BC/Zstd product path through the existing Worker and VT
+    upload transaction, validate actual bytes, lifecycle, capacity and cost,
+    then stop at this module boundary. Unit results live only in the execution
+    document. Do not automatically resume SCGI or claim whole-renderer performance.
 
 pausedModules:
+  - id: surface-cache-gi
+    design: docs/next-design/eengine-surface-cache-gi-2026-10.md
+    execution: docs/next-execution/eengine-surface-cache-gi-execution-2026-10.md
+    reason: User explicitly started VT transport; preserve all SCGI implementations, original failures and incomplete SCGI-10 qualification without automatically resuming them.
   - id: final-pixel-performance-v5
     design: docs/next-design/eengine-v5-final-pixel-performance-2026-10.md
     execution: docs/next-execution/eengine-v5-final-pixel-performance-execution-2026-10.md

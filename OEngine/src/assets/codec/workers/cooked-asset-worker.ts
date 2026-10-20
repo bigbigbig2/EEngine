@@ -8,13 +8,19 @@ import { openTextureProduct, PC_TEXTURE_INPUT_LIMIT } from "../../TextureProduct
 import type {
   CookedAssetTask,
   CookedAssetResult,
-  CookedGeometryRegistration
+  CookedGeometryRegistration,
 } from "../CookedAssetProtocol.js";
 import {
   fetchTiledDirectory,
   fetchTiledSpan,
-  type TiledTextureRegistration
+  type TiledTextureRegistration,
 } from "../TiledTextureTransport.js";
+import { loadTiledTextureDecoder } from "../TiledTextureDecoder.js";
+
+let decoder: Awaited<ReturnType<typeof loadTiledTextureDecoder>> | undefined;
+async function getDecoder() {
+  return (decoder ??= await loadTiledTextureDecoder());
+}
 
 const scope = self as unknown as {
   onmessage: (event: MessageEvent<CookedAssetTask | { forget: string }>) => void;
@@ -32,16 +38,24 @@ scope.onmessage = (event) => {
 };
 
 async function prepare(task: CookedAssetTask): Promise<void> {
-  const header = { version: task.version, session: task.session, epoch: task.epoch, task: task.task };
+  const header = {
+    version: task.version,
+    session: task.session,
+    epoch: task.epoch,
+    task: task.task,
+    decoderMemoryBytes: decoder?.memoryBytes ?? 0,
+  };
   const transfer = new Set<ArrayBuffer>();
   let result: CookedAssetResult;
   try {
-    if (task.version !== 2) {
+    if (task.version !== 3) {
       throw new Error("Unsupported Cooked Worker protocol");
     }
     if (task.kind === "geometry") {
       if (task.registration) {
-        await verifyGeometryProductQueryContent(validateGeometryProductQuerySection(task.registration.descriptor));
+        await verifyGeometryProductQueryContent(
+          validateGeometryProductQuerySection(task.registration.descriptor),
+        );
         registrations.set(task.session, task.registration);
       }
       const registration = registrations.get(task.session);
@@ -69,7 +83,7 @@ async function prepare(task: CookedAssetTask): Promise<void> {
           entry,
           registration.groups,
           registration.formats,
-          registration.verifyPageSha256
+          registration.verifyPageSha256,
         );
         const bytes = decoded.bytes.buffer as ArrayBuffer;
         const prepared = prepareProductResidentAttributes(registration.descriptor, pageId, bytes);
@@ -81,7 +95,7 @@ async function prepare(task: CookedAssetTask): Promise<void> {
           bytes,
           integrity: decoded.integrity,
           decodedPageHash128: decoded.decodedPageHash128,
-          prepared
+          prepared,
         });
       }
       result = {
@@ -91,7 +105,7 @@ async function prepare(task: CookedAssetTask): Promise<void> {
         pages,
         encodedBytes: encoded.byteLength,
         ioMs,
-        busyMs: performance.now() - busyStart
+        busyMs: performance.now() - busyStart,
       };
     } else if (task.kind === "tiled-directory") {
       const prepared = await fetchTiledDirectory(task.url, task.expectedHash, task.byteLength);
@@ -100,7 +114,7 @@ async function prepare(task: CookedAssetTask): Promise<void> {
         ok: true,
         kind: "tiled-directory",
         ...prepared,
-        encodedBytes: task.byteLength
+        encodedBytes: task.byteLength,
       };
     } else if (task.kind === "tiled-payload") {
       if (task.registration) {
@@ -110,7 +124,7 @@ async function prepare(task: CookedAssetTask): Promise<void> {
       if (!registration) {
         throw new Error("Tiled texture directory is not registered");
       }
-      const prepared = await fetchTiledSpan(registration, task.span);
+      const prepared = await fetchTiledSpan(registration, task.span, getDecoder);
       for (const p of prepared.payloads) {
         transfer.add(p.bytes);
       }
@@ -119,7 +133,7 @@ async function prepare(task: CookedAssetTask): Promise<void> {
         ok: true,
         kind: "tiled-payload",
         registrationKey: task.registrationKey,
-        ...prepared
+        ...prepared,
       };
     } else {
       const started = performance.now();
@@ -179,12 +193,12 @@ async function prepare(task: CookedAssetTask): Promise<void> {
         product,
         encodedBytes: size,
         ioMs,
-        busyMs: performance.now() - busyStart
+        busyMs: performance.now() - busyStart,
       };
     }
   } catch (error) {
     result = { ...header, ok: false, message: error instanceof Error ? error.message : String(error) };
     transfer.clear();
   }
-  scope.postMessage(result, [...transfer]);
+  scope.postMessage({ ...result, decoderMemoryBytes: decoder?.memoryBytes ?? 0 }, [...transfer]);
 }

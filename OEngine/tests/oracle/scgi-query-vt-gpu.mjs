@@ -186,8 +186,9 @@ export async function runScgiQueryVtGpuOracle(device) {
     batches = [];
   let native;
   let upload;
+  let cold;
   try {
-    const cold = await sourceFixture();
+    cold = await sourceFixture();
     const material = new StandardShadeMaterial();
     material.texture_occlusion = ShadeTexture.fromTiled(cold.source);
     const graph = new AppearanceGraphBuilder();
@@ -362,7 +363,7 @@ export async function runScgiQueryVtGpuOracle(device) {
       "independent fine-mip value from delayed query demand",
     );
     assert.equal(vt.evidence().demand.wanted, 0, "query demand did not enter the primary channel");
-    assert.equal(cold.preparation.evidence().tiled.retained, 0, "tile IO receipts all released");
+    assert.equal(cold.preparation.evidence().credit.used.ready, 0, "tile IO receipts all released");
     const fullDescriptors = await checkFullDescriptors(
       device,
       graphics,
@@ -392,6 +393,7 @@ export async function runScgiQueryVtGpuOracle(device) {
     }
     native?.destroy();
     textures.destroy();
+    cold?.preparation.dispose();
     products.destroy();
     scene.destroy();
     for (const buffer of buffers) buffer.destroy();

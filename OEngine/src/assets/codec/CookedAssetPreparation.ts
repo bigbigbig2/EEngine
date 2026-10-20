@@ -4,31 +4,33 @@ import {
   type CookedAssetResult,
   type CookedAssetTask,
   type CookedGeometryRegistration,
-  type CookedTaskHeader
+  type CookedTaskHeader,
 } from "./CookedAssetProtocol.js";
 import { importCookedTextureReceipt, PC_TEXTURE_INPUT_LIMIT } from "../TextureProduct.js";
 import { loadAssetBatch } from "../AssetLoadBatch.js";
 import {
   markPageIntegrityPreverifiedV1,
-  type GeometryPageProductV1
+  type GeometryPageProductV1,
 } from "../geometry-product/GeometryProductV1.js";
 import {
   importPreparedResidentPage,
-  releasePreparedPage
+  releasePreparedPage,
 } from "../geometry-product/GeometryProductResidentAttributes.js";
 import { CookedAssetCredit } from "./CookedAssetCredit.js";
 import {
   TILED_TEXTURE_DIRECTORY_LIMIT,
   assertTiledTextureDirectory,
   validateTiledTextureMetadata,
-  type TiledTextureDirectory
+  type TiledTextureDirectory,
 } from "../TiledTextureProduct.js";
 import {
   tiledTextureSpans,
   type TiledTextureRegistration,
-  type TiledTexturePreparedPayload
+  type TiledTexturePreparedPayload,
 } from "./TiledTextureTransport.js";
 import { TiledTextureCache } from "./TiledTextureCache.js";
+import { TILED_ZSTD_MEMORY_BYTES } from "./TiledTextureCompression.js";
+import { TILED_ZSTD_WASM_BYTES } from "./vendor/tiled-zstd/identity.js";
 
 const MiB = 1024 * 1024;
 export interface TiledTexturePayloadLease {
@@ -73,6 +75,11 @@ export class CookedAssetPreparation {
   #tiledPayloadBytes = 0;
   #tiledFetchedBytes = 0;
   #tiledTaskFailures = 0;
+  #tiledNativeBytes = 0;
+  #tiledCacheHitBytes = 0;
+  #tiledDecodeMs = 0;
+  #tiledDecoderInitMs = 0;
+  readonly #decoderReservedBytes: number;
   readonly #sessionMetrics = new Map<string, { encodedBytes: number; ranges: number }>();
 
   constructor(
@@ -82,7 +89,7 @@ export class CookedAssetPreparation {
       maxTemporaryBytes?: number;
       createWorker?: () => Worker | Promise<Worker>;
       maxTileCacheBytes?: number;
-    } = {}
+    } = {},
   ) {
     const maxRanges = options.maxConcurrentRanges ?? 4;
     const maxWorkers =
@@ -95,14 +102,29 @@ export class CookedAssetPreparation {
       throw new RangeError("Cooked range concurrency must be in 1..8");
     }
     this.#io = new CookedAssetCredit({ total: maxRanges, encoded: 0, ready: 0 });
+    const temporaryBytes = options.maxTemporaryBytes ?? 256 * MiB;
+    this.#decoderReservedBytes = maxWorkers * (TILED_ZSTD_MEMORY_BYTES + 2 * TILED_ZSTD_WASM_BYTES);
+    const taskBytes = temporaryBytes - this.#decoderReservedBytes;
+    if (!Number.isSafeInteger(temporaryBytes) || taskBytes < 4 * MiB) {
+      throw new RangeError(
+        "Cooked budget cannot hold decoder reservations and one maximum resident fragment",
+      );
+    }
     this.#credit = new CookedAssetCredit({
-      total: options.maxTemporaryBytes ?? 256 * MiB,
+      total: taskBytes,
       encoded: 32 * MiB,
-      ready: 64 * MiB
+      ready: 64 * MiB,
     });
     this.#pool = new AssetWorkerPool({
       maxWorkers,
-      maxInFlightEstimatedBytes: options.maxTemporaryBytes ?? 256 * MiB,
+      maxInFlightEstimatedBytes: taskBytes,
+      retainedBytes: (result) => {
+        const bytes = (result as { decoderMemoryBytes?: unknown } | null)?.decoderMemoryBytes;
+        if (bytes !== 0 && bytes !== TILED_ZSTD_MEMORY_BYTES) {
+          throw new Error("Cooked Worker decoder memory receipt mismatch");
+        }
+        return bytes;
+      },
       createWorker:
         options.createWorker ??
         (() => {
@@ -110,7 +132,7 @@ export class CookedAssetPreparation {
             throw new Error("Cooked assets require Dedicated Worker support");
           }
           return new Worker(new URL("./workers/cooked-asset-worker.js", import.meta.url), { type: "module" });
-        })
+        }),
     });
   }
 
@@ -151,7 +173,7 @@ export class CookedAssetPreparation {
     registration: CookedGeometryRegistration,
     pageIds: ArrayLike<number>,
     signal?: AbortSignal,
-    priority: 0 | 1 | 2 = 1
+    priority: 0 | 1 | 2 = 1,
   ): Promise<readonly GeometryPageProductV1[]> {
     const spans = cookedGeometrySpans(registration.pages, pageIds, 8 * MiB);
     if (pageIds.length > 64) {
@@ -168,10 +190,10 @@ export class CookedAssetPreparation {
       {
         total: encodedBytes * 2 + decodedBytes * 3,
         encoded: encodedBytes,
-        ready: readyBytes
+        ready: readyBytes,
       },
       priority,
-      combined
+      combined,
     );
     const leases = this.#readyLeases.get(session);
     if (!leases || combined.aborted) {
@@ -190,7 +212,7 @@ export class CookedAssetPreparation {
           span.bytes * 2 + decodedBytes * 3,
           priority,
           batchSignal,
-          { key: session, value: registration }
+          { key: session, value: registration },
         );
         if (!result.ok || result.kind !== "geometry" || result.pages.length !== span.pageIds.length) {
           throw new Error("Cooked geometry receipt domain mismatch");
@@ -217,16 +239,16 @@ export class CookedAssetPreparation {
                 value.decodedPageHash128 === undefined
                   ? undefined
                   : Uint8Array.from(value.decodedPageHash128.slice(0, 32).match(/../gu)!, (s) =>
-                      parseInt(s, 16)
+                      parseInt(s, 16),
                     ),
               integrity: value.integrity,
-              bytes: value.bytes
-            })
+              bytes: value.bytes,
+            }),
           );
           const record = new DataView(
             descriptor.pageRecords.buffer,
             descriptor.pageRecords.byteOffset + pageId * 32,
-            32
+            32,
           );
           if (
             value.prepared.groupBegin !== record.getUint32(16, true) ||
@@ -257,7 +279,7 @@ export class CookedAssetPreparation {
     url: string,
     expectedIdentity: string,
     signal?: AbortSignal,
-    priority: 0 | 1 | 2 = 2
+    priority: 0 | 1 | 2 = 2,
   ) {
     // HEAD does not allocate the response payload; admit the full declared
     // container plus digest scratch before a Worker starts its GET.
@@ -287,7 +309,7 @@ export class CookedAssetPreparation {
         { ...this.#header(session), kind: "texture", url, expectedIdentity, maxBytes: size },
         size * 2,
         priority,
-        signal
+        signal,
       );
       const product = await importCookedTextureReceipt(result, expectedIdentity);
       this.#assertSession(session, signal);
@@ -305,7 +327,7 @@ export class CookedAssetPreparation {
     expectedHash: string,
     byteLength: number,
     signal?: AbortSignal,
-    priority: 0 | 1 | 2 = 0
+    priority: 0 | 1 | 2 = 0,
   ): Promise<TiledTextureDirectory> {
     const combined = this.#signal(session, signal);
     if (
@@ -338,7 +360,7 @@ export class CookedAssetPreparation {
       release = await this.#credit.acquire(
         { total: byteLength * 16, encoded: 0, ready: 0 },
         priority,
-        combined
+        combined,
       );
       const result = await this.#submit(
         {
@@ -346,11 +368,11 @@ export class CookedAssetPreparation {
           kind: "tiled-directory",
           url,
           expectedHash,
-          byteLength
+          byteLength,
         },
         byteLength * 16,
         priority,
-        combined
+        combined,
       );
       if (
         !result.ok ||
@@ -375,7 +397,7 @@ export class CookedAssetPreparation {
         key: `${session}:vt:${crypto.randomUUID()}`,
         charge,
         controller: new AbortController(),
-        registration: { identity: directory.identity, pack: directory.metadata.pack, directoryUrl: url }
+        registration: { identity: directory.identity, pack: directory.metadata.pack, directoryUrl: url },
       });
       this.#directoryBytes += charge;
       return directory;
@@ -408,7 +430,7 @@ export class CookedAssetPreparation {
     directory: TiledTextureDirectory,
     payloadIds: readonly number[],
     signal?: AbortSignal,
-    priority: 0 | 1 | 2 = 1
+    priority: 0 | 1 | 2 = 1,
   ): Promise<TiledTexturePayloadLease> {
     const sessionSignal = this.#signal(session, signal);
     assertTiledTextureDirectory(directory);
@@ -420,17 +442,17 @@ export class CookedAssetPreparation {
     // Validate the complete requested domain before taking any cache ownership.
     tiledTextureSpans(directory, payloadIds);
     const ids = [...new Set(payloadIds)];
-    const readyBytes = ids.reduce((n, id) => n + directory.metadata.payloads[id]!.byteLength, 0);
+    const readyBytes = ids.reduce((n, id) => n + directory.metadata.payloads[id]!.nativeByteLength, 0);
     const spans = tiledTextureSpans(directory, ids);
     const encodedBytes = spans.reduce((n, span) => n + span.byteLength, 0);
     const releaseCredit = await this.#credit.acquire(
       {
         total: encodedBytes * 2 + readyBytes * 2,
         encoded: encodedBytes,
-        ready: readyBytes
+        ready: readyBytes,
       },
       priority,
-      combined
+      combined,
     );
     const leases = this.#tileLeases.get(session);
     // Admission resolves asynchronously. The session or directory can retire
@@ -472,7 +494,16 @@ export class CookedAssetPreparation {
       for (const id of ids) {
         const bytes = this.#tileCache.take(`${directory.identity}/${id}`);
         if (bytes) {
-          values.set(id, { id, hash: directory.metadata.payloads[id]!.hash, bytes });
+          values.set(id, {
+            id,
+            hash: directory.metadata.payloads[id]!.hash,
+            representation: "gpu-native",
+            bytes,
+          });
+          if (bytes.byteLength !== directory.metadata.payloads[id]!.nativeByteLength) {
+            throw new Error("Tiled native cache extent mismatch");
+          }
+          this.#tiledCacheHitBytes += bytes.byteLength;
         }
       }
       const missing = ids.filter((id) => !values.has(id));
@@ -486,15 +517,15 @@ export class CookedAssetPreparation {
               ...this.#header(session),
               kind: "tiled-payload",
               registrationKey: registered.key,
-              span
+              span,
             },
-            span.byteLength * 4,
+            span.byteLength * 2 + span.payloads.reduce((sum, p) => sum + p.nativeByteLength, 0) * 2,
             priority,
             batchSignal,
             {
               key: registered.key,
-              value: registered.registration
-            }
+              value: registered.registration,
+            },
           );
           if (
             !result.ok ||
@@ -514,20 +545,21 @@ export class CookedAssetPreparation {
             if (
               value.id !== id ||
               value.hash !== expected.hash ||
+              value.representation !== "gpu-native" ||
               !(value.bytes instanceof ArrayBuffer) ||
-              value.bytes.byteLength !== expected.byteLength
+              value.bytes.byteLength !== expected.nativeByteLength
             ) {
               throw new Error("Tiled payload receipt identity/extent mismatch");
             }
             values.set(id, value);
           }
-        }
+        },
       );
       this.#assertSession(session, combined);
       releaseCredit({ total: readyBytes, encoded: 0, ready: readyBytes });
       return Object.freeze({
         payloads: Object.freeze(ids.map((id) => values.get(id)!)),
-        release: () => finish(true)
+        release: () => finish(true),
       });
     } catch (error) {
       cancel();
@@ -551,13 +583,18 @@ export class CookedAssetPreparation {
       tiled: {
         fetchedBytes: this.#tiledFetchedBytes,
         hashedPayloadBytes: this.#tiledPayloadBytes,
+        nativeOutputBytes: this.#tiledNativeBytes,
+        cacheHitBytes: this.#tiledCacheHitBytes,
+        decodeMs: this.#tiledDecodeMs,
+        decoderInitMs: this.#tiledDecoderInitMs,
+        decoderReservedBytes: this.#disposed ? 0 : this.#decoderReservedBytes,
         overfetchBytes: this.#tiledFetchedBytes - this.#tiledPayloadBytes,
         failedTasks: this.#tiledTaskFailures,
         metadataBytes: this.#directoryBytes,
         reservedMetadataBytes: this.#directoryReservedBytes,
         directories: this.#tiledDirectories.size,
-        cache: this.#tileCache.evidence()
-      }
+        cache: this.#tileCache.evidence(),
+      },
     };
   }
 
@@ -587,14 +624,14 @@ export class CookedAssetPreparation {
   }
   #header(session: string): CookedTaskHeader {
     this.#assertSession(session);
-    return { version: 2, session, epoch: 1, task: ++this.#task };
+    return { version: 3, session, epoch: 1, task: ++this.#task };
   }
   async #submit(
     task: CookedAssetTask,
     estimatedPeakBytes: number,
     priority: 0 | 1 | 2,
     signal?: AbortSignal,
-    registration?: { key: string; value: unknown }
+    registration?: { key: string; value: unknown },
   ): Promise<CookedAssetResult> {
     const combined = this.#signal(task.session, signal);
     const releaseIo = await this.#io.acquire({ total: 1, encoded: 0, ready: 0 }, priority, combined);
@@ -605,7 +642,7 @@ export class CookedAssetPreparation {
         estimatedPeakBytes,
         priority,
         signal: combined,
-        registration
+        registration,
       });
       this.#assertSession(task.session, signal);
       assertAssetWorkerResult(result);
@@ -635,10 +672,23 @@ export class CookedAssetPreparation {
       } else {
         this.#tiledPayloadRanges++;
         this.#tiledFetchedBytes += result.encodedBytes;
-        this.#tiledPayloadBytes += result.payloads.reduce(
-          (bytes, payload) => bytes + payload.bytes.byteLength,
-          0
-        );
+        const useful =
+          task.kind === "tiled-payload" ? task.span.payloads.reduce((n, p) => n + p.byteLength, 0) : -1;
+        const native = result.payloads.reduce((n, p) => n + p.bytes.byteLength, 0);
+        if (
+          result.usefulEncodedBytes !== useful ||
+          result.nativeBytes !== native ||
+          !Number.isFinite(result.decodeMs) ||
+          result.decodeMs < 0 ||
+          !Number.isFinite(result.decoderInitMs) ||
+          result.decoderInitMs < 0
+        ) {
+          throw new Error("Tiled Worker cost receipt domain mismatch");
+        }
+        this.#tiledPayloadBytes += useful;
+        this.#tiledNativeBytes += native;
+        this.#tiledDecodeMs += result.decodeMs;
+        this.#tiledDecoderInitMs += result.decoderInitMs;
         metrics.ranges++;
       }
       return result;
@@ -657,7 +707,7 @@ export class CookedAssetPreparation {
 function geometryReadyLease(
   release: (remaining?: { total: number; encoded: number; ready: number }) => void,
   pageCount: number,
-  finished: () => void
+  finished: () => void,
 ) {
   let remaining = pageCount;
   let imported = false;
@@ -692,7 +742,7 @@ function geometryReadyLease(
         release();
         finished();
       }
-    }
+    },
   };
 }
 

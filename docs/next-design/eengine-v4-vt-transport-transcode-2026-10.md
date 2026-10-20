@@ -7,6 +7,10 @@ verifies:
     - OEngine/src/assets/TiledTextureSource.ts
     - OEngine/src/assets/codec/TiledTextureCook.ts
     - OEngine/src/assets/codec/TiledTextureTransport.ts
+    - OEngine/src/assets/codec/TiledTextureCompression.ts
+    - OEngine/src/assets/codec/TiledTextureDecoder.ts
+    - OEngine/tools/build-tiled-texture-codec.mjs
+    - OEngine/vite.config.ts
     - OEngine/src/assets/codec/TiledTextureCache.ts
     - OEngine/src/assets/codec/CookedAssetPreparation.ts
     - OEngine/src/assets/codec/CookedAssetProtocol.ts
@@ -29,7 +33,7 @@ verifies:
 
 本文全面替换前版含大量英文、选型未完成的设计。文件名保留便于既有链接定位，但**主方案不再是图片解码后 GPU 重编码，而是最终 BC 块的逐页 Zstd 无损压缩**。对应[执行文档](../next-execution/eengine-v4-vt-transport-transcode-execution-2026-10.md)。
 
-这是依据当前代码给出的目标设计，不是已完成实现。2026-10-20 核对基线为 `a2b3f8e3739055fb28e335c02e41b0cf91ded5f8`；本轮只改文档并做独立资产字节检查。当前活动模块仍是工作流中的 Surface Cache GI，不擅自修改其 authority 或宣称本模块已启动。
+设计核对基线为 `a2b3f8e3739055fb28e335c02e41b0cf91ded5f8`，设计批准提交为 `b851d895`。随后用户明确授权第一、第二单元，生产代码已切至本文的 schema 2 单路径；实施、集中验证与真实限制只读[执行文档 §7](../next-execution/eengine-v4-vt-transport-transcode-execution-2026-10.md#7-实施与集中验证记录2026-10-20)。workstream 已按实际启动授权导航本模块，SCGI 未完成资格保留，不自动继续。
 
 ## 1. 重新审评后的结论
 
@@ -111,7 +115,7 @@ verifies:
 
 目录文件名排序后以换行拼接的 SHA-256 为 `9faa721ee87217de2635f2cacb15ed87127bf164bfa200114e8568c5e015eed0`；按该顺序及目录 payload 顺序拼接细页，原生字节摘要为 `b16f55292779dbf925434ce0d96140d80e5346512a441688bb4c44f92782d62d`，压缩字节摘要为 `c176df39f7d80728369a608940766f70f11f5bd279c213a488090c00e1a7b696`。
 
-**已经说明的只有：本地这组真实 ORM 页具有明显无损压缩空间，且独立帧可以精确还原。** 未测浏览器 WASM、冷初始化、真实请求顺序与过取、颜色/normal/BC4 分布、页面就绪延迟或帧率。不能把 60.75% 推广为全场景网络降幅，更不能说已经提速。无需重新读取用户排除的旧大资产来完成这项模块检查。
+**这份独立调查只说明：本地这组真实 ORM 页具有明显无损压缩空间，且独立帧可以精确还原。** 后续浏览器/实际 Worker/BC4、颜色、normal、GPU 接线和读取成本见执行 §7，不倒写为这次调查的证据。60.75% 不能推广为全场景网络降幅或帧率收益；不读取用户排除的旧大资产。
 
 ## 5. 产品合同：长度、身份和路由
 
@@ -130,7 +134,7 @@ transport: {
 }
 ```
 
-本段为目标字段形状，不表示接口已经存在。编码器二进制/构建身份写入 cook 收据与传输 recipe 身份；最终目录本身仍由精确字节 SHA-256 认证。离线生产固定 Node/Zstd 版本或同版本固定原生构建，不能假定不同版本压缩字节天然相同。
+这些字段已由 `TiledTextureCompression/TiledTextureProduct` 实现。编码器版本/配置写入 cook 收据；最终目录由精确字节 SHA-256 认证。当前离线入口固定 Node 24.14.0 内置 Zstd 1.5.7，调用带内容长度的同步逐页入口；异步 API 没有该长度，严格拒绝。最终 BC 编码器原身份独立保留，不假定不同版本压缩字节相同。
 
 每个 payload 继续保留 `id/offset/byteLength/hash/shard`，增加：
 
@@ -205,7 +209,7 @@ HTTP 仍要求 `Content-Encoding: identity`；应用层 Zstd 已在包内，不�
 - IO 合并与 encoded 信用按 `S`；ready 信用按 `D`。不能继续用旧 `readyBytes = sum(byteLength)`。
 - 首次统一为整次请求预留保守临时额度 `2S + 2D`，encoded=`S`、ready=`D`；它覆盖 body/分片复制和输出/交接峰值，不依赖压缩率。Worker 的 `estimatedPeakBytes` 也必须由新输入/输出域计算，不能保留 `span.byteLength * 4` 的隐含展开比。
 - 完成 transfer 后原子收缩为持有 `D`，ready=`D`；release/cancel 才归还。缓存另按原生实际 backing bytes 记账，最大仍为现有 128 MiB，不和 ready 信用重复冒充一份所有权。
-- WASM 常驻内存独立预留：构造 preparation 时从既有总临时预算划出 `maxWorkers × W` 的最坏上界，再给瞬态任务剩余额度；至少应能容纳一个最大原生 resident 片段请求的瞬态开销，否则配置创建时拒绝。64-ID 是域上限，不承诺任意 64 个 1 MiB 片段都能装进任意信用配置；超单次信用的请求在读取前明确拒绝，调用者事先按额度拆批，不能先读一部分再截断结果。这里预留的是上界，不是启动全部实例。证据同时报告实际实例数、实际线性内存、预留和峰值。
+- WASM 常驻/加载独立预留：实际为 `maxWorkers × (W + 2 × 60,102 B)`，覆盖固定线性内存和二进制读取/hash瞬态，再给任务剩余额度；至少能容纳一个最大原生 resident 片段请求的 4 MiB 瞬态，否则创建时拒绝。64-ID 是域上限，不承诺任意 64 个 1 MiB 片段装进任意信用配置；超单次信用在读取前拒绝，不截断结果。预留不是启动全部实例，实际线性内存由 Worker 回执记账；JS、编译器/JIT内部仍单列未知。
 - WASM 二进制/JS 加载也必须有构建清单大小上界；加载瞬态计入模块初始化账户，编译器/引擎内部不可精确观测部分标为未知，不把 4 MiB 线性内存宣称成整个浏览器占用。
 - Worker 内任务使用顺序页解压，输出累计最多 `D`，固定内存区在 `W` 内，不需要整批 RGBA。现有 64-ID、1 MiB 响应、4 范围并发与 1..4 Worker 上界保留；不把并发相乘后遗漏旧新 scene 替换峰值。
 
@@ -271,7 +275,7 @@ GPU 图片路线在极慢网络下可能优于 BC+Zstd，**这里不声称数学
 
 复用已固定的 [Basis checkout](https://github.com/BinomialLLC/basis_universal/tree/99f52d63aa6799cbdaecfe977111dc5ec3b31d47/zstd)，revision `99f52d63aa6799cbdaecfe977111dc5ec3b31d47`，其中 Zstd 版本宏是 1.5.7。核读 `zstd.h`、`zstddeclib.c` 的帧头、帧长、静态上下文与解压入口；采用其 BSD 许可选项，随独立二进制保留 `zstd/LICENSE`。不把 Basis 的其它许可或现有 libktx 二进制身份当作这个新模块身份。
 
-上游输入帧/熵解码/LZ 重建/校验阶段完整保留，只加本地有界单页合同，不重写压缩算法。具体来源与目标映射记录在[已有来源账本](../porting/next-renderer.md#vt-无损传输压缩研究2026-10-20)。当前身份是已研究、目标复用，尚无浏览器生产采用证据。
+上游输入帧/熵解码/LZ 重建/校验阶段完整保留，只加本地有界单页合同，不重写压缩算法。具体来源与目标映射记录在[已有来源账本](../porting/next-renderer.md#vt-无损传输压缩研究2026-10-20)。当前采用边界是原版 CPU 解压算法与本地严格单页 C ABI，已有独立 Node/WASM oracle、真实 Worker 与新生产 VT GPU 消费；不是 GPU Zstd 移植，也不提升全 Renderer 性能资格。构建哈希、源函数映射和限制见执行 §7 与来源账本。
 
 ### 10.2 Spark：核过源码，保留参考但不选入
 

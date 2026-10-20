@@ -36,6 +36,8 @@ verifies:
 
 # PC-First GPU Native Texture Compression
 
+> 2026-10-20 范围限定：本文 cooked codec=0 指普通完整 BC TextureProduct；后续 Streaming VT 的 schema 2 fine 已采用 Worker Zstd 无损解压，原生 tail/resident 与所有最终 GPU BC 不变。新增模块唯一详细依据为[VT 传输设计](./eengine-v4-vt-transport-transcode-2026-10.md)，实际结果读其执行文档；不据旧概括恢复 schema 1 或增加 fallback。
+
 本文保留为已完成 Texture Compression 的现行产品/压缩边界设计依据；阶段结果与开放限制只在[执行记录](../next-execution/eengine-v4-texture-compression-execution-2026-10.md)。它不是并行待执行路线，也不因保留 current 而要求重跑 T4 或自动启动 VT。当前模块入口统一读 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)，全局不变量读 [V4 母稿](./eengine-v4-native-shading-2026-10.md)。本文区分源码事实、冻结目标与验收；不能由文档设计推断未运行项已通过。
 
 历史设计起点与 T4.0/T4.1 源码身份保留在 Execution。当前源码事实按 T4.2 cutover 与 T4.3 必需接线更新，实施与验证身份见 Execution §11–12 和机器 artifact；不将旧 baseline 数字追认为新路径收益。

@@ -14,6 +14,7 @@ export interface AssetWorkerPoolOptions {
   readonly maxQueuedTasks?: number;
   readonly maxConsecutiveWorkerFailures?: number;
   readonly createWorker: () => Worker | Promise<Worker>;
+  readonly retainedBytes?: (result: unknown) => number;
 }
 
 export interface AssetWorkerTask<TRequest> {
@@ -33,6 +34,8 @@ export interface AssetWorkerPoolEvidence {
   readonly peakInFlightEstimatedBytes: number;
   readonly queuedTasks: number;
   readonly workerFailures: number;
+  readonly retainedWorkerBytes: number;
+  readonly peakRetainedWorkerBytes: number;
 }
 
 interface QueueEntry<TRequest, TResult> {
@@ -47,13 +50,14 @@ interface WorkerSlot {
   busy: boolean;
   entry: QueueEntry<any, any> | null;
   readonly registrations: Set<string>;
+  retainedBytes: number;
 }
 
 export class AssetWorkerPool {
   private readonly queues: [QueueEntry<any, any>[], QueueEntry<any, any>[], QueueEntry<any, any>[]] = [
     [],
     [],
-    []
+    [],
   ];
   private readonly workers: WorkerSlot[] = [];
   private creatingWorkers = 0;
@@ -64,6 +68,7 @@ export class AssetWorkerPool {
   private workerFailures = 0;
   private consecutiveWorkerFailures = 0;
   private disposed = false;
+  private peakRetainedWorkerBytes = 0;
 
   constructor(private readonly options: AssetWorkerPoolOptions) {
     assertPositiveInteger(options.maxWorkers, "maxWorkers");
@@ -78,8 +83,8 @@ export class AssetWorkerPool {
     if (task.estimatedPeakBytes > this.options.maxInFlightEstimatedBytes) {
       return Promise.reject(
         new RangeError(
-          `Asset worker task requires ${task.estimatedPeakBytes} estimated bytes, budget is ${this.options.maxInFlightEstimatedBytes}`
-        )
+          `Asset worker task requires ${task.estimatedPeakBytes} estimated bytes, budget is ${this.options.maxInFlightEstimatedBytes}`,
+        ),
       );
     }
     if (task.priority !== 0 && task.priority !== 1 && task.priority !== 2) {
@@ -94,7 +99,7 @@ export class AssetWorkerPool {
         task,
         resolve,
         reject,
-        abort: () => this.cancelEntry(entry)
+        abort: () => this.cancelEntry(entry),
       };
       task.signal?.addEventListener("abort", entry.abort, { once: true });
       this.queues[task.priority].push(entry);
@@ -109,7 +114,9 @@ export class AssetWorkerPool {
       inFlightEstimatedBytes: this.inFlightEstimatedBytes,
       peakInFlightEstimatedBytes: this.peakInFlightEstimatedBytes,
       queuedTasks: this.queuedCount(),
-      workerFailures: this.workerFailures
+      workerFailures: this.workerFailures,
+      retainedWorkerBytes: this.workers.reduce((sum, slot) => sum + slot.retainedBytes, 0),
+      peakRetainedWorkerBytes: this.peakRetainedWorkerBytes,
     });
   }
 
@@ -160,7 +167,13 @@ export class AssetWorkerPool {
               worker.terminate();
               return;
             }
-            const slot: WorkerSlot = { worker, busy: false, entry: null, registrations: new Set() };
+            const slot: WorkerSlot = {
+              worker,
+              busy: false,
+              entry: null,
+              registrations: new Set(),
+              retainedBytes: 0,
+            };
             worker.onmessage = (event: MessageEvent<unknown>) => this.finish(slot, event.data);
             worker.onerror = (event: ErrorEvent) => {
               event.preventDefault?.();
@@ -178,12 +191,12 @@ export class AssetWorkerPool {
             this.consecutiveWorkerFailures++;
             if (this.consecutiveWorkerFailures >= (this.options.maxConsecutiveWorkerFailures ?? 3)) {
               this.rejectAll(
-                new Error(`Asset codec Worker initialization failed repeatedly: ${errorMessage(error)}`)
+                new Error(`Asset codec Worker initialization failed repeatedly: ${errorMessage(error)}`),
               );
             } else {
               this.pump();
             }
-          }
+          },
         );
     }
   }
@@ -217,6 +230,20 @@ export class AssetWorkerPool {
   private finish(slot: WorkerSlot, result: unknown): void {
     const entry = slot.entry;
     if (entry === null) return;
+    try {
+      const retainedBytes = this.options.retainedBytes?.(result) ?? 0;
+      if (retainedBytes < slot.retainedBytes) {
+        throw new Error("Live Worker retained memory cannot disappear without retirement");
+      }
+      slot.retainedBytes = retainedBytes;
+      this.peakRetainedWorkerBytes = Math.max(
+        this.peakRetainedWorkerBytes,
+        this.workers.reduce((sum, worker) => sum + worker.retainedBytes, 0),
+      );
+    } catch (error) {
+      this.failWorker(slot, error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
     this.release(slot);
     this.consecutiveWorkerFailures = 0;
     if (typeof result === "object" && result !== null) successfulResults.add(result);

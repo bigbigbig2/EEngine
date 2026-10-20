@@ -1,12 +1,13 @@
 import { textureProductHash, type TextureProductMetadata } from "./TextureProduct.js";
 import { encodedTextureMipByteLength } from "./codec/TextureFormatLayout.js";
+import { TILED_TEXTURE_TRANSPORT, tiledTextureCompressedBound } from "./codec/TiledTextureCompression.js";
 
 export const TILED_TEXTURE_RECIPE = Object.freeze({
-  version: 1,
+  version: 2,
   interior: 128,
   border: 8,
   physical: 144,
-  tailMax: 64
+  tailMax: 64,
 } as const);
 export const TILED_TEXTURE_DIRECTORY_LIMIT = 16 * 1024 * 1024;
 export const TILED_TEXTURE_PAYLOAD_LIMIT = 1024 * 1024;
@@ -19,7 +20,7 @@ export const TILED_TEXTURE_TAIL_ORIGINS = [
   [32, 80],
   [56, 80],
   [76, 80],
-  [96, 80]
+  [96, 80],
 ] as const;
 
 export interface TiledTexturePayload {
@@ -27,6 +28,8 @@ export interface TiledTexturePayload {
   readonly offset: number;
   readonly byteLength: number;
   readonly hash: string;
+  readonly encoding: "gpu-native" | "zstd-bc";
+  readonly nativeByteLength: number;
   /** Bounded standalone shard, resolved relative to the directory URL. */
   readonly shard: string;
 }
@@ -48,8 +51,9 @@ export interface TiledTexturePlane {
   readonly mips: readonly TiledTextureMip[];
 }
 export interface TiledTextureMetadata {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly recipe: typeof TILED_TEXTURE_RECIPE;
+  readonly transport: typeof TILED_TEXTURE_TRANSPORT;
   readonly sourceIdentity: string;
   readonly source: TextureProductMetadata;
   readonly pack: { readonly uri: string; readonly byteLength: number };
@@ -73,7 +77,7 @@ export function assertTiledTextureDirectory(value: TiledTextureDirectory): void 
 /** Hash exact directory bytes before parsing; each payload is authenticated separately on read. */
 export async function openTiledTextureDirectory(
   bytes: Uint8Array,
-  expectedHash: string
+  expectedHash: string,
 ): Promise<TiledTextureDirectory> {
   if (bytes.byteLength === 0 || bytes.byteLength > TILED_TEXTURE_DIRECTORY_LIMIT) {
     throw new RangeError("Tiled directory exceeds bounded input");
@@ -85,7 +89,7 @@ export async function openTiledTextureDirectory(
   return validateTiledTextureMetadata(
     JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)),
     expectedHash,
-    bytes.byteLength
+    bytes.byteLength,
   );
 }
 
@@ -93,18 +97,27 @@ export async function openTiledTextureDirectory(
 export function validateTiledTextureMetadata(
   input: TiledTextureMetadata,
   identity: string,
-  directoryBytes: number
+  directoryBytes: number,
 ): TiledTextureDirectory {
   checkHash(identity);
   integer(directoryBytes, 1, TILED_TEXTURE_DIRECTORY_LIMIT, "directory bytes");
   // Own the small metadata closure; no caller can mutate validated routes after admission.
   const m = structuredClone(input);
-  keys(m, ["schemaVersion", "recipe", "sourceIdentity", "source", "pack", "payloads", "planes"]);
+  if (m.schemaVersion !== 2) {
+    throw new Error("Tiled directory schema mismatch; recook required");
+  }
+  keys(m, ["schemaVersion", "recipe", "transport", "sourceIdentity", "source", "pack", "payloads", "planes"]);
+  keys(m.transport, Object.keys(TILED_TEXTURE_TRANSPORT));
+  for (const key of Object.keys(TILED_TEXTURE_TRANSPORT) as (keyof typeof TILED_TEXTURE_TRANSPORT)[]) {
+    if (m.transport[key] !== TILED_TEXTURE_TRANSPORT[key]) {
+      throw new Error("Tiled transport profile mismatch; recook required");
+    }
+  }
   keys(m.recipe, Object.keys(TILED_TEXTURE_RECIPE));
   if (
-    m.schemaVersion !== 1 ||
+    m.schemaVersion !== 2 ||
     (Object.keys(TILED_TEXTURE_RECIPE) as (keyof typeof TILED_TEXTURE_RECIPE)[]).some(
-      (key) => m.recipe[key] !== TILED_TEXTURE_RECIPE[key]
+      (key) => m.recipe[key] !== TILED_TEXTURE_RECIPE[key],
     )
   ) {
     throw new Error("Tiled directory schema/recipe mismatch; recook required");
@@ -125,7 +138,7 @@ export function validateTiledTextureMetadata(
     "exactAlpha",
     "uvScaleBias",
     "recipe",
-    "planes"
+    "planes",
   ]);
   if (
     s.schemaVersion !== 3 ||
@@ -135,7 +148,7 @@ export function validateTiledTextureMetadata(
       "orm-linear",
       "occlusion-linear",
       "alpha-mask",
-      "emissive-srgb"
+      "emissive-srgb",
     ].includes(s.semantic)
   ) {
     throw new Error("Tiled source semantic/schema invalid");
@@ -177,11 +190,19 @@ export function validateTiledTextureMetadata(
   let end = 0;
   for (let i = 0; i < m.payloads.length; i++) {
     const p = m.payloads[i]!;
-    keys(p, ["id", "offset", "byteLength", "hash", "shard"]);
+    keys(p, ["id", "offset", "byteLength", "hash", "shard", "encoding", "nativeByteLength"]);
     if (p.id !== i || p.offset !== end) {
       throw new Error("Tiled payload IDs/ranges overlap or contain holes");
     }
     integer(p.byteLength, 1, TILED_TEXTURE_PAYLOAD_LIMIT, "payload bytes");
+    integer(p.nativeByteLength, 1, TILED_TEXTURE_PAYLOAD_LIMIT, "native payload bytes");
+    if (p.encoding === "gpu-native") {
+      if (p.byteLength !== p.nativeByteLength) {
+        throw new Error("Tiled native payload extent mismatch");
+      }
+    } else if (p.encoding !== "zstd-bc" || p.byteLength > tiledTextureCompressedBound(p.nativeByteLength)) {
+      throw new Error("Tiled compressed payload extent/profile mismatch");
+    }
     checkHash(p.hash);
     relativeUri(p.shard);
     end += p.byteLength;
@@ -238,7 +259,7 @@ export function validateTiledTextureMetadata(
         "physicalHeight",
         "byteLength",
         "chunkId",
-        "hash"
+        "hash",
       ]);
       const w = Math.max(1, Math.floor(s.storageWidth / 2 ** l));
       const h = Math.max(1, Math.floor(s.storageHeight / 2 ** l));
@@ -260,6 +281,7 @@ export function validateTiledTextureMetadata(
   const planeKeys = new Set<string>();
   const sourcePlanes = new Set<number>();
   const referenced = new Set<number>();
+  const payloadUses = new Map<number, string>();
   for (const plane of m.planes) {
     keys(plane, ["sourcePlane", "mode", "address", "tailFirst", "mips"]);
     integer(plane.sourcePlane, 0, s.planes.length - 1, "source plane");
@@ -276,7 +298,7 @@ export function validateTiledTextureMetadata(
     planeKeys.add(key);
     sourcePlanes.add(plane.sourcePlane);
     const tailFirst = source.mips.findIndex(
-      (mip: { width: number; height: number }) => Math.max(mip.width, mip.height) <= 64
+      (mip: { width: number; height: number }) => Math.max(mip.width, mip.height) <= 64,
     );
     if (
       plane.tailFirst !== (plane.mode === "virtual" ? tailFirst : -1) ||
@@ -293,7 +315,7 @@ export function validateTiledTextureMetadata(
       keys(
         mip,
         ["level", "width", "height", "gridWidth", "gridHeight", "payloads"],
-        mip.tailOrigin === undefined ? [] : ["tailOrigin"]
+        mip.tailOrigin === undefined ? [] : ["tailOrigin"],
       );
       const original = source.mips[level]!;
       if (
@@ -313,13 +335,24 @@ export function validateTiledTextureMetadata(
         throw new Error("Tiled mip grid/payload closure mismatch");
       }
       let residentBytes = 0;
-      for (const id of mip.payloads) {
+      for (const [pageIndex, id] of mip.payloads.entries()) {
         integer(id, 0, m.payloads.length - 1, "payload ID");
         referenced.add(id);
-        residentBytes += m.payloads[id]!.byteLength;
+        const payload = m.payloads[id]!;
+        const fine = plane.mode === "virtual" && !tail;
+        const use = `${plane.sourcePlane}/${plane.address}/${tail ? "tail" : `${level}/${pageIndex}`}`;
+        const previous = payloadUses.get(id);
+        if (previous !== undefined && previous !== use) {
+          throw new Error("Tiled payload has conflicting page ownership");
+        }
+        payloadUses.set(id, use);
+        if (payload.encoding !== (fine ? "zstd-bc" : "gpu-native")) {
+          throw new Error("Tiled payload encoding differs from page usage");
+        }
+        residentBytes += payload.nativeByteLength;
         if (
           plane.mode === "virtual" &&
-          m.payloads[id]!.byteLength !== encodedTextureMipByteLength(source.format, 144, 144)
+          payload.nativeByteLength !== encodedTextureMipByteLength(source.format, 144, 144)
         ) {
           throw new Error("Tiled physical tile extent invalid");
         }

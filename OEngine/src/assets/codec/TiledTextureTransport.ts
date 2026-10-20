@@ -2,9 +2,11 @@ import {
   TILED_TEXTURE_DIRECTORY_LIMIT,
   openTiledTextureDirectory,
   type TiledTextureDirectory,
-  type TiledTexturePayload
+  type TiledTexturePayload,
 } from "../TiledTextureProduct.js";
 import { textureProductHash } from "../TextureProduct.js";
+import { tiledTextureCompressedBound } from "./TiledTextureCompression.js";
+import type { createTiledTextureDecoder } from "./TiledTextureDecoder.js";
 
 export interface TiledTextureRegistration {
   readonly identity: string;
@@ -23,13 +25,14 @@ export interface TiledTextureSpan {
 export interface TiledTexturePreparedPayload {
   readonly id: number;
   readonly hash: string;
+  readonly representation: "gpu-native";
   readonly bytes: ArrayBuffer;
 }
 
 /** Local IO batching: never more than 1MiB or 2x useful bytes, including intervening gaps. */
 export function tiledTextureSpans(
   directory: TiledTextureDirectory,
-  payloadIds: readonly number[]
+  payloadIds: readonly number[],
 ): readonly TiledTextureSpan[] {
   if (payloadIds.length > 64) {
     throw new RangeError("Tiled batch exceeds 64 payload IDs");
@@ -66,14 +69,14 @@ export function tiledTextureSpans(
     offset,
     byteLength,
     payloadIds,
-    payloads: payloadIds.map((id) => directory.metadata.payloads[id]!)
+    payloads: payloadIds.map((id) => directory.metadata.payloads[id]!),
   }));
 }
 
 export async function fetchTiledDirectory(
   url: string,
   expectedHash: string,
-  byteLength: number
+  byteLength: number,
 ): Promise<{ directory: TiledTextureDirectory; ioMs: number; busyMs: number }> {
   if (!Number.isSafeInteger(byteLength) || byteLength < 1 || byteLength > TILED_TEXTURE_DIRECTORY_LIMIT) {
     throw new RangeError("Tiled directory fetch requires bounded manifest length");
@@ -89,12 +92,17 @@ export async function fetchTiledDirectory(
 /** Worker-only transport. 200 on a pack range is cancelled before any body allocation. */
 export async function fetchTiledSpan(
   registration: TiledTextureRegistration,
-  span: TiledTextureSpan
+  span: TiledTextureSpan,
+  getDecoder: () => Promise<Awaited<ReturnType<typeof createTiledTextureDecoder>>>,
 ): Promise<{
   payloads: readonly TiledTexturePreparedPayload[];
   encodedBytes: number;
   ioMs: number;
   busyMs: number;
+  decodeMs: number;
+  decoderInitMs: number;
+  usefulEncodedBytes: number;
+  nativeBytes: number;
 }> {
   const { pack, directoryUrl, etag } = registration;
   if (
@@ -132,6 +140,16 @@ export async function fetchTiledSpan(
     ) {
       throw new Error("Tiled range task differs from authenticated span records");
     }
+    if (
+      !Number.isSafeInteger(p.nativeByteLength) ||
+      p.nativeByteLength < 1 ||
+      p.nativeByteLength > 1024 * 1024 ||
+      (p.encoding === "gpu-native"
+        ? p.byteLength !== p.nativeByteLength
+        : p.encoding !== "zstd-bc" || p.byteLength > tiledTextureCompressedBound(p.nativeByteLength))
+    ) {
+      throw new Error("Tiled task native/encoded domain mismatch");
+    }
     end = p.offset + p.byteLength;
     useful += p.byteLength;
   }
@@ -139,7 +157,7 @@ export async function fetchTiledSpan(
     throw new Error("Tiled range task exceeds coalescing bounds");
   }
   const headers: Record<string, string> = {
-    Range: `bytes=${span.offset}-${span.offset + span.byteLength - 1}`
+    Range: `bytes=${span.offset}-${span.offset + span.byteLength - 1}`,
   };
   if (etag !== undefined) {
     if (!/^"[^"]+"$/u.test(etag)) {
@@ -149,6 +167,30 @@ export async function fetchTiledSpan(
   }
   const start = performance.now();
   let busyMs = 0;
+  let decodeMs = 0;
+  let decoderInitMs = 0;
+  let decoder: Awaited<ReturnType<typeof createTiledTextureDecoder>> | undefined;
+  const prepare = async (
+    encoded: Uint8Array,
+    p: TiledTexturePayload,
+  ): Promise<TiledTexturePreparedPayload> => {
+    await verifyPayload(encoded, p.hash);
+    let bytes: ArrayBuffer;
+    if (p.encoding === "zstd-bc") {
+      if (!decoder) {
+        const init = performance.now();
+        decoder = await getDecoder();
+        decoderInitMs += performance.now() - init;
+      }
+      const decode = performance.now();
+      bytes = decoder.decode(encoded, p.nativeByteLength);
+      decodeMs += performance.now() - decode;
+    } else {
+      bytes = encoded.slice().buffer as ArrayBuffer;
+    }
+    return { id: p.id, hash: p.hash, representation: "gpu-native", bytes };
+  };
+  const nativeBytes = span.payloads.reduce((sum, p) => sum + p.nativeByteLength, 0);
   const response = await fetch(new URL(pack.uri, directoryUrl), { headers });
   if (response.status === 200) {
     await response.body?.cancel();
@@ -158,12 +200,20 @@ export async function fetchTiledSpan(
       const shard = await fetch(new URL(p.shard, directoryUrl));
       const bytes = await boundedResponse(shard, p.byteLength, 200);
       const busyStart = performance.now();
-      await verifyPayload(bytes, p.hash);
-      payloads.push({ id: p.id, hash: p.hash, bytes: bytes.buffer as ArrayBuffer });
+      payloads.push(await prepare(bytes, p));
       busyMs += performance.now() - busyStart;
       encodedBytes += bytes.byteLength;
     }
-    return { payloads, encodedBytes, ioMs: performance.now() - start - busyMs, busyMs };
+    return {
+      payloads,
+      encodedBytes,
+      ioMs: performance.now() - start - busyMs,
+      busyMs,
+      decodeMs,
+      decoderInitMs,
+      usefulEncodedBytes: useful,
+      nativeBytes,
+    };
   }
   const range = `bytes ${span.offset}-${span.offset + span.byteLength - 1}/${pack.byteLength}`;
   if (
@@ -178,17 +228,20 @@ export async function fetchTiledSpan(
   const payloads: TiledTexturePreparedPayload[] = [];
   for (const p of span.payloads) {
     const start = p.offset - span.offset;
-    // Own exact transfer storage; retaining a small tile cannot pin a 1MiB range buffer.
-    const bytes = encoded.slice(start, start + p.byteLength);
-    await verifyPayload(bytes, p.hash);
-    payloads.push({ id: p.id, hash: p.hash, bytes: bytes.buffer as ArrayBuffer });
+    // Borrow the range for hash/decode only; prepare returns exclusive native storage.
+    const bytes = encoded.subarray(start, start + p.byteLength);
+    payloads.push(await prepare(bytes, p));
   }
   busyMs = performance.now() - busyStart;
   return {
     payloads,
     encodedBytes: encoded.byteLength,
     ioMs: busyStart - start,
-    busyMs
+    busyMs,
+    decodeMs,
+    decoderInitMs,
+    usefulEncodedBytes: useful,
+    nativeBytes,
   };
 }
 
@@ -201,7 +254,7 @@ async function verifyPayload(bytes: Uint8Array, expected: string): Promise<void>
 async function boundedResponse(
   response: Response,
   expectedBytes: number,
-  status: number
+  status: number,
 ): Promise<Uint8Array> {
   if (
     response.status !== status ||

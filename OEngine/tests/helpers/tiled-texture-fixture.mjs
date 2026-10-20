@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { zstdDecompressSync } from "node:zlib";
+import { compressTiledTexturePage } from "../../tools/tiled-texture-compress.mjs";
 import createBasis from "../../src/assets/codec/vendor/pc-texture/basis_bc.js";
 import { cookPcTextureRgba } from "../../.test-dist/assets/codec/PcTextureCook.js";
 import { TiledTextureCook } from "../../.test-dist/assets/codec/TiledTextureCook.js";
@@ -11,11 +13,11 @@ const binary = await readFile(new URL("basis_bc.wasm", vendor));
 assert.equal(digest(binary), identity.hashes["basis_bc.wasm"]);
 export const codecs = {
   basis: await createBasis({
-    wasmBinary: binary.buffer.slice(binary.byteOffset, binary.byteOffset + binary.byteLength)
+    wasmBinary: binary.buffer.slice(binary.byteOffset, binary.byteOffset + binary.byteLength),
   }),
   basisHash: identity.hashes["basis_bc.wasm"],
   ktx: { HEAPU8: new Uint8Array(0) },
-  ktxHash: ""
+  ktxHash: "",
 };
 
 export async function makeTiledFixture({
@@ -24,7 +26,7 @@ export async function makeTiledFixture({
   semantic = "occlusion-linear",
   width = 257,
   height = 129,
-  channel = 2
+  channel = 2,
 } = {}) {
   const payloads = [];
   let offset = 0;
@@ -32,15 +34,16 @@ export async function makeTiledFixture({
     codecs,
     {
       addresses,
+      compressFinePage: compressTiledTexturePage,
       packUri: "texture.vtpack",
       async writePayload(bytes, hash) {
         payloads.push(bytes.slice());
         const start = offset;
         offset += bytes.byteLength;
         return { offset: start, shard: `shards/${hash}.bin` };
-      }
+      },
     },
-    channel
+    channel,
   );
   const rgba = new Uint8Array(width * height * 4);
   for (let y = 0; y < height; y++) {
@@ -58,16 +61,21 @@ export async function makeTiledFixture({
       semantic,
       channel,
       exactAlpha,
-      sourceUri: "fixture://tiled"
+      sourceUri: "fixture://tiled",
     },
     undefined,
     async (mip) => {
       sourceMips.push({ ...mip, payload: mip.payload.slice(), rgba: mip.rgba.slice() });
       await cook.appendMip(mip);
-    }
+    },
   );
   const tiled = await cook.finish(result.product);
   const pack = new Uint8Array(offset);
   payloads.forEach((bytes, id) => pack.set(bytes, tiled.directory.metadata.payloads[id].offset));
-  return { ...tiled, payloads, pack, product: result.product, sourceMips };
+  const nativePayloads = payloads.map((bytes, id) =>
+    tiled.directory.metadata.payloads[id].encoding === "zstd-bc"
+      ? new Uint8Array(zstdDecompressSync(bytes))
+      : bytes,
+  );
+  return { ...tiled, payloads, nativePayloads, pack, product: result.product, sourceMips };
 }

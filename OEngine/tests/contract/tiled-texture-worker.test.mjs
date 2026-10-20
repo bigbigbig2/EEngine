@@ -77,7 +77,7 @@ test("real VT Worker opens directory only, batches authenticated tiles, owns rea
       if (mode === "truncated") bytes = bytes.subarray(0, bytes.length - 1);
       response.writeHead(206, {
         "content-length": mode === "truncated" ? bytes.length : end - start + 1,
-        "content-range": `bytes ${start}-${end}/${f.pack.byteLength + (mode === "version" ? 1 : 0)}`
+        "content-range": `bytes ${start}-${end}/${f.pack.byteLength + (mode === "version" ? 1 : 0)}`,
       });
       response.end(bytes);
     }
@@ -92,7 +92,7 @@ test("real VT Worker opens directory only, batches authenticated tiles, owns rea
       const w = new DedicatedWorker();
       workers.push(w);
       return w;
-    }
+    },
   });
   const session = preparation.openSession();
   const openDirectory = () =>
@@ -102,12 +102,13 @@ test("real VT Worker opens directory only, batches authenticated tiles, owns rea
     assert.deepEqual(
       requests.map((r) => r.url),
       ["/texture.vtdirectory"],
-      "opening metadata must not fetch fine or tail payloads"
+      "opening metadata must not fetch fine or tail payloads",
     );
     assert.equal(await openDirectory(), directory);
     const tailIds = tiledTextureBootstrapPayloads(directory);
     const tail = await preparation.readTiledPayloads(session, directory, tailIds);
-    assert.deepEqual(new Uint8Array(tail.payloads[0].bytes), f.payloads[tailIds[0]]);
+    assert.equal(preparation.evidence().retainedWorkerBytes, 0, "native bootstrap never initializes Zstd");
+    assert.deepEqual(new Uint8Array(tail.payloads[0].bytes), f.nativePayloads[tailIds[0]]);
     assert.equal(preparation.evidence().credit.used.ready, 10368);
     assert.equal(tail.payloads[0].bytes.byteLength, 10368);
     tail.release();
@@ -122,25 +123,28 @@ test("real VT Worker opens directory only, batches authenticated tiles, owns rea
 
     const consumed = await preparation.readTiledPayloads(session, directory, tailIds);
     const consumedBytes = structuredClone(consumed.payloads[0].bytes, {
-      transfer: [consumed.payloads[0].bytes]
+      transfer: [consumed.payloads[0].bytes],
     });
     consumed.release();
-    assert.deepEqual(new Uint8Array(consumedBytes), f.payloads[tailIds[0]]);
+    assert.deepEqual(new Uint8Array(consumedBytes), f.nativePayloads[tailIds[0]]);
     assert.equal(
       preparation.evidence().credit.used.total,
       0,
-      "transferred consumer storage also releases credit"
+      "transferred consumer storage also releases credit",
     );
 
-    const batch = await preparation.readTiledPayloads(session, directory, [2, 0, 1, 1]);
+    const batch = await preparation.readTiledPayloads(session, directory, [2, tailIds[0], 0, 1, 1]);
+    assert.equal(preparation.evidence().retainedWorkerBytes, 4 * 1024 ** 2);
     assert.deepEqual(
       batch.payloads.map((p) => p.id),
-      [2, 0, 1]
+      [2, tailIds[0], 0, 1],
     );
-    batch.payloads.forEach((p) => assert.deepEqual(new Uint8Array(p.bytes), f.payloads[p.id]));
+    batch.payloads.forEach((p) => assert.deepEqual(new Uint8Array(p.bytes), f.nativePayloads[p.id]));
     batch.release();
     const io = preparation.evidence().tiled;
     assert.ok(io.hashedPayloadBytes > 0);
+    assert.ok(io.nativeOutputBytes > io.hashedPayloadBytes);
+    assert.ok(io.cacheHitBytes >= 10368);
     assert.ok(io.fetchedBytes >= io.hashedPayloadBytes);
     assert.equal(io.overfetchBytes, io.fetchedBytes - io.hashedPayloadBytes);
     assert.ok(preparation.evidence().tiled.cache.bytes <= 24 * 1024);
@@ -153,7 +157,7 @@ test("real VT Worker opens directory only, batches authenticated tiles, owns rea
     for (const [failureMode, pattern] of [
       ["hash", /hash/],
       ["version", /version|Content-Range/],
-      ["truncated", /length|reserved/]
+      ["truncated", /length|reserved/],
     ]) {
       mode = failureMode;
       await assert.rejects(preparation.readTiledPayloads(session, directory, [3]), pattern);
@@ -163,7 +167,7 @@ test("real VT Worker opens directory only, batches authenticated tiles, owns rea
     assert.equal(preparation.evidence().tiled.failedTasks, 3);
     const fallbackStart = requests.length;
     const shards = await preparation.readTiledPayloads(session, directory, [3]);
-    assert.deepEqual(new Uint8Array(shards.payloads[0].bytes), f.payloads[3]);
+    assert.deepEqual(new Uint8Array(shards.payloads[0].bytes), f.nativePayloads[3]);
     assert.ok(requests.slice(fallbackStart).some((r) => r.url.startsWith("/shards/")));
     shards.release();
 
@@ -171,11 +175,17 @@ test("real VT Worker opens directory only, batches authenticated tiles, owns rea
     delayed = true;
     const controller = new AbortController();
     const start = requests.length;
-    const cancelled = preparation.readTiledPayloads(session, directory, [4], controller.signal);
+    const cancelled = preparation.readTiledPayloads(session, directory, [3, 4], controller.signal);
     await waitUntil(() => requests.length > start);
+    const queuedController = new AbortController();
+    const queued = preparation.readTiledPayloads(session, directory, [5], queuedController.signal);
+    const queuedFailure = assert.rejects(queued, { name: "AbortError" });
+    queuedController.abort();
+    await queuedFailure;
     controller.abort();
     await assert.rejects(cancelled, { name: "AbortError" });
     assert.equal(preparation.evidence().credit.used.total, 0);
+    assert.equal(preparation.evidence().queuedTasks, 0, "queued cancellation leaves no late task");
     delayed = false;
     const retry = await preparation.readTiledPayloads(session, directory, [4]);
     retry.release();
@@ -212,7 +222,7 @@ test("real VT Worker opens directory only, batches authenticated tiles, owns rea
       racedSession,
       url,
       f.directory.identity,
-      f.bytes.length
+      f.bytes.length,
     );
     const raced = preparation.readTiledPayloads(racedSession, racedDirectory, [0]);
     preparation.closeSession(racedSession);
@@ -220,6 +230,74 @@ test("real VT Worker opens directory only, batches authenticated tiles, owns rea
     assert.equal(preparation.evidence().credit.used.total, 0);
     assert.equal(preparation.evidence().credit.used.ready, 0);
     assert.equal(preparation.evidence().tiled.metadataBytes, 0);
+  } finally {
+    preparation.dispose();
+    assert.equal(preparation.evidence().retainedWorkerBytes, 0);
+    assert.equal(preparation.evidence().tiled.decoderReservedBytes, 0);
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("decoder reservation rejects undersized budgets before Worker creation; 64 expanded pages retain native credit", async () => {
+  let created = 0;
+  assert.throws(
+    () =>
+      new CookedAssetPreparation({
+        maxWorkers: 4,
+        maxTemporaryBytes: 20 * 1024 ** 2,
+        createWorker: () => {
+          created++;
+          return new DedicatedWorker();
+        },
+      }),
+    /budget/,
+  );
+  assert.equal(created, 0);
+  const f = await makeTiledFixture({ width: 1024, height: 512, addresses: ["repeat", "mirror"] });
+  const server = createServer((request, response) => {
+    if (request.url === "/texture.vtdirectory") {
+      response.writeHead(200, { "content-length": f.bytes.length });
+      response.end(f.bytes);
+    } else {
+      const [, start, end] = /^bytes=(\d+)-(\d+)$/u.exec(request.headers.range);
+      response.writeHead(206, {
+        "content-length": Number(end) - Number(start) + 1,
+        "content-range": `bytes ${start}-${end}/${f.pack.length}`,
+      });
+      response.end(f.pack.subarray(Number(start), Number(end) + 1));
+    }
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const preparation = new CookedAssetPreparation({
+    maxWorkers: 1,
+    maxTemporaryBytes: 12 * 1024 ** 2,
+    maxTileCacheBytes: 0,
+    createWorker: () => new DedicatedWorker(),
+  });
+  try {
+    const session = preparation.openSession();
+    const directory = await preparation.readTiledDirectory(
+      session,
+      `http://127.0.0.1:${server.address().port}/texture.vtdirectory`,
+      f.directory.identity,
+      f.bytes.length,
+    );
+    const ids = directory.metadata.payloads
+      .filter((p) => p.encoding === "zstd-bc")
+      .slice(0, 64)
+      .map((p) => p.id);
+    assert.equal(ids.length, 64);
+    const lease = await preparation.readTiledPayloads(session, directory, ids);
+    const native = ids.reduce((sum, id) => sum + f.nativePayloads[id].length, 0);
+    assert.ok(ids.reduce((sum, id) => sum + f.payloads[id].length, 0) < native);
+    assert.equal(preparation.evidence().credit.used.ready, native);
+    assert.equal(preparation.evidence().credit.used.total, native);
+    assert.equal(preparation.evidence().credit.used.encoded, 0);
+    lease.payloads.forEach((p) => assert.deepEqual(new Uint8Array(p.bytes), f.nativePayloads[p.id]));
+    await assert.rejects(preparation.readTiledPayloads(session, directory, [...ids, ids[0]]), /64/);
+    lease.release();
+    assert.equal(preparation.evidence().credit.used.total, 0);
   } finally {
     preparation.dispose();
     server.closeAllConnections();

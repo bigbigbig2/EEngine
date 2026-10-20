@@ -8,12 +8,12 @@ import { CookedAssetPreparation } from "../../.test-dist/assets/codec/CookedAsse
 import { cookedGeometrySpans } from "../../.test-dist/assets/codec/CookedAssetProtocol.js";
 import {
   releasePreparedPage,
-  preparedResidentPage
+  preparedResidentPage,
 } from "../../.test-dist/assets/geometry-product/GeometryProductResidentAttributes.js";
 import {
   saveTextureProduct,
   importCookedTextureReceipt,
-  assertValidatedTextureProduct
+  assertValidatedTextureProduct,
 } from "../../.test-dist/assets/TextureProduct.js";
 import { isPageIntegrityPreverifiedV1 } from "../../.test-dist/assets/geometry-product/GeometryProductV1.js";
 import { VirtualGeometryResidency } from "../../.test-dist/gpu/VirtualGeometryResidency.js";
@@ -26,12 +26,12 @@ function device() {
     limits: {
       maxBufferSize: 256 * 1024 * 1024,
       maxStorageBufferBindingSize: 256 * 1024 * 1024,
-      maxStorageBuffersPerShaderStage: 16
+      maxStorageBuffersPerShaderStage: 16,
     },
     createBuffer(descriptor) {
       return { ...descriptor, destroy() {} };
     },
-    queue: { writeBuffer() {}, async onSubmittedWorkDone() {} }
+    queue: { writeBuffer() {}, async onSubmittedWorkDone() {} },
   };
 }
 
@@ -86,7 +86,7 @@ async function fixture() {
     firstGroup: id,
     groupCount: 1,
     compressedChecksum: crc32(new Uint8Array(page.bytes)),
-    decodedContentHash128: "00".repeat(16)
+    decodedContentHash128: "00".repeat(16),
   }));
   const registration = {
     descriptor: f.descriptor,
@@ -94,7 +94,7 @@ async function fixture() {
     groups: [0, 1].map((pageId) => ({ pageId, offsetInDecodedPage: 0, payloadBytes: 176, meshletCount: 1 })),
     formats: [{ strideBytes: 16 }],
     init: {},
-    verifyPageSha256: true
+    verifyPageSha256: true,
   };
   return { payload, registration };
 }
@@ -129,7 +129,7 @@ test("Cooked Worker batch validates, transfers, cancels, re-registers and releas
         end = Number(match[2]);
       response.writeHead(206, {
         "content-range": "bytes " + start + "-" + end + "/" + data.length,
-        "content-length": end - start + 1
+        "content-length": end - start + 1,
       });
       response.end(data.subarray(start, end + 1));
     } else {
@@ -146,7 +146,7 @@ test("Cooked Worker batch validates, transfers, cancels, re-registers and releas
       const worker = new DedicatedWorker();
       workers.push(worker);
       return worker;
-    }
+    },
   });
   const session = preparation.openSession();
   const registration = { ...f.registration, url: url + "/geometry" };
@@ -154,7 +154,7 @@ test("Cooked Worker batch validates, transfers, cancels, re-registers and releas
     const pages = await preparation.readGeometry(session, registration, [1, 0]);
     assert.deepEqual(
       pages.map((page) => page.pageId),
-      [1, 0]
+      [1, 0],
     );
     assert.equal(requests.length, 1, "adjacent pages share one HTTP range");
     assert.ok(pages.every(isPageIntegrityPreverifiedV1));
@@ -166,12 +166,12 @@ test("Cooked Worker batch validates, transfers, cancels, re-registers and releas
     assertValidatedTextureProduct(imported);
     await assert.rejects(
       importCookedTextureReceipt({ ok: true, kind: "texture", product: imported }, imported.identity),
-      /assigned asset Worker/
+      /assigned asset Worker/,
     );
     await waitUntil(() => workers[0].detached.length >= 2);
     assert.ok(
       workers[0].detached.flat().every((length) => length === 0),
-      "sender buffers really detach"
+      "sender buffers really detach",
     );
     assert.equal(workers[0].registrations.length, 1);
 
@@ -180,7 +180,7 @@ test("Cooked Worker batch validates, transfers, cancels, re-registers and releas
     for (const [offset, value, pattern, updateCrc] of [
       [200, 1, /checksum/, false],
       [48, 0, /offset|section|header/, true],
-      [116, 0x7f800000, /nonfinite/, true]
+      [116, 0x7f800000, /nonfinite/, true],
     ]) {
       bytes = f.payload.slice();
       new DataView(bytes.buffer).setUint32(offset, value, true);
@@ -196,7 +196,7 @@ test("Cooked Worker batch validates, transfers, cancels, re-registers and releas
     texture[texture.length - 1] ^= 1;
     await assert.rejects(
       preparation.readTexture(session, url + "/texture", product.identity),
-      /checksum|hash|integrity/i
+      /checksum|hash|integrity/i,
     );
     texture[texture.length - 1] ^= 1;
 
@@ -230,15 +230,15 @@ test("Cooked Worker batch validates, transfers, cancels, re-registers and releas
       descriptor: registration.descriptor,
       readPages: (ids) => preparation.readGeometry(session, registration, ids),
       readPage: async (id) => (await preparation.readGeometry(session, registration, [id]))[0],
-      release: () => preparation.closeSession(session)
+      release: () => preparation.closeSession(session),
     };
     const owner = await VirtualGeometryResidency.create(device(), source, 9, 0, undefined, {
-      configuredCapacityBytes: 2 * 1024 * 1024
+      configuredCapacityBytes: 2 * 1024 * 1024,
     });
     assert.equal(preparation.evidence().credit.used.total, 0, "bootstrap consumes the ready lease");
     const checkpoint = owner.checkpointForDeviceLoss();
     const replay = await VirtualGeometryResidency.create(device(), checkpoint, 10, 0, undefined, {
-      configuredCapacityBytes: 2 * 1024 * 1024
+      configuredCapacityBytes: 2 * 1024 * 1024,
     });
     assert.ok(replay.pageLocation(0), "device-independent Worker source replays into the replacement device");
     replay.destroy();
@@ -250,7 +250,7 @@ test("Cooked Worker batch validates, transfers, cancels, re-registers and releas
     assert.equal(
       preparation.evidence().credit.used.total,
       0,
-      "source release revokes outstanding ready credit"
+      "source release revokes outstanding ready credit",
     );
     discarded.forEach(releasePreparedPage);
     preparation.closeSession(session);
@@ -267,13 +267,13 @@ test("Worker creation failure is explicit and releases Cooked task credit", asyn
   const preparation = new CookedAssetPreparation({
     createWorker() {
       throw new Error("Dedicated Worker unavailable");
-    }
+    },
   });
   try {
     const session = preparation.openSession();
     await assert.rejects(
       preparation.readGeometry(session, { ...registration, url: "http://unused/" }, [0]),
-      /Dedicated Worker unavailable/
+      /Dedicated Worker unavailable/,
     );
     assert.equal(preparation.evidence().credit.used.total, 0);
     assert.equal(preparation.evidence().inFlightEstimatedBytes, 0);
@@ -291,20 +291,32 @@ test("a delivered result with the wrong session epoch cannot gain a prepared-pag
         if (task.forget) {
           return;
         }
-        queueMicrotask(() => this.onmessage?.({ data: {
-          version: task.version, session: task.session, epoch: task.epoch + 1,
-          task: task.task, ok: true, kind: "geometry", pages: [],
-          encodedBytes: 0, ioMs: 0, busyMs: 0
-        } }));
+        queueMicrotask(() =>
+          this.onmessage?.({
+            data: {
+              version: task.version,
+              session: task.session,
+              epoch: task.epoch + 1,
+              task: task.task,
+              ok: true,
+              decoderMemoryBytes: 0,
+              kind: "geometry",
+              pages: [],
+              encodedBytes: 0,
+              ioMs: 0,
+              busyMs: 0,
+            },
+          }),
+        );
       },
-      terminate() {}
-    })
+      terminate() {},
+    }),
   });
   try {
     const session = preparation.openSession();
     await assert.rejects(
       preparation.readGeometry(session, { ...registration, url: "http://unused/" }, [0]),
-      /protocol\/session\/task epoch mismatch/
+      /protocol\/session\/task epoch mismatch/,
     );
     assert.equal(preparation.evidence().credit.used.total, 0);
   } finally {

@@ -3,14 +3,14 @@ import type { ProductResidentPage } from "../geometry-product/GeometryProductRes
 import type {
   GeometryGroupDirectoryV3,
   GeometryPageDirectoryV3,
-  VertexFormatRecordV3
+  VertexFormatRecordV3,
 } from "../GeometryAbiV3.js";
 import type { TextureProduct } from "../TextureProduct.js";
 import type { TiledTextureDirectory } from "../TiledTextureProduct.js";
 import type {
   TiledTextureRegistration,
   TiledTextureSpan,
-  TiledTexturePreparedPayload
+  TiledTexturePreparedPayload,
 } from "./TiledTextureTransport.js";
 
 export interface CookedGeometryRegistration {
@@ -30,7 +30,7 @@ export interface CookedRangeSpan {
 }
 
 export interface CookedTaskHeader {
-  readonly version: 2;
+  readonly version: 3;
   readonly session: string;
   readonly epoch: number;
   readonly task: number;
@@ -71,8 +71,7 @@ export interface CookedPreparedPage {
   readonly prepared: ProductResidentPage;
 }
 
-export type CookedAssetResult = CookedTaskHeader &
-  (
+export type CookedAssetResult = CookedTaskHeader & { readonly decoderMemoryBytes: number } & (
     | { readonly ok: false; readonly message: string }
     | {
         readonly ok: true;
@@ -98,6 +97,10 @@ export type CookedAssetResult = CookedTaskHeader &
         readonly encodedBytes: number;
         readonly ioMs: number;
         readonly busyMs: number;
+        readonly decodeMs: number;
+        readonly decoderInitMs: number;
+        readonly usefulEncodedBytes: number;
+        readonly nativeBytes: number;
       }
     | {
         readonly ok: true;
@@ -113,7 +116,7 @@ export type CookedAssetResult = CookedTaskHeader &
 export function cookedGeometrySpans(
   pages: readonly GeometryPageDirectoryV3[],
   pageIds: ArrayLike<number>,
-  maxBytes = 16 * 1024 * 1024
+  maxBytes = 16 * 1024 * 1024,
 ): readonly CookedRangeSpan[] {
   const ids = [...new Set(Array.from(pageIds))];
   for (const id of ids) {
@@ -126,7 +129,7 @@ export function cookedGeometrySpans(
       ? -1
       : pages[a]!.compressedFileOffset > pages[b]!.compressedFileOffset
         ? 1
-        : a - b
+        : a - b,
   );
   const spans: { offset: bigint; bytes: number; pageIds: number[] }[] = [];
   for (const id of ids) {

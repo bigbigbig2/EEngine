@@ -1,14 +1,13 @@
+import { openTiledOracleFixture } from "../helpers/tiled-oracle-source.mjs";
 import { GraphicsContext } from "../../.test-dist/gpu/GraphicsContext.js";
 import { ShadeGPUCommandContext } from "../../.test-dist/framegraph/ShadeGPUCommandContext.js";
 import { TextureResidency } from "../../.test-dist/gpu/TextureResidency.js";
-import { TiledTextureSource } from "../../.test-dist/assets/TiledTextureSource.js";
-import { TiledTextureCook } from "../../.test-dist/assets/codec/TiledTextureCook.js";
-import { initializePcTextureCodecs, cookPcTextureRgba } from "../../.test-dist/assets/codec/PcTextureCook.js";
+import { VirtualTextureResidency } from "../../.test-dist/gpu/VirtualTextureResidency.js";
 import { ShadeTexture } from "../../.test-dist/texture/ShadeTexture.js";
 import { StandardShadeMaterial } from "../../.test-dist/material/StandardShadeMaterial.js";
 import {
   AppearanceGraphBuilder,
-  snapshotAppearanceTexture
+  snapshotAppearanceTexture,
 } from "../../.test-dist/material/AppearanceGraph.js";
 import { compileAppearanceGraph } from "../../.test-dist/material/AppearanceGraphCompiler.js";
 import { createNativeMaterialBindings } from "../../.test-dist/gpu/NativeMaterialBindings.js";
@@ -19,6 +18,107 @@ const check = (value, message) => {
   if (!value) throw new Error(message);
 };
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+async function compressedVictimOracle(graphics) {
+  const cold = await openTiledOracleFixture("analytic-bc4");
+  const vt = new VirtualTextureResidency(graphics, { scalarBytes: 2654208 });
+  let frame = 0;
+  try {
+    const bootstrap = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
+    vt.stage(cold.source, bootstrap);
+    await vt.bootstrap(cold.source, bootstrap);
+    bootstrap.finish();
+    await bootstrap.gpuDone;
+    // Reserve all but two free slots in this allocator-pressure fixture.
+    // The atlas, copies, mappings, provider and sampling remain production code.
+    const pool = [...vt.pools.values()][0];
+    pool.free.splice(0, pool.free.length - 2);
+    const fine = vt.snapshot.filter((page) => page?.level === 0);
+    const demand = async (page) => {
+      const deadline = performance.now() + 10000;
+      do {
+        await tick();
+        const command = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
+        vt.prepareFrame(command, ++frame, "");
+        vt.observe({ frame, view: 0, snapshot: vt.snapshot, wanted: [page.id], used: [] });
+        vt.encodeUploads(command);
+        command.finish();
+        await command.gpuDone;
+        if (page.slot !== 0xffffffff) return;
+      } while (performance.now() < deadline);
+      throw new Error(`compressed victim demand failed: ${JSON.stringify(vt.evidence())}`);
+    };
+    await demand(fine[0]);
+    const generation = fine[0].generation;
+    await demand(fine[1]);
+    check(fine[0].slot === 0xffffffff && vt.evidence().evictions > 0, "real atlas victim is invalidated");
+    await demand(fine[0]);
+    check(
+      fine[0].generation > generation && vt.evidence().reloads > 0,
+      "reload gets a fresh physical generation",
+    );
+    const output = graphics.device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+    const readback = graphics.device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    try {
+      const slot = fine[0].slot;
+      const pipeline = await graphics.device.createComputePipelineAsync({
+        layout: "auto",
+        compute: {
+          module: graphics.device.createShaderModule({
+            code: `
+@group(0) @binding(0) var atlas: texture_2d_array<f32>;
+@group(0) @binding(1) var<storage, read_write> result: vec4f;
+@compute @workgroup_size(1) fn main() {
+  result = textureLoad(atlas, vec2i(${(slot % 16) * 144 + 8}, ${Math.floor((slot % 256) / 16) * 144 + 8}), ${Math.floor(slot / 256)}, 0);
+}`,
+          }),
+          entryPoint: "main",
+        },
+      });
+      const command = graphics.device.createCommandEncoder();
+      const pass = command.beginComputePass();
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(
+        0,
+        graphics.device.createBindGroup({
+          layout: pipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: pool.view },
+            { binding: 1, resource: { buffer: output } },
+          ],
+        }),
+      );
+      pass.dispatchWorkgroups(1);
+      pass.end();
+      command.copyBufferToBuffer(output, 0, readback, 0, 16);
+      graphics.device.queue.submit([command.finish()]);
+      await readback.mapAsync(GPUMapMode.READ);
+      check(
+        Math.abs(new Float32Array(readback.getMappedRange())[0] - 224 / 255) < 1e-6,
+        "reloaded compressed page has the independent analytic BC value in the actual victim slot",
+      );
+      readback.unmap();
+    } finally {
+      output.destroy();
+      readback.destroy();
+    }
+    check(cold.preparation.evidence().credit.used.total === 0, "victim/reload releases provider credit");
+    return {
+      name: "compressed-victim-reload",
+      evictions: vt.evidence().evictions,
+      reloads: vt.evidence().reloads,
+    };
+  } finally {
+    vt.destroy();
+    cold.preparation.dispose();
+  }
+}
 
 // Independent translation of pinned LibVT::mipmapLevel. The oracle does not
 // import a production LOD helper. Wicked's two explicit mip queries are then
@@ -40,76 +140,12 @@ function lod(dx, dy, width, height, linear, levels) {
   return Math.min(levels - 1, Math.max(0, Math.log2(Math.max(major / Math.max(ratio, 1), 1e-30)) / 2));
 }
 
-async function fixture(codecs, semantic) {
-  const payloads = [];
-  let offset = 0;
-  const cook = new TiledTextureCook(
-    codecs,
-    {
-      addresses: ["clamp", "repeat", "mirror"],
-      packUri: "oracle.vtpack",
-      async writePayload(bytes, hash) {
-        const start = offset;
-        offset += bytes.length;
-        payloads.push(bytes.slice());
-        return { offset: start, shard: `${hash}.bin` };
-      }
-    },
-    0
-  );
-  const width = 260,
-    height = 132,
-    rgba = new Uint8Array(width * height * 4);
-  for (let y = 0; y < height; y++)
-    for (let x = 0; x < width; x++) {
-      const stripe = ((x >> 2) + (y >> 2)) % 2;
-      rgba.set(
-        semantic === "normal-linear"
-          ? [100 + stripe * 32, 115 + (y % 3) * 8, 245, 255]
-          : [40 + stripe * 170, 50 + (x % 17) * 10, 70 + (y % 13) * 12, 255],
-        (y * width + x) * 4
-      );
-    }
-  const { product } = await cookPcTextureRgba(
-    codecs,
-    rgba,
-    width,
-    height,
-    { semantic, channel: 0, sourceUri: `oracle://filter/${semantic}` },
-    undefined,
-    (mip) => cook.appendMip(mip)
-  );
-  const tiled = await cook.finish(product);
-  let retained = 0;
-  const preparation = {
-    evidence: () => ({ tiled: { retained } }),
-    async readTiledPayloads(_session, _directory, ids) {
-      retained++;
-      const values = ids.map((id) => ({ id, bytes: payloads[id].slice().buffer }));
-      return {
-        payloads: values,
-        release() {
-          retained--;
-          for (const value of values) structuredClone(value.bytes, { transfer: [value.bytes] });
-        }
-      };
-    }
-  };
-  return {
-    product,
-    payloads,
-    source: new TiledTextureSource(preparation, "filter", tiled.directory),
-    preparation
-  };
-}
-
 export async function runStreamingVtFilterGpuOracle(device) {
   const graphics = new GraphicsContext(device),
     reports = [];
-  const codecs = await initializePcTextureCodecs();
   try {
     for (const semantic of ["occlusion-linear", "base-color-srgb", "normal-linear"]) {
-      const cold = await fixture(codecs, semantic),
+      const cold = await openTiledOracleFixture(semantic),
         residency = new TextureResidency(graphics);
       const textures = [],
         buffers = [];
@@ -126,11 +162,11 @@ export async function runStreamingVtFilterGpuOracle(device) {
         const upload = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
         const stage = residency.stage(
           materials.map((entry) => entry.material),
-          upload
+          upload,
         );
         await residency.uploadTiled(
           materials.map((entry) => entry.material),
-          upload
+          upload,
         );
         upload.finish();
         await upload.gpuDone;
@@ -146,7 +182,7 @@ export async function runStreamingVtFilterGpuOracle(device) {
         const coldTiles = device.createTexture({
           size: [144, 144, cold.payloads.length],
           format: plane.format,
-          usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING
+          usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING,
         });
         textures.push(coldTiles);
         const blockBytes = plane.format === "bc4-r-unorm" ? 8 : 16;
@@ -155,7 +191,7 @@ export async function runStreamingVtFilterGpuOracle(device) {
             { texture: coldTiles, origin: [0, 0, index] },
             bytes,
             { bytesPerRow: 36 * blockBytes, rowsPerImage: 36 },
-            [144, 144, 1]
+            [144, 144, 1],
           );
         const referenceModule = device.createShaderModule({
           code: `
@@ -180,27 +216,63 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let layer = settings.first + select(u32(tile.y) * settings.grid + u32(tile.x), 0u, settings.tail == 1u);
   let local = select(source - tile * 128, source + vec2i(settings.origin), settings.tail == 1u) + 8;
   textureStore(destination, vec2i(id.xy), textureLoad(original, local, i32(layer), 0));
-}`
+}`,
         });
         const referencePipeline = await device.createComputePipelineAsync({
           layout: "auto",
-          compute: { module: referenceModule, entryPoint: "main" }
+          compute: { module: referenceModule, entryPoint: "main" },
         });
         for (const refined of [false, true]) {
           if (refined) {
+            // Exercise nonzero array layers without changing the production
+            // allocator or byte path; this fixture uses the far end of free slots.
+            const pool = [...vt.pools.values()][0];
+            pool.free.sort((a, b) => a - b);
             const wanted = vt.snapshot.filter((page) => page && !page.pinned).map((page) => page.id);
             vt.observe({ frame: 1, view: 0, snapshot: vt.snapshot, wanted, used: [] });
-            for (let attempt = 0; attempt < 100 && vt.evidence().resident < vt.evidence().pages; attempt++) {
+            const deadline = performance.now() + 10000;
+            let aborted = false;
+            for (
+              let attempt = 0;
+              performance.now() < deadline && vt.evidence().resident < vt.evidence().pages;
+              attempt++
+            ) {
               await tick();
               const command = ShadeGPUCommandContext.create(graphics, "Renderer/visibility-frame");
               vt.prepareFrame(command, attempt + 2, "");
+              // This isolated sampling pass uses disabled feedback. Supply its
+              // complete demand each frame, including while real HTTP is pending.
+              vt.observe({ frame: attempt + 2, view: 0, snapshot: vt.snapshot, wanted, used: [] });
+              const revision = vt.mappingGeneration(command);
               vt.encodeUploads(command);
+              if (!aborted && vt.mappingGeneration(command) !== revision) {
+                const before = vt.evidence().resident;
+                command.abort();
+                check(vt.mappingGeneration(command) === revision, "abort revokes candidate mapping");
+                check(
+                  vt.evidence().resident === before && vt.evidence().stagingBytes === 0,
+                  "unsubmitted upload publishes nothing and releases staging",
+                );
+                aborted = true;
+                continue;
+              }
               // Sampling in this oracle has its own command; do not publish an
               // artificial empty observation over the independently set demand.
               command.finish();
               await command.gpuDone;
+              check(vt.evidence().stagingBytes === 0, "submitted staging retires after fence");
             }
-            check(vt.evidence().resident === vt.evidence().pages, "all requested fixture pages resident");
+            check(
+              vt.evidence().resident === vt.evidence().pages,
+              `all requested fixture pages resident: ${JSON.stringify(vt.evidence())}`,
+            );
+            check(aborted, "real compressed ready upload exercised abort/retry");
+            check(
+              vt.snapshot.some(
+                (page) => page && !page.pinned && page.slot >= 256 && page.slot !== 0xffffffff,
+              ),
+              "refined pages occupy a nonzero atlas layer",
+            );
           }
           for (const { texture, material } of materials)
             for (const linear of [false, true]) {
@@ -210,7 +282,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
                 const targetTexture = device.createTexture({
                   size: [2304, 2304],
                   format: "rgba16float",
-                  usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+                  usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
                 });
                 independentMips.push(targetTexture);
                 const profile = cold.source.directory.metadata.planes[texture.wrapS];
@@ -218,7 +290,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
                 const settings = device.createBuffer({
                   size: 48,
                   usage: GPUBufferUsage.UNIFORM,
-                  mappedAtCreation: true
+                  mappedAtCreation: true,
                 });
                 new Uint32Array(settings.getMappedRange()).set([
                   level,
@@ -229,7 +301,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
                   mip.gridWidth,
                   level >= profile.tailFirst ? 1 : 0,
                   0,
-                  ...(mip.tailOrigin ?? [0, 0])
+                  ...(mip.tailOrigin ?? [0, 0]),
                 ]);
                 settings.unmap();
                 buffers.push(settings);
@@ -242,9 +314,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
                     entries: [
                       { binding: 0, resource: coldTiles.createView({ dimension: "2d-array" }) },
                       { binding: 1, resource: targetTexture.createView() },
-                      { binding: 2, resource: { buffer: settings } }
-                    ]
-                  })
+                      { binding: 2, resource: { buffer: settings } },
+                    ],
+                  }),
                 );
                 pass.dispatchWorkgroups(288, 288);
                 pass.end();
@@ -256,9 +328,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
               const query = builder.texture(
                 snapshotAppearanceTexture(
                   texture,
-                  semantic === "base-color-srgb" ? "srgb-rgb" : "linear-rgb"
+                  semantic === "base-color-srgb" ? "srgb-rgb" : "linear-rgb",
                 ),
-                uvNode
+                uvNode,
               );
               builder.output("rgba", semantic === "occlusion-linear" ? builder.swizzle(query, [0]) : query);
               const graph = compileAppearanceGraph(builder.build());
@@ -267,12 +339,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
                 program: lowerNativeMaterial(graph),
                 group: 1,
                 bindingSet: stage.bindings.bindingSets.find(
-                  (set) => set.id === stage.materialBindingSetIds.get(material)
+                  (set) => set.id === stage.materialBindingSetIds.get(material),
                 ),
                 textureRoutingRefs: stage.materialTextureRoutingRefs.get(material),
                 textureMipRanges: stage.textureMipRanges,
                 texturePublications: stage.surfacePublications,
-                obtainSampler: (descriptor) => graphics.samplers.obtain(descriptor)
+                obtainSampler: (descriptor) => graphics.samplers.obtain(descriptor),
               });
               const cases = [];
               // Nearest at an exact texel boundary is implementation-dependent:
@@ -285,41 +357,41 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
                 [1, 1],
                 [-0.003, 1.004],
                 [-1.17, -0.31],
-                [0.9999, 0.0001]
+                [0.9999, 0.0001],
               ]) {
                 for (const [dx, dy] of [
                   [
                     [0, 0],
-                    [0, 0]
+                    [0, 0],
                   ],
                   [
                     [0.5 / 260, 0],
-                    [0, 0.5 / 132]
+                    [0, 0.5 / 132],
                   ],
                   [
                     [2.7 / 260, 0],
-                    [0, 2.7 / 132]
+                    [0, 2.7 / 132],
                   ],
                   [
                     [8 / 260, 0],
-                    [0, 1 / 132]
+                    [0, 1 / 132],
                   ],
                   [
                     [7 / 260, 2 / 132],
-                    [0.2 / 260, 0.4 / 132]
+                    [0.2 / 260, 0.4 / 132],
                   ],
                   [
                     [16 / 260, 0],
-                    [0, 16 / 132]
+                    [0, 16 / 132],
                   ],
                   [
                     [1e5, 0],
-                    [0, 1e5]
+                    [0, 1e5],
                   ],
                   [
                     [1e5, 0],
-                    [0, 0]
-                  ]
+                    [0, 0],
+                  ],
                 ]) {
                   const lambda = lod(dx, dy, 260, 132, linear, levels);
                   const first = linear ? Math.floor(lambda) : Math.floor(lambda + 0.5);
@@ -335,7 +407,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
                     linear ? lambda % 1 : 0,
                     0,
                     0,
-                    0
+                    0,
                   ]);
                 }
               }
@@ -345,7 +417,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
                   label: "VT filter oracle",
                   size,
                   usage,
-                  mappedAtCreation: !!data
+                  mappedAtCreation: !!data,
                 });
                 if (data) {
                   new Float32Array(value.getMappedRange()).set(data);
@@ -357,14 +429,14 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
               const constants = buffer(
                 binding.program.constants.length * 4,
                 GPUBufferUsage.STORAGE,
-                binding.program.constants
+                binding.program.constants,
               );
               const inputs = buffer(count * 48, GPUBufferUsage.STORAGE, cases.flat());
               const output = buffer(count * 48, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
               const readback = buffer(count * 48, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ);
               const referenceDeclarations = plane.mips
                 .map(
-                  (_, index) => `@group(3) @binding(${index}) var reference_${index}: texture_2d_array<f32>;`
+                  (_, index) => `@group(3) @binding(${index}) var reference_${index}: texture_2d_array<f32>;`,
                 )
                 .join("\n");
               const referenceSwitch = plane.mips
@@ -372,7 +444,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
                   (mip, index) => `case ${index}u: {
               let extent = vec2f(${mip.width}.0, ${mip.height}.0);
               return textureSampleGrad(reference_${index}, reference_sampler, (uv * extent + 8.0) / 2304.0, 0,
-                dx * extent / 2304.0, dy * extent / 2304.0); }`
+                dx * extent / 2304.0, dy * extent / 2304.0); }`,
                 )
                 .join("\n");
               const shader = device.createShaderModule({
@@ -412,7 +484,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let pmax = max(dot(vx, vx), dot(vy, vy)); let pmin = min(dot(vx, vx), dot(vy, vy));
   let ratio = min(ceil(pmax / max(pmin, 1e-30)), 64.0);
   output[id.x * 3u + 2u] = vec4f(0.5 * log2(max(pmax / max(ratio, 1.0), 1e-30)), pmax, pmin, ratio);
-}`
+}`,
               });
               const layouts = [
                 device.createBindGroupLayout({
@@ -420,26 +492,26 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
                     ...[0, 1, 2].map((index) => ({
                       binding: index,
                       visibility: GPUShaderStage.COMPUTE,
-                      buffer: { type: index === 2 ? "storage" : "read-only-storage" }
+                      buffer: { type: index === 2 ? "storage" : "read-only-storage" },
                     })),
-                    { binding: 3, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } }
-                  ]
+                    { binding: 3, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },
+                  ],
                 }),
                 device.createBindGroupLayout({ entries: binding.layoutEntries }),
                 device.createBindGroupLayout({
-                  entries: [{ binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }]
+                  entries: [{ binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }],
                 }),
                 device.createBindGroupLayout({
                   entries: plane.mips.map((_, index) => ({
                     binding: index,
                     visibility: GPUShaderStage.COMPUTE,
-                    texture: { sampleType: "float", viewDimension: "2d-array" }
-                  }))
-                })
+                    texture: { sampleType: "float", viewDimension: "2d-array" },
+                  })),
+                }),
               ];
               const pipeline = await device.createComputePipelineAsync({
                 layout: device.createPipelineLayout({ bindGroupLayouts: layouts }),
-                compute: { module: shader, entryPoint: "main" }
+                compute: { module: shader, entryPoint: "main" },
               });
               const addressMode = "clamp-to-edge";
               const sampler = graphics.samplers.obtain({
@@ -448,7 +520,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
                 minFilter: linear ? "linear" : "nearest",
                 magFilter: linear ? "linear" : "nearest",
                 mipmapFilter: linear ? "linear" : "nearest",
-                maxAnisotropy: linear ? 8 : 1
+                maxAnisotropy: linear ? 8 : 1,
               });
               const groups = [
                 device.createBindGroup({
@@ -456,23 +528,23 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
                   entries: [
                     ...[constants, inputs, output].map((value, index) => ({
                       binding: index,
-                      resource: { buffer: value }
+                      resource: { buffer: value },
                     })),
-                    { binding: 3, resource: sampler }
-                  ]
+                    { binding: 3, resource: sampler },
+                  ],
                 }),
                 device.createBindGroup({ layout: layouts[1], entries: binding.entries }),
                 device.createBindGroup({
                   layout: layouts[2],
-                  entries: [{ binding: 1, resource: { buffer: vt.feedback.disabled } }]
+                  entries: [{ binding: 1, resource: { buffer: vt.feedback.disabled } }],
                 }),
                 device.createBindGroup({
                   layout: layouts[3],
                   entries: independentMips.map((value, index) => ({
                     binding: index,
-                    resource: value.createView({ dimension: "2d-array" })
-                  }))
-                })
+                    resource: value.createView({ dimension: "2d-array" }),
+                  })),
+                }),
               ];
               const encoder = device.createCommandEncoder(),
                 pass = encoder.beginComputePass();
@@ -507,8 +579,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
                       actual,
                       expected,
                       error,
-                      diagnostic: Array.from(values.slice(index * 12 + 8, index * 12 + 12))
-                    })
+                      diagnostic: Array.from(values.slice(index * 12 + 8, index * 12 + 12)),
+                    }),
                   );
                 }
               readback.unmap();
@@ -517,13 +589,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
               for (const value of buffers.splice(0)) value.destroy();
             }
         }
-        check(cold.preparation.evidence().tiled.retained === 0, "filter lease leak");
+        check(cold.preparation.evidence().credit.used.ready === 0, "filter lease leak");
       } finally {
         residency.destroy();
+        cold.preparation.dispose();
         for (const value of textures) value.destroy();
         for (const value of buffers) value.destroy();
       }
     }
+    reports.push(await compressedVictimOracle(graphics));
     return { ok: true, reports };
   } finally {
     graphics.destroy();

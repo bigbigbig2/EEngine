@@ -73,6 +73,8 @@ verifies:
 
 # PC Texture Compression 执行计划
 
+> 2026-10-20 范围限定：此执行记录的历史 cooked decode/codec Worker=0 描述普通完整 TextureProduct，不覆盖后来已实施的 tiled schema 2 fine Zstd 解压。tail/resident 保持 native，最终 BC、画质与 GPU 上传不变；新增实现与验证只读[VT 传输执行 §7](./eengine-v4-vt-transport-transcode-execution-2026-10.md#7-实施与集中验证记录2026-10-20)。不倒改当时结果或恢复旧细页格式。
+
 ## Bistro 性能修复授权与执行顺序（2026-10-10）
 
 用户在实际源码/GPU 分析后明确授权按五项顺序实施；这是已完成基础链的成本修复，不自动开始 VT 或下一大模块。执行方式为当前会话自行实施，不使用子 agent。保持 full-rate native、全部 authored 材质语义、单帧 submit、真实 fence、abort/retry、device loss、容量溢出与近裁剪/梯度语义。

@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { tiledTextureGutter } from "../../.test-dist/assets/codec/TiledTextureCook.js";
 import {
   openTiledTextureDirectory,
-  tiledTextureBootstrapPayloads
+  tiledTextureBootstrapPayloads,
 } from "../../.test-dist/assets/TiledTextureProduct.js";
 import { tiledTextureSpans } from "../../.test-dist/assets/codec/TiledTextureTransport.js";
 import { TiledTextureCache } from "../../.test-dist/assets/codec/TiledTextureCache.js";
@@ -35,18 +35,18 @@ test("tiled NPOT product preserves encoded interior blocks, real mip dimensions 
       [8, 4],
       [4, 2],
       [2, 1],
-      [1, 1]
-    ]
+      [1, 1],
+    ],
   );
   assert.deepEqual([plane.mips[0].gridWidth, plane.mips[0].gridHeight], [3, 2]);
-  const first = f.payloads[plane.mips[0].payloads[0]];
+  const first = f.nativePayloads[plane.mips[0].payloads[0]];
   const original = f.sourceMips[0].payload;
   // First interior BC4 block is at physical block (2,2), source block (0,0).
   assert.deepEqual(first.subarray((2 * 36 + 2) * 8, (2 * 36 + 3) * 8), original.subarray(0, 8));
   const tailId = plane.mips[3].payloads[0];
   assert.ok(plane.mips.slice(3).every((mip) => mip.payloads[0] === tailId));
   assert.deepEqual(tiledTextureBootstrapPayloads(f.directory), [tailId]);
-  assert.equal(f.payloads[tailId].byteLength, 10368);
+  assert.equal(f.nativePayloads[tailId].byteLength, 10368);
   assert.equal(first.byteLength, 10368);
   assert.equal(Math.ceil((36 * 8) / 256) * 256 * 36, 18432);
   assert.ok(Object.isFrozen(plane.mips[0]));
@@ -57,12 +57,12 @@ test("gutter uses source mip with independent negative/wrapped/mirrored/clamped 
   for (const [mode, expected] of [
     ["clamp", [10, 10, 10, 20, 30, 30, 30, 30]],
     ["repeat", [20, 30, 10, 20, 30, 10, 20, 30]],
-    ["mirror", [20, 10, 10, 20, 30, 30, 20, 10]]
+    ["mirror", [20, 10, 10, 20, 30, 30, 20, 10]],
   ]) {
     const bytes = tiledTextureGutter(source, 3, 1, -2, -2, 8, 1, mode);
     assert.deepEqual(
       Array.from({ length: 8 }, (_, i) => bytes[i * 4]),
-      expected
+      expected,
     );
   }
 });
@@ -75,7 +75,7 @@ test("repeat gutters preserve every periodic complete BC block without re-encodi
       source = fixture.sourceMips[level].payload;
     for (let ty = 0; ty < mip.gridHeight; ty++)
       for (let tx = 0; tx < mip.gridWidth; tx++) {
-        const bytes = fixture.payloads[mip.payloads[ty * mip.gridWidth + tx]];
+        const bytes = fixture.nativePayloads[mip.payloads[ty * mip.gridWidth + tx]];
         for (let y = 0; y < 36; y++)
           for (let x = 0; x < 36; x++) {
             const bx = (((tx * 32 + x - 2) % (mip.width / 4)) + mip.width / 4) % (mip.width / 4);
@@ -83,7 +83,7 @@ test("repeat gutters preserve every periodic complete BC block without re-encodi
             const start = ((by * mip.width) / 4 + bx) * 8;
             assert.deepEqual(
               bytes.subarray((y * 36 + x) * 8, (y * 36 + x + 1) * 8),
-              source.subarray(start, start + 8)
+              source.subarray(start, start + 8),
             );
           }
       }
@@ -96,7 +96,7 @@ test("strip encoding and saved-Product mip replay preserve the original complete
       width: 133,
       height: 69,
       addresses: ["clamp", "repeat", "mirror"],
-      semantic
+      semantic,
     });
     const block = semantic === "occlusion-linear" ? 8 : 16;
     for (const profile of f.directory.metadata.planes) {
@@ -109,14 +109,18 @@ test("strip encoding and saved-Product mip replay preserve the original complete
         144,
         block === 8 ? 4 : 7,
         semantic === "base-color-srgb",
-        2
+        2,
       );
       for (let y = 2; y < Math.floor(mip.height / 4) + 2; y++)
         for (let x = 2; x < Math.floor(mip.width / 4) + 2; x++) {
           const src = ((y - 2) * Math.ceil(mip.width / 4) + x - 2) * block;
           original.set(mip.payload.subarray(src, src + block), (y * 36 + x) * block);
         }
-      assert.deepEqual(f.payloads[profile.mips[0].payloads[0]], original, `${semantic}/${profile.address}`);
+      assert.deepEqual(
+        f.nativePayloads[profile.mips[0].payloads[0]],
+        original,
+        `${semantic}/${profile.address}`,
+      );
     }
     // The upgrade uses the saved BC payload and replays exactly the same
     // resampler sequence, including normal normalization and sRGB conversion.
@@ -132,7 +136,7 @@ test("strip encoding and saved-Product mip replay preserve the original complete
         mip.width,
         mip.height,
         semantic === "base-color-srgb",
-        semantic === "normal-linear"
+        semantic === "normal-linear",
       );
       width = mip.width;
       height = mip.height;
@@ -145,7 +149,7 @@ test("BC7 sRGB address profiles share exact inner blocks and keep exact coverage
   const f = await makeTiledFixture({
     addresses: ["clamp", "repeat", "mirror"],
     semantic: "base-color-srgb",
-    exactAlpha: true
+    exactAlpha: true,
   });
   const m = f.directory.metadata;
   assert.equal(m.planes.length, 4);
@@ -153,12 +157,12 @@ test("BC7 sRGB address profiles share exact inner blocks and keep exact coverage
   assert.equal(m.source.planes[coverage.sourcePlane].role, "coverage");
   for (const mip of coverage.mips) {
     const original = f.product.chunks.get(`coverage-mip-${mip.level}`);
-    const reconstructed = Buffer.concat(mip.payloads.map((id) => f.payloads[id]));
+    const reconstructed = Buffer.concat(mip.payloads.map((id) => f.nativePayloads[id]));
     assert.deepEqual(new Uint8Array(reconstructed), original);
   }
   for (const plane of m.planes.filter((p) => p.mode === "virtual")) {
     assert.equal(m.source.planes[plane.sourcePlane].format, "bc7-rgba-unorm-srgb");
-    const first = f.payloads[plane.mips[0].payloads[0]];
+    const first = f.nativePayloads[plane.mips[0].payloads[0]];
     const original = f.product.chunks.get("color-mip-0");
     assert.deepEqual(first.subarray((2 * 36 + 2) * 16, (2 * 36 + 3) * 16), original.subarray(0, 16));
     assert.equal(first.byteLength, 20736);
@@ -175,14 +179,17 @@ test("large mandatory coverage mip splits into bounded fragments without losing 
     { basisHash: "a".repeat(64) },
     {
       addresses: ["clamp"],
+      compressFinePage: async () => {
+        throw new Error("coverage cannot use transport compression");
+      },
       packUri: "coverage.pack",
       async writePayload(bytes, hash) {
         payloads.push(bytes.slice());
         const start = offset;
         offset += bytes.length;
         return { offset: start, shard: `shards/${hash}.bin` };
-      }
-    }
+      },
+    },
   );
   const plane = product.metadata.planes[0];
   for (const mip of plane.mips) {
@@ -192,7 +199,7 @@ test("large mandatory coverage mip splits into bounded fragments without losing 
       height: mip.height,
       rgba: new Uint8Array(0),
       plane,
-      payload: product.chunks.get(mip.chunkId)
+      payload: product.chunks.get(mip.chunkId),
     });
   }
   const result = await cook.finish(product);
@@ -206,6 +213,21 @@ test("directory authenticates bytes and rejects malformed ranges, identities, or
   const f = await makeTiledFixture();
   await assert.rejects(openTiledTextureDirectory(f.bytes, "0".repeat(64)), /hash/);
   for (const mutate of [
+    (m) => {
+      m.schemaVersion = 1;
+    },
+    (m) => {
+      m.payloads[0].encoding = "gpu-native";
+    },
+    (m) => {
+      m.payloads[0].nativeByteLength--;
+    },
+    (m) => {
+      m.transport.level = 1;
+    },
+    (m) => {
+      m.planes[0].mips[0].payloads[1] = m.planes[0].mips[0].payloads[0];
+    },
     (m) => {
       m.payloads[1].offset--;
     },
@@ -232,7 +254,7 @@ test("directory authenticates bytes and rejects malformed ranges, identities, or
     },
     (m) => {
       m.extra = true;
-    }
+    },
   ]) {
     const m = structuredClone(f.directory.metadata);
     mutate(m);
@@ -249,7 +271,7 @@ test("range coalescing has 1MiB, 64KiB gap and 2x-overfetch bounds; cache counts
   assert.deepEqual(spans[0].payloadIds, [0, 1, 2]);
   assert.equal(
     spans[0].byteLength,
-    f.payloads.slice(0, 3).reduce((n, p) => n + p.length, 0)
+    f.payloads.slice(0, 3).reduce((n, p) => n + p.length, 0),
   );
   assert.throws(() => tiledTextureSpans(f.directory, [Number.MAX_SAFE_INTEGER]), /outside/);
   const cache = new TiledTextureCache(10);

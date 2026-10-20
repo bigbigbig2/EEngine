@@ -1,7 +1,7 @@
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const sourcePackage = JSON.parse(readFileSync(path.resolve(root, "package.json"), "utf8")) as {
@@ -98,9 +98,38 @@ const preserveConsumerAssetUrls = {
   },
 };
 
+// Library-mode URL rewriting otherwise inlines WASM, bypassing the bounded
+// HTTP loader and duplicating the binary inside the generated Worker script.
+function tiledZstdWorkerAsset(): Plugin {
+  return {
+    name: "shade-tiled-zstd-worker-asset",
+    enforce: "pre",
+    resolveFileUrl({ relativePath }) {
+      return `new URL(${JSON.stringify(relativePath)}, import.meta.url).href`;
+    },
+    load(id) {
+      const decoder = id.endsWith("/codec/TiledTextureDecoder.ts");
+      const vendor = id.endsWith("/vendor/tiled-zstd/tiled_zstd.js");
+      if (!decoder && !vendor) return null;
+      const code = readFileSync(id, "utf8");
+      const expression = decoder
+        ? 'new URL("./vendor/tiled-zstd/tiled_zstd.wasm", import.meta.url)'
+        : 'new URL("tiled_zstd.wasm",import.meta.url).href';
+      if (!code.includes(expression)) throw new Error("Tiled Zstd WASM URL contract not found");
+      const asset = this.emitFile({
+        type: "asset",
+        name: "tiled_zstd.wasm",
+        source: readFileSync(path.resolve(root, "src/assets/codec/vendor/tiled-zstd/tiled_zstd.wasm")),
+      });
+      return code.replace(expression, `import.meta.ROLLUP_FILE_URL_${asset}`);
+    },
+  };
+}
+
 export default defineConfig({
   root,
   publicDir: false,
+  worker: { format: "es", plugins: () => [tiledZstdWorkerAsset()] },
   plugins: [
     preserveConsumerAssetUrls,
     {

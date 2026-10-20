@@ -1,4 +1,5 @@
-/** Exact backing stores only. take() transfers exclusive ownership out of the cache.
+/** Verified GPU-native BC/R8 backing stores only, never encoded transport frames.
+ * take() transfers exclusive ownership out of the cache.
  * Ready leases are independently credited; they never pin cache entries. */
 export class TiledTextureCache {
   readonly #entries = new Map<string, ArrayBuffer>();
@@ -49,7 +50,7 @@ export class TiledTextureCache {
       bytes: this.#bytes,
       peakBytes: this.#peak,
       entries: this.#entries.size,
-      maxBytes: this.maxBytes
+      maxBytes: this.maxBytes,
     };
   }
 }

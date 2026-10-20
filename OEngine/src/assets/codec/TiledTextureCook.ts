@@ -9,17 +9,19 @@ import {
   type TiledTextureMetadata,
   type TiledTextureMip,
   type TiledTexturePayload,
-  type TiledTexturePlane
+  type TiledTexturePlane,
 } from "../TiledTextureProduct.js";
 import {
   assertValidatedTextureProduct,
   textureProductHash,
   type TextureProduct,
-  type TextureProductPlane
+  type TextureProductPlane,
 } from "../TextureProduct.js";
 import { encodePcTextureMip, type PcTextureCookMip, type PcTextureCodecs } from "./PcTextureCook.js";
+import { TILED_TEXTURE_TRANSPORT, tiledTextureCompressedBound } from "./TiledTextureCompression.js";
 
 export interface TiledTextureCookOptions {
+  readonly compressFinePage: (bytes: Uint8Array) => Promise<Uint8Array>;
   readonly packUri: string;
   readonly addresses: readonly TiledTextureAddress[];
   /** Derived from the actual coverage graph by the caller; coverage is always protected. */
@@ -27,7 +29,7 @@ export interface TiledTextureCookOptions {
   /** Appends one immutable payload to the pack and persists its hash-addressed bounded shard. */
   readonly writePayload: (
     bytes: Uint8Array,
-    hash: string
+    hash: string,
   ) => Promise<{ readonly offset: number; readonly shard: string }>;
 }
 
@@ -53,7 +55,7 @@ export class TiledTextureCook {
   constructor(
     readonly codecs: PcTextureCodecs,
     readonly options: TiledTextureCookOptions,
-    readonly channel: number = 0
+    readonly channel: number = 0,
   ) {
     if (
       !options.addresses.length ||
@@ -89,7 +91,7 @@ export class TiledTextureCook {
           address,
           mips: [],
           tailFirst: -1,
-          tail: null
+          tail: null,
         });
       }
     }
@@ -111,7 +113,7 @@ export class TiledTextureCook {
           height: mip.height,
           gridWidth: 1,
           gridHeight: 1,
-          payloads
+          payloads,
         });
         continue;
       }
@@ -140,7 +142,7 @@ export class TiledTextureCook {
           gridWidth: 1,
           gridHeight: 1,
           payloads: [],
-          tailOrigin: origin
+          tailOrigin: origin,
         });
       } else {
         const gridWidth = Math.ceil(mip.width / 128);
@@ -149,7 +151,11 @@ export class TiledTextureCook {
         for (let y = 0; y < gridHeight; y++) {
           for (let x = 0; x < gridWidth; x++) {
             const bytes = this.#region(mip, plane.address, x * 128 - 8, y * 128 - 8, 144, 144);
-            payloads.push(await this.#write(bytes));
+            const encoded = await this.options.compressFinePage(bytes);
+            if (!encoded.byteLength || encoded.byteLength > tiledTextureCompressedBound(bytes.byteLength)) {
+              throw new RangeError("Tiled compressed page exceeds profile bound");
+            }
+            payloads.push(await this.#write(encoded, "zstd-bc", bytes.byteLength));
           }
         }
         plane.mips.push({
@@ -158,7 +164,7 @@ export class TiledTextureCook {
           height: mip.height,
           gridWidth,
           gridHeight,
-          payloads
+          payloads,
         });
       }
     }
@@ -188,7 +194,7 @@ export class TiledTextureCook {
           (mip, l) =>
             observed[l]!.hash !== mip.hash ||
             observed[l]!.width !== mip.width ||
-            observed[l]!.height !== mip.height
+            observed[l]!.height !== mip.height,
         )
       ) {
         throw new Error("Tiled cook must finalize with its exact observed source Product");
@@ -211,17 +217,18 @@ export class TiledTextureCook {
         mode: plane.mode,
         address: plane.address,
         tailFirst: plane.tailFirst,
-        mips: plane.mips
+        mips: plane.mips,
       });
     }
     const metadata: TiledTextureMetadata = {
-      schemaVersion: 1,
+      schemaVersion: 2,
+      transport: TILED_TEXTURE_TRANSPORT,
       recipe: TILED_TEXTURE_RECIPE,
       sourceIdentity: product.identity,
       source: product.metadata,
       pack: { uri: this.options.packUri, byteLength: this.#bytes },
       payloads: this.#payloads,
-      planes
+      planes,
     };
     const bytes = new TextEncoder().encode(JSON.stringify(metadata));
     const directory = await openTiledTextureDirectory(bytes, await textureProductHash(bytes));
@@ -234,7 +241,7 @@ export class TiledTextureCook {
     ox: number,
     oy: number,
     width: number,
-    height: number
+    height: number,
   ): Uint8Array {
     const block = mip.plane.format === "bc4-r-unorm" ? 8 : 16;
     const result = new Uint8Array((((width / 4) * height) / 4) * block);
@@ -273,12 +280,12 @@ export class TiledTextureCook {
         h,
         block === 8 ? 4 : 7,
         mip.plane.format.endsWith("srgb"),
-        this.channel
+        this.channel,
       );
       for (let row = 0; row < h / 4; row++) {
         result.set(
           bytes.subarray(((row * w) / 4) * block, (((row + 1) * w) / 4) * block),
-          (((y / 4 + row) * width) / 4 + x / 4) * block
+          (((y / 4 + row) * width) / 4 + x / 4) * block,
         );
       }
     };
@@ -306,7 +313,11 @@ export class TiledTextureCook {
     return result;
   }
 
-  async #write(bytes: Uint8Array): Promise<number> {
+  async #write(
+    bytes: Uint8Array,
+    encoding: TiledTexturePayload["encoding"] = "gpu-native",
+    nativeByteLength = bytes.byteLength,
+  ): Promise<number> {
     if (this.#payloads.length >= TILED_TEXTURE_PAGE_LIMIT) {
       throw new RangeError("Tiled cook payload directory capacity exceeded");
     }
@@ -321,7 +332,9 @@ export class TiledTextureCook {
       offset: location.offset,
       byteLength: bytes.byteLength,
       hash,
-      shard: location.shard
+      encoding,
+      nativeByteLength,
+      shard: location.shard,
     });
     this.#bytes += bytes.byteLength;
     return id;
@@ -337,7 +350,7 @@ export function tiledTextureGutter(
   oy: number,
   width: number,
   height: number,
-  address: TiledTextureAddress
+  address: TiledTextureAddress,
 ): Uint8Array {
   if (source.byteLength !== sw * sh * 4 || !["clamp", "repeat", "mirror"].includes(address)) {
     throw new Error("Tiled gutter input invalid");

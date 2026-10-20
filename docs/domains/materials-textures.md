@@ -33,6 +33,8 @@ verifies:
 
 ## 当前 owner 与产品
 
+2026-10-20 VT 传输更新：生产只接受 tiled schema/recipe 2，fine payload 为固定 Zstd 1.5.7 无损 BC 帧，现有 Cooked Worker 内受限 4 MiB WASM 解压后交付独占 native BC；tail、resident、精确 R8 与普通 TextureProduct 保持原生。传输 hash/offset/byteLength 与 nativeByteLength 分离，协议 3；native cache 不重复解压，ready/取消/崩溃/目录退休与模块预留按真实所有权计账。GPU atlas/copyTile/页表/Native/query 无新 owner、dispatch 或 submit。旧目录需离线 recook，不走兼容桥。真实实现、27项检查、GPU layer/abort/victim 与成本限制见[传输执行 §7](../next-execution/eengine-v4-vt-transport-transcode-execution-2026-10.md#7-实施与集中验证记录2026-10-20)，不宣称全 Renderer 提速。
+
 VT复审（2026-10-16）：实际Surface反馈先经1KiB workgroup full-key mailbox，再以全局单调wanted/used位首写去重；保留全部C/X/Y查询、union overflow恢复和三slot延迟。tiled bootstrap最多4entry共用现有provider信用与scene事务，取消等待全部job释放；同graph不同mip extent采用固定15层实例route，不产生尺寸专用shader。压力下同级resident/in-flight需求优先且读取必须有free/reclaimable物理slot，活跃lease计入槽额度；仍保护实际used fallback，不降低目标或假报complete。结果和成本见当前VT执行§9。
 
 2026-10-16 Streaming VT生产路径：`TiledTextureProduct/TiledTextureSource`发布独立认证目录和有界provider，冷cook为128 interior+8 gutter、144物理页、≤64起直到1×1的单槽tail。`VirtualTextureResidency`是页池/整数页表/逻辑与物理generation、protected tail、当前需求/粗层闭包、pending/eviction/rescue、上传/事务/退休的唯一owner；`VirtualTextureFeedback`拥有三slot延迟readback、wanted/used/union bitsets和overflow恢复。Native实际C/X/Y/custom graph查询反馈，LibVT显式梯度/LOD与Wicked双mip组合适配，无第二套材质系统。页上传只改residency，不改content/Temporal/VSM identity。

@@ -1,0 +1,6 @@
+{
+  "identity": "a04ef539b03d51397cde01b3edb7c65072a089b6e21cb4f8e7735e17bd540331",
+  "directoryBytes": 12958,
+  "referenceHash": "e221a5c5dab70079f915d4c6a8e95b2dfee4a1618623668de234ae4822dd29d2",
+  "recipe": "OEngine/tools/generate-tiled-texture-oracle-fixtures.mjs"
+}

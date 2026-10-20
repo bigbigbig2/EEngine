@@ -1,0 +1,23 @@
+{
+  "revision": "99f52d63aa6799cbdaecfe977111dc5ec3b31d47",
+  "version": "1.5.7",
+  "license": "BSD",
+  "sourceHashes": {
+    "zstddeclib.c": "3a007442219d631e3748113518dd723d577647c8c00ca3f70371d0c2f7bda5a8",
+    "zstd.h": "9b4bc8245565c98ccfc61c07749928b57e7c0f6fddb0530c4f6aa1971893d88b",
+    "zstd_errors.h": "66a8c3f71d12ea6e797e4f622f31f3f8f81c41b36f48cad4f5de7d8bfb6aac0a",
+    "LICENSE": "2c1a7fa704df8f3a606f6fc010b8b5aaebf403f3aeec339a12048f1ba7331a0b"
+  },
+  "glueHash": "26cc375720841a2644604915ae7fea2327b927be6a9b181eec72f9bb1f412f17",
+  "compiler": "emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 6.0.9 (4e4223852a0835923411059a3929907d7df1232e)",
+  "recipe": "OEngine/tools/build-tiled-texture-codec.mjs",
+  "memoryBytes": 4194304,
+  "hashes": {
+    "tiled_zstd.js": "c4f45eeebc3cd5d823357312dac85bdd51e0b7f7142813b7597481acce5a2651",
+    "tiled_zstd.wasm": "298b341aa5bff500b971c4de01ad2a627feabf812fcd6ff7bbb5f2bfe1f1161e"
+  },
+  "sizes": {
+    "tiled_zstd.js": 6101,
+    "tiled_zstd.wasm": 60102
+  }
+}

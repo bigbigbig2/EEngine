@@ -41,7 +41,7 @@ verifies:
 
 # Streaming VT：按可见需求流送的压缩材质纹理
 
-> 后续方向更新（2026-10-17）：本文保留本模块已实现合同与原验证结果；正文中的“下一模块/Local Probes边界”仅指当时停止点。当前模块由workstream导航至[Surface Cache GI设计](../next-design/eengine-surface-cache-gi-2026-10.md)与[执行](../next-execution/eengine-surface-cache-gi-execution-2026-10.md)，不再据旧停止点启动传统GI路线。
+> 后续更新（2026-10-20）：本文保留原 VT 算法/提交/过滤与历史验证；传输表示已由[无损细页设计](../next-design/eengine-v4-vt-transport-transcode-2026-10.md)与[执行 §7](../next-execution/eengine-v4-vt-transport-transcode-execution-2026-10.md#7-实施与集中验证记录2026-10-20)更新为 schema 2 / Zstd fine / Worker 协议 3。原文“运行期无编解码”仅适用于原生 tail/resident/普通 Product，不再概括 fine。当前模块只读 workstream，旧下一模块边界不自动启动其它路线。
 
 ## 1. 决定、目标与边界
 

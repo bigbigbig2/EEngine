@@ -7,13 +7,14 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { verifyTestBuild } from "../../tools/test-build.mjs";
 import { nativeBcCalls } from "./offline-bc-calls.mjs";
+import { compressTiledTexturePage, tiledCompressionIdentity } from "./tiled-texture-compress.mjs";
 import { cookPcTextureRgba, resamplePcTexture } from "../.test-dist/assets/codec/PcTextureCook.js";
 import { TiledTextureCook } from "../.test-dist/assets/codec/TiledTextureCook.js";
 import { openTiledTextureDirectory } from "../.test-dist/assets/TiledTextureProduct.js";
 import { saveTextureProduct, openTextureProduct } from "../.test-dist/assets/TextureProduct.js";
 import {
   MATERIAL_TEXTURE_PROPERTIES,
-  materialTextureSemantic
+  materialTextureSemantic,
 } from "../.test-dist/assets/PcMaterialTextures.js";
 import { parseGltfMaterial } from "../.test-dist/loaders/gltf/gltfMaterials.js";
 import { textureFromGltf } from "../.test-dist/loaders/gltf/gltfTextures.js";
@@ -41,7 +42,7 @@ const run = (command, args, onLine = () => {}) =>
     });
     child.once("error", reject);
     child.once("exit", (code) =>
-      code === 0 ? accept(stdout) : reject(new Error(`${command}: exit ${code}\n${stderr}`))
+      code === 0 ? accept(stdout) : reject(new Error(`${command}: exit ${code}\n${stderr}`)),
     );
   });
 const log = (value) => console.log(JSON.stringify({ time: new Date().toISOString(), ...value }));
@@ -76,7 +77,7 @@ async function textureTask(taskPath) {
         await readFile(lockPath, "utf8").catch((error) => {
           if (error.code === "ENOENT") return "";
           throw error;
-        })
+        }),
       );
       if (owner) {
         try {
@@ -108,7 +109,7 @@ async function textureTask(taskPath) {
     try {
       const saved = await readFile(task.output);
       const product = await openTextureProduct(
-        saved.buffer.slice(saved.byteOffset, saved.byteOffset + saved.byteLength)
+        saved.buffer.slice(saved.byteOffset, saved.byteOffset + saved.byteLength),
       );
       const receipt = await json(task.output + ".json");
       if (
@@ -126,6 +127,8 @@ async function textureTask(taskPath) {
       const matchingTiledProfile =
         !task.tiled ||
         (receipt.tiled &&
+          receipt.tiled.schemaVersion === 2 &&
+          JSON.stringify(receipt.tiled.compression) === JSON.stringify(tiledCompressionIdentity) &&
           JSON.stringify(receipt.tiled.addresses) === JSON.stringify(task.tiled.addresses) &&
           JSON.stringify(receipt.tiled.residentRoles) === JSON.stringify(task.tiled.residentRoles));
       if (matchingTiledProfile) {
@@ -149,7 +152,7 @@ async function textureTask(taskPath) {
               const data = await range(
                 resolve(dirname(task.output), directory.metadata.pack.uri),
                 p.offset,
-                p.byteLength
+                p.byteLength,
               );
               if (
                 hash(data) !== p.hash ||
@@ -163,12 +166,15 @@ async function textureTask(taskPath) {
           }
           if (
             tiled.payloadBytes !== directory.metadata.pack.byteLength ||
+            tiled.nativePayloadBytes !==
+              directory.metadata.payloads.reduce((sum, p) => sum + p.nativeByteLength, 0) ||
             tiled.payloads !== directory.metadata.payloads.length
           ) {
             receipt.tiled = {
               ...tiled,
               payloadBytes: directory.metadata.pack.byteLength,
-              payloads: directory.metadata.payloads.length
+              nativePayloadBytes: directory.metadata.payloads.reduce((sum, p) => sum + p.nativeByteLength, 0),
+              payloads: directory.metadata.payloads.length,
             };
             await writeJson(task.output + ".json", receipt);
           }
@@ -199,7 +205,7 @@ async function textureTask(taskPath) {
       basis: nativeBcCalls(executable, scratch),
       basisHash: native.binaryHash,
       ktx: { HEAPU8: new Uint8Array(0) },
-      ktxHash: ""
+      ktxHash: "",
     };
     const tiled = task.tiled ? await openTiledSink(task, codecs) : null;
     let result;
@@ -224,7 +230,7 @@ async function textureTask(taskPath) {
               mip.width,
               mip.height,
               srgb,
-              metadata.semantic === "normal-linear"
+              metadata.semantic === "normal-linear",
             );
           }
           width = mip.width;
@@ -236,7 +242,7 @@ async function textureTask(taskPath) {
               height,
               rgba,
               plane,
-              payload: product.chunks.get(plane.mips[mip.level].chunkId)
+              payload: product.chunks.get(plane.mips[mip.level].chunkId),
             });
           }
         }
@@ -244,13 +250,13 @@ async function textureTask(taskPath) {
         await writeJson(task.output + ".json", {
           ...reusableReceipt,
           tiled: tiled.receipt,
-          tiledUpgradeMs: performance.now() - started
+          tiledUpgradeMs: performance.now() - started,
         });
         log({
           phase: "texture",
           upgraded: true,
           image: task.imageIndex,
-          wallMs: performance.now() - started
+          wallMs: performance.now() - started,
         });
         return;
       }
@@ -261,7 +267,7 @@ async function textureTask(taskPath) {
         decoded.height,
         { ...task.options, sourceBytes: encoded.length },
         undefined,
-        tiled ? (mip) => tiled.cook.appendMip(mip) : undefined
+        tiled ? (mip) => tiled.cook.appendMip(mip) : undefined,
       );
       if (tiled) {
         await tiled.finish(result.product);
@@ -283,7 +289,7 @@ async function textureTask(taskPath) {
       prepareMs: result.evidence.prepareMs,
       encodeMs: result.evidence.encodeMs,
       ...(tiled ? { tiled: tiled.receipt } : {}),
-      wallMs: performance.now() - started
+      wallMs: performance.now() - started,
     };
     await writeJson(task.output + ".json", receipt);
     await rename(task.output + ".partial", task.output);
@@ -311,6 +317,7 @@ async function openTiledSink(task, codecs) {
       {
         packUri: relative(dirname(task.output), packPath).replaceAll("\\", "/"),
         ...task.tiled,
+        compressFinePage: compressTiledTexturePage,
         async writePayload(bytes, digest) {
           const start = offset;
           let written = 0;
@@ -330,9 +337,9 @@ async function openTiledSink(task, codecs) {
             writtenShards.add(digest);
           }
           return { offset: start, shard: relative(dirname(task.output), shard).replaceAll("\\", "/") };
-        }
+        },
       },
-      task.options.channel
+      task.options.channel,
     ),
     async finish(product) {
       // Tail payloads are emitted by finish before the immutable pack name is known.
@@ -350,18 +357,21 @@ async function openTiledSink(task, codecs) {
       await writeFile(directoryPath + ".partial", directoryBytes);
       await rename(directoryPath + ".partial", join(dirname(task.output), directoryName));
       sink.receipt = {
+        schemaVersion: 2,
+        compression: tiledCompressionIdentity,
         uri: directoryName,
         identity: directoryIdentity,
         byteLength: directoryBytes.byteLength,
         payloadBytes: offset,
+        nativePayloadBytes: metadata.payloads.reduce((sum, p) => sum + p.nativeByteLength, 0),
         payloads: metadata.payloads.length,
         addresses: task.tiled.addresses,
-        residentRoles: task.tiled.residentRoles
+        residentRoles: task.tiled.residentRoles,
       };
     },
     async close() {
       if (!closed) await file.close();
-    }
+    },
   };
   let closed = false;
   return sink;
@@ -428,7 +438,7 @@ async function cookScene(input, output, workers, tiled = false) {
         exactAlpha:
           property === "texture_albedo" && material.transparency_mode !== ShadeTransparencyMode.Opaque,
         channel: property === "texture_clearcoat_roughness" ? 1 : 0,
-        sourceUri: `sha256:${sourceHash}/image/${imageIndex}`
+        sourceUri: `sha256:${sourceHash}/image/${imageIndex}`,
       };
       const key = hash(JSON.stringify([imageIndex, options]));
       const uri = `textures/${key}.textureproduct`;
@@ -441,7 +451,7 @@ async function cookScene(input, output, workers, tiled = false) {
           mimeType: image.mimeType,
           options,
           output: join(output, uri),
-          ...(tiled ? { tiled: { addresses: [], residentRoles: [] } } : {})
+          ...(tiled ? { tiled: { addresses: [], residentRoles: [] } } : {}),
         });
       }
       if (tiled) {
@@ -464,7 +474,7 @@ async function cookScene(input, output, workers, tiled = false) {
   // actual coverage closure to TiledTextureCook, rather than infer it from names.
   if (cookedImages.size !== document.images.length)
     throw new Error(
-      `Material importer uses ${cookedImages.size}/${document.images.length} images; cannot claim complete cook`
+      `Material importer uses ${cookedImages.size}/${document.images.length} images; cannot claim complete cook`,
     );
   await mkdir(join(output, "textures"), { recursive: true });
 
@@ -499,7 +509,7 @@ async function cookScene(input, output, workers, tiled = false) {
       const child = geometry.nodes.length;
       geometry.nodes.push({
         mesh: meshIndex,
-        ...(node.extras === undefined ? {} : { extras: structuredClone(node.extras) })
+        ...(node.extras === undefined ? {} : { extras: structuredClone(node.extras) }),
       });
       (geometry.nodes[nodeIndex].children ??= []).push(child);
       instanceMaterials.push(primitive.material ?? 0);
@@ -509,7 +519,7 @@ async function cookScene(input, output, workers, tiled = false) {
         hasUv1: a.TEXCOORD_1 !== undefined,
         hasUv2: false,
         hasNormal: true,
-        hasTangent: a.TANGENT !== undefined
+        hasTangent: a.TANGENT !== undefined,
       });
     }
   }
@@ -520,10 +530,10 @@ async function cookScene(input, output, workers, tiled = false) {
       sourceHash,
       input: geometry,
       cooker: hash(
-        await readFile(resolve(root, "OEngine/tools/oengine-asset-core/build/oengine-asset-cooker.exe"))
+        await readFile(resolve(root, "OEngine/tools/oengine-asset-core/build/oengine-asset-cooker.exe")),
       ),
-      shardBytes: Number(process.env.OENGINE_OFFLINE_SHARD_BYTES ?? 64 * MiB)
-    })
+      shardBytes: Number(process.env.OENGINE_OFFLINE_SHARD_BYTES ?? 64 * MiB),
+    }),
   );
   let geometryReceipt;
   try {
@@ -546,8 +556,8 @@ async function cookScene(input, output, workers, tiled = false) {
         "--threads",
         String(workers),
         "--shard-bytes",
-        String(Number(process.env.OENGINE_OFFLINE_SHARD_BYTES ?? 64 * MiB))
-      ]
+        String(Number(process.env.OENGINE_OFFLINE_SHARD_BYTES ?? 64 * MiB)),
+      ],
     );
     geometryReceipt = { key: geometryKey, ...JSON.parse(stdout) };
     await writeJson(join(output, "geometry-cook.json"), geometryReceipt);
@@ -558,7 +568,7 @@ async function cookScene(input, output, workers, tiled = false) {
   for (const pack of scene.packs) {
     await run(resolve(root, "OEngine/tools/oengine-asset-core/build/oengine-asset-cooker.exe"), [
       "validate",
-      join(output, pack.uri)
+      join(output, pack.uri),
     ]);
   }
   log({ phase: "geometry", state: "ready", ...geometryReceipt });
@@ -584,31 +594,31 @@ async function cookScene(input, output, workers, tiled = false) {
           key,
           image: task.imageIndex,
           encodeMs: receipt.encodeMs,
-          wallMs: receipt.wallMs
+          wallMs: receipt.wallMs,
         });
         await writeJson(join(output, "cook-progress.json"), {
           phase: "textures",
           completed,
           total: list.length,
-          elapsedMs: performance.now() - started
+          elapsedMs: performance.now() - started,
         });
       }
-    })
+    }),
   );
   const receipts = await Promise.all([...tasks.values()].map((task) => json(task.output + ".json")));
   const planeCount = (format) =>
     receipts.reduce(
       (sum, receipt) => sum + receipt.metadata.planes.filter((p) => p.format.startsWith(format)).length,
-      0
+      0,
     );
   const triangles = document.meshes.reduce(
     (sum, mesh) =>
       sum +
       mesh.primitives.reduce(
         (n, p) => n + document.accessors[p.indices ?? p.attributes.POSITION].count / 3,
-        0
+        0,
       ),
-    0
+    0,
   );
   const result = {
     schema: "oengine-offline-scene-materials-v1",
@@ -621,7 +631,7 @@ async function cookScene(input, output, workers, tiled = false) {
       primitives: geometry.meshes.length,
       materials: materials.length,
       textures: document.textures.length,
-      images: document.images.length
+      images: document.images.length,
     },
     geometryManifest: "scene.oescene",
     geometryManifestHash: hash(await readFile(join(output, "scene.oescene"))),
@@ -636,10 +646,10 @@ async function cookScene(input, output, workers, tiled = false) {
         ? {
             tiled: {
               ...receipt.tiled,
-              uri: `textures/${receipt.tiled.uri}`
-            }
+              uri: `textures/${receipt.tiled.uri}`,
+            },
           }
-        : {})
+        : {}),
     })),
     evidence: {
       products: receipts.length,
@@ -652,9 +662,10 @@ async function cookScene(input, output, workers, tiled = false) {
         ? {
             tiled: {
               payloadBytes: receipts.reduce((sum, r) => sum + r.tiled.payloadBytes, 0),
+              nativePayloadBytes: receipts.reduce((sum, r) => sum + r.tiled.nativePayloadBytes, 0),
               directoryBytes: receipts.reduce((sum, r) => sum + r.tiled.byteLength, 0),
-              payloads: receipts.reduce((sum, r) => sum + r.tiled.payloads, 0)
-            }
+              payloads: receipts.reduce((sum, r) => sum + r.tiled.payloads, 0),
+            },
           }
         : {}),
       totalEncodeMs: receipts.reduce((sum, r) => sum + r.encodeMs, 0),
@@ -663,13 +674,14 @@ async function cookScene(input, output, workers, tiled = false) {
       ...(list.some(([, task]) => task.mimeType === "image/webp")
         ? { webpDecoder: "sharp 0.34.5, straight RGBA, no resize or gamma adjustment" }
         : {}),
-      runtimeDecode: 0,
+      runtimeImageDecode: 0,
+      runtimeFinePageDecompression: tiled ? "zstd-bc-v1" : "none",
       runtimeEncode: 0,
       runtimeTranscode: 0,
       runtimeMipGeneration: 0,
-      runtimeCodecWorkers: 0,
-      runtimeGeometryCook: 0
-    }
+      runtimeTextureCodecWorkers: tiled ? "existing Cooked Worker pool for demanded fine pages" : 0,
+      runtimeGeometryCook: 0,
+    },
   };
   const pendingManifest = join(output, `scene.materials.json.${process.pid}.partial`);
   await writeJson(pendingManifest, result);
@@ -681,7 +693,7 @@ try {
   if (process.argv[2] === "--texture-task") await textureTask(resolve(process.argv[3]));
   else {
     const input = resolve(
-      process.argv[2] ?? resolve(root, ".local/models/BistroExterior_static_fixed_occlusion.glb")
+      process.argv[2] ?? resolve(root, ".local/models/BistroExterior_static_fixed_occlusion.glb"),
     );
     const output = resolve(process.argv[3] ?? resolve(root, ".local/models/bistro-cooked"));
     const workers = Number(process.argv[4] ?? 4);

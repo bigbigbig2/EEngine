@@ -7,18 +7,12 @@ import { createGeometryCookRecipe } from "../../.test-dist/assets/GeometryCookRe
 import { StandardShadeMaterial } from "../../.test-dist/material/StandardShadeMaterial.js";
 import { ShadeTexture } from "../../.test-dist/texture/ShadeTexture.js";
 import { PerspectiveCamera } from "../../.test-dist/camera/PerspectiveCamera.js";
-import { TiledTextureSource } from "../../.test-dist/assets/TiledTextureSource.js";
-import {
-  validateTiledTextureMetadata,
-  TILED_TEXTURE_RECIPE,
-  TILED_TEXTURE_TAIL_ORIGINS
-} from "../../.test-dist/assets/TiledTextureProduct.js";
-import { textureProductHash } from "../../.test-dist/assets/TextureProduct.js";
+import { openTiledOracleFixture } from "../helpers/tiled-oracle-source.mjs";
 import { nativeSurfaceDescriptor } from "../../.test-dist/shaders/native_surface.js";
 import { decodeFloat16 } from "../../.test-dist/core/Float16.js";
 import {
   AppearanceGraphBuilder,
-  snapshotAppearanceTexture
+  snapshotAppearanceTexture,
 } from "../../.test-dist/material/AppearanceGraph.js";
 import { fixtureTexture } from "./texture-fixture.mjs";
 import { ShadeTransparencyMode } from "../../.test-dist/material/enums.js";
@@ -30,117 +24,9 @@ const check = (value, message) => {
   }
 };
 
-/** Analytic, valid BC4 blocks: endpoints equal and indices zero. This fixture
- * does not encode/transcode at runtime and has an independent constant oracle.
- * Production continues using the actual TiledTextureSource/provider contract. */
+/** Offline analytic BC4 reference delivered through the real compressed Worker path. */
 export async function sourceFixture() {
-  const encoded = (bytes, value) => {
-    const data = new Uint8Array(bytes);
-    for (let block = 0; block < bytes; block += 8) {
-      data[block] = data[block + 1] = value;
-    }
-    return data;
-  };
-  const mips = [];
-  for (let level = 0; level < 9; level++) {
-    const width = Math.max(1, 256 >> level),
-      height = Math.max(1, 128 >> level);
-    const physicalWidth = Math.ceil(width / 4) * 4,
-      physicalHeight = Math.ceil(height / 4) * 4;
-    const byteLength = (physicalWidth * physicalHeight) / 2;
-    mips.push({
-      level,
-      width,
-      height,
-      physicalWidth,
-      physicalHeight,
-      byteLength,
-      chunkId: `scalar-mip-${level}`,
-      hash: await textureProductHash(encoded(byteLength, 200))
-    });
-  }
-  const payloads = [224, 224, 128, 32].map((value) => encoded(10368, value));
-  const records = await Promise.all(
-    payloads.map(async (bytes, id) => ({
-      id,
-      offset: id * 10368,
-      byteLength: 10368,
-      hash: await textureProductHash(bytes),
-      shard: `p${id}.bin`
-    }))
-  );
-  const metadata = {
-    schemaVersion: 1,
-    recipe: TILED_TEXTURE_RECIPE,
-    sourceIdentity: "a".repeat(64),
-    source: {
-      schemaVersion: 3,
-      sourceWidth: 256,
-      sourceHeight: 128,
-      storageWidth: 256,
-      storageHeight: 128,
-      sourceBytes: 131072,
-      sourceHash: "b".repeat(64),
-      sourceUri: "oracle://analytic-bc4",
-      semantic: "occlusion-linear",
-      channel: 0,
-      exactAlpha: false,
-      uvScaleBias: [1, 1, 0, 0],
-      recipe: {
-        encoder: "analytic-constant-bc4",
-        revision: "1",
-        binaryHash: "c".repeat(64),
-        filter: "provided",
-        quality: "external-final"
-      },
-      planes: [{ role: "scalar", format: "bc4-r-unorm", mips }]
-    },
-    pack: { uri: "constant.vtpack", byteLength: 4 * 10368 },
-    payloads: records,
-    planes: [
-      {
-        sourcePlane: 0,
-        mode: "virtual",
-        address: "repeat",
-        tailFirst: 2,
-        mips: mips.map((mip) => ({
-          level: mip.level,
-          width: mip.width,
-          height: mip.height,
-          gridWidth: mip.level === 0 ? 2 : 1,
-          gridHeight: 1,
-          payloads: mip.level === 0 ? [0, 1] : mip.level === 1 ? [2] : [3],
-          ...(mip.level >= 2 ? { tailOrigin: TILED_TEXTURE_TAIL_ORIGINS[mip.level - 2] } : {})
-        }))
-      }
-    ]
-  };
-  const bytes = new TextEncoder().encode(JSON.stringify(metadata));
-  const directory = validateTiledTextureMetadata(metadata, await textureProductHash(bytes), bytes.length);
-  let retained = 0,
-    reads = 0;
-  const preparation = {
-    evidence: () => ({ tiled: { retained, reads } }),
-    async readTiledPayloads(_session, _directory, ids, signal) {
-      signal?.throwIfAborted();
-      reads += ids.length;
-      retained++;
-      let released = false;
-      const values = ids.map((id) => ({ id, bytes: payloads[id].slice().buffer }));
-      return {
-        payloads: values,
-        release() {
-          check(!released, "duplicate payload release");
-          released = true;
-          retained--;
-          for (const value of values) {
-            structuredClone(value.bytes, { transfer: [value.bytes] });
-          }
-        }
-      };
-    }
-  };
-  return { source: new TiledTextureSource(preparation, "oracle", directory), preparation };
+  return openTiledOracleFixture("analytic-bc4");
 }
 
 /** Actual dense/compact ordinary/Product VT consumers and recovery. Complete
@@ -150,7 +36,7 @@ export async function runStreamingVtGpuOracle() {
     enablePhysicalEnvironment: true,
     enableVsm: true,
     autoExposure: false,
-    fixedExposure: 1
+    fixedExposure: 1,
   });
   const errors = [],
     reports = [];
@@ -193,11 +79,11 @@ export async function runStreamingVtGpuOracle() {
       if (texture?.format === "rgba16float") {
         colorReadback ??= device.createBuffer({
           size: 128 * 96 * 8,
-          usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+          usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
         });
         args[0].copyTextureToBuffer({ texture }, { buffer: colorReadback, bytesPerRow: 128 * 8 }, [
           texture.width,
-          texture.height
+          texture.height,
         ]);
       }
       return result;
@@ -210,8 +96,12 @@ export async function runStreamingVtGpuOracle() {
     const refinementDeadline = performance.now() + 45000;
     // A protected tail can report no outstanding demand before the first
     // Native invocation. Readiness polls are not completed render frames.
-    while (!captured?.virtualFeedback || vt.evidence().demand.wanted === 0 ||
-           vt.evidence().resident <= 1 || !vt.state().complete) {
+    while (
+      !captured?.virtualFeedback ||
+      vt.evidence().demand.wanted === 0 ||
+      vt.evidence().resident <= 1 ||
+      !vt.state().complete
+    ) {
       check(performance.now() < refinementDeadline, "Initial real Native VT view did not refine");
       renderer.render(camera, scene);
       if (lastCommand?.wasSubmitted) {
@@ -233,7 +123,7 @@ export async function runStreamingVtGpuOracle() {
       physicalSun: true,
       reactive: true,
       finalPixel: true,
-      reflections: "sssr-base-coat"
+      reflections: "sssr-base-coat",
     });
     const storage = descriptor.groups.flat().filter((entry) => entry.buffer?.type.includes("storage")).length;
     check(storage === 16, `widest profile has ${storage} SSBO bindings`);
@@ -244,11 +134,11 @@ export async function runStreamingVtGpuOracle() {
     const memory = renderer.graphics.memoryEvidence();
     check(
       memory.owners.virtualTextures.allocatedBytes === vt.evidence().allocatedBytes,
-      "graphics memory includes actual VT owner allocation"
+      "graphics memory includes actual VT owner allocation",
     );
     check(
       memory.owners.virtualTextures.residentBytes === vt.evidence().residentBytes,
-      "graphics memory separates mapped pages from atlas capacity"
+      "graphics memory separates mapped pages from atlas capacity",
     );
     const renderFrames = async (count) => {
       const target = renderer.frameSubmissionEvidence().submittedCount + count;
@@ -256,7 +146,7 @@ export async function runStreamingVtGpuOracle() {
       while (renderer.frameSubmissionEvidence().submittedCount < target) {
         check(
           performance.now() < deadline,
-          `Native publication did not become ready: ${JSON.stringify(renderer.frameSubmissionEvidence())}`
+          `Native publication did not become ready: ${JSON.stringify(renderer.frameSubmissionEvidence())}`,
         );
         renderer.render(camera, scene);
         if (lastCommand?.wasSubmitted) await lastCommand.gpuDone;
@@ -266,7 +156,7 @@ export async function runStreamingVtGpuOracle() {
     for (const [name, ao, reflections, scale, fsr] of [
       ["native-ao-sssr", true, true, 1, true],
       ["fsr-ao-sssr", true, true, 0.75, true],
-      ["bypass-no-ao", false, false, 1, false]
+      ["bypass-no-ao", false, false, 1, false],
     ]) {
       renderer.setAmbientOcclusionSettings({ enabled: ao });
       renderer.setScreenSpaceReflectionsSettings({ enabled: reflections });
@@ -276,7 +166,7 @@ export async function runStreamingVtGpuOracle() {
       reports.push({
         name,
         state: vt.state(),
-        temporalPolicy: renderer.temporalHistoryEvidence().temporalPolicy
+        temporalPolicy: renderer.temporalHistoryEvidence().temporalPolicy,
       });
     }
     // C/X/Y-dependent custom graph runs through the actual Native owner.
@@ -291,13 +181,13 @@ export async function runStreamingVtGpuOracle() {
     await renderFrames(3);
     check(
       captured.publication.entries.some((entry) => entry.program.virtualTextures),
-      "custom graph keeps VT Native route"
+      "custom graph keeps VT Native route",
     );
     await colorReadback.mapAsync(GPUMapMode.READ);
     const pixels = new Uint16Array(colorReadback.getMappedRange());
     check(
       [...pixels].every((value) => Number.isFinite(decodeFloat16(value))),
-      "real Native VT HDR is finite"
+      "real Native VT HDR is finite",
     );
     check(
       [...pixels].some((value, index) => index % 4 !== 3 && decodeFloat16(value) > 0.05),
@@ -306,11 +196,11 @@ export async function runStreamingVtGpuOracle() {
         max: Math.max(...Array.from(pixels, decodeFloat16)),
         entries: captured.publication.entries.map((entry) => ({
           flags: entry.flags,
-          key: entry.program.key.slice(0, 100)
+          key: entry.program.key.slice(0, 100),
         })),
         submitted: renderer.frameSubmissionEvidence(),
-        demand: vt.evidence().demand
-      })
+        demand: vt.evidence().demand,
+      }),
     );
     colorReadback.unmap();
     colorReadback.destroy();
@@ -321,9 +211,9 @@ export async function runStreamingVtGpuOracle() {
         logicalWidth: size,
         logicalHeight: size,
         payload: Uint8Array.from({ length: size * size * 4 }, (_, i) =>
-          i % 4 === 3 ? 255 : Math.floor(i / 4) % size < Math.max(1, size / 2) ? 255 : 0
-        )
-      }))
+          i % 4 === 3 ? 255 : Math.floor(i / 4) % size < Math.max(1, size / 2) ? 255 : 0,
+        ),
+      })),
     );
     const masked = new AppearanceGraphBuilder();
     const maskedUv = masked.input("uv0", 2, "surface", undefined, "uv0");
@@ -331,12 +221,12 @@ export async function runStreamingVtGpuOracle() {
       "baseColor",
       masked.swizzle(
         masked.texture(snapshotAppearanceTexture(material.texture_occlusion, "linear-rgb"), maskedUv),
-        [0, 0, 0]
-      )
+        [0, 0, 0],
+      ),
     );
     masked.output(
       "alpha",
-      masked.swizzle(masked.texture(snapshotAppearanceTexture(coverage, "linear-rgb"), maskedUv), [0])
+      masked.swizzle(masked.texture(snapshotAppearanceTexture(coverage, "linear-rgb"), maskedUv), [0]),
     );
     material.appearance_definition = { schemaVersion: 1, graph: masked.build() };
     material.transparency_mode = ShadeTransparencyMode.AlphaTested;
@@ -344,7 +234,7 @@ export async function runStreamingVtGpuOracle() {
     await renderFrames(3);
     check(
       captured.publication.entries.some((entry) => entry.program.virtualTextures),
-      "R8 coverage retains virtual shading"
+      "R8 coverage retains virtual shading",
     );
     reports.push({ name: "custom-alpha-resident-r8-virtual-rgb", state: vt.state() });
     const productScene = new Scene();
@@ -357,7 +247,7 @@ export async function runStreamingVtGpuOracle() {
       module: await createDefaultWebGeometryCookerModule(),
       producerId: "vt-acceptance",
       producerVersion: "VT3",
-      maxDecodedProductBytes: 32 * 1024 * 1024
+      maxDecodedProductBytes: 32 * 1024 * 1024,
     });
     await renderer.uploadCookedSceneProduct(productScene, product);
     await renderer.releaseScene(scene);
@@ -374,15 +264,15 @@ export async function runStreamingVtGpuOracle() {
     await submitProduct();
     check(
       captured.geometry.productHeap && captured.virtualFeedback,
-      "actual Product dispatch consumes VT and exact MASK"
+      "actual Product dispatch consumes VT and exact MASK",
     );
     check(
       captured.publication.bins.length > 1 && captured.reflections,
-      "compact Product VT dispatch includes SSSR receivers"
+      "compact Product VT dispatch includes SSSR receivers",
     );
     reports.push({
       name: "product-mask-vt",
-      state: renderer.graphics.texture_residency.virtualTextures.state()
+      state: renderer.graphics.texture_residency.virtualTextures.state(),
     });
     device.removeEventListener("uncapturederror", onError);
     device.destroy();
@@ -394,20 +284,21 @@ export async function runStreamingVtGpuOracle() {
     check(renderer.deviceEpoch === 2, "VT recovery advances device epoch");
     check(
       renderer.graphics.texture_residency.virtualTextures.evidence().resident >= 1,
-      "new epoch rereads protected tails"
+      "new epoch rereads protected tails",
     );
     await renderer.releaseScene(productScene);
     check(
       (renderer.graphics.texture_residency.virtualTextures?.sourceCount ?? 0) === 0,
-      "release after recovery retires all VT sources"
+      "release after recovery retires all VT sources",
     );
     reports.push({ name: "device-loss-reload-release", epoch: renderer.deviceEpoch });
-    check(fixture.preparation.evidence().tiled.retained === 0, "all consumed leases released");
+    check(fixture.preparation.evidence().credit.used.ready === 0, "all consumed leases released");
     check(errors.length === 0, errors.join("\n"));
     return { ok: true, reports };
   } finally {
     colorReadback?.destroy();
     renderer.destroy();
+    fixture.preparation.dispose();
     device?.removeEventListener("uncapturederror", onError);
   }
 }
