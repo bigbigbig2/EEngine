@@ -24,6 +24,7 @@ const EPSILON: f32 = 1e-6;
 fn saturate(value: f32) -> f32 {
   return clamp(value, 0.0, 1.0);
 }
+
 ${LIGHT_DATABASE_READ_CHUNK.compile().text}
 ${LIGHTING_BRDF_TYPES_WGSL}
 ${LIGHTING_BRDF_MATH_WGSL}
@@ -72,6 +73,22 @@ fn shade_standard_material_direct(material: StandardMaterial, geometry: SurfaceG
 }
 `,
   };
+}
+
+/** Core types/math needed by physical Sun/VSM when the scene has no local-light consumer. */
+export function nativeLightingCoreWgsl(): string {
+  return `const PI: f32 = 3.1415926535897932384626433832795;
+const RECIPROCAL_PI: f32 = 0.318309886183790671537767526745028724;
+const EPSILON: f32 = 1e-6;
+struct GpuPrimitiveTypeTable {
+  direction: vec3f,
+  color: vec3f,
+  radius: f32,
+  distance: f32,
+}
+${LOCAL_LIGHT_TYPES_WGSL}
+${LIGHTING_BRDF_TYPES_WGSL}
+${LIGHTING_BRDF_MATH_WGSL}`;
 }
 
 export const NATIVE_LOCAL_LIGHTING = nativeLocalLighting();

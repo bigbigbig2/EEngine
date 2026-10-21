@@ -72,8 +72,8 @@ export interface PreparedShadowGeometry {
 
 /** Geometry-owned shadow selection. Shares scene/residency, never main selected work. */
 export class ShadowGeometryWork {
-  async preparePipelines(runtime: GpuRenderWorldRuntime): Promise<void> {
-    const product = runtime.virtualGeometry !== null;
+  async preparePipelines(runtime: Readonly<{ product: boolean; hierarchyMaxDepth: number }>): Promise<void> {
+    const product = runtime.product;
     await Promise.all([
       this.hierarchy.preparePipelines({
         product,

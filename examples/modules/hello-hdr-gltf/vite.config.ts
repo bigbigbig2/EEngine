@@ -19,7 +19,14 @@ export default defineConfig({
       "Cross-Origin-Opener-Policy": "same-origin",
       "Cross-Origin-Embedder-Policy": "require-corp"
     },
-    fs: { allow: [examplesRoot, resolve(examplesRoot, "../OEngine")] }
+    fs: {
+      allow: [
+        examplesRoot,
+        resolve(examplesRoot, "../OEngine"),
+        // Dev-only ?cooked=/@fs/<local cook>/ comparison artifacts.
+        resolve(examplesRoot, "../.local/extreme-web-asset")
+      ]
+    }
   },
   build: {
     outDir: resolve(examplesRoot, "examples-static"),

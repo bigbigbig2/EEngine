@@ -8,6 +8,32 @@ function normal(values, at) {
   const length = Math.hypot(x, y, z);
   return [x / length, y / length, z / length];
 }
+/** Moment XYZ is a direction plus a length; preserve both in the reference. */
+function momentDirection(values, at) {
+  const x = values[at] * 2 - 1,
+    y = values[at + 1] * 2 - 1,
+    z = values[at + 2] * 2 - 1;
+  const length = Math.hypot(x, y, z);
+  return length > 1e-12 ? [x / length, y / length, z / length] : [0, 0, 1];
+}
+function anglePercentile(histogram, total, q) {
+  const target = Math.ceil(total * q);
+  let seen = 0;
+  for (let index = 0; index < histogram.length; index++) {
+    seen += histogram[index];
+    if (seen >= target) return index / 1000;
+  }
+  return histogram.length / 1000;
+}
+function errorPercentile(histogram, total, q) {
+  const target = Math.ceil(total * q);
+  let seen = 0;
+  for (let index = 0; index < histogram.length; index++) {
+    seen += histogram[index];
+    if (seen >= target) return index / 255;
+  }
+  return 1;
+}
 
 /** Geometry-specific diagnostics, not a replacement perceptual metric.
  * The material probes are evaluated by the unchanged engine GPU BRDF. */
@@ -15,7 +41,11 @@ export class ImageQualityMetrics {
   constructor(semantic) {
     this.semantic = semantic;
     this.max = [0, 0, 0, 0];
+    this.sum = [0, 0, 0, 0];
+    this.channelHistogram = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
     this.materialError = 0;
+    this.materialErrorSum = 0;
+    this.materialSamples = 0;
     this.boundaryMax = 0;
     this.lengthMax = 0;
     this.angleHistogram = new Uint32Array(180001);
@@ -35,16 +65,20 @@ export class ImageQualityMetrics {
       for (let channel = 0; channel < 4; channel++) {
         const delta = Math.abs(reference[at + channel] - candidate[at + channel]);
         this.max[channel] = Math.max(this.max[channel], delta);
+        this.sum[channel] += delta;
+        if (channel < 3) {
+          this.channelHistogram[channel][Math.min(255, Math.round(delta * 255))]++;
+        }
         // All source texels and all gutter texels participate, not just a
         // single one-pixel boundary that could hide cell-side artifacts.
         this.boundaryMax = Math.max(this.boundaryMax, delta);
       }
       for (let probe = 1; probe < 7; probe++) {
         for (let channel = 0; channel < 3; channel++) {
-          this.materialError = Math.max(
-            this.materialError,
-            Math.abs(reference[at + probe * 4 + channel] - candidate[at + probe * 4 + channel])
-          );
+          const delta = Math.abs(reference[at + probe * 4 + channel] - candidate[at + probe * 4 + channel]);
+          this.materialError = Math.max(this.materialError, delta);
+          this.materialErrorSum += delta;
+          this.materialSamples++;
         }
       }
       if (this.semantic === "normal-xy") {
@@ -57,6 +91,13 @@ export class ImageQualityMetrics {
       if (this.semantic === "moment-xyz") {
         const length = (data) => Math.hypot(data[at] * 2 - 1, data[at + 1] * 2 - 1, data[at + 2] * 2 - 1);
         this.lengthMax = Math.max(this.lengthMax, Math.abs(length(reference) - length(candidate)));
+        // Preserve the moment direction as an independent visual metric; XYZ
+        // maximum and length alone do not catch a locally rotated moment.
+        const a = momentDirection(reference, at),
+          b = momentDirection(candidate, at);
+        const angle = (Math.acos(clamp(a[0] * b[0] + a[1] * b[1] + a[2] * b[2], -1, 1)) * 180) / Math.PI;
+        this.angleHistogram[Math.min(180000, Math.round(angle * 1000))]++;
+        this.angleMax = Math.max(this.angleMax, angle);
       }
     }
     const pixels = reference.length / 28;
@@ -69,31 +110,46 @@ export class ImageQualityMetrics {
 
   vector() {
     if (!this.pixels) throw new Error("No actual GPU output was evaluated");
-    const common = { materialError: this.materialError, boundaryMax: this.boundaryMax };
+    const common = {
+      materialError: this.materialError,
+      materialErrorMean: this.materialSamples ? this.materialErrorSum / this.materialSamples : 0,
+      boundaryMax: this.boundaryMax
+    };
     if (this.semantic.startsWith("color-")) {
       if (!this.ssimPixels) throw new Error("Color evaluation requires the native perceptual metric");
       return { ...common, perceptual: this.ssimSum / this.ssimPixels, alphaMax: this.max[3] };
     }
     if (this.semantic === "normal-xy") {
-      const quantile = (q) => {
-        let total = 0;
-        for (let index = 0; index < this.angleHistogram.length; index++) {
-          total += this.angleHistogram[index];
-          if (total >= Math.ceil(this.pixels * q)) return index / 1000;
-        }
-        throw new Error("Normal histogram lost its complete pixel domain");
-      };
       return {
         ...common,
-        angleP50: quantile(0.5),
-        angleP95: quantile(0.95),
-        angleP99: quantile(0.99),
+        angleP50: anglePercentile(this.angleHistogram, this.pixels, 0.5),
+        angleP95: anglePercentile(this.angleHistogram, this.pixels, 0.95),
+        angleP99: anglePercentile(this.angleHistogram, this.pixels, 0.99),
         angleMax: this.angleMax
       };
     }
     if (this.semantic === "moment-xyz")
-      return { ...common, xyzMax: Math.max(...this.max.slice(0, 3)), lengthMax: this.lengthMax };
-    return { ...common, channelR: this.max[0], channelG: this.max[1], channelB: this.max[2] };
+      return {
+        ...common,
+        xyzMax: Math.max(...this.max.slice(0, 3)),
+        lengthMax: this.lengthMax,
+        angleP50: anglePercentile(this.angleHistogram, this.pixels, 0.5),
+        angleP95: anglePercentile(this.angleHistogram, this.pixels, 0.95),
+        angleP99: anglePercentile(this.angleHistogram, this.pixels, 0.99),
+        angleMax: this.angleMax
+      };
+    return {
+      ...common,
+      channelR: this.max[0],
+      channelG: this.max[1],
+      channelB: this.max[2],
+      channelRMean: this.sum[0] / this.pixels,
+      channelGMean: this.sum[1] / this.pixels,
+      channelBMean: this.sum[2] / this.pixels,
+      channelRP95: errorPercentile(this.channelHistogram[0], this.pixels, 0.95),
+      channelGP95: errorPercentile(this.channelHistogram[1], this.pixels, 0.95),
+      channelBP95: errorPercentile(this.channelHistogram[2], this.pixels, 0.95)
+    };
   }
 
   addPerceptual(ssim, pixels) {

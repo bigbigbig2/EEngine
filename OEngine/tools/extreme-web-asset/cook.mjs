@@ -36,8 +36,9 @@ export async function nativeCook(
     )
   );
   await mkdir(output, { recursive: true });
-  const working = join(output, `.work-${randomUUID()}`);
-  await mkdir(working);
+  // Native Windows codecs may not support long paths under product hash directories.
+  const working = join(root, ".local/extreme-web-asset/native-tmp", randomUUID());
+  await mkdir(working, { recursive: true });
   const invocations = [];
   const payloadWrites = new Map();
   const pendingEncodes = new Map();

@@ -22,7 +22,20 @@ function evaluation(error = 0.1, hard = true) {
     identity: hash,
     inputHash: hash,
     hardSemantics: hard,
-    metrics: { channelR: error, channelG: error, channelB: error, materialError: error, boundaryMax: error }
+    metrics: {
+      channelR: error,
+      channelG: error,
+      channelB: error,
+      channelRMean: error,
+      channelGMean: error,
+      channelBMean: error,
+      channelRP95: error,
+      channelGP95: error,
+      channelBP95: error,
+      materialError: error,
+      materialErrorMean: error,
+      boundaryMax: error
+    }
   };
 }
 
@@ -119,6 +132,7 @@ test("material/normal metric diagnostics retain complete pixels and exact direct
   metrics.add(values, values, { width: 8, height: 8 });
   assert.deepEqual(metrics.vector(), {
     materialError: 0,
+    materialErrorMean: 0,
     boundaryMax: 0,
     angleP50: 0,
     angleP95: 0,

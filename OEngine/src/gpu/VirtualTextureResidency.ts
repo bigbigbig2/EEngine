@@ -392,7 +392,7 @@ export class VirtualTextureResidency {
     }
     if (record.bootstrap) return record.bootstrap;
     record.bootstrap = (async () => {
-      await this.ready;
+      await Promise.all([this.ready, this.transcoder.prepare(source.directory.planes)]);
       const abort = new AbortController();
       publication.onAborted.addOne(() => abort.abort());
       const combined = AbortSignal.any([record.abort.signal, abort.signal, ...(signal ? [signal] : [])]);

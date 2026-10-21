@@ -59,12 +59,35 @@ export function validateEvaluation(value, semantic) {
     throw new Error("Search requires a provenance-checked final GPU evaluation");
   }
   const required = semantic.startsWith("color-")
-    ? ["perceptual", "alphaMax", "boundaryMax", "materialError"]
+    ? ["perceptual", "alphaMax", "boundaryMax", "materialError", "materialErrorMean"]
     : semantic === "normal-xy"
-      ? ["angleP50", "angleP95", "angleP99", "angleMax", "materialError", "boundaryMax"]
+      ? ["angleP50", "angleP95", "angleP99", "angleMax", "materialError", "materialErrorMean", "boundaryMax"]
       : semantic === "moment-xyz"
-        ? ["xyzMax", "lengthMax", "materialError", "boundaryMax"]
-        : ["channelR", "channelG", "channelB", "materialError", "boundaryMax"];
+        ? [
+            "xyzMax",
+            "lengthMax",
+            "angleP50",
+            "angleP95",
+            "angleP99",
+            "angleMax",
+            "materialError",
+            "materialErrorMean",
+            "boundaryMax"
+          ]
+        : [
+            "channelR",
+            "channelG",
+            "channelB",
+            "channelRMean",
+            "channelGMean",
+            "channelBMean",
+            "channelRP95",
+            "channelGP95",
+            "channelBP95",
+            "materialError",
+            "materialErrorMean",
+            "boundaryMax"
+          ];
   if (!value.metrics || required.some((key) => !Number.isFinite(value.metrics[key]))) {
     throw new Error(`Incomplete ${semantic} final GPU quality vector`);
   }

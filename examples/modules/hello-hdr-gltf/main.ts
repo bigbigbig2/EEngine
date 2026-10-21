@@ -166,7 +166,14 @@ async function start(): Promise<void> {
   const context = canvas.getContext("webgpu");
   if (!context) throw new Error("无法创建 WebGPU canvas context。");
 
-  const base = "/modules/hello-hdr-gltf/assets/cooked/";
+  // Dev-only comparison against a local cook without replacing the published
+  // search-qualified closure: ?cooked=/@fs/<absolute-cook-directory>/
+  const cookedOverride = new URLSearchParams(location.search).get("cooked");
+  const base = cookedOverride
+    ? cookedOverride.endsWith("/")
+      ? cookedOverride
+      : `${cookedOverride}/`
+    : "/modules/hello-hdr-gltf/assets/cooked/";
   const environmentReady = load_environment_map(
     "/modules/hello-hdr-gltf/assets/venice_sunset_1k.hdr",
     ProjectionMappingType.Equirectangular,

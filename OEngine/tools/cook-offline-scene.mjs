@@ -8,6 +8,8 @@ import { createRequire } from "node:module";
 import { verifyTestBuild } from "../../tools/test-build.mjs";
 import { resampleOfflineImage } from "./offline-image-resample.mjs";
 import { optimizeImage } from "./extreme-web-asset/optimize.mjs";
+import { nativeCook } from "./extreme-web-asset/cook.mjs";
+import { qualityAnchors } from "./extreme-web-asset/native-profiles.mjs";
 import { createOfflineEvaluator } from "./extreme-web-asset/evaluation-host.mjs";
 import { imageMipCount } from "../.test-dist/assets/ImageTextureProduct.js";
 import {
@@ -136,19 +138,20 @@ async function textureTask(taskPath) {
     ...(task.options.exactAlpha ? { exactCoverage: inputs } : {}),
     cellSize: 512
   };
-  const evaluator = await createOfflineEvaluator({
+  const fixed = task.cookMode === "fixed";
+  const evaluator = fixed ? null : await createOfflineEvaluator({
     moduleInventory: process.env.EENGINE_IMAGE_MODULE_INVENTORY
       ? await json(resolve(process.env.EENGINE_IMAGE_MODULE_INVENTORY))
       : null
   });
   let result;
   try {
-    result = await optimizeImage(request, dirname(task.output), evaluator, {
+    result = fixed ? await nativeCook(request, dirname(task.output)) : await optimizeImage(request, dirname(task.output), evaluator, {
       trace: task.trace ?? null,
       onCandidate: (value) => log({ phase: "candidate", image: task.imageIndex, ...value })
     });
   } finally {
-    await evaluator.close();
+    await evaluator?.close();
   }
   const identity = hash(result.bytes);
   const receipt = {
@@ -159,9 +162,17 @@ async function textureTask(taskPath) {
     byteLength: result.bytes.length,
     payloadBytes: result.directory.items.reduce((sum, item) => sum + item.bytes, 0),
     wallMs: performance.now() - started,
-    searchIdentity: result.report.identity,
-    searchReport: result.reportName,
-    searchReportHash: hash(await readFile(join(dirname(task.output), result.reportName)))
+    ...(fixed ? {
+      cookMode: "fixed",
+      candidate: { quality: qualityAnchors[task.quality], speed: 4, cellSize: request.cellSize },
+      qualityEvaluated: false,
+      commands: "commands.json",
+      commandsHash: hash(await readFile(join(dirname(task.output), "commands.json")))
+    } : {
+      searchIdentity: result.report.identity,
+      searchReport: result.reportName,
+      searchReportHash: hash(await readFile(join(dirname(task.output), result.reportName)))
+    })
   };
   // Scene manifests reference immutable product directories. The local search
   // checkpoint may change during a recook without invalidating a live scene.
@@ -171,7 +182,7 @@ async function textureTask(taskPath) {
   log({ phase: "image", image: task.imageIndex, bytes: result.bytes.length });
 }
 
-async function cookScene(input, output, workers, tiled = false, publishOnly = false) {
+async function cookScene(input, output, workers, tiled = false, publishOnly = false, cookMode = "search") {
   await verifyTestBuild(root);
   const started = performance.now();
   await mkdir(output, { recursive: true });
@@ -207,12 +218,17 @@ async function cookScene(input, output, workers, tiled = false, publishOnly = fa
   const images = document.images.map(() => ShadeImage.fromEncodedImage(new ArrayBuffer(0), "image/png"));
   const textures = document.textures.map((value) => textureFromGltf(value, images, document.samplers));
   const materials = document.materials.map((value) => parseGltfMaterial(value, textures));
+  // The standard appearance graph always exposes an alpha output, so a readMask
+  // bit alone does not mean the material needs exact coverage. Only masked
+  // coverage consumes it; opaque/transparent materials would otherwise ship a
+  // constant opaque R8 plane and full provided color mips.
+  const compiledMaterials = materials.map((material) => compileCanonicalMaterial(material));
   const textureIndices = new Map(textures.map((texture, index) => [texture, index]));
   const tasks = new Map();
   const demandTraces = process.env.EENGINE_IMAGE_DEMAND_TRACES
     ? await json(resolve(process.env.EENGINE_IMAGE_DEMAND_TRACES))
     : {};
-  const bindings = materials.map((material) => {
+  const bindings = materials.map((material, materialIndex) => {
     const result = {};
     const live = new Set(materialTextureLeaves(material));
     for (const property of MATERIAL_TEXTURE_PROPERTIES) {
@@ -224,12 +240,15 @@ async function cookScene(input, output, workers, tiled = false, publishOnly = fa
       if (image.bufferView === undefined) throw new Error("Expected embedded image");
       const view = document.bufferViews[image.bufferView];
       const semantic = materialTextureSemantic(property);
+      const compiled = compiledMaterials[materialIndex];
 
       const options = {
         semantic,
-        exactAlpha: compileCanonicalMaterial(material).appearance.samples.some(
-          (sample) => sample.binding.texture === texture && (sample.readMask & 8) !== 0
-        ),
+        exactAlpha:
+          compiled.coverage === "masked" &&
+          compiled.appearance.samples.some(
+            (sample) => sample.binding.texture === texture && (sample.readMask & 8) !== 0
+          ),
         addressU: ["clamp-to-edge", "repeat", "mirror-repeat"][texture.wrapS],
         addressV: ["clamp-to-edge", "repeat", "mirror-repeat"][texture.wrapT]
       };
@@ -248,6 +267,7 @@ async function cookScene(input, output, workers, tiled = false, publishOnly = fa
           // virtual while its exact alpha plane remains fully resident.
           virtual: tiled,
           quality: process.env.EENGINE_IMAGE_QUALITY ?? "high",
+          cookMode,
           trace: demandTraces[key] ?? null
         });
       }
@@ -402,6 +422,14 @@ async function cookScene(input, output, workers, tiled = false, publishOnly = fa
         receipt.directory.quality !== task.quality || receipt.directory.planes[0].mode !== (task.virtual ? "virtual" : "resident")) {
       throw new Error("Completed image checkpoint differs from the requested source/profile");
     }
+    if (cookMode === "fixed") {
+      if (receipt.cookMode !== "fixed" || receipt.qualityEvaluated !== false ||
+          receipt.candidate.quality !== qualityAnchors[task.quality] || receipt.candidate.speed !== 4 ||
+          hash(await readFile(join(dirname(task.output), receipt.commands))) !== receipt.commandsHash) {
+        throw new Error("Fixed cook checkpoint differs from its actual encoder receipt");
+      }
+      continue;
+    }
     const reportBytes = await readFile(join(dirname(task.output), receipt.searchReport));
     const report = JSON.parse(reportBytes);
     if (hash(reportBytes) !== receipt.searchReportHash || report.identity !== receipt.searchIdentity ||
@@ -468,10 +496,14 @@ async function cookScene(input, output, workers, tiled = false, publishOnly = fa
       identity: receipt.identity,
       byteLength: receipt.byteLength,
       receipt: receiptUris[index],
-      searchReport: `textures/${list[index][0]}/${receipt.searchReport}`,
-      searchReportHash: receipt.searchReportHash
+      ...(cookMode === "fixed" ? {} : {
+        searchReport: `textures/${list[index][0]}/${receipt.searchReport}`,
+        searchReportHash: receipt.searchReportHash
+      })
     })),
     evidence: {
+      cookMode,
+      qualityEvaluated: cookMode === "search",
       products: receipts.length,
       directoryBytes: receipts.reduce((sum, value) => sum + value.byteLength, 0),
       payloadBytes: receipts.reduce((sum, value) => sum + value.payloadBytes, 0),
@@ -496,7 +528,8 @@ try {
     const output = resolve(process.argv[3] ?? resolve(root, ".local/models/bistro-cooked"));
     const workers = Number(process.argv[4] ?? 4);
     if (!Number.isInteger(workers) || workers < 1 || workers > 8) throw new Error("Workers must be 1..8");
-    await cookScene(input, output, workers, process.argv.includes("--vt"), process.argv.includes("--publish-only"));
+    await cookScene(input, output, workers, process.argv.includes("--vt"), process.argv.includes("--publish-only"),
+      process.argv.includes("--fixed") ? "fixed" : "search");
   }
 } catch (error) {
   console.error(error.stack ?? error);

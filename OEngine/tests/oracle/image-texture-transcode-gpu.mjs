@@ -192,6 +192,7 @@ export async function runImageTextureTranscodeGpu(device, precision = "f32") {
   for (const fixture of cases) {
     const baseUrl = new URL(local + "e1-fixtures/" + fixture.name + "/directory.json", location.href).href;
     const directory = readImageTextureDirectory(new Uint8Array(await (await fetch(baseUrl)).arrayBuffer()));
+    await transcoder.prepare(directory.planes);
     for (const item of directory.items) {
       const plane = directory.planes[item.plane];
       const lease = await preparation.readImageItem(session, directory, item.id, baseUrl);
@@ -462,6 +463,7 @@ export async function runImageTextureTranscodeGpu(device, precision = "f32") {
   check(corrupt, "Corrupt source must fail before decode");
   check(preparation.evidence().credit.used.total === 0, "All CPU credits returned");
   const small = await ImageTextureTranscoder.create(device, source, { precision, maxRgbaBytes: 2400 });
+  await small.prepare(directory.planes);
   const [first, second] = await Promise.all([
     preparation.readImageItem(session, directory, 0, url),
     preparation.readImageItem(session, directory, 0, url)
@@ -501,6 +503,7 @@ export async function runImageTextureTranscodeGpu(device, precision = "f32") {
   // Independent constant-image alpha test: no lossy-RGB tolerance and transparent RGB is not zeroed.
   const alphaDirUrl = new URL(local + "e1-fixtures/alpha-constant/directory.json", location.href).href;
   const alphaDir = readImageTextureDirectory(new Uint8Array(await (await fetch(alphaDirUrl)).arrayBuffer()));
+  await transcoder.prepare(alphaDir.planes);
   const alphaLease = await preparation.readImageItem(session, alphaDir, 0, alphaDirUrl),
     alphaCmd = command(device),
     alphaDest = targets(device, alphaDir, alphaDir.items[0]);
@@ -518,6 +521,7 @@ export async function runImageTextureTranscodeGpu(device, precision = "f32") {
     );
   for (const d of alphaDest) d.texture.destroy();
   const fragment = await ImageTextureTranscoder.create(device, source, { precision, mipProfile: "fragment" });
+  await fragment.prepare(directory.planes);
   const fragmentLease = await preparation.readImageItem(session, directory, 0, url),
     fragmentCmd = command(device),
     fragmentDest = targets(device, directory, directory.items[0]);
@@ -573,6 +577,7 @@ export async function runImageTextureTranscodeGpu(device, precision = "f32") {
     requiredFeatures: ["texture-compression-bc", ...(precision === "f16" ? ["shader-f16"] : [])]
   });
   const lossOwner = await ImageTextureTranscoder.create(lostDevice, source, { precision });
+  await lossOwner.prepare(directory.planes);
   const lossLease = await preparation.readImageItem(session, directory, 0, url);
   const lossCommand = command(lostDevice),
     lossDest = targets(lostDevice, directory, directory.items[0]);

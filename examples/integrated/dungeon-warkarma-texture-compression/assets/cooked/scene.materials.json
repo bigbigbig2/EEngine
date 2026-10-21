@@ -1,7 +1,7 @@
 {
-  "schema": "oengine-offline-scene-materials-v1",
+  "schema": "oengine-image-scene-materials-v2",
   "source": {
-    "path": "D:\\code\\EEngine - 副本\\examples\\demos\\14-integrated\\dungeon-warkarma-texture-compression\\assets\\dungeon_warkarma.glb",
+    "path": "D:\\shu\\engine\\examples\\assets\\three\\rendering-lab\\dungeon_warkarma.glb",
     "bytes": 7990584,
     "sha256": "cac0fc8c16d107e7ac4e69efde89c2cb6ef4bc66c34456a4dd0923218e5aafb1",
     "triangles": 72137,
@@ -9,10 +9,11 @@
     "primitives": 798,
     "materials": 25,
     "textures": 25,
-    "images": 25
+    "images": 25,
+    "cookedImages": 25
   },
-  "geometryManifest": "scene.oescene",
-  "geometryManifestHash": "5abffb2e550ef5439fd17d4078411aaff655064cb8b2f0b6b0938b2ab4e7c94e",
+  "geometryManifest": "scene-271ef8d43a4a4b67f8c25dc89bd0abf20f51d885f12dfe6c13cf77fface14f44.oescene",
+  "geometryManifestHash": "271ef8d43a4a4b67f8c25dc89bd0abf20f51d885f12dfe6c13cf77fface14f44",
   "gltf": {
     "materials": [
       {
@@ -735,151 +736,151 @@
     {
       "texture_orm": {
         "textureIndex": 0,
-        "uri": "textures/43595cbe17f922c7b0ed579a51ee6ed0bf97f6d09c35edb8984e7f2cf59d1525.textureproduct"
+        "uri": "textures/35c0d69ee1868b6457ee771bd0e437f3de6abd99a712c3ba1feee72ed6bd714f/directory-98e96d810a043637a6067c60ce7a52d72867581e4bcca2a841be104fcc6af8f9.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 1,
-        "uri": "textures/b367ae2ebdce131ef1cb73156c71391347d2f3fa61b29e8b29e1d0e680368b0e.textureproduct"
+        "uri": "textures/721732505f3d8d7ba4b849217bc5b3cb3af526650763fce7573c931c9ae23874/directory-8c4c458088b48d9f45ee32699c71ca7ac238268313871aa846c6a38a63dde9d9.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 2,
-        "uri": "textures/0314db31b9facd95af79247af50660684b156b49384d4f4f6a6beceb86efcafa.textureproduct"
+        "uri": "textures/70bc4570b6d2d4448bba0bf56755a6def8eb70938764ce11f8a769194fc88e93/directory-26d65afaa539792a661d668c6db2075e5a3aa127afce3770786a60febe255223.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 3,
-        "uri": "textures/f5e390c5853bd92e75ac3f589cd536c2137d1cfe8430616dc45afc5538ce8d17.textureproduct"
+        "uri": "textures/93b14e8d34ba8412976a075aaa5ce7853a1b3aa3fa54f349f936b4077cf63931/directory-1117ba8f9fce4b22cfeaa58fb0864852302dec98caf70ad8ad9e324956051d93.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 4,
-        "uri": "textures/f7442ecbe0c3935dee6a52453b078fddb4593860ab765dbdb285f09dd162287d.textureproduct"
+        "uri": "textures/370611cdbc4880711d0c33a40e7af579eeebca8d979bac3190be102035262e25/directory-1117ba8f9fce4b22cfeaa58fb0864852302dec98caf70ad8ad9e324956051d93.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 5,
-        "uri": "textures/17500748f2a9363ba549757517216264ebb46f0f6807db9f818e2d293eee59f6.textureproduct"
+        "uri": "textures/a8c1c9ba60b4017ae2f92d22b5fec7c0f384d31ebaff8cc0657e749db79222e3/directory-3426b87cd1799e668e0d69a5156384f5b354855059fbea0e2c1b1d5871e11118.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 6,
-        "uri": "textures/0434c8c39956ed839faad97365e66c2e7b5e2b8dfdc6f3706d1a917bbac22ee9.textureproduct"
+        "uri": "textures/a18f54c0b532756651b1ad37a24d010e54366c94fa1ded91f7226511981e6998/directory-07c2beedeb7c457e43da6f74e3146a4db1fe722094347d1b9c80de3ebc0ec28b.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 7,
-        "uri": "textures/ab0d9450a52981490fa28178e08affea094ea1653e761a979b01acd2aba42454.textureproduct"
+        "uri": "textures/46cd59881f9e582f1cbb779bdbaaf5e3d383f25d32a7becbcc80c101bd3e9d33/directory-425e58727c1055b411d3116fff492e4e35a13999a7fdd57247c37cf62115eba4.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 8,
-        "uri": "textures/1e7a290651a5436b7ee9c0eca9f5c3f0939b2d7ed52eb465ecba2adae2836247.textureproduct"
+        "uri": "textures/a7bf29ae6b9b775360bdf467aee9f2030c380c30a4f8a596bca033e3ed62889c/directory-d437c400c900cc32ef443ce9a5f8f6e20621b61a3566a0e18c20b62e6fe46185.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 9,
-        "uri": "textures/7fdb4e0a097198ea7ba1c746dc2634dba3c92fdbb80b0ee204accb15e9a62bf0.textureproduct"
+        "uri": "textures/7aa0abe08ca1de25ebc4abd16b412f5a0caadb08952c2d5452989d1a76147d7d/directory-acd3c5f630883a061ca20283f76280f229a976950607538374294a598e0abedc.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 10,
-        "uri": "textures/0ecb51d19510f78e81d6017afb19bbc872621f62b1cff84c9e3541eb0f0b9733.textureproduct"
+        "uri": "textures/9f64e8dc94b8db98f172a616561c2b2e22f70114feaff74ab15923f3c324f605/directory-c5c231c2f1131ab08ac62b1182ac09e2bbb14de9bba57ddac502c7899a9a1120.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 11,
-        "uri": "textures/648bab7aefeb367d99e733e1b4ab235d0b357a78a480dafc48596a8d539c5c35.textureproduct"
+        "uri": "textures/a74866e80ff768cd45deeab0f7e497589f88428c6fadebab2ddaa2ec5acc4c84/directory-36549ba9c9f3c1e578d4d505e43431e188cac2f62e155ad076834e77d0535af5.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 12,
-        "uri": "textures/4db0e4282caae5d3024fd97b20cdcec899bd15d534f147c1575bd2582a5fc8e7.textureproduct"
+        "uri": "textures/6ba1894b41878b61d12dd72fd57738444da39234b3adc7924d21208899d0aad7/directory-daa8e6d3604fd88ff240e9611aa09c0a2e35aa7b3a8906d554df99fb5d015dc5.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 13,
-        "uri": "textures/49675d9aef0ad4c29d4f737c6fd644b13f4189769be7635c02c797a9c97c55e7.textureproduct"
+        "uri": "textures/88c43e9eb058df21e589903cc046e26182159a5c05b282d762398e4a888a4ae6/directory-4d107d467208de319d5156ac5c3a8ba3ba9a113bed74254382f65f60ea67db4d.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 14,
-        "uri": "textures/e4455242db150b761be6c612e32609c90c1070a8cc26f3a4f417a3f46f506e15.textureproduct"
+        "uri": "textures/c1b44c70b6dd96aabd851d663bc8ffc289bcdacd8d815a73cd0679609e53957c/directory-9cfed17c224140c497c2b0697d8b9400ced3c8816228f53cd2675330efcb3200.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 15,
-        "uri": "textures/8ddc2e01cbcc456785214da3be72f2942c21ccc1ef314a815560c8304810e160.textureproduct"
+        "uri": "textures/f81cf6ccc4930d7024418d32b29fc27c31b8a9c601b60312e8753640caf45c25/directory-61aecc7204c3191df40b5993a93d6640d7f54ff120b4a6fe07a7e8129b571eaa.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 16,
-        "uri": "textures/ab70adc6cdc862565c7dd40bd6dc048353c4452f5adb17a1ea38753825617eb2.textureproduct"
+        "uri": "textures/26744b02eb1055226ab5135f2fddfa6941b46d89827b11efd641a042a560454e/directory-e7b1acc7bc0b401ac93b94c7432c425fa51c24674876e1c10459226979cca630.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 17,
-        "uri": "textures/40cd80b1bce42ae0bb81026f587269ad60ddeb0c98f11fd812c4c1e9c90f9f05.textureproduct"
+        "uri": "textures/22553eed46e90b3b74e0c9d5fc130b5682850cdfccb2c8e9c1babed67714b14d/directory-7205678606e8c21536556e51bd903a885a918c9a5013c108aba852947202a399.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 18,
-        "uri": "textures/a1a4d43b47cba882c678cc51d87c7763140683bad18dfff3b9c0af67a3aad368.textureproduct"
+        "uri": "textures/d8eff2b7bd39fcd3624f66dfedda761bb40b36662150e03261ca7c17a708ae48/directory-3adbd4c22b433caacb222f0e8a45acb8694e094bf66a0316d518b81d5452b6d4.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 19,
-        "uri": "textures/eab87e7a5fd8a309870eb52527492954e4dd74ed909e50b719d481c849bece82.textureproduct"
+        "uri": "textures/0b539f5df1550109a3c0b3a2878104ed49c72e4db59f42f67e29dc1c29ce831b/directory-a1a323b84240b38d09f7849cf2a104d8e219f126208c3ecbe5ce65457cda5a26.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 20,
-        "uri": "textures/bb027d1b881398a38a68b244ccf38a28576cc0eeb81f0a661647744122e25cf6.textureproduct"
+        "uri": "textures/3e220725b47dfb93013626bbb58259841ed1ac2076bbe13663d129a7ed264c5e/directory-10ce6696faf8cadfa58cf6904327b289a2bde72d42f5d44299694efac63c48b5.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 21,
-        "uri": "textures/8df195a10df6a8a5fb842c3d2d978ff4973287e1fecec14abed3502442ad803a.textureproduct"
+        "uri": "textures/5a65de5bbaa321cafa13c16221d8e4bd5b6059b77048b0d3cf9079681485e9fe/directory-d1d48dc4dda5f4df695e759673c13052a6ca5b1cda03ce2aa7e585832a35fcce.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 22,
-        "uri": "textures/9cc40e41d9b37a7f647bfdbd06d0525ab9037d4b4223a8bd2499729330bba20b.textureproduct"
+        "uri": "textures/004cd0667c1013724f333b2564990356f020e6f168e0a11ec8b63656544c9e99/directory-2fa9d6b7edfd904636c6723df90aa679a24c1b84f503afb1870abddd1f16cff2.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 23,
-        "uri": "textures/1de1858dd21b74c98f46cb928787808fc5a145c1f1e3baa5e0181e6cb72d8814.textureproduct"
+        "uri": "textures/bafd48335f8a99966b20958dac1058df095ec523fb2861ecba8c8536cbbaa468/directory-4af85c44a3b7bbf6b85f8c80281ba1f7cec78179edcb5bc5985b8c5a7130c3c6.json"
       }
     },
     {
       "texture_orm": {
         "textureIndex": 24,
-        "uri": "textures/6769bbfea16eff32d95e4e9acc9e0c367ad511e5405c7a753c334aaf8e4fa3a3.textureproduct"
+        "uri": "textures/7b96628c4fed0fa0edb38622bd9adc3b3fe82cde0ab20ec5a6936cb51ba2288c/directory-315ec8e4163c323bbdb6540894d412c4ed8927cff066129baebf0f48a9f2c5c4.json"
       }
     }
   ],
@@ -8071,122 +8072,165 @@
   ],
   "products": [
     {
-      "uri": "textures/43595cbe17f922c7b0ed579a51ee6ed0bf97f6d09c35edb8984e7f2cf59d1525.textureproduct",
-      "identity": "e519f46c785f7f7df311033e3150492380ce65e3d3f495401eb3846652dbe0b2"
+      "uri": "textures/35c0d69ee1868b6457ee771bd0e437f3de6abd99a712c3ba1feee72ed6bd714f/directory-98e96d810a043637a6067c60ce7a52d72867581e4bcca2a841be104fcc6af8f9.json",
+      "identity": "98e96d810a043637a6067c60ce7a52d72867581e4bcca2a841be104fcc6af8f9",
+      "byteLength": 10069,
+      "receipt": "textures/35c0d69ee1868b6457ee771bd0e437f3de6abd99a712c3ba1feee72ed6bd714f/receipt-48798de3f3aa094460da516b7839d57c155c20e26a3054e307b2613e357193e0.json"
     },
     {
-      "uri": "textures/b367ae2ebdce131ef1cb73156c71391347d2f3fa61b29e8b29e1d0e680368b0e.textureproduct",
-      "identity": "c7ccaa8c1c43af6bc4e7bf7ddb60abc5d4b7842e5276003fb2258a4864c7ebe8"
+      "uri": "textures/721732505f3d8d7ba4b849217bc5b3cb3af526650763fce7573c931c9ae23874/directory-8c4c458088b48d9f45ee32699c71ca7ac238268313871aa846c6a38a63dde9d9.json",
+      "identity": "8c4c458088b48d9f45ee32699c71ca7ac238268313871aa846c6a38a63dde9d9",
+      "byteLength": 10049,
+      "receipt": "textures/721732505f3d8d7ba4b849217bc5b3cb3af526650763fce7573c931c9ae23874/receipt-0aa469b192f8d6cc464915465c3c06ac0723440ada4e31ca0642c3866cda5f99.json"
     },
     {
-      "uri": "textures/0314db31b9facd95af79247af50660684b156b49384d4f4f6a6beceb86efcafa.textureproduct",
-      "identity": "f20eac12566133de1f7add9be84e0e0a5f61d4395328cf7ffe8e70546def9f0c"
+      "uri": "textures/70bc4570b6d2d4448bba0bf56755a6def8eb70938764ce11f8a769194fc88e93/directory-26d65afaa539792a661d668c6db2075e5a3aa127afce3770786a60febe255223.json",
+      "identity": "26d65afaa539792a661d668c6db2075e5a3aa127afce3770786a60febe255223",
+      "byteLength": 10071,
+      "receipt": "textures/70bc4570b6d2d4448bba0bf56755a6def8eb70938764ce11f8a769194fc88e93/receipt-cf4c1b10d5e873f179ba91e7cef92c335f16bcb46190089f7964917843c2ee83.json"
     },
     {
-      "uri": "textures/f5e390c5853bd92e75ac3f589cd536c2137d1cfe8430616dc45afc5538ce8d17.textureproduct",
-      "identity": "5fdc69618ced4ba739ed19ad3e602f643e4648145d1e6b453ed5b0a641004357"
+      "uri": "textures/93b14e8d34ba8412976a075aaa5ce7853a1b3aa3fa54f349f936b4077cf63931/directory-1117ba8f9fce4b22cfeaa58fb0864852302dec98caf70ad8ad9e324956051d93.json",
+      "identity": "1117ba8f9fce4b22cfeaa58fb0864852302dec98caf70ad8ad9e324956051d93",
+      "byteLength": 10057,
+      "receipt": "textures/93b14e8d34ba8412976a075aaa5ce7853a1b3aa3fa54f349f936b4077cf63931/receipt-3a35f6106fbc99c897ae9950df240843e66ecfaa6946ae4636eb74bf9552fae8.json"
     },
     {
-      "uri": "textures/f7442ecbe0c3935dee6a52453b078fddb4593860ab765dbdb285f09dd162287d.textureproduct",
-      "identity": "5fdc69618ced4ba739ed19ad3e602f643e4648145d1e6b453ed5b0a641004357"
+      "uri": "textures/370611cdbc4880711d0c33a40e7af579eeebca8d979bac3190be102035262e25/directory-1117ba8f9fce4b22cfeaa58fb0864852302dec98caf70ad8ad9e324956051d93.json",
+      "identity": "1117ba8f9fce4b22cfeaa58fb0864852302dec98caf70ad8ad9e324956051d93",
+      "byteLength": 10057,
+      "receipt": "textures/370611cdbc4880711d0c33a40e7af579eeebca8d979bac3190be102035262e25/receipt-9ec183c6405054bb1cfe1e578794d62089892eb674acea5b58820a22a1464f12.json"
     },
     {
-      "uri": "textures/17500748f2a9363ba549757517216264ebb46f0f6807db9f818e2d293eee59f6.textureproduct",
-      "identity": "2bedd70c4bd590f5a9aa5d3402298770dd5a2be9611b4a2184482f931040f2ff"
+      "uri": "textures/a8c1c9ba60b4017ae2f92d22b5fec7c0f384d31ebaff8cc0657e749db79222e3/directory-3426b87cd1799e668e0d69a5156384f5b354855059fbea0e2c1b1d5871e11118.json",
+      "identity": "3426b87cd1799e668e0d69a5156384f5b354855059fbea0e2c1b1d5871e11118",
+      "byteLength": 10029,
+      "receipt": "textures/a8c1c9ba60b4017ae2f92d22b5fec7c0f384d31ebaff8cc0657e749db79222e3/receipt-130866eeaa951ab5b85b41732641892a62b08cbae5c2431e12d821f3ab51d48f.json"
     },
     {
-      "uri": "textures/0434c8c39956ed839faad97365e66c2e7b5e2b8dfdc6f3706d1a917bbac22ee9.textureproduct",
-      "identity": "23bf801d55fe5bfed635e75155e8150136f38e99a38ab9d91107b9fd903b8c9f"
+      "uri": "textures/a18f54c0b532756651b1ad37a24d010e54366c94fa1ded91f7226511981e6998/directory-07c2beedeb7c457e43da6f74e3146a4db1fe722094347d1b9c80de3ebc0ec28b.json",
+      "identity": "07c2beedeb7c457e43da6f74e3146a4db1fe722094347d1b9c80de3ebc0ec28b",
+      "byteLength": 10033,
+      "receipt": "textures/a18f54c0b532756651b1ad37a24d010e54366c94fa1ded91f7226511981e6998/receipt-cc5a6e1dfd361bc4e7a93eec3fd5e2da1e370c1e738ff7515b84677d3a44c9de.json"
     },
     {
-      "uri": "textures/ab0d9450a52981490fa28178e08affea094ea1653e761a979b01acd2aba42454.textureproduct",
-      "identity": "96c37ce160284768f66384ca543c3f7cb6f9983546f5c610c0407a883e0d1d82"
+      "uri": "textures/46cd59881f9e582f1cbb779bdbaaf5e3d383f25d32a7becbcc80c101bd3e9d33/directory-425e58727c1055b411d3116fff492e4e35a13999a7fdd57247c37cf62115eba4.json",
+      "identity": "425e58727c1055b411d3116fff492e4e35a13999a7fdd57247c37cf62115eba4",
+      "byteLength": 10063,
+      "receipt": "textures/46cd59881f9e582f1cbb779bdbaaf5e3d383f25d32a7becbcc80c101bd3e9d33/receipt-228b807467d4309516f60c5e7d70924459c186f37b0d11585342e8533324e620.json"
     },
     {
-      "uri": "textures/1e7a290651a5436b7ee9c0eca9f5c3f0939b2d7ed52eb465ecba2adae2836247.textureproduct",
-      "identity": "3ef6a58471263aa327a6ef00a4e9735199cb97b7f08218a2f3da64e544c0912a"
+      "uri": "textures/a7bf29ae6b9b775360bdf467aee9f2030c380c30a4f8a596bca033e3ed62889c/directory-d437c400c900cc32ef443ce9a5f8f6e20621b61a3566a0e18c20b62e6fe46185.json",
+      "identity": "d437c400c900cc32ef443ce9a5f8f6e20621b61a3566a0e18c20b62e6fe46185",
+      "byteLength": 10021,
+      "receipt": "textures/a7bf29ae6b9b775360bdf467aee9f2030c380c30a4f8a596bca033e3ed62889c/receipt-8ce0138a6ad3b6bc7770f827d4f5da9829ccee95951505c7aff827abd587f498.json"
     },
     {
-      "uri": "textures/7fdb4e0a097198ea7ba1c746dc2634dba3c92fdbb80b0ee204accb15e9a62bf0.textureproduct",
-      "identity": "f582d29cc72caedcc3db9dd4a369e70d0f2e0cb7b3b0f99b39fa4818b0651a2d"
+      "uri": "textures/7aa0abe08ca1de25ebc4abd16b412f5a0caadb08952c2d5452989d1a76147d7d/directory-acd3c5f630883a061ca20283f76280f229a976950607538374294a598e0abedc.json",
+      "identity": "acd3c5f630883a061ca20283f76280f229a976950607538374294a598e0abedc",
+      "byteLength": 10063,
+      "receipt": "textures/7aa0abe08ca1de25ebc4abd16b412f5a0caadb08952c2d5452989d1a76147d7d/receipt-2a129206ce57cb36d04b36805669407d99e6c19f649510d5d52a9459b7e8b1e2.json"
     },
     {
-      "uri": "textures/0ecb51d19510f78e81d6017afb19bbc872621f62b1cff84c9e3541eb0f0b9733.textureproduct",
-      "identity": "0dda96fd393c6c1b08af8f8cc459ef6c108158137257fdb54a8627ec8222ce4d"
+      "uri": "textures/9f64e8dc94b8db98f172a616561c2b2e22f70114feaff74ab15923f3c324f605/directory-c5c231c2f1131ab08ac62b1182ac09e2bbb14de9bba57ddac502c7899a9a1120.json",
+      "identity": "c5c231c2f1131ab08ac62b1182ac09e2bbb14de9bba57ddac502c7899a9a1120",
+      "byteLength": 10051,
+      "receipt": "textures/9f64e8dc94b8db98f172a616561c2b2e22f70114feaff74ab15923f3c324f605/receipt-12c003e2cf488e13e99863e76c6f14fba7199eb2619c8e6276a28e78ac93cd2a.json"
     },
     {
-      "uri": "textures/648bab7aefeb367d99e733e1b4ab235d0b357a78a480dafc48596a8d539c5c35.textureproduct",
-      "identity": "6c2dd528bab8bf0d260b71cbfc040006d0474f9c5b2d34c855392665c6d7b7f4"
+      "uri": "textures/a74866e80ff768cd45deeab0f7e497589f88428c6fadebab2ddaa2ec5acc4c84/directory-36549ba9c9f3c1e578d4d505e43431e188cac2f62e155ad076834e77d0535af5.json",
+      "identity": "36549ba9c9f3c1e578d4d505e43431e188cac2f62e155ad076834e77d0535af5",
+      "byteLength": 10051,
+      "receipt": "textures/a74866e80ff768cd45deeab0f7e497589f88428c6fadebab2ddaa2ec5acc4c84/receipt-483aac1a02cd30a50b80960da47eeda7824d69ed427e12f5a3675c7fa8163fbf.json"
     },
     {
-      "uri": "textures/4db0e4282caae5d3024fd97b20cdcec899bd15d534f147c1575bd2582a5fc8e7.textureproduct",
-      "identity": "d163e5b40cefa405eec89536e68c35da8d8a283a2b127fb66f2dddbca917ceeb"
+      "uri": "textures/6ba1894b41878b61d12dd72fd57738444da39234b3adc7924d21208899d0aad7/directory-daa8e6d3604fd88ff240e9611aa09c0a2e35aa7b3a8906d554df99fb5d015dc5.json",
+      "identity": "daa8e6d3604fd88ff240e9611aa09c0a2e35aa7b3a8906d554df99fb5d015dc5",
+      "byteLength": 10069,
+      "receipt": "textures/6ba1894b41878b61d12dd72fd57738444da39234b3adc7924d21208899d0aad7/receipt-502478b19c0189f13a3eb556f34cc8defa05f0236dc0bc6903019e7e31eaa441.json"
     },
     {
-      "uri": "textures/49675d9aef0ad4c29d4f737c6fd644b13f4189769be7635c02c797a9c97c55e7.textureproduct",
-      "identity": "a5b200b94c4fedf62ec2f6d0e12cd63f726004a5b8eb316dd6249e7155e991e8"
+      "uri": "textures/88c43e9eb058df21e589903cc046e26182159a5c05b282d762398e4a888a4ae6/directory-4d107d467208de319d5156ac5c3a8ba3ba9a113bed74254382f65f60ea67db4d.json",
+      "identity": "4d107d467208de319d5156ac5c3a8ba3ba9a113bed74254382f65f60ea67db4d",
+      "byteLength": 10061,
+      "receipt": "textures/88c43e9eb058df21e589903cc046e26182159a5c05b282d762398e4a888a4ae6/receipt-1dcdbe0242f202df5c177ab54295f22ff97e763c7b978cf5a4f93b5a9b4622bb.json"
     },
     {
-      "uri": "textures/e4455242db150b761be6c612e32609c90c1070a8cc26f3a4f417a3f46f506e15.textureproduct",
-      "identity": "fe897c4cd609ec8435da6a38d3a912421a16ff3af6de7fe99458c5f75c550778"
+      "uri": "textures/c1b44c70b6dd96aabd851d663bc8ffc289bcdacd8d815a73cd0679609e53957c/directory-9cfed17c224140c497c2b0697d8b9400ced3c8816228f53cd2675330efcb3200.json",
+      "identity": "9cfed17c224140c497c2b0697d8b9400ced3c8816228f53cd2675330efcb3200",
+      "byteLength": 10061,
+      "receipt": "textures/c1b44c70b6dd96aabd851d663bc8ffc289bcdacd8d815a73cd0679609e53957c/receipt-41344fd0f594c0b5b2ad7fb8f93af11da0c46d66f25093a391a4fabec906baae.json"
     },
     {
-      "uri": "textures/8ddc2e01cbcc456785214da3be72f2942c21ccc1ef314a815560c8304810e160.textureproduct",
-      "identity": "e0889ed4d47859fc413dc48f9dcd4f0c06d9550a39e1fc62191f29368b780153"
+      "uri": "textures/f81cf6ccc4930d7024418d32b29fc27c31b8a9c601b60312e8753640caf45c25/directory-61aecc7204c3191df40b5993a93d6640d7f54ff120b4a6fe07a7e8129b571eaa.json",
+      "identity": "61aecc7204c3191df40b5993a93d6640d7f54ff120b4a6fe07a7e8129b571eaa",
+      "byteLength": 10025,
+      "receipt": "textures/f81cf6ccc4930d7024418d32b29fc27c31b8a9c601b60312e8753640caf45c25/receipt-a274f7cd696ce824acb3f677e917f584957b919825141d5e129128e93029a38d.json"
     },
     {
-      "uri": "textures/ab70adc6cdc862565c7dd40bd6dc048353c4452f5adb17a1ea38753825617eb2.textureproduct",
-      "identity": "2f0b8c9fb989cc53698c973dbe1cdf663f8e16d2dddf062dbb220db284392e22"
+      "uri": "textures/26744b02eb1055226ab5135f2fddfa6941b46d89827b11efd641a042a560454e/directory-e7b1acc7bc0b401ac93b94c7432c425fa51c24674876e1c10459226979cca630.json",
+      "identity": "e7b1acc7bc0b401ac93b94c7432c425fa51c24674876e1c10459226979cca630",
+      "byteLength": 10015,
+      "receipt": "textures/26744b02eb1055226ab5135f2fddfa6941b46d89827b11efd641a042a560454e/receipt-c04df36cd64eb7212eea070cfefc453ccecdbfb90d63a74f3ad05b072bcbabb8.json"
     },
     {
-      "uri": "textures/40cd80b1bce42ae0bb81026f587269ad60ddeb0c98f11fd812c4c1e9c90f9f05.textureproduct",
-      "identity": "45c470d2d78b25effabc1f59907ef5278315190f29a74d022977a828343566eb"
+      "uri": "textures/22553eed46e90b3b74e0c9d5fc130b5682850cdfccb2c8e9c1babed67714b14d/directory-7205678606e8c21536556e51bd903a885a918c9a5013c108aba852947202a399.json",
+      "identity": "7205678606e8c21536556e51bd903a885a918c9a5013c108aba852947202a399",
+      "byteLength": 10023,
+      "receipt": "textures/22553eed46e90b3b74e0c9d5fc130b5682850cdfccb2c8e9c1babed67714b14d/receipt-94883473dbad925e5b2424e2ef3e148393d80582f82fe70b7b323b252f7e18d1.json"
     },
     {
-      "uri": "textures/a1a4d43b47cba882c678cc51d87c7763140683bad18dfff3b9c0af67a3aad368.textureproduct",
-      "identity": "863f4453771105236ded792006adc4f152f69f473b955a85bab24318ddeb5249"
+      "uri": "textures/d8eff2b7bd39fcd3624f66dfedda761bb40b36662150e03261ca7c17a708ae48/directory-3adbd4c22b433caacb222f0e8a45acb8694e094bf66a0316d518b81d5452b6d4.json",
+      "identity": "3adbd4c22b433caacb222f0e8a45acb8694e094bf66a0316d518b81d5452b6d4",
+      "byteLength": 10021,
+      "receipt": "textures/d8eff2b7bd39fcd3624f66dfedda761bb40b36662150e03261ca7c17a708ae48/receipt-cb419c34b2335f0b84eb865c903e4ba477e2f3b04dfe7869e8b8cd6837f77f37.json"
     },
     {
-      "uri": "textures/eab87e7a5fd8a309870eb52527492954e4dd74ed909e50b719d481c849bece82.textureproduct",
-      "identity": "194ad2a71962c3981b2f91e1aab7d2fe9ca8c087571b0327ba6b2aa58283dfe2"
+      "uri": "textures/0b539f5df1550109a3c0b3a2878104ed49c72e4db59f42f67e29dc1c29ce831b/directory-a1a323b84240b38d09f7849cf2a104d8e219f126208c3ecbe5ce65457cda5a26.json",
+      "identity": "a1a323b84240b38d09f7849cf2a104d8e219f126208c3ecbe5ce65457cda5a26",
+      "byteLength": 10065,
+      "receipt": "textures/0b539f5df1550109a3c0b3a2878104ed49c72e4db59f42f67e29dc1c29ce831b/receipt-ee949a85baf5e6d8afed3b632ed55bb5a780db9579f1d5182efba469265c50ad.json"
     },
     {
-      "uri": "textures/bb027d1b881398a38a68b244ccf38a28576cc0eeb81f0a661647744122e25cf6.textureproduct",
-      "identity": "89e8345d4e3facc37d9435acc0722afcf1d80bbdb07e90e2215d74df6a3c0e33"
+      "uri": "textures/3e220725b47dfb93013626bbb58259841ed1ac2076bbe13663d129a7ed264c5e/directory-10ce6696faf8cadfa58cf6904327b289a2bde72d42f5d44299694efac63c48b5.json",
+      "identity": "10ce6696faf8cadfa58cf6904327b289a2bde72d42f5d44299694efac63c48b5",
+      "byteLength": 10061,
+      "receipt": "textures/3e220725b47dfb93013626bbb58259841ed1ac2076bbe13663d129a7ed264c5e/receipt-4414d2d378bc90b84e7177870bdf23b64d0165d06c31eaf4a6333abf465c81f4.json"
     },
     {
-      "uri": "textures/8df195a10df6a8a5fb842c3d2d978ff4973287e1fecec14abed3502442ad803a.textureproduct",
-      "identity": "0673c5ff3e454580738b58812e3a08a06e02bf605b92d00f317e2e4a5ee86538"
+      "uri": "textures/5a65de5bbaa321cafa13c16221d8e4bd5b6059b77048b0d3cf9079681485e9fe/directory-d1d48dc4dda5f4df695e759673c13052a6ca5b1cda03ce2aa7e585832a35fcce.json",
+      "identity": "d1d48dc4dda5f4df695e759673c13052a6ca5b1cda03ce2aa7e585832a35fcce",
+      "byteLength": 10053,
+      "receipt": "textures/5a65de5bbaa321cafa13c16221d8e4bd5b6059b77048b0d3cf9079681485e9fe/receipt-576f78b4e0cae31dcfed106f564772cecc57cbfc08b28f8eeb189005728497c6.json"
     },
     {
-      "uri": "textures/9cc40e41d9b37a7f647bfdbd06d0525ab9037d4b4223a8bd2499729330bba20b.textureproduct",
-      "identity": "68b9ec66046571e7748ff30c47e05cd1ae3ed5c66c41b96fdd58088f95af886a"
+      "uri": "textures/004cd0667c1013724f333b2564990356f020e6f168e0a11ec8b63656544c9e99/directory-2fa9d6b7edfd904636c6723df90aa679a24c1b84f503afb1870abddd1f16cff2.json",
+      "identity": "2fa9d6b7edfd904636c6723df90aa679a24c1b84f503afb1870abddd1f16cff2",
+      "byteLength": 10037,
+      "receipt": "textures/004cd0667c1013724f333b2564990356f020e6f168e0a11ec8b63656544c9e99/receipt-8b440183331d069406ecc9598cae872c055d198a2b39dcdd710dd06f976831ee.json"
     },
     {
-      "uri": "textures/1de1858dd21b74c98f46cb928787808fc5a145c1f1e3baa5e0181e6cb72d8814.textureproduct",
-      "identity": "61233cd67905a45bb71a7586c9793e3027cf759c6656c99e77aef56f8ec74f57"
+      "uri": "textures/bafd48335f8a99966b20958dac1058df095ec523fb2861ecba8c8536cbbaa468/directory-4af85c44a3b7bbf6b85f8c80281ba1f7cec78179edcb5bc5985b8c5a7130c3c6.json",
+      "identity": "4af85c44a3b7bbf6b85f8c80281ba1f7cec78179edcb5bc5985b8c5a7130c3c6",
+      "byteLength": 10025,
+      "receipt": "textures/bafd48335f8a99966b20958dac1058df095ec523fb2861ecba8c8536cbbaa468/receipt-0e99a1fc561b2e456d6df79fb6ae851187756f90965b03b69131cb4ca155db2a.json"
     },
     {
-      "uri": "textures/6769bbfea16eff32d95e4e9acc9e0c367ad511e5405c7a753c334aaf8e4fa3a3.textureproduct",
-      "identity": "3a62f359648c733c132ecbf1e6b1448242622e4a2a70b8876679bd5e9d763da5"
+      "uri": "textures/7b96628c4fed0fa0edb38622bd9adc3b3fe82cde0ab20ec5a6936cb51ba2288c/directory-315ec8e4163c323bbdb6540894d412c4ed8927cff066129baebf0f48a9f2c5c4.json",
+      "identity": "315ec8e4163c323bbdb6540894d412c4ed8927cff066129baebf0f48a9f2c5c4",
+      "byteLength": 10037,
+      "receipt": "textures/7b96628c4fed0fa0edb38622bd9adc3b3fe82cde0ab20ec5a6936cb51ba2288c/receipt-11d44ea3f34db61e8ca39d2259bf214d8712582cc2aa2121d58a589e5dfe7cdb.json"
     }
   ],
   "evidence": {
+    "cookMode": "fixed",
+    "qualityEvaluated": false,
     "products": 25,
-    "bc7": 25,
-    "bc4": 0,
-    "r8": 0,
-    "packageBytes": 140025000,
-    "payloadBytes": 139810800,
-    "totalEncodeMs": 3743810.5767,
-    "wallMs": 4994.4104,
-    "pngDecoder": "pngjs 7.0.0, straight RGBA, no gamma adjustment",
-    "webpDecoder": "sharp 0.34.5, straight RGBA, no resize or gamma adjustment",
-    "runtimeDecode": 0,
-    "runtimeEncode": 0,
-    "runtimeTranscode": 0,
-    "runtimeMipGeneration": 0,
-    "runtimeCodecWorkers": 0,
-    "runtimeGeometryCook": 0
+    "directoryBytes": 251167,
+    "payloadBytes": 7726448,
+    "imageCodec": "native-avif-10bit-444-high",
+    "runtimeTextureEncoding": "Spark BC7/BC5/BC4, exact R8",
+    "runtimeMipGeneration": "GPU for runtime profile, canonical provided otherwise",
+    "wallMs": 32074.6244
   }
 }

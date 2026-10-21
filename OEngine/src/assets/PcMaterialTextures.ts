@@ -152,6 +152,10 @@ export async function prepareMaterialTextureProducts(
   try {
     for (const material of new Set(materials)) {
       const live = new Set(materialTextureLeaves(material));
+      // The standard graph always exposes an alpha output. Only masked coverage
+      // consumes an exact R8 plane; opaque/transparent materials must not demand
+      // one merely because the base sample's readMask includes alpha.
+      const compiled = compileCanonicalMaterial(material);
       for (const property of MATERIAL_TEXTURE_PROPERTIES) {
         const texture = material[property];
         if (!texture || !live.has(texture)) {
@@ -159,9 +163,11 @@ export async function prepareMaterialTextureProducts(
         }
         const semantic = materialTextureSemantic(property);
 
-        const exact = compileCanonicalMaterial(material).appearance.samples.some(
-          (sample) => sample.binding.texture === texture && (sample.readMask & 8) !== 0
-        );
+        const exact =
+          compiled.coverage === "masked" &&
+          compiled.appearance.samples.some(
+            (sample) => sample.binding.texture === texture && (sample.readMask & 8) !== 0
+          );
         const result = await prepare(
           texture,
           semantic,
@@ -173,7 +179,7 @@ export async function prepareMaterialTextureProducts(
       }
       const definition = material.appearance_definition;
       if (definition?.graph) {
-        const samples = compileCanonicalMaterial(material).appearance.samples;
+        const samples = compiled.appearance.samples;
         const nodes: import("../material/AppearanceGraph.js").AppearanceNode[] = [];
         for (const node of definition.graph.nodes) {
           if (node.kind !== "texture") {
@@ -186,7 +192,9 @@ export async function prepareMaterialTextureProducts(
             nodes.push(node);
             continue;
           }
-          const exactAlpha = queries.some((sample) => (sample.readMask & 8) !== 0);
+          const exactAlpha =
+            compiled.coverage === "masked" &&
+            queries.some((sample) => (sample.readMask & 8) !== 0);
           const existing = b.texture.image_source;
           if (
             existing &&

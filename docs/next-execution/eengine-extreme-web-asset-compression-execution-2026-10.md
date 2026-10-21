@@ -29,6 +29,8 @@ verifies:
 
 ## 1. 执行合同：连续实现，最后集中验证
 
+2026-10-21执行调整：用户要求先完成真实资产cook，不再被大规模测试或全参数搜索阻塞。`cook-offline-scene.mjs --fixed`固定现有quality anchor/speed 4/512 cell，直接复用native cooker生成完整schema4与明确未评价的receipt；不调用GPU评价，不伪造20/60候选报告。先生成`.local/extreme-web-asset/{dungeon,bistro}-fixed-high`供完整字节比较，不覆盖示例，既有publisher仍要求真实完整搜索。最新Dungeon搜索已按用户要求停止，不是仍在运行；下文早期“恢复”记录仅代表当时事实。用户报告hello金属度/粗糙度异常尚未定位修复，固定cook完成也不能视为材质/画质合格。初次固定cook遇到Windows原生codec长路径PNG读取失败，原失败保留；native临时输入改到短的共享根下独立UUID目录，仍不共享任务文件。新增运行无常驻runtime成本，仅原有native编码工作，不新增GPU作业。实际完成数量与结果以后续产物为准，不将排队任务写为完成。
+
 主线已确定为“全套常规LDR PBR图片传输→GPU编码”，不是竞争实验候选；以完整上游为可工作的基线，移植与架构适配优先。验证检查忠实度、集成、安全、语义和成本，不再用单RGBA内核或错误计时淘汰整条路线。
 
 每个实现闭包包含producer→产品→准备→全部直接consumer→capacity/reset→提交/中止/重试/退休。原子切换是代码ownership约束，不是“先保持旧链可运行，完成全场景验证后才删除”的门禁。阶段内允许编译/示例暂时断链；在同一实现单元直接改完全部consumer并删除被替换的生产parser、writer、owner、vendor/build依赖、导出和兼容测试，不按consumer渐进上线。不得为中间可运行建立新旧schema桥、旧owner fallback、A/B开关、adapter或两套资源管理/Worker调度，也不先上线RGBA再补BC。
@@ -547,5 +549,17 @@ E3收口：新增/修改MJS均经`node --check`；`docs-verify`为209 documents�
 Dungeon High全量25图/1500候选已用最终工具恢复，日志`e5-dungeon-high-capacity.log`；完整新几何复用校验成功。较早`e5-dungeon-high-resume.log`、`e5-dungeon-high-grouped.log`及`e5-dungeon-high-final.log`保留中止原因/已完成候选，工具/评价身份变化不伪复用旧cache。后续同一串行作业链仅在cook成功后执行verify→原子发布→独立`texture-compression-acceptance`→playground生成，任何失败停止；运行中的任务和已排定步骤不能计为passed。hello Extreme、Dungeon Extreme、Bistro High/Extreme及§8完整部署/生命周期/质量/粗成本仍需实际完成，E5保持进行中。
 
 **Bistro完整几何新增结果：** 使用当前原生Cooker重新读取完整源buffer的分材质geometry描述，2线程/64MiB分片，生成`.local/extreme-web-asset/e5-bistro-geometry`，不是使用旧ABI包。保留2829226三角形/1591实例/1513唯一资产，4个最终pack共204392059B、6040页；四pack原生`validate`及当前TypeScript V4 reader核验均通过（`e5-bistro-geometry-{native,native-validate,verify}.log`）。Cooker报告123227ms/peakWorkingBytes1780305920，uniqueGeometryBytes241925184，bootstrapGeometryBytes4809728；没有GPU并发任务，该CPU几何步骤与Dungeon评价重叠，时间不是独占benchmark。compressedPageBytes134591355只统计压缩页，不能把其0.0850042相对padded decodedBytes的比例当整pack压缩率；完整pack还有索引/元数据/未压缩bootstrap。该结果不提升Bistro图片、材质画面或整场景生命周期资格，尚未发布半份场景。
+
+### hello exact-alpha/ORM 修复与固定Q80基线（2026-10-21）
+
+本地接线补充观察：Bistro默认页面也已实际显示模型，无页面错误，进入持续refining；观察时存在150个几何pending页及反馈溢出，未达到view-settled。Dungeon/Bistro截图保存为`.local/extreme-web-asset/{dungeon,bistro}-r2-connected.png`，仅证明默认URL新产品可加载并产生画面，不证明最终材质忠实度、无缺工作或性能合格。未为本次接线调整效果开关、容量或quality门槛。
+
+后续本地示例接线授权（2026-10-21）：修复后的`dungeon-fixed-high-r2`完成25图，`bistro-fixed-high-r2`完成405图；Bistro payload 320127643B（AVIF264203593B/raw55924050B），去重后完整runtime依赖526811070B，不含receipt/commands，不是HTTP首屏量。publisher新增显式fixed receipt分支，保留encoder命令/目录/payload身份与范围核验，不伪造search通过；非fixed搜索门槛不变。Dungeon原子发布到assets/cooked并重新组合完整playground，默认入口仍为assets/playground-cooked，86875三角形/33材质；Bistro开发路由改为r2。两个默认路由的HTTP scene/schema4、首个image和geometry206 Range均实际通过，Bistro全部405产品的发布闭包核验通过。两示例TypeScript检查通过，未跑测试套件、全参数搜索或benchmark。真实浏览器串行检查：Dungeon已显示完整组合场景，无页面错误，但仍有VT待处理页、反馈溢出及持续细化，不能宣称view-settled或性能合格；Bistro启动进入bootstrap-ready，后续画面观察另记。原先“不发布fixed”的记录被本轮明确接线授权替代，当前结果不关闭E5。
+
+- 定位并修复两个合同错误：离线cook与runtime的`PcMaterialTextures`都仅凭base sample的`readMask & 8`判断exact alpha，而标准appearance graph无条件输出alpha；现统一为`compileCanonicalMaterial(...).coverage === "masked"`。OPAQUE不再生成/要求常量R8 plane，颜色plane随之使用runtime mip；cook与runtime同条件。修复后固定cook首次在示例中触发runtime“requires exact R8”并被该runtime修正消除，不是只改cook后的单向放宽。
+- ORM质量门禁原为max-only且material probe对data-rgb的接受向量不区分均值和尾部；旧搜索因此把lambert2 ORM选到Q50（G/B均值2.54/2.99、max31/29、3.13/4.44%像素误差>8）。现增加G/B mean、P95、materialErrorMean；Q50相对Q80 donor被拒绝。moment-xyz新增方向angle P50/P95/P99/max，旧Q60/Q70法线（P953.53/2.85°、max17.7/13.6°）不再仅凭XYZ/length max通过；固定Q80法线P951.62–1.88°、max6.5–8.6°。
+- `cook-offline-scene.mjs --fixed`固定High anchor Q80/speed4/512 cell，输出`.local/extreme-web-asset/hello-fixed`：15产品/65 items，payload 6,565,667B，directory 26,964B，geometry pack 15,543,856B，scene 16,748B，runtime合计约22.15MB（不含receipt/commands）。相对旧cooked 28.501MB为−22.3%，相对旧BC 39.118MB为−43.4%；纹理payload 12.873→6.566MB（−49.0%，对旧BC 21.092MB为−68.9%）。exact alpha 6.991→0，color 1.671→1.088，normal 2.843→3.533（全部Q80，保真优先），ORM 1.368→1.945（全部Q80）。
+- 校验：固定Q80 ORM G/B均值0.72–1.08、P952–3、max9–13；normal angle P951.3–1.9°、P992.0–2.4°、max6.5–8.6°；color均值约1.0、P953、max12–16。示例通过`?cooked=/@fs/D:/shu/engine/.local/extreme-web-asset/hello-fixed/`实际加载，console 0 error，截图`.local`外部未入库；默认`assets/cooked`与publisher仍保持原search-qualified资产，fixed不冒充发布。
+- 未完成：hello完整20候选搜索未完成（1-worker启动后被中断，未发布半成品）；`scene-package`仍要求真实20/60候选报告。query section可选/独立压缩（5.5MB）与normal-xy量化未实施：前者是格式/reader单元，后者会改变与three.js一致的XYZ语义；本轮不做。当前不宣称E5通过或正式质量/性能资格。
 
 进一步逐页运行当前production `openOegPackV4.readPage`和原WASM decoder：Bistro全部6040页均解压、CRC/完整decoded SHA及结构校验通过，decoded共1583349760B分批释放，并非同时驻留（`e5-bistro-geometry-all-pages.json`）。另用源GLB POSITION/index独立构建保留绕序的三角形F32位模式多重集，与新包全部LOD0 leaf按scene实例倍数还原后比对；Bistro2829226、Dungeon72137、hello295600三角形均精确匹配且剩余0（`e5-{bistro,dungeon,hello}-geometry-source-exact*.{json,log}`）。每个位置分量按u32位模式比较，不用浮点容差，也不以同decoder自往返当source expected；检查不证明UV/normal、transform或GPU reader质量。最初Bistro诊断脚本按唯一资产而非1591实例计数，得到2796810并失败；修正脚本按manifest实例倍数后通过，原日志保留，未修改生产几何或放宽断言。该source multiset检查只针对上述完整固定源，Node helper未定义test条目，不能把输出的0tests计成额外contract测试数。

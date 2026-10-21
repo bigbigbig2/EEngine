@@ -34,6 +34,15 @@ OEngine/tools/oengine-web-geometry-cooker/build-wasm-threads/
 .npm-cache/
 .pnpm-store/
 
+# Dungeon local cooked model products and browser inspection traces.
+.playwright-mcp/
+examples/integrated/dungeon-warkarma-texture-compression/assets/cooked/*.oegpack
+examples/integrated/dungeon-warkarma-texture-compression/assets/cooked/*.oescene
+examples/integrated/dungeon-warkarma-texture-compression/assets/cooked/textures/
+examples/integrated/dungeon-warkarma-texture-compression/assets/playground-cooked/*.oegpack
+examples/integrated/dungeon-warkarma-texture-compression/assets/playground-cooked/*.oescene
+examples/integrated/dungeon-warkarma-texture-compression/assets/playground-cooked/dungeon/
+
 # 3D 资产与大型烘焙贴图（保持本地使用，不上传 Git 远程）
 *.glb
 *.gltf

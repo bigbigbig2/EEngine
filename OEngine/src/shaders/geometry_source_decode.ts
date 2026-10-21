@@ -5,7 +5,7 @@ import {
   GPU_UV_FORMAT,
   GPU_NORMAL_FORMAT,
 } from "../gpu/GpuGeometryAbi.js";
-import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "./virtual_geometry_product.js";
+import { VIRTUAL_GEOMETRY_PRODUCT_WGSL, virtualGeometryVertexHeadersWgsl } from "./virtual_geometry_product.js";
 import { GEOMETRY_VERTEX_DATA_TYPE_CODE as T } from "../assets/GeometryAssetPackage.js";
 
 /** Selected meshlet-local vertices once per frame; ordinary decode is the
@@ -24,6 +24,11 @@ fn frame_vertex_word(bank: u32, word: u32) -> u32 {
 ${Array.from({ length: 4 }, (_, i) => `  if bank == ${i}u { return product_bank_${i}[word]; }`).join("\n")}
   return 0u;
 }
+fn frame_vertex_bank_words(bank: u32) -> u32 {
+${Array.from({ length: 4 }, (_, i) => `  if bank == ${i}u { return arrayLength(&product_bank_${i}); }`).join("\n")}
+  return 0u;
+}
+${virtualGeometryVertexHeadersWgsl()}
 fn frame_vertex_u8(bank: u32, byte: u32) -> u32 {
   return (frame_vertex_word(bank, byte >> 2u) >> ((byte & 3u) * 8u)) & 0xffu;
 }
@@ -35,20 +40,15 @@ fn frame_vertex_u16(bank: u32, byte: u32) -> u32 {
   return ((w0 >> 24u) | (w1 << 8u)) & 0xffffu;
 }
 fn frame_vertex_u32(bank: u32, byte: u32) -> u32 {
-  let shift = (byte & 3u) * 8u;
-  let w0 = frame_vertex_word(bank, byte >> 2u);
-  if shift == 0u { return w0; }
-  let w1 = frame_vertex_word(bank, (byte >> 2u) + 1u);
-  return (w0 >> shift) | (w1 << (32u - shift));
+  // V4 groups and meshlet payloads are word-aligned; every u32 stream is 4B.
+  return frame_vertex_word(bank, byte >> 2u);
 }
 fn frame_vertex_group_header(location: OEngineGeometryPageLookupV1, group: OEngineVirtualGroupV1) -> OEngineVirtualGroupHeaderV1 {
-${Array.from({ length: 4 }, (_, i) => `  if location.bank_index == ${i}u { return oengine_virtual_group_header_v1(&product_bank_${i}, location, group); }`).join("\n")}
-  return oengine_virtual_invalid_group_header_v1();
+  return frame_vertex_checked_group_header(location.bank_index, location, group);
 }
 fn frame_vertex_meshlet_header(location: OEngineGeometryPageLookupV1, group: OEngineVirtualGroupV1,
   header: OEngineVirtualGroupHeaderV1, local: u32) -> OEngineVirtualMeshletHeaderV1 {
-${Array.from({ length: 4 }, (_, i) => `  if location.bank_index == ${i}u { return oengine_virtual_meshlet_header_v1(&product_bank_${i}, location, group, header, local); }`).join("\n")}
-  return oengine_virtual_invalid_meshlet_header_v1();
+  return frame_vertex_checked_meshlet_header(location.bank_index, location, group, header, local);
 }
 var<workgroup> source_bank: u32;
 var<workgroup> source_triangle_byte: u32;

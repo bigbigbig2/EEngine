@@ -50,7 +50,11 @@ verifies:
 
 ## 2. 初始替换依据与当前代码边界
 
+2026-10-21按用户要求，完整资产生成与全参数质量选优分离。离线入口新增`--fixed`，使用现有High/Extreme的固定quality anchor、speed 4和512传输cell生成同一schema4产品，不启动GPU evaluator或候选搜索。固定cook的receipt明确`cookMode: fixed`、实际参数/命令hash和`qualityEvaluated: false`，不得伪造search report或视为画质通过。该模式先用于独立本地产物和体积比较，当前要求完整选优报告的publisher保持拒绝；未经材质正确性确认不得覆盖已发布示例。它不是旧runtime兼容路径，也不改变分辨率、通道、mip或算法。完整搜索仍为单独选优步骤，不再阻挡获取完整资产的基础体积事实。
+
 下表是设计启动时的旧链快照，用于解释替换对象，不表示这些旧文件仍存在或必须保留。当前源码ownership已经进入schema4图片链，E2仍施工中；实现事实见[材质纹理域](../domains/materials-textures.md)，不以设计目标冒称完成。
+
+2026-10-21后续用户明确授权把修复后固定cook接到本地Dungeon/Bistro示例。上述“固定cook不发布”边界据此调整：publisher接受显式`cookMode: fixed`且`qualityEvaluated: false`的当前schema产品，必须核对实际encoder命令hash、状态、数量、固定参数receipt及全部目录/payload范围与hash；不得伪造搜索报告。非fixed产品仍要求原完整选优报告。只改变离线产品发布资格，不增加runtime分支，不授予画质、性能或Spark分发资格。Dungeon保持原playground组合；Bistro本地dev路由指向完整r2目录，不将约0.5GB本地资产复制进Git。
 
 | 初始实现 | 设计启动时事实 | 替换目标 |
 | --- | --- | --- |

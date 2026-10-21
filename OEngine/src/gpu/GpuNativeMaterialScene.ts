@@ -148,7 +148,9 @@ export class GpuNativeMaterialScene {
     command: ShadeGPUCommandContext,
     private readonly productGeometry: boolean,
     private readonly physicalSun: boolean,
-    initialReflectionProfile: "off" | "sssr-base-coat" = "off"
+    initialReflectionProfile: "off" | "sssr-base-coat" = "off",
+    surfaceCacheGi = false,
+    private readonly localLights = true
   ) {
     if (command.closed || command.device !== graphics.device) {
       throw new Error("Native scene publication requires its open upload transaction");
@@ -176,6 +178,7 @@ export class GpuNativeMaterialScene {
       if (residency?.onPublicationChanged)
         this.detachMutations.push(residency.onPublicationChanged.subscribe(changed));
       this.reflections = initialReflectionProfile;
+      this.queryProjection = surfaceCacheGi;
       const initial = this.snapshot();
       this.dirty = false;
       this.candidate = initial;
@@ -659,6 +662,8 @@ export class GpuNativeMaterialScene {
           unlit: this.materialSources[index]!.material.is_unlit,
           reactive: true,
           finalPixel: true,
+          surfaceCacheGi: this.queryProjection,
+          localLights: this.localLights,
           physicalSun: this.physicalSun && !this.materialSources[index]!.material.is_unlit,
           costSlice: NATIVE_COST_SLICE
         },

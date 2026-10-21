@@ -603,3 +603,26 @@ test("VSM complete Cartesian domain and borrowed source bounds are rejected befo
   await f.publication.retire(Promise.resolve());
   f.registry.destroy();
 });
+
+
+test("Product native programs close only their geometry and enabled GI consumers", () => {
+  const builder = new AppearanceGraphBuilder();
+  builder.output("baseColor", builder.constant([0.2, 0.3, 0.4]));
+  const program = lowerNativeMaterial(compileAppearanceGraph(builder.build()));
+  const profile = { compact: true, productGeometry: true, unlit: false,
+    reactive: true, finalPixel: true, physicalSun: false };
+  const native = nativeSurfaceDescriptor(program, [], profile).source;
+  assert.doesNotMatch(native, /source_geometry: GpuGeometryRecord/);
+  assert.doesNotMatch(native, /fn scgi_native_irradiance/);
+  assert.doesNotMatch(native, /fn native_geometry_input\(/);
+  assert.equal((native.match(/geometry_complete_resolved\(decoded, work, instance\)/g) ?? []).length, 2);
+  assert.match(native, /fn native_recover_winner/);
+  assert.doesNotMatch(native, /fn geometry_complete_attributes/);
+  const gi = nativeSurfaceDescriptor(program, [], { ...profile, surfaceCacheGi: true }).source;
+  assert.match(gi, /fn scgi_native_irradiance/);
+  assert.match(gi, /scgi_native_source\(pixel,/);
+  const noLocal = nativeSurfaceDescriptor(program, [], { ...profile, localLights: false });
+  assert.doesNotMatch(noLocal.source, /fn shade_standard_material_direct/);
+  assert.match(noLocal.source, /struct GpuPrimitiveTypeTable/);
+  assert.ok(noLocal.groups[1].some((entry) => entry.binding === 2));
+});

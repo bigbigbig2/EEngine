@@ -124,7 +124,7 @@ export class LocalLightWorkGenerator {
     LocalLightWorkFrame,
     {
       allocation: Allocation;
-      pairGroup: GPUBindGroup;
+      pairGroup: GPUBindGroup | null;
       scans: { stage: ScanStage; group: GPUBindGroup }[];
       taskScanCount: number;
       clusters: number;
@@ -220,7 +220,7 @@ export class LocalLightWorkGenerator {
         }),
       ],
     });
-    for (const entryPoint of stages) {
+    const jobs = stages.map(async (entryPoint) => {
       const pipeline = await PipelineCompilationQueue.forDevice(this.device).run(() =>
         this.device.createComputePipelineAsync({
           label: `LocalLightWork/${entryPoint}`,
@@ -232,7 +232,7 @@ export class LocalLightWorkGenerator {
         throw new Error("LocalLightWork pipeline initialization cancelled");
       }
       this.pipelines.set(entryPoint, pipeline);
-    }
+    });
     const scanModule = this.device.createShaderModule({
       label: "LocalLightWork/scan",
       code: LOCAL_LIGHT_SCAN_WGSL,
@@ -247,7 +247,7 @@ export class LocalLightWorkGenerator {
         }),
       ],
     });
-    for (const entryPoint of ["scan", "add"]) {
+    jobs.push(...["scan", "add"].map(async (entryPoint) => {
       const pipeline = await PipelineCompilationQueue.forDevice(this.device).run(() =>
         this.device.createComputePipelineAsync({
           label: `LocalLightWork/${entryPoint}`,
@@ -259,11 +259,13 @@ export class LocalLightWorkGenerator {
         throw new Error("LocalLightWork scan initialization cancelled");
       }
       this.pipelines.set(entryPoint, pipeline);
-    }
+    }));
+    await Promise.all(jobs);
   }
 
   prepare(request: LocalLightWorkRequest): LocalLightWorkFrame {
-    if (this.disposed || !this.pipelines.has("add")) {
+    const sparseRequest = request.mode === LOCAL_LIGHT_MODE.SPARSE && request.publication.ids.length > 0;
+    if (this.disposed || (sparseRequest && !this.pipelines.has("add"))) {
       throw new Error("LocalLightWork is unavailable or not ready");
     }
     this.validate(request);
@@ -469,7 +471,7 @@ export class LocalLightWorkGenerator {
         }),
       };
     });
-    const pairGroup = this.bindGroups.create(this.device, {
+    const pairGroup = sparse ? this.bindGroups.create(this.device, {
       layout: this.pipelines.get("count")!.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: allocation.parameters } },
@@ -479,7 +481,7 @@ export class LocalLightWorkGenerator {
         { binding: 4, resource: { buffer: allocation.scratch } },
         { binding: 5, resource: allocation.lookupBinding },
       ],
-    });
+    }) : null;
     allocation.state = "prepared";
     const frame: LocalLightWorkFrame = {
       parameters: allocation.parameters,
@@ -578,7 +580,7 @@ export class LocalLightWorkGenerator {
     const dispatch = (entry: string, groups: number, y = 1, indirect = false): void => {
       const pass = encoder.beginComputePass({ label: `LocalLightWork/${entry}` });
       pass.setPipeline(this.pipelines.get(entry)!);
-      pass.setBindGroup(0, indirect ? state.pairGroup : group);
+      pass.setBindGroup(0, indirect ? state.pairGroup! : group);
       if (indirect) {
         pass.dispatchWorkgroupsIndirect(allocation.indirect, 0);
       } else {

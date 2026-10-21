@@ -50,17 +50,35 @@ export async function scenePackageFiles(directory) {
     if (bytes.length !== product.byteLength) throw new Error("Scene product directory extent mismatch");
     const directory = JSON.parse(bytes);
     if (directory.schemaVersion !== 4) throw new Error("Scene package requires image schema4");
-    const report = JSON.parse(await add(product.searchReport, product.searchReportHash));
     const receipt = JSON.parse(await add(product.receipt));
-    if (receipt.identity !== product.identity || receipt.searchReportHash !== product.searchReportHash ||
-        receipt.searchIdentity !== report.identity || !isDeepStrictEqual(receipt.directory, directory)) {
+    if (receipt.identity !== product.identity || !isDeepStrictEqual(receipt.directory, directory)) {
       throw new Error("Scene product receipt identity mismatch");
     }
-    const candidates = directory.planes.some((plane) => plane.mode === "virtual") ? 60 : 20;
-    if (report.report?.rows?.length !== candidates || report.report.selected?.accepted !== true ||
-        report.report.selected?.evaluation?.hardSemantics !== true ||
-        report.report.selected?.evaluation?.inputHash !== product.identity) {
-      throw new Error("Scene product lacks the complete qualified image search");
+    if (manifest.evidence?.cookMode === "fixed") {
+      if (manifest.evidence.qualityEvaluated !== false || receipt.cookMode !== "fixed" ||
+          receipt.qualityEvaluated !== false || product.searchReport !== undefined ||
+          receipt.candidate?.quality !== (directory.quality === "high" ? 80 : directory.quality === "extreme" ? 50 : -1) ||
+          receipt.candidate?.speed !== 4 || typeof receipt.commandsHash !== "string") {
+        throw new Error("Scene product lacks an explicit fixed-profile receipt");
+      }
+      const commandsUri = relative(root,
+        resolve(dirname(packagePath(root, product.uri)), receipt.commands)).replaceAll("\\", "/");
+      const commands = JSON.parse(await add(commandsUri, receipt.commandsHash));
+      if (!Array.isArray(commands) || commands.length !== directory.items.filter((item) => item.kind === "image").length ||
+          commands.some((command) => command.status !== 0 || !Array.isArray(command.argv))) {
+        throw new Error("Fixed-profile encoder commands are incomplete");
+      }
+    } else {
+      const report = JSON.parse(await add(product.searchReport, product.searchReportHash));
+      if (receipt.searchReportHash !== product.searchReportHash || receipt.searchIdentity !== report.identity) {
+        throw new Error("Scene product search identity mismatch");
+      }
+      const candidates = directory.planes.some((plane) => plane.mode === "virtual") ? 60 : 20;
+      if (report.report?.rows?.length !== candidates || report.report.selected?.accepted !== true ||
+          report.report.selected?.evaluation?.hardSemantics !== true ||
+          report.report.selected?.evaluation?.inputHash !== product.identity) {
+        throw new Error("Scene product lacks the complete qualified image search");
+      }
     }
     for (const item of directory.items) {
       const uri = relative(root, resolve(dirname(packagePath(root, product.uri)), item.uri)).replaceAll("\\", "/");

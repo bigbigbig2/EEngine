@@ -203,6 +203,7 @@ export class TextureResidency {
     const entries = new Set(materials.flatMap((material) => this.materials.get(material)?.entries ?? []));
     if (entries.size === 0) return;
     await this.prepare();
+    await this.transcoder!.prepare([...entries].flatMap((entry) => entry.product.source.directory.planes));
     this.assertCommand(command);
     const abort = new AbortController();
     command.onAborted.addOne(() => abort.abort());

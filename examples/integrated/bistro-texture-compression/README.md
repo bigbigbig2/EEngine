@@ -2,6 +2,9 @@
 
 Independent EEngine demo using the current production Renderer and authored
 materials. Default mode is Cooked; `?mode=raw` explicitly selects browser Raw cook.
+The development cooked route currently serves the complete repaired fixed-High
+products in `.local/extreme-web-asset/bistro-fixed-high-r2`. These products have
+not passed the exhaustive quality search; successful loading is not quality acceptance.
 Offline products deliver AVIF and exact planes; the runtime encodes BC7/BC5/BC4
 with explicitly configured Spark kernels. Source resolution, alpha cutoff and
 scene geometry are unchanged. This is a scene demo, not a formal benchmark or a renderer feature claim.
@@ -206,8 +209,8 @@ merely because the historical debug descriptor labels them supported.
 The default frame includes native material/physical sun, sky diffuse/specular
 IBL, physical sky, aerial perspective, FSR3, GPU auto exposure and SDR display
 grading. VSM, GTAO and Bloom are enabled with their switches. There are no authored
-lamps/HDR in this model. SSR and screen-space GI are not wired into this Frame
-Program. A listed Frame stage may
+lamps/HDR in this model. SSR is not wired into this Frame Program. A listed
+Frame stage may
 remain as a copy/disabled stage; Active effects reports the actual control state.
 
 2026-10-09 targeted Cooked Bistro diagnosis on the same NVIDIA Turing/WebGPU

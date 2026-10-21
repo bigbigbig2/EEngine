@@ -293,18 +293,19 @@ binHeader.writeUInt32LE(binary.length);
 binHeader.writeUInt32LE(0x004e4942, 4);
 const input = resolve(demo, "assets/playground.glb"),
   output = resolve(root, ".local/models/dungeon-playground-cooked");
+const dungeonRoot = resolve(demo, "assets/cooked");
+const dungeon = await readJson(resolve(dungeonRoot, "scene.materials.json"));
 await writeFile(input, Buffer.concat([header, jsonChunk, binHeader, binary]));
 const cook = spawnSync(
   process.execPath,
-  [resolve(root, "OEngine/tools/cook-offline-scene.mjs"), input, output, "4"],
+  [resolve(root, "OEngine/tools/cook-offline-scene.mjs"), input, output, "4",
+    ...(dungeon.evidence?.cookMode === "fixed" ? ["--fixed"] : [])],
   { cwd: root, stdio: "inherit", windowsHide: true }
 );
 if (cook.status !== 0) throw new Error(`Playground cook failed: ${cook.status}`);
 
-const dungeonRoot = resolve(demo, "assets/cooked"),
-  destination = resolve(output, "composed");
+const destination = resolve(output, "composed");
 await mkdir(destination, { recursive: true });
-const dungeon = await readJson(resolve(dungeonRoot, "scene.materials.json"));
 const playground = await readJson(resolve(output, "scene.materials.json"));
 if (dungeon.schema !== "oengine-image-scene-materials-v2" || playground.schema !== dungeon.schema) {
   throw new Error("Playground composition requires schema4 image scenes; recook in E5");
@@ -357,7 +358,8 @@ const manifest = {
     ...playground.bindings
   ],
   products: dungeon.products.map((p) => ({
-    ...p, uri: `dungeon/${p.uri}`, searchReport: `dungeon/${p.searchReport}`, receipt: `dungeon/${p.receipt}`
+    ...p, uri: `dungeon/${p.uri}`, receipt: `dungeon/${p.receipt}`,
+    ...(p.searchReport ? { searchReport: `dungeon/${p.searchReport}` } : {})
   })),
   instanceMaterials: [
     ...dungeon.instanceMaterials,

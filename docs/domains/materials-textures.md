@@ -43,6 +43,8 @@ verifies:
 
 `TextureResidency`是普通长期array/layer、handle、neutral层、refcount与fence退休owner；mandatory图片和完整resident exact coverage先隐藏准备，再沿scene事务发布。BC5在Native sample边界重建Z，provided XYZ/moment与之区分；padded物理尺寸不改变源逻辑尺寸，`image_texture_sampling`按逐层逻辑域过滤。
 
+2026-10-21：exact coverage只对masked coverage成立。标准appearance graph无条件输出alpha，因此不能仅凭base sample的readMask bit8判断coverage；cook与runtime统一按`compileCanonicalMaterial(...).coverage === "masked"`请求/要求exact R8。OPAQUE材质不再生成或要求常量R8 plane，颜色plane回到runtime mip；BLEND同理。该修正消除了hello固定Q80基线的6.99MB常量alpha，并使cook与runtime合同一致。
+
 `VirtualTextureResidency`唯一拥有页表、format atlas、protected tail、主/query需求、父级闭包、pending、victim/eviction/rescue及mapping/退休；`VirtualTextureFeedback`保留延迟wanted/used/union和overflow恢复。新图片lease经GPU装配/编码进入真实slot/layer，不再下载最终BC+Zstd纹理页。VT同源尾层和普通exact plane沿现有材质publication接线；全部实际组合语义留最终集成验证，不据源码接线宣称画面通过。
 
 ## 退休与交付边界

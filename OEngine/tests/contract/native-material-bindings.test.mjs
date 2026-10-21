@@ -211,3 +211,19 @@ test("invalid physical routes and mismatched compiler products reject before GPU
     /match/,
   );
 });
+
+
+test("immutable graph literals are code while numeric parameters retain shared program identity", () => {
+  const make = (gain) => {
+    const builder = new AppearanceGraphBuilder();
+    const value = builder.parameter("gain", gain, { low: 0, high: 1 });
+    builder.output("alpha", builder.operation("multiply", value, builder.constant(0.5)));
+    return lowerNativeMaterial(compileAppearanceGraph(builder.build()));
+  };
+  const first = make(0.2);
+  const second = make(0.8);
+  assert.equal(first.key, second.key);
+  assert.match(first.source, /: f32 = 0\.5;/);
+  assert.match(first.source, /native_material_constant\(material_base,/);
+  assert.notDeepEqual(first.constants, second.constants);
+});

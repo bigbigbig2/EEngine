@@ -1,4 +1,4 @@
-import { NATIVE_GEOMETRY_INPUTS_WGSL } from "./native_geometry_inputs.js";
+import { nativeGeometryInputsWgsl } from "./native_geometry_inputs.js";
 import { SCGI_NATIVE_WGSL } from "./scgi_native.js";
 import { nativePublicationAccessors } from "../gpu/NativePublicationAbi.js";
 import { VIRTUAL_TEXTURE_FEEDBACK_WGSL } from "./virtual_texture.js";
@@ -14,7 +14,7 @@ import type { AppearanceProgramDescriptor } from "../gpu/AppearanceProgramRegist
 import { NATIVE_MATERIAL_DIRECTORY_WGSL } from "../gpu/GpuNativeMaterialPublication.js";
 import { surfaceGeometryCompletionWgsl } from "./surface_geometry_completion.js";
 import { NATIVE_RESOLVED_POSITION_WGSL } from "./native_resolved_position.js";
-import { nativeLocalLighting } from "./native_local_lighting.js";
+import { nativeLocalLighting, nativeLightingCoreWgsl } from "./native_local_lighting.js";
 import {
   FINAL_PIXEL_DIRECTORY_WGSL,
   FINAL_PIXEL_LIGHTING_DIRECTORY_WGSL,
@@ -46,6 +46,8 @@ export interface NativeSurfaceShaderProfile {
   readonly costSlice?: NativeSurfaceCostSlice;
   /** Production Final Pixel profile; smaller profiles serve isolated fixtures. */
   readonly finalPixel?: boolean;
+  readonly surfaceCacheGi?: boolean;
+  readonly localLights?: boolean;
 }
 
 export const NATIVE_SURFACE_SETTINGS_BYTES = 208;
@@ -127,7 +129,7 @@ export function nativeSurfaceDescriptor(
     // 368B GeometryCompletion; dense adds 64 keys and one atomic word.
     // Each independent workgroup variable rounds to at least 16 bytes.
     workgroupStorageBytes:
-      16 +
+      32 +
       32 +
       32 +
       176 +
@@ -184,23 +186,33 @@ export function nativeSurfaceBindingGroups(
   if (profile.reflections === "sssr-base-coat") {
     geometry.push({ binding: 15, visibility: COMPUTE, buffer: { type: "storage" } });
   }
-  const lighting: GPUBindGroupLayoutEntry[] = profile.unlit
-    ? []
-    : [
+  const lighting: GPUBindGroupLayoutEntry[] = [];
+  if (!profile.unlit) {
+    if (profile.localLights !== false) {
+      lighting.push(
         read(0),
         uniform(1),
-        profile.finalPixel ? { binding: 2, visibility: COMPUTE, buffer: { type: "storage" } } : read(2),
+        profile.finalPixel
+          ? { binding: 2, visibility: COMPUTE, buffer: { type: "storage" } }
+          : read(2),
         read(3),
-        uniform(4),
-        texture(5, "unfilterable-float"),
-        texture(6, "unfilterable-float"),
-        texture(7, "float"),
-        uniform(8),
-        texture(10, "depth"),
-        texture(11, "float"),
-      ];
+      );
+    }
+    lighting.push(
+      uniform(4),
+      texture(5, "unfilterable-float"),
+      texture(6, "unfilterable-float"),
+      texture(7, "float"),
+      uniform(8),
+      texture(10, "depth"),
+      texture(11, "float"),
+    );
+  }
   if (profile.unlit && profile.finalPixel) {
     lighting.push({ binding: 2, visibility: COMPUTE, buffer: { type: "storage" } }, uniform(9));
+  } else if (!profile.unlit && profile.finalPixel && profile.localLights === false) {
+    // Final-pixel lighting owns this directory even when local light lookup is absent.
+    lighting.push({ binding: 2, visibility: COMPUTE, buffer: { type: "storage" } });
   }
   if (!profile.unlit) {
     // Both IBL owners publish linear rgba16float. Only DFG uses hardware
@@ -275,6 +287,7 @@ export function nativeSurfaceWgsl(
   }
   let needs = profile.unlit ? (profile.finalPixel ? 1 << 7 : 0) : (1 << 7) | (1 << 5) | (1 << 6);
   const inputs: string[] = [];
+  const geometryKinds = new Set<number>([5, 6]);
   program.inputs.forEach((input, index) => {
     let expression: string;
     if (input.domain === "dynamic" || input.domain === "nonlocal") {
@@ -291,7 +304,8 @@ export function nativeSurfaceWgsl(
         throw new Error(`Native Surface input '${input.name}' requires an explicit geometry semantic`);
       }
       needs |= 1 << kind;
-      expression = `native_geometry_input(corners, weights, ${kind}u)`;
+      geometryKinds.add(kind);
+      expression = `native_geometry_input_${kind}(corners, weights)`;
     }
     for (const [point, weights] of [
       ["center", "interpolation.weights"],
@@ -322,10 +336,11 @@ export function nativeSurfaceWgsl(
           .join(", ")})`;
   };
   const reflections = profile.reflections === "sssr-base-coat";
+  const gi = !!profile.finalPixel && !!profile.surfaceCacheGi;
   const reactiveDeclaration = profile.finalPixel
     ? nativeTemporalSeedWgsl(0, 6, 8, 9).replace(
         "primary_motion.valid && entry.value_revision != 0u, 0.0, alpha_mask",
-        `primary_motion.valid && entry.value_revision != 0u, ${profile.unlit ? "0.0" : "scgi_reactivity"}, alpha_mask`,
+        `primary_motion.valid && entry.value_revision != 0u, ${!gi || profile.unlit ? "0.0" : "scgi_reactivity"}, alpha_mask`,
       )
     : nativeResponseWgsl(!!profile.reactive);
   const reactiveWrite =
@@ -335,7 +350,9 @@ export function nativeSurfaceWgsl(
   const productBindings = profile.productGeometry
     ? `@group(0) @binding(10) var<storage, read> product_heap: array<u32>;\n${Array.from({ length: 4 }, (_, index) => `@group(0) @binding(${11 + index}) var<storage, read> product_bank_${index}: array<u32>;`).join("\n")}`
     : "";
-  const localLighting = nativeLocalLighting(fusedSun);
+  const localLighting = profile.localLights === false
+    ? { declarations: "", source: nativeLightingCoreWgsl() }
+    : nativeLocalLighting(fusedSun);
   const lighting = profile.unlit
     ? profile.finalPixel
       ? FINAL_PIXEL_LIGHTING_DECLARATIONS_WGSL.replace(
@@ -382,7 +399,7 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
       : ""
   }
   let irradiance = sample_native_environment_mip(environment_diffuse, normal, 0u);
-  ${profile.finalPixel ? "let gi = scgi_native_irradiance(normal, pixel);" : ""}
+  ${gi ? "let gi = scgi_native_irradiance(normal, pixel);" : ""}
   let reflection = reflect(-direction, normal);
   let radiance = sample_native_environment(environment_specular, reflection, material.roughness);
   let dfg = sample_environment_dfg(environment_dfg, environment_sampler, saturate(dot(normal, direction)), material.roughness);
@@ -398,7 +415,7 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
   }
   let ao = textureLoad(ambient_occlusion, vec2i(min(pixel, textureDimensions(ambient_occlusion) - vec2u(1u))), 0).r * material.occlusion;
   ${
-    profile.finalPixel
+    gi
       ? `let indirect = mix(irradiance * ao, gi.xyz * material.occlusion, gi.w);
   let diffuse = indirect * material.diffuse * RECIPROCAL_PI;`
       : "let diffuse = irradiance * material.diffuse * RECIPROCAL_PI * ao;"
@@ -439,8 +456,11 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
 `;
   const sunLighting =
     "native_surface_physical_sun(prepare_direct_physical(normalize(native_physical_sun.sun_direction_world), geometry, material), resolved_position, resolved.flags, sun_visibility)";
+  const localDirect = profile.localLights === false
+    ? "vec3f(0.0)"
+    : "shade_standard_material_direct(material, geometry, vec2f(pixel) + vec2f(0.5), view_depth)";
   const directLighting =
-    "shade_standard_material_direct(material, geometry, vec2f(pixel) + vec2f(0.5), view_depth)" +
+    localDirect +
     (profile.physicalSun ? " + " + sunLighting : "");
   const directEnabled = profile.physicalSun
     ? "native_physical_sun.diagnostic_mode == 0u || native_physical_sun.diagnostic_mode == 4u"
@@ -454,7 +474,7 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
     // End attributes/material/local/IBL before PCF. Only separate local/IBL
     // RGB and the BRDF response survive; preserve (local + Sun) + environment.
     materialLighting = `  if (${directEnabled}) {
-    local_color = shade_standard_material_direct(material, geometry, vec2f(pixel) + vec2f(0.5), view_depth);
+    local_color = ${localDirect};
     sun_response = prepare_direct_physical(normalize(native_physical_sun.sun_direction_world), geometry, material);
   }
   environment_color = native_environment(material, mapped_normal, direction, pixel);`;
@@ -480,7 +500,7 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
     ? /* wgsl */ `
   let color = ${vector("baseColor", "vec3f(0.0)")};
   ${
-    profile.finalPixel
+    gi
       ? `scgi_native_source(pixel, vec3f(0.0), 1.0, max(color, vec3f(0.0)), 1.0,
     native_face_normal(resolved.world_plane.xyz, resolved_position), resolved.flags);`
       : ""
@@ -514,7 +534,7 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
   let geometry = SurfaceGeometry(mapped_normal, native_safe_normal(corners.world_plane.xyz, normal), position, direction);
   let view_depth = max(-(settings.view_matrix * vec4f(position, 1.0)).z, 1e-4);
 ${
-  profile.finalPixel
+  gi
     ? `let source_underlayer = 1.0 - (0.04 + 0.96 * pow(1.0 - clamp(dot(material.coatNormal, direction), 0.0, 1.0), 5.0)) * material.coatFactor;
   scgi_native_source(pixel, material.diffuse * 0.3183098861837907, material.occlusion,
     material.emissive, source_underlayer, mapped_normal, resolved.flags);`
@@ -569,12 +589,7 @@ ${materialLighting}
               rep_work.material_slot_or_range < native_material_count() {
             let rep_entry = native_material_entry(rep_work.material_slot_or_range);
             if rep_entry.execution_bin == route.x${profile.finalPixel ? " && rep_entry.program_index != 0xffffffffu" : ""} {
-              let rep_instance = frame_instances[rep_work.instance_slot];
-              let rep_resolved = geometry_complete_resolved(rep_decoded, rep_work, rep_instance);
-              wg_cache_work[0] = rep_work;
-              wg_cache_entry[0] = rep_entry;
-              wg_cache_instance_source[0] = rep_instance.source;
-              wg_cache_corners[0] = geometry_complete_attributes(rep_resolved, rep_instance);
+              wg_representative_key = rep_key;
               wg_tile_broadcast = 1u;
             }
           }
@@ -591,7 +606,7 @@ ${materialLighting}
     lane_key = textureLoad(visibility, vec2i(pixel), 0).r;
   }
 ${sharedCachePopulate}
-  if (!lane_active) { return; }
+
 `
     : /* wgsl */ `
   let pixel = id.xy + vec2u(route.y & 65535u, route.y >> 16u);
@@ -618,12 +633,7 @@ ${sharedCachePopulate}
           rep_work.material_slot_or_range < native_material_count() {
         let rep_entry = native_material_entry(rep_work.material_slot_or_range);
         if rep_entry.execution_bin == route.x${profile.finalPixel ? " && rep_entry.program_index != 0xffffffffu" : ""} {
-          let rep_instance = frame_instances[rep_work.instance_slot];
-          let rep_resolved = geometry_complete_resolved(rep_decoded, rep_work, rep_instance);
-          wg_cache_work[0] = rep_work;
-          wg_cache_entry[0] = rep_entry;
-          wg_cache_instance_source[0] = rep_instance.source;
-          wg_cache_corners[0] = geometry_complete_attributes(rep_resolved, rep_instance);
+          wg_representative_key = dense_key;
           wg_tile_broadcast = 1u;
         }
       }
@@ -633,7 +643,7 @@ ${sharedCachePopulate}
   let lane_active = in_bounds;
   let lane_key = dense_key;
 ${sharedCachePopulate}
-  if (!lane_active) { return; }
+
 `;
   const rasterFlags = `  let raster_flags = u32(native_material_constant(entry.constant_base, ${program.constants.length + 1}u));`;
   let evaluation = /* wgsl */ `
@@ -642,8 +652,8 @@ ${inputs.join("\n")}
   let values = native_material_evaluate(entry.constant_base, inputs);
 ${fusedSun ? "" : rasterFlags}
   let position = resolved_position;
-  let normal = native_geometry_input(corners, interpolation.weights, 5u).xyz;
-  let tangent = native_geometry_input(corners, interpolation.weights, 6u);
+  let normal = native_geometry_input_5(corners, interpolation.weights).xyz;
+  let tangent = native_geometry_input_6(corners, interpolation.weights);
   let basis = mat3x3f(tangent.xyz, cross(normal, tangent.xyz) * tangent.w, normal);
 ${material}
 `;
@@ -693,21 +703,15 @@ ${material}
     evaluation += "  let color = vec3f(0.2) + vec3f(diagnostic_anchor * 0.0001);\n";
   }
   const seedSurfaceBlock = profile.finalPixel
-    ? /* wgsl */ `var seed_instance_source: OEngineInstanceRecord;
-  if (cache_hit) {
-    seed_instance_source = wg_cache_instance_source[cache_slot];
-  } else {
-    seed_instance_source = frame_instances[work.instance_slot].source;
-  }
-  seed_surface(pixel, resolved_position, settings.view_matrix, seed_instance_source,
+    ? /* wgsl */ `seed_surface(pixel, resolved_position, settings.view_matrix, instance_source,
     work, entry, (raster_flags & 1u) != 0u);`
     : "";
   return /* wgsl */ `
 // Native cost slice: ${costSlice}
-${surfaceGeometryCompletionWgsl(profile.productGeometry, true, false, fusedSun)}
-${NATIVE_RESOLVED_POSITION_WGSL}
+${surfaceGeometryCompletionWgsl(profile.productGeometry, true, false, false, profile.productGeometry, needs)}
+${NATIVE_RESOLVED_POSITION_WGSL.replace("resolved: GeometryResolved", "resolved: GeometryCompletion")}
 ${lighting}
-${profile.finalPixel ? SCGI_NATIVE_WGSL : ""}
+${gi ? SCGI_NATIVE_WGSL : ""}
 ${LINEAR_REC709_TO_REC2020_WGSL}
 ${profile.finalPixel ? FINAL_PIXEL_DIRECTORY_WGSL : NATIVE_MATERIAL_DIRECTORY_WGSL}
 struct NativeSurfaceSettings {
@@ -748,7 +752,7 @@ const geometry_needs: u32 = ${needs}u;
 ${nativePublicationAccessors("native_publication")}
 ${program.virtualTextures ? VIRTUAL_TEXTURE_FEEDBACK_WGSL : ""}
 ${program.source}
-${NATIVE_GEOMETRY_INPUTS_WGSL}
+${nativeGeometryInputsWgsl(geometryKinds)}
 ${
   fusedSun
     ? `fn native_face_normal(value: vec3f, position: vec3f) -> vec3f {
@@ -758,6 +762,7 @@ ${
     : ""
 }
 var<workgroup> wg_tile_broadcast: u32;
+var<workgroup> wg_representative_key: u32;
 var<workgroup> wg_cache_work: array<OEngineMeshletRasterWork, 1>;
 var<workgroup> wg_cache_entry: array<NativeMaterialDirectoryEntry, 1>;
 var<workgroup> wg_cache_instance_source: array<OEngineInstanceRecord, 1>;
@@ -768,63 +773,82 @@ ${
     : `var<workgroup> wg_dense_keys: array<u32, 64>;
 var<workgroup> wg_dense_mixed: atomic<u32>;`
 }
+
+struct NativeWinner {
+  work: OEngineMeshletRasterWork,
+  entry: NativeMaterialDirectoryEntry,
+  instance_source: OEngineInstanceRecord,
+  corners: GeometryCompletion,
+  valid: bool,
+}
+fn native_recover_winner(key: u32) -> NativeWinner {
+  var result: NativeWinner;
+  if (key == OENGINE_VISIBILITY_KEY_EMPTY) { return result; }
+  if (meshlet_work.header.generation != settings.dimensions.w) {
+    return result;
+  }
+  let decoded = oengine_visibility_key_resolve(key, meshlet_work.header.generation, meshlet_work.header.written_count);
+  if (decoded.valid == 0u) {
+    return result;
+  }
+  if (decoded.meshlet_work_slot >= min(meshlet_work.header.capacity, arrayLength(&meshlet_work.elements))) {
+    return result;
+  }
+  let work = meshlet_work.elements[decoded.meshlet_work_slot];
+  if (work.instance_slot >= arrayLength(&frame_instances)) {
+    return result;
+  }
+  if (frame_instances[work.instance_slot].generation != settings.dimensions.w) {
+    return result;
+  }
+  let slot = work.material_slot_or_range;
+  if (slot >= native_material_count()) {
+    return result;
+  }
+  let entry = native_material_entry(slot);
+  if (entry.execution_bin != route.x${profile.finalPixel ? " || entry.program_index == 0xffffffffu" : ""}) {
+    return result;
+  }
+  let instance = frame_instances[work.instance_slot];
+  result.work = work;
+  result.entry = entry;
+  result.instance_source = instance.source;
+  result.corners = geometry_complete_resolved(decoded, work, instance);
+  result.valid = true;
+  return result;
+}
+
 @compute @workgroup_size(${profile.compact ? "64" : "8, 8"})
 fn main(@builtin(global_invocation_id) id: vec3u, @builtin(workgroup_id) group: vec3u,
   @builtin(num_workgroups) groups: vec3u, @builtin(local_invocation_index) lane: u32) {
 ${pixelSelection}
-  let cache_hit = cache_slot == 0u;
-  var work: OEngineMeshletRasterWork;
-  var entry: NativeMaterialDirectoryEntry;
-  var resolved: GeometryResolved;
-  if (cache_hit) {
-    work = wg_cache_work[cache_slot];
-    entry = wg_cache_entry[cache_slot];
-    let shared_c = wg_cache_corners[cache_slot];
-    resolved = GeometryResolved(shared_c.flags, vec3u(0u), shared_c.coefficients, shared_c.position, shared_c.world_plane);
-  } else {
-    let key = lane_key;
-    ${
-      profile.finalPixel
-        ? `if (key == OENGINE_VISIBILITY_KEY_EMPTY) {
-      seed_unassigned(pixel, true);
-      return;
-    }`
-        : ""
-    }
-    if (meshlet_work.header.generation != settings.dimensions.w) {
-      ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
-      return;
-    }
-    let decoded = oengine_visibility_key_resolve(key, meshlet_work.header.generation, meshlet_work.header.written_count);
-    if (decoded.valid == 0u) {
-      ${profile.finalPixel ? "seed_unassigned(pixel, key == OENGINE_VISIBILITY_KEY_EMPTY);" : ""}
-      return;
-    }
-    if (decoded.meshlet_work_slot >= min(meshlet_work.header.capacity, arrayLength(&meshlet_work.elements))) {
-      ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
-      return;
-    }
-    work = meshlet_work.elements[decoded.meshlet_work_slot];
-    if (work.instance_slot >= arrayLength(&frame_instances)) {
-      ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
-      return;
-    }
-    if (frame_instances[work.instance_slot].generation != settings.dimensions.w) {
-      ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
-      return;
-    }
-    let slot = work.material_slot_or_range;
-    if (slot >= native_material_count()) {
-      ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
-      return;
-    }
-    entry = native_material_entry(slot);
-    if (entry.execution_bin != route.x${profile.finalPixel ? " || entry.program_index == 0xffffffffu" : ""}) {
-      ${profile.finalPixel ? "seed_unassigned(pixel, false);" : ""}
-      return;
-    }
-    resolved = geometry_complete_resolved(decoded, work, frame_instances[work.instance_slot]);
+  var winner: NativeWinner;
+  if (select(lane_active, lane == 0u, tile_broadcast)) {
+    winner = native_recover_winner(select(lane_key, wg_representative_key, tile_broadcast));
   }
+  if (tile_broadcast && lane == 0u) {
+    wg_cache_work[0] = winner.work;
+    wg_cache_entry[0] = winner.entry;
+    wg_cache_instance_source[0] = winner.instance_source;
+    wg_cache_corners[0] = winner.corners;
+  }
+  workgroupBarrier();
+  if (!lane_active) { return; }
+  let cache_hit = cache_slot == 0u;
+  var work = winner.work;
+  var entry = winner.entry;
+  var corners = winner.corners;
+  var instance_source = winner.instance_source;
+  if (cache_hit) {
+    work = wg_cache_work[0];
+    entry = wg_cache_entry[0];
+    corners = wg_cache_corners[0];
+    instance_source = wg_cache_instance_source[0];
+  } else if (!winner.valid) {
+    ${profile.finalPixel ? 'seed_unassigned(pixel, lane_key == OENGINE_VISIBILITY_KEY_EMPTY);' : ''}
+    return;
+  }
+  let resolved = corners;
 ${
   fusedSun
     ? `${rasterFlags}
@@ -845,23 +869,18 @@ ${
   ${
     profile.finalPixel && !profile.unlit
       ? `final_pixel_receiver = pixel;
-  scgi_receiver_position = resolved_position;
+  ${gi ? `scgi_receiver_position = resolved_position;
   scgi_receiver_normal = normalize(resolved.world_plane.xyz);
-  scgi_receiver_instance = frame_instances[work.instance_slot].source;
+  scgi_receiver_instance = instance_source;
   scgi_receiver_slot = work.instance_slot;
   if ((scgi_receiver_instance.flags & 16u) != 0u &&
       dot(scgi_receiver_normal, settings.camera_position_exposure.xyz - resolved_position) < 0.0) {
     scgi_receiver_normal = -scgi_receiver_normal;
   }
-  scgi_material_revision = entry.value_revision;`
+  scgi_material_revision = entry.value_revision;` : ""}`
       : ""
   }
-  var corners: GeometryCompletion;
-  if (cache_hit) {
-    corners = wg_cache_corners[cache_slot];
-  } else {
-    corners = geometry_complete_attributes(resolved, frame_instances[work.instance_slot]);
-  }`
+`
     : ""
 }
 ${evaluation}
@@ -889,14 +908,14 @@ ${
   let color = (local_color + sun_color) + environment_color;`
     : ""
 }
-  ${profile.finalPixel && profile.physicalSun && !profile.unlit ? "scgi_native_source_sun(pixel, sun_visibility, vsm_visibility_qualified);" : ""}
+  ${gi && profile.physicalSun && !profile.unlit ? "scgi_native_source_sun(pixel, sun_visibility, vsm_visibility_qualified);" : ""}
   // P is the positive GPU exposure published by radiometry. An artistic lower
   // floor here would disagree with Sky/Aerial and HDR metering above L=1800.
   let contribution = oengine_linear_rec709_to_rec2020(color) * settings.camera_position_exposure.w;
   var output_radiance = contribution;
 ${vsmDebug}
   ${
-    profile.finalPixel && !profile.unlit
+    gi && !profile.unlit
       ? `if (lighting_ranges.extent_debug.z != 0u && lighting_ranges.extent_debug.z != 7u) {
     let debug_gi = scgi_native_irradiance(scgi_receiver_normal, pixel);
     output_radiance = select(oengine_linear_rec709_to_rec2020(debug_gi.xyz) * settings.camera_position_exposure.w,

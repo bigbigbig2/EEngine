@@ -16,6 +16,8 @@ import {
 } from "../assets/ImageTexturePages.js";
 import { imagePageAssemblySource, imagePageExactSource } from "./ImageTexturePageAssembly.js";
 
+import { PreparedComputePipeline, PreparedRenderPipeline } from "./PreparedPipeline.js";
+
 export type ImageEncoderVariant = "bc7-rgb" | "bc7-rgba" | "bc5-rg" | "bc4-r";
 export interface ImageKernelSource {
   readonly revision: "b9ea643a08cb9eef3a9ddc64564089bdd6fd0daf";
@@ -117,13 +119,13 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
  * idle work is zero. Slots remain exclusive through submission fence, including abort/loss. */
 export class ImageTextureTranscoder {
   readonly #device: GPUDevice;
-  readonly #encoders: Readonly<Record<ImageEncoderVariant, GPUComputePipeline>>;
-  readonly #mips: Readonly<Record<"magic" | "box", GPUComputePipeline>>;
-  readonly #restore: GPUComputePipeline;
-  readonly #assembly: GPUComputePipeline;
-  readonly #pageExact: GPUComputePipeline;
+  readonly #encoders: Readonly<Record<ImageEncoderVariant, PreparedComputePipeline>>;
+  readonly #mips: Readonly<Record<"magic" | "box", PreparedComputePipeline>>;
+  readonly #restore: PreparedComputePipeline;
+  readonly #assembly: PreparedComputePipeline;
+  readonly #pageExact: PreparedComputePipeline;
   readonly #sampler: GPUSampler;
-  readonly #fragmentMips: Readonly<Record<"rgba8unorm" | "rgba8unorm-srgb", GPURenderPipeline>>;
+  readonly #fragmentMips: Readonly<Record<"rgba8unorm" | "rgba8unorm-srgb", PreparedRenderPipeline>>;
   readonly #mipProfile: "compute" | "fragment";
   readonly #slots: InputSlot[] = [];
   readonly #exactRetire = new Set<() => void>();
@@ -144,15 +146,15 @@ export class ImageTextureTranscoder {
   private constructor(
     device: GPUDevice,
     source: ImageKernelSource,
-    encoders: Record<ImageEncoderVariant, GPUComputePipeline>,
-    mips: Record<"magic" | "box", GPUComputePipeline>,
-    restore: GPUComputePipeline,
-    assembly: GPUComputePipeline,
-    pageExact: GPUComputePipeline,
+    encoders: Record<ImageEncoderVariant, PreparedComputePipeline>,
+    mips: Record<"magic" | "box", PreparedComputePipeline>,
+    restore: PreparedComputePipeline,
+    assembly: PreparedComputePipeline,
+    pageExact: PreparedComputePipeline,
     precision: "f16" | "f32",
     rgbaLimit: number,
     blockLimit: number,
-    fragmentMips: Record<"rgba8unorm" | "rgba8unorm-srgb", GPURenderPipeline>,
+    fragmentMips: Record<"rgba8unorm" | "rgba8unorm-srgb", PreparedRenderPipeline>,
     mipProfile: "compute" | "fragment"
   ) {
     this.#device = device;
@@ -216,37 +218,36 @@ export class ImageTextureTranscoder {
     const mipProfile =
       options.mipProfile ??
       (/Firefox\//.test(globalThis.navigator?.userAgent ?? "") ? "fragment" : "compute");
-    const compile = async (code: string, entryPoint: string, label: string) => {
+    const compile = (code: string, entryPoint: string, label: string) => {
       const module = device.createShaderModule({ code, label });
-      const info = await module.getCompilationInfo();
-      const errors = info.messages.filter((message) => message.type === "error");
-      if (errors.length) {
-        throw new Error(errors.map((error) => `${label}:${error.lineNum}: ${error.message}`).join("\n"));
-      }
-      return device.createComputePipelineAsync({ label, layout: "auto", compute: { module, entryPoint } });
+      return new PreparedComputePipeline(device, {
+        label,
+        layout: "auto",
+        compute: { module, entryPoint },
+      });
     };
-    const encoders = {} as Record<ImageEncoderVariant, GPUComputePipeline>;
+    const encoders = {} as Record<ImageEncoderVariant, PreparedComputePipeline>;
     for (const variant of ["bc7-rgb", "bc7-rgba", "bc5-rg", "bc4-r"] as const) {
-      encoders[variant] = await compile(
+      encoders[variant] = compile(
         sparkPrecisionSource(source.shaders[variant], precision),
         "main",
         `Spark ${variant}/${precision}`
       );
     }
     const mips = {
-      magic: await compile(source.shaders.utils, "magic_mipmap", "Spark magic mip"),
-      box: await compile(source.shaders.utils, "mipmap", "Spark alpha box mip")
+      magic: compile(source.shaders.utils, "magic_mipmap", "Spark magic mip"),
+      box: compile(source.shaders.utils, "mipmap", "Spark alpha box mip")
     };
-    const restore = await compile(restoreSource, "main", "Canonical channel restore");
-    const assembly = await compile(imagePageAssemblySource, "main", "Image owner page assembly");
-    const pageExact = await compile(imagePageExactSource, "main", "Image exact page packing");
+    const restore = compile(restoreSource, "main", "Canonical channel restore");
+    const assembly = compile(imagePageAssemblySource, "main", "Image owner page assembly");
+    const pageExact = compile(imagePageExactSource, "main", "Image exact page packing");
     const fragmentModule = device.createShaderModule({
       code: source.shaders.utils,
       label: "Spark fragment mip"
     });
-    const fragmentMips = {} as Record<"rgba8unorm" | "rgba8unorm-srgb", GPURenderPipeline>;
+    const fragmentMips = {} as Record<"rgba8unorm" | "rgba8unorm-srgb", PreparedRenderPipeline>;
     for (const format of ["rgba8unorm", "rgba8unorm-srgb"] as const) {
-      fragmentMips[format] = await device.createRenderPipelineAsync({
+      fragmentMips[format] = new PreparedRenderPipeline(device, {
         label: `Spark fragment mip ${format}`,
         layout: "auto",
         vertex: { module: fragmentModule, entryPoint: "fullscreen_vs" },
@@ -268,6 +269,31 @@ export class ImageTextureTranscoder {
       fragmentMips,
       mipProfile
     );
+  }
+
+  /** Prepare declared product demand before recording; no compiler work in encode. */
+  async prepare(planes: readonly ImageTexturePlane[]): Promise<void> {
+    const jobs = new Set<PreparedComputePipeline | PreparedRenderPipeline>();
+    for (const plane of planes) {
+      if (plane.mode === "virtual") {
+        jobs.add(this.#assembly);
+        jobs.add(plane.target === "r8" ? this.#pageExact : this.#encoders[plane.target]);
+      } else if (plane.target !== "r8") {
+        jobs.add(this.#restore);
+        jobs.add(this.#encoders[plane.target]);
+      }
+      if (plane.mips === "runtime") {
+        if (this.#mipProfile === "fragment") {
+          jobs.add(this.#fragmentMips[plane.semantic.startsWith("color-") ? "rgba8unorm-srgb" : "rgba8unorm"]);
+        } else {
+          jobs.add(this.#mips[plane.semantic === "color-rgba" ? "box" : "magic"]);
+        }
+      }
+    }
+    await Promise.all([...jobs].map((pipeline) => pipeline.prepare()));
+    if (this.#disposed) {
+      throw new Error("Image pipeline preparation outlived its device/owner");
+    }
   }
 
   /** Destinations are hidden caller-owned regions; publish only after successful command settlement.
@@ -539,12 +565,13 @@ export class ImageTextureTranscoder {
       const encoder = command.gpu_encoder;
       if (page) {
         const assembly = encoder.beginComputePass({ label: "Image unique-owner page assembly" });
-        assembly.setPipeline(this.#assembly);
+        const assemblyPipeline = this.#assembly.requirePrepared();
+        assembly.setPipeline(assemblyPipeline);
         for (let index = 0; index < leases.length; index++) {
           assembly.setBindGroup(
             0,
             this.#device.createBindGroup({
-              layout: this.#assembly.getBindGroupLayout(0),
+              layout: assemblyPipeline.getBindGroupLayout(0),
               entries: [
                 { binding: 0, resource: held.owners[index]!.createView() },
                 {
@@ -561,11 +588,12 @@ export class ImageTextureTranscoder {
         assembly.end();
       } else {
         const restore = encoder.beginComputePass({ label: "Image canonical restore" });
-        restore.setPipeline(this.#restore);
+        const restorePipeline = this.#restore.requirePrepared();
+        restore.setPipeline(restorePipeline);
         restore.setBindGroup(
           0,
           this.#device.createBindGroup({
-            layout: this.#restore.getBindGroupLayout(0),
+            layout: restorePipeline.getBindGroupLayout(0),
             entries: [
               { binding: 0, resource: held.upload.createView() },
               {
@@ -583,7 +611,7 @@ export class ImageTextureTranscoder {
         const layout = levels[level]!;
         if (this.#mipProfile === "fragment") {
           const format = mode & 1 ? "rgba8unorm-srgb" : "rgba8unorm";
-          const pipeline = this.#fragmentMips[format];
+          const pipeline = this.#fragmentMips[format].requirePrepared();
           const pass = encoder.beginRenderPass({
             label: "Spark fragment logical mip",
             colorAttachments: [
@@ -618,7 +646,7 @@ export class ImageTextureTranscoder {
           this.#mipDispatches++;
           continue;
         }
-        const pipeline = this.#mips[plane.semantic === "color-rgba" ? "box" : "magic"];
+        const pipeline = this.#mips[plane.semantic === "color-rgba" ? "box" : "magic"].requirePrepared();
         const pass = encoder.beginComputePass({ label: "Spark logical mip" });
         pass.setPipeline(pipeline);
         pass.setBindGroup(
@@ -646,7 +674,7 @@ export class ImageTextureTranscoder {
         pass.end();
         this.#mipDispatches++;
       }
-      const pipeline = exactPage ? this.#pageExact : this.#encoders[plane.target as ImageEncoderVariant];
+      const pipeline = (exactPage ? this.#pageExact : this.#encoders[plane.target as ImageEncoderVariant]).requirePrepared();
       const pass = encoder.beginComputePass({
         label: exactPage ? "Image exact page packing" : `Spark ${plane.target}/${this.precision}`
       });

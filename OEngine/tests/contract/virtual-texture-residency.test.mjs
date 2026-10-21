@@ -41,6 +41,7 @@ async function source(width = 1045, height = 133) {
 function fixture(cold) {
   const loss = deferred();
   const transcoder = {
+    async prepare() {},
     recordTailLevel() { return "recorded"; },
     recordPage() { return "recorded"; }
   };

@@ -33,6 +33,7 @@ import type { GltfMaterial } from "../../../OEngine/src/loaders/gltf/GltfLoader.
 import { ShadeImage } from "../../../OEngine/src/texture/ShadeImage.ts";
 import { ShadeTexture } from "../../../OEngine/src/texture/ShadeTexture.ts";
 import { ImageTextureSource } from "../../../OEngine/src/assets/ImageTextureSource.ts";
+import { geometryProductWorkload } from "../../../OEngine/src/assets/geometry-product/GeometryProductWorkload.ts";
 
 const COOKED_TEXTURE_FETCH_CONCURRENCY = 8;
 
@@ -208,6 +209,7 @@ export async function loadCookedScene(
       materials,
       manifest.instanceProfiles,
       signal,
+      false,
     );
     void prepared.programsReady.then(
       () => {
@@ -245,6 +247,12 @@ export async function loadCookedScene(
         configuredBankBytes: geometryCapacityBytes / 4,
       },
     });
+    const geometryPipelines = renderer.prepareVirtualGeometryPipelines({
+      product: true,
+      hierarchyMaxDepth: Math.max(0, ...openedAssets.flatMap((asset) =>
+        geometryProductWorkload(asset.descriptor).assets.map((entry) => entry.maxDepth))),
+    });
+    void geometryPipelines.catch((error) => localAbort.abort(error));
     const parts: VirtualGeometryProductScenePartV1[] = [];
     let first: GeometryProductShardHandleV1 | undefined;
     for (const [packIndex, pack] of geometryManifest.packs.entries()) {
@@ -294,7 +302,7 @@ export async function loadCookedScene(
     const combined = mergeVirtualGeometryProductSceneSourcesV1(parts);
     if (!first) throw new Error("Offline scene has no admitted geometry");
     const preparedMaterials = await textureReady;
-    await preparedMaterials.ready;
+    await Promise.all([preparedMaterials.ready, geometryPipelines]);
     phase("Publishing GPU Render World / critical texture residency");
     await renderer.uploadVirtualGeometryScene(
       scene,

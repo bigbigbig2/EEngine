@@ -715,13 +715,12 @@ async function start(): Promise<void> {
       query.get("gi") === "1" ? SURFACE_CACHE_GI_PRESETS.balanced : { enabled: false },
     renderScale: query.has("gi") ? 1 : 0.667
   });
-  await renderer.initialize({ context });
-  if (closing) return;
-  vsmControls.sync();
-  // Apply the initial effect switches; VSM starts enabled in this demo.
   for (const [id, set] of effectSwitches) set(renderer, element<HTMLInputElement>(id).checked);
   applyAmbientOcclusionControls();
   applyReflectionControls();
+  await renderer.initialize({ context });
+  if (closing) return;
+  vsmControls.sync();
   renderer.profiler.configure({ enabled: false });
   applySunControls();
   scene.physical_environment.setSkyLuminanceScale(Number(element<HTMLInputElement>("sky").value));

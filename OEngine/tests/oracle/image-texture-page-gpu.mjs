@@ -99,6 +99,7 @@ export async function runImageTexturePageGpu(device, precision = "f32") {
         undefined,
         preparation
       );
+      await transcoder.prepare(imageSource.directory.planes);
       const index = imageSource.pages;
       for (const mip of [0, 8]) {
         const page = index.page(1, mip, 0, 0);
@@ -280,6 +281,7 @@ export async function runImageTexturePageGpu(device, precision = "f32") {
         precision,
         maxRgbaBytes: Math.floor((index.page(0, 0, 0, 0).decodedBytes + 144 * 144 * 4) * 1.5)
       });
+      await pressured.prepare(imageSource.directory.planes);
       const pressurePage = index.page(0, 0, 0, 0);
       const a = await imageSource.readPage(pressurePage);
       const b = await imageSource.readPage(pressurePage);

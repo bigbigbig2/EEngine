@@ -24,7 +24,7 @@ import {
  */
 export class VisibilityFeature {
   async preparePipelines(
-    runtime: GpuRenderWorldRuntime,
+    runtime: Readonly<{ product: boolean; hierarchyMaxDepth: number }>,
     previousHzb: boolean,
     lateRecheck: boolean,
     shadow: boolean,

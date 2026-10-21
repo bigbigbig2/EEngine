@@ -492,7 +492,7 @@ export class Renderer {
     const jobs: Promise<unknown>[] = [
       this.initialPipelinePreparation,
       this._visibilityFeature.preparePipelines(
-        runtime,
+        { product: runtime.virtualGeometry !== null, hierarchyMaxDepth: runtime.hierarchyMaxDepth },
         this.packed_visibility_hzb_enabled,
         this.packed_visibility_current_hzb_late_recheck_enabled,
         shadow,
@@ -511,7 +511,9 @@ export class Renderer {
     if (compact) {
       jobs.push(NativeExecutionBins.preparePipelines(this._graphics, true));
     }
-    if (lit) {
+    if (lit && scene.lights.elements.some((light) =>
+      (light as import("../../light/PointLight.js").PointLight).isPointLight ||
+      (light as import("../../light/SpotLight.js").SpotLight).isSpotLight)) {
       jobs.push(this._localLightWork.ready);
     }
     if (lightRecords) {
@@ -729,14 +731,17 @@ export class Renderer {
     this.texturePreparationStarts.add(batch);
     this.texturePreparationStats.activeBatches++;
     try {
-      if (materials.some((material) => compileCanonicalMaterial(material).appearance.samples.length > 0)) {
-        await this._graphics.texture_residency.prepare();
-      }
-      await prepareMaterialTextureProducts(materials, combined, (evidence) => {
+      const imagesReady = prepareMaterialTextureProducts(materials, combined, (evidence) => {
         this.texturePreparationStats.cookedTasks++;
         this.texturePreparationStats.decodeMs += evidence.decodeMs;
         this.texturePreparationStats.encodeMs += evidence.encodeMs;
       });
+      await Promise.all([
+        imagesReady,
+        ...(materials.some((material) => compileCanonicalMaterial(material).appearance.samples.length > 0)
+          ? [this._graphics.texture_residency.prepare()]
+          : []),
+      ]);
       if (this._destroyed || this._deviceLost || epoch !== this.deviceEpoch) {
         throw new Error("Texture preparation belongs to an expired Renderer device");
       }
@@ -1208,6 +1213,7 @@ export class Renderer {
     materials: readonly StandardShadeMaterial[],
     profiles: readonly Readonly<VirtualGeometryGeometryProfile>[],
     signal?: AbortSignal,
+    localLights = true,
   ): Promise<PreparedSceneMaterials> {
     await this.prepareTextureProducts(materials, signal);
     const command = ShadeGPUCommandContext.create(
@@ -1234,17 +1240,25 @@ export class Renderer {
         this._environmentRuntime !== null,
         reflectionProfile,
         this.recordImageBatch,
+        this._scgiSettings.enabled,
+        localLights,
       );
+      const programsReady = Promise.all([
+        prepared.programsReady,
+        ...(this._environmentRuntime !== null && this._shadowVisibilityEnabled && this._vsm !== null &&
+            this._vsm.profile !== "shadow-disabled" ? [prepared.native.prepareShadowPipelines()] : []),
+      ]).then(() => undefined);
+      const ready = Promise.all([prepared.ready, programsReady]).then(() => undefined);
       token = {
-        ready: prepared.ready,
-        programsReady: prepared.programsReady,
+        ready,
+        programsReady,
         texturesReady: prepared.texturesReady,
         cancel,
       };
       this._preparedMaterials.set(token, prepared);
       signal?.addEventListener("abort", cancel, { once: true });
       command.onFinished.addOne(() => signal?.removeEventListener("abort", cancel));
-      void prepared.ready.catch(cancel);
+      void ready.catch(cancel);
       return token;
     } catch (error) {
       cancel();
@@ -1257,6 +1271,31 @@ export class Renderer {
     return settings.enabled && settings.strength > 0 && materials.some((material) => !material.is_unlit)
       ? "sssr-base-coat"
       : "off";
+  }
+
+  /** Compile geometry/effect programs from admitted Product metadata while
+   * material programs and image pixels prepare. Does not publish or submit. */
+  async prepareVirtualGeometryPipelines(
+    geometry: Readonly<{ product: boolean; hierarchyMaxDepth: number }>,
+  ): Promise<void> {
+    const shadow = this._environmentRuntime !== null && this._shadowVisibilityEnabled &&
+      this._vsm !== null && this._vsm.profile !== "shadow-disabled";
+    await Promise.all([
+      this._visibilityFeature.preparePipelines(geometry, this.packed_visibility_hzb_enabled,
+        this.packed_visibility_current_hzb_late_recheck_enabled, shadow),
+      NativeRasterWorkPartitions.preparePipelines(this._graphics, false),
+      ...(this.packed_visibility_hzb_enabled || (geometry.product && this.packed_visibility_current_hzb_late_recheck_enabled)
+        ? [HierarchicalZBuffer.preparePipelines(this._graphics)] : []),
+      ...(shadow ? [
+        this._vsmDepthBounds.preparePipelines(),
+        this._vsmReceiverDemand.preparePipelines(),
+        this._vsmAllocatePages.preparePipelines(),
+        this._vsmCasterRecords.preparePipelines(),
+        this._vsmAtlasRaster.preparePipelines(),
+        this._vsmInvalidation.preparePipelines(),
+        NativeRasterWorkPartitions.preparePipelines(this._graphics, true),
+      ] : []),
+    ]);
   }
 
   /** Real SSSR owner creation stays behind scene demand and retirement.
@@ -1299,7 +1338,7 @@ export class Renderer {
     const runtime = world.previewStagedRuntime(handle);
     const reflectionProfile = this.initialReflectionProfile(runtime.materials);
     await world.prepareNativeMaterials(handle, command, this._environmentRuntime !== null, reflectionProfile,
-      this.recordImageBatch);
+      this.recordImageBatch, this._scgiSettings.enabled);
   }
 
   /**

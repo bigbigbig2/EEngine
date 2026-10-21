@@ -282,3 +282,15 @@ fn oengine_virtual_meshlet_header_v1(
   );
 }
 `;
+
+/** Vertex recovery selects a bank per load, not four copies of header validation.
+ * This is the same checked reader; pointer-based hierarchy consumers keep theirs. */
+export function virtualGeometryVertexHeadersWgsl(): string {
+  const start = VIRTUAL_GEOMETRY_PRODUCT_WGSL.indexOf("fn oengine_virtual_group_header_v1(");
+  return VIRTUAL_GEOMETRY_PRODUCT_WGSL.slice(start)
+    .replaceAll("bank: ptr<storage, array<u32>, read>", "bank: u32")
+    .replaceAll("arrayLength(bank)", "frame_vertex_bank_words(bank)")
+    .replace(/\(\*bank\)\[([^\]]+)\]/g, "frame_vertex_word(bank, $1)")
+    .replaceAll("oengine_virtual_group_header_v1", "frame_vertex_checked_group_header")
+    .replaceAll("oengine_virtual_meshlet_header_v1", "frame_vertex_checked_meshlet_header");
+}

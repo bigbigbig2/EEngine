@@ -308,7 +308,9 @@ export class GpuRenderWorld {
     command: ShadeGPUCommandContext,
     physicalSun: boolean,
     reflectionProfile: "off" | "sssr-base-coat",
-    imageBatch: (record: (command: import("./ImageTextureTranscoder.js").ImageRecordCommand) => void) => Promise<void>
+    imageBatch: (record: (command: import("./ImageTextureTranscoder.js").ImageRecordCommand) => void) => Promise<void>,
+    surfaceCacheGi = false,
+    localLights = true
   ): VirtualMaterialPreparation {
     const textures = this.graphics.texture_residency.stage(materials, command);
     const association = createPackedSceneMaterialAssociationPlan(
@@ -338,7 +340,9 @@ export class GpuRenderWorld {
       command,
       true,
       physicalSun,
-      reflectionProfile
+      reflectionProfile,
+      surfaceCacheGi,
+      localLights
     );
     this.nativeMaterialss.add(native);
     native.onDestroyed(() => this.nativeMaterialss.delete(native));
@@ -773,7 +777,9 @@ export class GpuRenderWorld {
     command: ShadeGPUCommandContext,
     physicalSun: boolean,
     reflectionProfile: "off" | "sssr-base-coat",
-    imageBatch: (record: (command: import("./ImageTextureTranscoder.js").ImageRecordCommand) => void) => Promise<void>
+    imageBatch: (record: (command: import("./ImageTextureTranscoder.js").ImageRecordCommand) => void) => Promise<void>,
+    surfaceCacheGi = false,
+    localLights = true
   ): Promise<void> {
     const preparation = this.nativePreparation.get(handle);
     if (preparation === undefined || preparation.command !== command || command.closed) {
@@ -789,7 +795,9 @@ export class GpuRenderWorld {
         command,
         this.stagedRuntimes.get(handle)!.virtualGeometry !== null,
         physicalSun,
-        reflectionProfile
+        reflectionProfile,
+        surfaceCacheGi,
+        localLights
       );
       const publication = preparation.publication;
       this.nativeMaterialss.add(publication);

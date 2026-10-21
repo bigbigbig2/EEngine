@@ -196,11 +196,11 @@ export const PACKED_VISIBILITY_FRAGMENT_EVIDENCE = Object.freeze({
 /** R3 hierarchy production path. The temporary R2 flat producer was deleted in R3-D. */
 export class PackedVisibilityPass {
   async preparePipelines(
-    runtime: GpuRenderWorldRuntime,
+    runtime: Readonly<{ product: boolean; hierarchyMaxDepth: number }>,
     previousHzb: boolean,
     lateRecheck: boolean,
   ): Promise<void> {
-    const product = runtime.virtualGeometry !== null;
+    const product = runtime.product;
     if (!(this.hierarchyGenerator instanceof HierarchicalWorkGenerator)) {
       throw new Error("Production pipeline preparation requires the hierarchy owner");
     }

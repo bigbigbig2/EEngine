@@ -15,26 +15,29 @@ export function surfaceGeometryCompletionWgsl(
   rasterCache = false,
   diagnostics = true,
   staged = false,
+  productOnly = false,
+  needs?: number,
 ): string {
+  const required = (mask: number) => needs === undefined || (needs & mask) !== 0;
   const attributes = (corner: number): string => /* wgsl */ `
-    if (geometry_needs & ((1u << 5u) | (1u << 11u) | (1u << 14u))) != 0u {
+    ${required((1 << 5) | (1 << 11) | (1 << 14)) ? `if (geometry_needs & ((1u << 5u) | (1u << 11u) | (1u << 14u))) != 0u {
       let normal = surface_source_vertex_normal(vertex_${corner});
       result.normal.p${corner} = vec4f(normals * normal.xyz, normal.w);
-    }
-    if (geometry_needs & ((1u << 6u) | (1u << 12u))) != 0u {
+    }` : ""}
+    ${required((1 << 6) | (1 << 12)) ? `if (geometry_needs & ((1u << 6u) | (1u << 12u))) != 0u {
       let tangent = surface_source_vertex_tangent(vertex_${corner});
       result.tangent.p${corner} = vec4f((transform * vec4f(tangent.xyz, 0.0)).xyz,
         tangent.w * sign(instance.normal_x.w));
-    }
+    }` : ""}
     var uv0 = vec2f(0.0);
     var uv1 = vec2f(0.0);
-    if (geometry_needs & (1u << 1u)) != 0u { uv0 = surface_source_vertex_uv(vertex_${corner}, 0u); }
-    if (geometry_needs & (1u << 2u)) != 0u { uv1 = surface_source_vertex_uv(vertex_${corner}, 1u); }
+    ${required(1 << 1) ? `if (geometry_needs & (1u << 1u)) != 0u { uv0 = surface_source_vertex_uv(vertex_${corner}, 0u); }` : ""}
+    ${required(1 << 2) ? `if (geometry_needs & (1u << 2u)) != 0u { uv1 = surface_source_vertex_uv(vertex_${corner}, 1u); }` : ""}
     result.uv.p${corner} = vec4f(uv0, uv1);
-    if (geometry_needs & (1u << 3u)) != 0u {
+    ${required(1 << 3) ? `if (geometry_needs & (1u << 3u)) != 0u {
       result.uv2.p${corner} = vec4f(surface_source_vertex_uv(vertex_${corner}, 2u), 0.0, 0.0);
-    }
-    if (geometry_needs & (1u << 4u)) != 0u { result.color.p${corner} = surface_source_vertex_color(vertex_${corner}); }
+    }` : ""}
+    ${required(1 << 4) ? `if (geometry_needs & (1u << 4u)) != 0u { result.color.p${corner} = surface_source_vertex_color(vertex_${corner}); }` : ""}
 `;
   const corners = [0, 1, 2]
     .map(
@@ -66,7 +69,7 @@ ${GPU_FRAME_INSTANCE_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
 ${GPU_VISIBILITY_KEY_WGSL}
 ${WINNER_INTERPOLATION_WGSL}
-${surfaceGeometryDecodeWgsl(product, "source_heap")}
+${surfaceGeometryDecodeWgsl(product, "source_heap", true, productOnly)}
 ${rasterCache ? SURFACE_FRAME_GEOMETRY_WGSL : ""}
 struct GeometryCorners { p0: vec4f, p1: vec4f, p2: vec4f, }
 struct GeometryCompletion {
@@ -124,16 +127,16 @@ fn geometry_complete_resolved(decoded: OEngineVisibilityKeyResolveResult,
     surface_source_product = oengine_instance_virtual_geometry(instance.source);
     ${
       product
-        ? `if surface_source_product {
+        ? `${productOnly ? "" : "if surface_source_product {"}
       product_source_resident_address = cached.resident_address;
       product_source_vertex_count = cached.vertex_count;
       product_frame_vertex_load_format(cached.vertex_indices);
-    } else {`
+    ${productOnly ? "" : "} else {"}`
         : ""
     }
-      source_geometry.resident_attribute_word_offset = cached.resident_address - settings.source_payload.x;
+      ${productOnly ? "" : `source_geometry.resident_attribute_word_offset = cached.resident_address - settings.source_payload.x;
       source_meshlet.vertex_offset = cached.vertex_indices - settings.source.z;
-    ${product ? "}" : ""}
+    ${product ? "}" : ""}`}
     count = vec2u(cached.vertex_count, cached.triangle_count);
   } else {`
       : ""

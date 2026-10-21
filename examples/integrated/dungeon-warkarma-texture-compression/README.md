@@ -1,5 +1,7 @@
 # Dungeon Warkarma: Texture Compression
 
+当前默认`assets/playground-cooked/`已接入修复后的`dungeon-fixed-high-r2`并重新组合playground；`assets/cooked/`是同一新版Dungeon本体。固定High产物明确未执行完整质量选优，不把成功加载视为画质或性能验收。
+
 独立复制 `bistro-texture-compression` 的页面、样式、太阳日历、控制项和场景加载代码，
 默认加载本目录 `assets/playground-cooked/` 中的组合场景，包含 Dungeon Warkarma
 及其周围的 playground。Dungeon 原始离线产物保留在本例 `assets/cooked/`。

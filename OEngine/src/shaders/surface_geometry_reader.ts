@@ -10,7 +10,7 @@ import { GPU_FRAME_ATTRIBUTE_VECTORS } from "../gpu/GpuFrameGeometryAttributesAb
  * the minimal frame cache supplies clips and triangle addressing only.
  * Metadata is the arena's immutable asset prefix; payload offsets are from the
  * actual GpuAssetStore publication, not inferred from frame work identities. */
-export function surfaceGeometryDecodeWgsl(product: boolean, heap: string, perInvocation = true): string {
+export function surfaceGeometryDecodeWgsl(product: boolean, heap: string, perInvocation = true, productOnly = false): string {
   let ordinary = frameGeometrySourceWgsl(false, true)
     .replace(/^@group\(0\) @binding\([3-7]\).*\n/gm, "")
     .replaceAll("vertex_payload[", "vertex_payload[settings.source_payload.x + ")
@@ -78,23 +78,23 @@ fn frame_vertex_uv(vertex:u32,uvSet:u32)->vec2f {
 fn surface_source_${name}(${args}) -> ${type} {
   ${
     product
-      ? `if surface_source_product { return product_frame_${name}(${args
+      ? `${productOnly ? "" : "if surface_source_product { "}return product_frame_${name}(${args
           .split(",")
           .map((arg) => arg.split(":")[0]!.trim())
-          .join(",")}); }`
+          .join(",")});${productOnly ? "" : " }"}`
       : ""
   }
-  return frame_${name}(${args
+  ${productOnly ? "" : `return frame_${name}(${args
     .split(",")
     .map((arg) => arg.split(":")[0]!.trim())
-    .join(",")});
+    .join(",")});`}
 }`;
   const source = /* wgsl */ `
 ${FRAME_ATTRIBUTE_OCT_DECODE_WGSL}
-${ordinary}
+${productOnly ? "" : ordinary}
 ${productSource}
-${readRecord("surface_read_geometry", GPU_GEOMETRY_RECORD_SCHEMA, heap)}
-${readRecord("surface_read_meshlet", GPU_MESHLET_RECORD_SCHEMA, heap)}
+${productOnly ? "" : readRecord("surface_read_geometry", GPU_GEOMETRY_RECORD_SCHEMA, heap)}
+${productOnly ? "" : readRecord("surface_read_meshlet", GPU_MESHLET_RECORD_SCHEMA, heap)}
 var<private> surface_source_product: bool;
 var<private> surface_direct_source: bool;
 ${selectCall("vertex_position", "vertex: u32", "vec3f")}
@@ -105,8 +105,8 @@ ${selectCall("vertex_color", "vertex: u32", "vec4f")}
 ${selectCall("triangle_corner", "triangle: u32, corner: u32", "u32")}
 fn surface_source_load(work: OEngineMeshletRasterWork) -> vec2u {
   surface_source_product=oengine_instance_virtual_geometry(frame_instances[work.instance_slot].source);
-  ${product ? "if surface_source_product { return product_frame_vertex_load_source(work); }" : ""}
-  return frame_vertex_load_source(work);
+  ${productOnly ? "return product_frame_vertex_load_source(work);" : `${product ? "if surface_source_product { return product_frame_vertex_load_source(work); }" : ""}
+  return frame_vertex_load_source(work);`}
 }
 `;
   return perInvocation ? source : source.replaceAll("var<private>", "var<workgroup>");

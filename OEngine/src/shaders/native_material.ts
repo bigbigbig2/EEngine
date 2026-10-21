@@ -174,7 +174,11 @@ export function lowerNativeMaterial(program: CompiledAppearanceGraph): NativeMat
         });
       }
       const name = `n_${ref}_0`;
-      lines.push(`  let ${name} = ${loadConstant(node.value!)};`);
+      const stored = loadConstant(node.value!);
+      // Literal graph constants are immutable code, unlike authored parameters.
+      // Preserve directory slots while allowing native dead-code elimination.
+      const literal = Object.is(node.value, -0) ? "-0.0" : `${node.value}`;
+      lines.push(`  let ${name}: f32 = ${node.kind === "constant" ? literal : stored};`);
       expressions.push([name]);
       continue;
     }

@@ -146,6 +146,7 @@ export function prepareProductResidentAttributes(
         meshlet.triangleCount < 1 ||
         meshlet.triangleCount > 128 ||
         meshlet.vertexByteOffset < header.vertexDataOffset ||
+        ((offset + meshlet.vertexByteOffset) & 3) !== 0 ||
         meshlet.vertexByteOffset + geometryVertexPayloadBytes(meshlet.vertexCount, format) > payload ||
         meshlet.triangleByteOffset < header.triangleDataOffset ||
         meshlet.triangleByteOffset + meshlet.triangleCount * 3 > header.vertexDataOffset
