@@ -40,6 +40,8 @@ export interface ImageTextureCookRequest {
 
 export interface ImageTextureCookSink {
   readonly imageCodec?: "avif" | "png";
+  /** Offline-only independent encodes. Item order and the recipe are unchanged. */
+  readonly encodeConcurrency?: number;
   /** Complete pinned native encoder; no BC intermediate, no internal image resize. */
   encodeAvif(
     input: CanonicalImageMip,
@@ -57,6 +59,10 @@ export async function cookImageTexture(
   sink: ImageTextureCookSink
 ): Promise<{ directory: ImageTextureDirectory; bytes: Uint8Array }> {
   const base = request.inputs[0];
+  const concurrency = sink.encodeConcurrency ?? 1;
+  if (!Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 16) {
+    throw new RangeError("Canonical encode concurrency must be 1..16");
+  }
   if (!base) {
     throw new Error("Canonical base image is missing");
   }
@@ -160,6 +166,14 @@ export async function cookImageTexture(
   const planes: ImageTexturePlane[] = [plane];
   const items: ImageTextureItem[] = [];
   const emit = async (inputs: readonly CanonicalImageMip[], planeIndex: number, exact: boolean) => {
+    const jobs: {
+      input: CanonicalImageMip;
+      mip: number;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }[] = [];
     const mode = planes[planeIndex]!.mode;
     const cell = mode === "virtual" ? (request.cellSize ?? 512) : 2048;
     if (![128, 256, 512, 2048].includes(cell)) {
@@ -174,6 +188,23 @@ export async function cookImageTexture(
         for (let x = 0; x < input.width; x += cell) {
           const width = Math.min(cell, input.width - x);
           const height = Math.min(cell, input.height - y);
+          if (items.length + jobs.length >= 65536) {
+            throw new RangeError("Cooked image item count exceeds capacity");
+          }
+          jobs.push({ input, mip, x, y, width, height });
+        }
+      }
+    }
+    const baseId = items.length;
+    const results = new Array<ImageTextureItem>(jobs.length);
+    let next = 0;
+    let failure: unknown;
+    let failed = false;
+    const consume = async (): Promise<void> => {
+      while (!failed && next < jobs.length) {
+        const index = next++;
+        const { input, mip, x, y, width, height } = jobs[index]!;
+        try {
           const rgba = new Uint8Array(width * height * 4);
           for (let row = 0; row < height; row++) {
             const offset = ((y + row) * input.width + x) * 4;
@@ -188,13 +219,13 @@ export async function cookImageTexture(
           } else {
             payload = await sink.encodeAvif({ width, height, rgba }, semantic, request.quality);
           }
-          if (payload.byteLength < 1 || payload.byteLength > 4 * 1024 * 1024 || items.length >= 65536) {
+          if (payload.byteLength < 1 || payload.byteLength > 4 * 1024 * 1024) {
             throw new RangeError("Cooked image item exceeds the selected encoded/item capacity");
           }
           const sha256 = await imageTextureHash(payload);
           const uri = await sink.put(sha256, payload, exact ? "exact" : "image");
-          items.push({
-            id: items.length,
+          results[index] = {
+            id: baseId + index,
             plane: planeIndex,
             mip,
             x,
@@ -209,10 +240,16 @@ export async function cookImageTexture(
             uri,
             offset: null,
             objectBytes: String(payload.byteLength)
-          });
+          };
+        } catch (error) {
+          if (!failed) failure = error;
+          failed = true;
         }
       }
-    }
+    };
+    await Promise.all(Array.from({ length: Math.min(concurrency, jobs.length) }, consume));
+    if (failed) throw failure;
+    for (const item of results) items.push(item);
   };
   await emit(canonical, 0, false);
   if (request.exactCoverage) {

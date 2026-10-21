@@ -485,7 +485,7 @@ E3收口：新增/修改MJS均经`node --check`；`docs-verify`为209 documents�
 
 ### E5：最终集成实施记录（2026-10-21，进行中）
 
-**E5尚未完成，尚未提交本阶段。** 本节只记录已运行事实；Dungeon/Bistro双质量档、playground、完整部署/组合与成本报告未齐，不因hello画面正常或局部oracle通过而关闭E5。GPU作业串行；长时间cook不与browser/oracle同时运行。用户追加的初始化优化在E5完成并提交后单独执行。
+**E5尚未完成；已提交检查点`25c813c0`及加载优化`5b560a1d`，不是最终验收提交。** 本节只记录已运行事实；Dungeon/Bistro双质量档、playground、完整部署/组合与成本报告未齐，不因hello画面正常或局部oracle通过而关闭E5。GPU作业串行；长时间cook不与browser/oracle同时运行。按用户后续继续授权，加载优化已先行完成，其结果单独记录，不替代E5矩阵。
 
 #### 已修复的真实闭包错误
 
@@ -527,3 +527,23 @@ E3收口：新增/修改MJS均经`node --check`；`docs-verify`为209 documents�
 **实测结果与检查：** 冷启动首个完成帧中位24286→11357ms（约53.2%更短），当前视角目标收敛25061→12007ms（约52.1%）；暖启动首帧9069→5901ms（约34.9%），收敛9774→6693ms（约31.5%）。全部响应body冷31351219→25043003B，减少6308216B（约20.1%）；暖两边7750387B，几何完整收敛Range同为7750387B，未减少必需几何。非JS/HTML共享资源含纹理/几何的响应hash一致。首帧pipeline completed57→41，active/queued/failed均0。hello提示区分基础层发布与view-settled完整目标，不提前报完整就绪。
 
 12项直接CPU检查通过，覆盖两个读取槽、同任务不重复、失败取消/等待清理、迟到lease不record、顶点profile、材质准备和统一信用/Range生命周期。真实GPU串行image-texture-residency通过；native-surface-product-production新增initial provider失败取消token、重新prepare、真实消费/退休检查，并保留原winner/HDR/Temporal/abort/resize/device-recovery断言，最终passed。该oracle预期注入empty replacement abort在pageErrors保留，属于已断言负控制，不是hello页面错误；最初运行遇到stale test build后新鲜构建重跑，原文件保留。新CPU夹具初次缺features/ChangeSignal已修夹具，未改生产降级。engine typecheck/build:test、hello typecheck/static build通过，docs-verify为209documents/0finding/86historicalwarnings。完整E5场景矩阵仍未完成，不因加载优化实测提升最终验收/生产许可资格。
+
+### E5继续：离线全量任务调度与容量修复（2026-10-21）
+
+**范围：** 继续最终集成，不重新选路线。当前全量任务最慢部分为原生AVIF编码和完整GPU评价。保留全部20/60候选、源尺寸/mip、原生flags、最终BC真实采样、六组BRDF probe、F32精度、原32行SSIM独立窗口及原顺序累计；未将局部结果外推为整场景完成。以下胶水/调度为Local，原生codec、Spark内核及BRDF不改，不称新算法移植。
+
+- `ImageTextureCook`预先分配稳定item ID，按原mip/y/x顺序写最终目录；离线sink启用有界并发，默认最多8个独立AVIF子进程，每个仍为原`-j 2`。通用sink默认1，显式上限16；失败停止派发并等待已启动工作清理后拒绝，不发布目录。native相同输入去重正在执行的编码，相同payload只落盘一次，修复Windows并发rename冲突；子进程错误/诊断超限也等close才结束。缓存命中携带原实际argv/status/stdout/stderr，不能凭缓存捏造一次新编码。
+- GPU→离线host只批量搬运原始F32/base64 stripe，最多16条/16MiB并await回压（容纳完整2048宽×32行约9.79MB wire stripe，不拆SSIM窗口），不合并逻辑窗口或降低精度。SSIM暂存最多64个独立窗口/8MiB RGB帧，按相同尺寸调用原FFmpeg滤镜，分数恢复原到达顺序累计；144×144页尾16行不再迫使每页反复启动进程。GPU作业仍串行，不改runtime帧提交或增加GPU并行scratch。
+- 原canonical F32参考约0.8GB/2K纹理/cell布局，不能跨405图无限保留。成功图的最终payload、目录、search report及每候选content-addressed原生命令日志先保留；清除evaluator对应引用后，校验直属UUID/realpath的本任务scratch才递归退休。原生PNG/AVIF临时文件在编码、校验及缓存成功后逐项释放；失败输入/日志保留，不删除历史失败现场。最终publisher仍只复制运行时完整闭包，不把scratch或每候选命令文件当运行时下载依赖。
+
+**Cost Card：** 新增仅离线CPU并发和元数据job数组（全部plane最多65536个item）；最多8个正在处理的RGBA cell/native encoder，codec内部实际RSS仍需独立观测，不能由该数量宣称精确内存上界。SSIM RGB帧池8MiB，FFmpeg输入拼接最多另8MiB，不含codec内部；wire字符串16MiB，不含CDP/browser内部复制和解码F32暂存。0/50/100%可重叠编码工作对应零/部分/全部该部分延迟隐藏，磁盘/codec竞争可能抵消收益，不宣称线性8倍。无新增runtime GPU bytes/ALU/sample/dispatch，全部GPU评价域仍执行；任务成功释放scratch减少累计磁盘占用，不证明运行时内存/显存下降。
+
+**实际检查：** engine typecheck、新鲜build:test和package build通过，Dungeon/Bistro typecheck通过。最终定向22项通过（含完整2048宽stripe容量/精确F32、wire batch回压）（`e5-cook-final-tests.log`），另11项真实Worker/准备/初始化重叠生命周期检查通过（`e5-resume-worker-lifecycle.log`）。原生512→1全mip/128-cell对照28items，串行/并发8目录与每payload hash一致，最终目录sha256为`a880f3be1b281dff8febf8cc6830d90575c19e30021550a3330c270f34f12f8f`；该对照第二次运行含磁盘缓存，时间不作编码加速证据。最初Windows EPERM失败保留，修复后对照通过。
+
+同80个原SSIM窗口，旧尺寸切换批次32次FFmpeg/15779ms，新批次4次/2131ms，逐分数及顺序一致（`e5-ssim-scheduling-cost.json`）；只证明此离线CPU步骤，不代表全cook加速7.4倍。真实GPU小输入完成全部20候选、选中硬语义、相同输入cache retry/目录逐字节一致、两次任务均退休scratch，结果`e5-search-retirement-gpu.json`；该输入是工具生命周期检查，不代替完整场景。
+
+**完整资产事实与剩余：** Bistro当前离线`parseGltfMaterial`+canonical graph实读405源图/132材质全部映射，132albedo、132normal、131specular-color、10emissive，无漏图（`e5-bistro-source-mapping.json`）；raw WebCook importer的既有specular缺口仍单列，不伪称已修。两个集成示例状态文字和Dungeon重cook/发布说明移除已退休CPU BC描述，Spark继续显式kernel scope，不提升分发资格。
+
+Dungeon High全量25图/1500候选已用最终工具恢复，日志`e5-dungeon-high-capacity.log`；完整新几何复用校验成功。较早`e5-dungeon-high-resume.log`、`e5-dungeon-high-grouped.log`及`e5-dungeon-high-final.log`保留中止原因/已完成候选，工具/评价身份变化不伪复用旧cache。后续同一串行作业链仅在cook成功后执行verify→原子发布→独立`texture-compression-acceptance`→playground生成，任何失败停止；运行中的任务和已排定步骤不能计为passed。hello Extreme、Dungeon Extreme、Bistro High/Extreme及§8完整部署/生命周期/质量/粗成本仍需实际完成，E5保持进行中。
+
+**Bistro完整几何新增结果：** 使用当前原生Cooker重新读取完整源buffer的分材质geometry描述，2线程/64MiB分片，生成`.local/extreme-web-asset/e5-bistro-geometry`，不是使用旧ABI包。保留2829226三角形/1591实例/1513唯一资产，4个最终pack共204392059B、6040页；四pack原生`validate`及当前TypeScript V4 reader核验均通过（`e5-bistro-geometry-{native,native-validate,verify}.log`）。Cooker报告123227ms/peakWorkingBytes1780305920，uniqueGeometryBytes241925184，bootstrapGeometryBytes4809728；没有GPU并发任务，该CPU几何步骤与Dungeon评价重叠，时间不是独占benchmark。compressedPageBytes134591355只统计压缩页，不能把其0.0850042相对padded decodedBytes的比例当整pack压缩率；完整pack还有索引/元数据/未压缩bootstrap。该结果不提升Bistro图片、材质画面或整场景生命周期资格，尚未发布半份场景。

@@ -106,7 +106,8 @@ export class ImageQualityMetrics {
 }
 
 export function metricRgbFrame(input, width, height) {
-  const w = Math.max(8, width), h = Math.max(8, height);
+  const w = Math.max(8, width),
+    h = Math.max(8, height);
   const bytes = Buffer.alloc(w * h * 3);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
@@ -129,19 +130,112 @@ export function nativeSsimBatch(executable, frames, width, height) {
     throw new Error("Invalid native SSIM batch extent");
   }
   const count = frames.length / 2;
-  const run = spawnSync(executable, [
-    "-hide_banner", "-f", "rawvideo", "-pixel_format", "rgb24",
-    "-video_size", `${Math.max(8, width)}x${Math.max(8, height)}`, "-i", "pipe:0",
-    "-filter_complex",
-    "[0:v]split[a][b];[a]select=not(mod(n\\,2)),setpts=N,format=gbrp[r];[b]select=mod(n\\,2),setpts=N,format=gbrp[c];[r][c]ssim=stats_file=-",
-    "-frames:v", String(count), "-f", "null", "-"
-  ], { input: Buffer.concat(frames), encoding: "utf8", windowsHide: true, maxBuffer: 4 * 1024 * 1024 });
+  const run = spawnSync(
+    executable,
+    [
+      "-hide_banner",
+      "-f",
+      "rawvideo",
+      "-pixel_format",
+      "rgb24",
+      "-video_size",
+      `${Math.max(8, width)}x${Math.max(8, height)}`,
+      "-i",
+      "pipe:0",
+      "-filter_complex",
+      "[0:v]split[a][b];[a]select=not(mod(n\\,2)),setpts=N,format=gbrp[r];[b]select=mod(n\\,2),setpts=N,format=gbrp[c];[r][c]ssim=stats_file=-",
+      "-frames:v",
+      String(count),
+      "-f",
+      "null",
+      "-"
+    ],
+    { input: Buffer.concat(frames), encoding: "utf8", windowsHide: true, maxBuffer: 4 * 1024 * 1024 }
+  );
   if (run.status !== 0) throw new Error(`Native SSIM batch failed: ${run.error?.message ?? run.stderr}`);
   const scores = [...run.stdout.matchAll(/All:([\d.+-e]+)/g)].map((match) => Number(match[1]));
   if (scores.length !== count || scores.some((score) => !Number.isFinite(score))) {
     throw new Error("Native SSIM batch lost a complete metric window");
   }
   return scores;
+}
+
+/** Keep each original stripe as an independent native SSIM frame. Group only
+ * equal extents, then consume scores in arrival order to preserve F64 sums. */
+export class NativeSsimWindows {
+  constructor(evaluate, consume, { maxBytes = 8 * 1024 * 1024, maxWindows = 64 } = {}) {
+    if (
+      !Number.isSafeInteger(maxBytes) ||
+      maxBytes < 384 ||
+      !Number.isSafeInteger(maxWindows) ||
+      maxWindows < 1 ||
+      maxWindows > 64
+    ) {
+      throw new RangeError("Invalid native SSIM window capacity");
+    }
+    this.evaluate = evaluate;
+    this.consume = consume;
+    this.maxBytes = maxBytes;
+    this.maxWindows = maxWindows;
+    this.windows = [];
+    this.bytes = 0;
+  }
+
+  add(reference, candidate, width, height) {
+    if (
+      !Number.isSafeInteger(width) ||
+      width < 1 ||
+      width > 65536 ||
+      !Number.isSafeInteger(height) ||
+      height < 1 ||
+      height > 32 ||
+      reference.length !== width * height * 28 ||
+      candidate.length !== reference.length
+    ) {
+      throw new Error("Native SSIM window differs from its complete stripe domain");
+    }
+    const bytes = Math.max(8, width) * Math.max(8, height) * 6;
+    if (bytes > this.maxBytes) throw new RangeError("Native SSIM window exceeds byte capacity");
+    if (this.windows.length >= this.maxWindows || this.bytes + bytes > this.maxBytes) this.flush();
+    this.windows.push({
+      width,
+      height,
+      pixels: width * height,
+      frames: [metricRgbFrame(reference, width, height), metricRgbFrame(candidate, width, height)]
+    });
+    this.bytes += bytes;
+  }
+
+  flush() {
+    const groups = new Map();
+    for (const window of this.windows) {
+      const key = `${window.width}/${window.height}`;
+      let group = groups.get(key);
+      if (!group) {
+        group = [];
+        groups.set(key, group);
+      }
+      group.push(window);
+    }
+    for (const group of groups.values()) {
+      const first = group[0];
+      const scores = this.evaluate(
+        group.flatMap((window) => window.frames),
+        first.width,
+        first.height
+      );
+      if (
+        scores.length !== group.length ||
+        scores.some((score) => !Number.isFinite(score) || score < -1 || score > 1)
+      ) {
+        throw new Error("Native SSIM batch lost an independent window");
+      }
+      for (let index = 0; index < group.length; index++) group[index].score = scores[index];
+    }
+    for (const window of this.windows) this.consume(window.score, window.pixels);
+    this.windows.length = 0;
+    this.bytes = 0;
+  }
 }
 
 /** Actual FFmpeg libavfilter SSIM, not a local SSIM approximation. Each fixed
@@ -171,7 +265,10 @@ export function nativeSsim(executable, reference, candidate, width, height) {
       "-"
     ],
     {
-      input: Buffer.concat([metricRgbFrame(reference, width, height), metricRgbFrame(candidate, width, height)]),
+      input: Buffer.concat([
+        metricRgbFrame(reference, width, height),
+        metricRgbFrame(candidate, width, height)
+      ]),
       encoding: "utf8",
       windowsHide: true,
       maxBuffer: 4 * 1024 * 1024

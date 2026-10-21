@@ -8,7 +8,7 @@ import { startStaticServer, defaultAllowPrefixes } from "../../../tools/gpu-orac
 import { verifyTestBuild } from "../../../tools/test-build.mjs";
 import { cookImageTexture } from "./evaluation-input.mjs";
 import { contentHash, stableJson } from "./search.mjs";
-import { ImageQualityMetrics, nativeSsimBatch, metricRgbFrame } from "./metrics.mjs";
+import { ImageQualityMetrics, nativeSsimBatch, NativeSsimWindows } from "./metrics.mjs";
 import { decodeMetricValues } from "./metric-transport.mjs";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
@@ -164,9 +164,18 @@ export async function createOfflineEvaluator({ signal, moduleInventory = null } 
     // Offline disk references only; cells change assembly domains, so each
     // canonical recipe (including cell size and coverage) has a distinct key.
     const references = new Map();
-    await page.exposeBinding("receiveImageMetricChunk", async (_source, chunk) => {
+    await page.exposeBinding("receiveImageMetricChunk", async (_source, chunks) => {
       if (!receiver) throw new Error("GPU metric chunk has no active job");
-      return receiver(chunk);
+      if (
+        !Array.isArray(chunks) ||
+        chunks.length < 1 ||
+        chunks.length > 16 ||
+        chunks.reduce((bytes, chunk) => bytes + (chunk.valuesBase64?.length ?? Infinity), 0) >
+          16 * 1024 * 1024
+      ) {
+        throw new Error("GPU metric transport batch exceeds capacity");
+      }
+      for (const chunk of chunks) await receiver(chunk);
     });
     const close = async () => {
       try {
@@ -193,6 +202,23 @@ export async function createOfflineEvaluator({ signal, moduleInventory = null } 
       async identity() {
         return environment;
       },
+      releaseJob(directory) {
+        if (receiver) throw new Error("Cannot retire reference domains during GPU evaluation");
+        const job = resolve(directory);
+        for (const [identity, domains] of references) {
+          const owned = [...domains.values()].some((path) => {
+            const child = relative(job, path);
+            return (
+              child &&
+              !isAbsolute(child) &&
+              child !== ".." &&
+              !child.startsWith("../") &&
+              !child.startsWith("..\\")
+            );
+          });
+          if (owned) references.delete(identity);
+        }
+      },
       async evaluate({ product, directory, canonical, signal }) {
         signal?.throwIfAborted();
         const job = resolve(directory);
@@ -200,11 +226,22 @@ export async function createOfflineEvaluator({ signal, moduleInventory = null } 
         if (!child || child.startsWith("..") || isAbsolute(child))
           throw new Error("GPU search products must stay in the explicit local evaluation root");
         const { inputs, exactCoverage, ...recipe } = canonical;
-        const referenceIdentity = contentHash(stableJson({
-          recipe: JSON.parse(JSON.stringify(recipe)),
-          inputs: inputs.map((input) => ({ width: input.width, height: input.height, hash: contentHash(input.rgba) })),
-          coverage: exactCoverage?.map((input) => ({ width: input.width, height: input.height, hash: contentHash(input.rgba) })) ?? []
-        }));
+        const referenceIdentity = contentHash(
+          stableJson({
+            recipe: JSON.parse(JSON.stringify(recipe)),
+            inputs: inputs.map((input) => ({
+              width: input.width,
+              height: input.height,
+              hash: contentHash(input.rgba)
+            })),
+            coverage:
+              exactCoverage?.map((input) => ({
+                width: input.width,
+                height: input.height,
+                hash: contentHash(input.rgba)
+              })) ?? []
+          })
+        );
         let referenceDomains = references.get(referenceIdentity);
         const key = ({ plane, mip, x, y, width, height }) => `${plane}/${mip}/${x}/${y}/${width}/${height}`;
         const url = (path) =>
@@ -244,13 +281,10 @@ export async function createOfflineEvaluator({ signal, moduleInventory = null } 
         }
         const expected = new Map(referenceDomains);
         const quality = new ImageQualityMetrics(product.directory.planes[0].semantic);
-        let frames = [], windows = [], frameBytes = 0, frameWidth = 0, frameHeight = 0;
-        const flushSsim = () => {
-          if (!frames.length) return;
-          const scores = nativeSsimBatch(ffmpeg, frames, frameWidth, frameHeight);
-          for (let i = 0; i < scores.length; i++) quality.addPerceptual(scores[i], windows[i]);
-          frames = []; windows = []; frameBytes = 0;
-        };
+        const ssim = new NativeSsimWindows(
+          (frames, width, height) => nativeSsimBatch(ffmpeg, frames, width, height),
+          (score, pixels) => quality.addPerceptual(score, pixels)
+        );
         let exact = true;
         receiver = async (chunk) => {
           signal?.throwIfAborted();
@@ -269,13 +303,7 @@ export async function createOfflineEvaluator({ signal, moduleInventory = null } 
           } else {
             quality.add(reference, values, chunk);
             if (chunk.semantic.startsWith("color-")) {
-              const bytes = Math.max(8, chunk.width) * Math.max(8, chunk.height) * 3 * 2;
-              if (frames.length && (frameWidth !== chunk.width || frameHeight !== chunk.height ||
-                  frameBytes + bytes > 8 * 1024 * 1024 || windows.length >= 16)) flushSsim();
-              frameWidth = chunk.width; frameHeight = chunk.height;
-              frames.push(metricRgbFrame(reference, chunk.width, chunk.height), metricRgbFrame(values, chunk.width, chunk.height));
-              windows.push(chunk.width * chunk.height);
-              frameBytes += bytes;
+              ssim.add(reference, values, chunk.width, chunk.height);
             }
           }
           expected.delete(name);
@@ -287,7 +315,7 @@ export async function createOfflineEvaluator({ signal, moduleInventory = null } 
         }
         if (expected.size || failures.length)
           throw new Error("Incomplete GPU evaluation or browser errors: " + failures.join("\n"));
-        flushSsim();
+        ssim.flush();
         return {
           representation: "gpu-final",
           identity: environment.evaluator,

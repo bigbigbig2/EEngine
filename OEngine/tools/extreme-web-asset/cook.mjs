@@ -1,6 +1,7 @@
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
+import { availableParallelism } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
@@ -38,6 +39,11 @@ export async function nativeCook(
   const working = join(output, `.work-${randomUUID()}`);
   await mkdir(working);
   const invocations = [];
+  const payloadWrites = new Map();
+  const pendingEncodes = new Map();
+  const concurrency = Number(
+    process.env.EENGINE_AVIF_CONCURRENCY ?? Math.min(8, Math.max(1, Math.floor(availableParallelism() / 2)))
+  );
   const encodedCache = new ImageSearchCache(
     join(root, ".local/extreme-web-asset/encoded-cache"),
     8 * 1024 * 1024
@@ -45,11 +51,12 @@ export async function nativeCook(
   const result = await cookImageTexture(
     { ...request, toolHash },
     {
+      encodeConcurrency: concurrency,
       async encodeAvif(input, semantic, quality) {
         const key = hash(input.rgba);
-        const png = join(working, `${key}.png`);
-        const avif = join(working, `${key}.avif`);
-        await writeFile(png, encodePng(input));
+        const name = `${key}-${randomUUID()}`;
+        const png = join(working, `${name}.png`);
+        const avif = join(working, `${name}.avif`);
         const args = [
           ...nativeAvifArguments(semantic, candidate.quality, candidate.speed),
           "-j",
@@ -68,37 +75,92 @@ export async function nativeCook(
         if (cached) {
           const bytes = new Uint8Array(Buffer.from(cached.bytes, "base64"));
           if (hash(bytes) !== cached.hash) throw new Error("Encoded cache payload hash mismatch");
+          if (!Array.isArray(cached.invocation?.argv) || cached.invocation.status !== 0) {
+            throw new Error("Encoded cache is missing its actual native command receipt");
+          }
           validateImageAvif(bytes, input, semantic);
+          invocations.push({ ...cached.invocation, cacheHit: true });
           return bytes;
         }
-        const run = spawnSync(encoder, args, { encoding: "utf8", windowsHide: true });
-        invocations.push({
-          argv: [encoder, ...args],
-          status: run.status,
-          stdout: run.stdout,
-          stderr: run.stderr
-        });
-        await writeFile(join(working, "commands.json"), JSON.stringify(invocations, null, 2));
-        if (run.status !== 0) throw new Error(`Native AVIF failed: ${run.stderr}`);
-        const bytes = new Uint8Array(await readFile(avif));
-        validateImageAvif(bytes, { ...input }, semantic);
-        await encodedCache.write(cacheKey, {
-          hash: hash(bytes),
-          bytes: Buffer.from(bytes).toString("base64")
-        });
-        return bytes;
+        const prior = pendingEncodes.get(cacheKey);
+        if (prior) return prior;
+        const pending = (async () => {
+          await writeFile(png, encodePng(input));
+          const run = await new Promise((accept, reject) => {
+            const child = spawn(encoder, args, { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+            let stdout = "",
+              stderr = "";
+            let failure;
+            const append = (kind, bytes) => {
+              if (failure) return;
+              if (kind === "stdout") stdout += bytes;
+              else stderr += bytes;
+              if (stdout.length + stderr.length > 4 * 1024 * 1024) {
+                failure = new Error("Native AVIF diagnostic output exceeded capacity");
+                child.kill();
+              }
+            };
+            child.stdout.on("data", (bytes) => append("stdout", bytes));
+            child.stderr.on("data", (bytes) => append("stderr", bytes));
+            child.once("error", (error) => {
+              failure = error;
+            });
+            child.once("close", (status) => (failure ? reject(failure) : accept({ status, stdout, stderr })));
+          });
+          const invocation = {
+            argv: [encoder, ...args],
+            status: run.status,
+            stdout: run.stdout,
+            stderr: run.stderr
+          };
+          invocations.push(invocation);
+          await writeFile(join(working, `${name}.command.json`), JSON.stringify(invocation, null, 2));
+          if (run.status !== 0) throw new Error(`Native AVIF failed: ${run.stderr}`);
+          const bytes = new Uint8Array(await readFile(avif));
+          validateImageAvif(bytes, { ...input }, semantic);
+          await encodedCache.write(cacheKey, {
+            hash: hash(bytes),
+            bytes: Buffer.from(bytes).toString("base64"),
+            invocation
+          });
+          // Persist diagnostics/cache first; retain the complete native input on failure.
+          await unlink(png);
+          await unlink(avif);
+          return bytes;
+        })();
+        pendingEncodes.set(cacheKey, pending);
+        try {
+          return await pending;
+        } finally {
+          pendingEncodes.delete(cacheKey);
+        }
       },
       async put(identity, bytes, kind) {
         const name = `${identity}.${kind === "image" ? "avif" : "bin"}`;
-        const path = join(output, name);
-        const temporary = `${path}.${randomUUID()}.tmp`;
-        await writeFile(temporary, bytes, { flag: "wx" });
-        // Content-addressed immutable payload; publish directory only after every payload succeeds.
-        await rename(temporary, path);
+        let pending = payloadWrites.get(name);
+        if (!pending) {
+          pending = (async () => {
+            const path = join(output, name);
+            try {
+              const existing = await readFile(path);
+              if (hash(existing) !== identity) throw new Error("Immutable image payload conflict");
+              return;
+            } catch (error) {
+              if (error.code !== "ENOENT") throw error;
+            }
+            const temporary = `${path}.${randomUUID()}.tmp`;
+            await writeFile(temporary, bytes, { flag: "wx" });
+            await rename(temporary, path);
+          })();
+          payloadWrites.set(name, pending);
+        }
+        await pending;
         return name;
       }
     }
   );
+  await writeFile(join(working, "commands.json"), JSON.stringify(invocations, null, 2));
+  await writeFile(join(output, "commands.json"), JSON.stringify(invocations, null, 2));
   const temporary = join(output, `directory-${randomUUID()}.tmp`);
   await writeFile(temporary, result.bytes, { flag: "wx" });
   await rename(temporary, join(output, "directory.json"));

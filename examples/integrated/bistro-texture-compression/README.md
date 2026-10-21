@@ -1,9 +1,10 @@
 # Bistro Exterior: Texture Compression
 
 Independent EEngine demo using the current production Renderer and authored
-materials. Default mode is Cooked; `?mode=raw` explicitly selects browser Raw cook. The BC encoder recipe remains
-`bc7e-scalar-6-bc4-hq`; source resolution, alpha cutoff and scene geometry are
-unchanged. This is a scene demo, not a formal benchmark or a renderer feature claim.
+materials. Default mode is Cooked; `?mode=raw` explicitly selects browser Raw cook.
+Offline products deliver AVIF and exact planes; the runtime encodes BC7/BC5/BC4
+with explicitly configured Spark kernels. Source resolution, alpha cutoff and
+scene geometry are unchanged. This is a scene demo, not a formal benchmark or a renderer feature claim.
 
 ## Run
 
@@ -762,14 +763,14 @@ the next performance work; they are not silently described as fixed here.
 
 | Capability                   | Status            |
 | ---------------------------- | ----------------- |
-| Virtual Texture              | NOT IMPLEMENTED   |
-| Texture Page Table           | NOT IMPLEMENTED   |
-| GPU Texture Feedback         | NOT IMPLEMENTED   |
-| Physical Texture Page Cache  | NOT IMPLEMENTED   |
-| Mip/Page Eviction            | NOT IMPLEMENTED   |
-| BC5 Normal                   | NOT IMPLEMENTED   |
+| Virtual Texture              | STREAMING VT      |
+| Texture Page Table           | INTEGER MAPPING   |
+| GPU Texture Feedback         | DELAYED / BOUNDED |
+| Physical Texture Page Cache  | FORMAT ATLASES    |
+| Mip/Page Eviction            | BUDGETED LRU      |
+| BC5 Normal                   | GPU XY / RECONSTRUCT Z |
 | BC6H Environment             | NOT IMPLEMENTED   |
-| Spark GPU Production Encoder | DEFERRED          |
+| Spark GPU Encoder            | EXPLICIT KERNEL SCOPE |
 | ASTC production fallback     | NOT TARGET        |
 | ETC2 production fallback     | NOT TARGET        |
 | RGBA material fallback       | REMOVED BY DESIGN |

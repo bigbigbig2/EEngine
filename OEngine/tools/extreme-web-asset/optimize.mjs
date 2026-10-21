@@ -12,6 +12,7 @@ import {
 } from "./search.mjs";
 import { ImageSearchCache } from "./search-cache.mjs";
 import { deliveryCost } from "./delivery.mjs";
+import { retireSuccessfulImageJob } from "./scratch.mjs";
 
 /** The evaluator is the actual offline GPU/metric host, never runtime code.
  * It must evaluate all mips, exact bytes, neighboring cells and final material
@@ -43,9 +44,8 @@ export async function optimizeImage(request, output, evaluator, { trace = null, 
     ),
     ...environment
   });
-  const working = fileURLToPath(
-    new URL(`../../../.local/extreme-web-asset/jobs/${randomUUID()}/`, import.meta.url)
-  );
+  const jobs = fileURLToPath(new URL("../../../.local/extreme-web-asset/jobs/", import.meta.url));
+  const working = join(jobs, randomUUID());
   await mkdir(root, { recursive: true });
   await mkdir(working, { recursive: true });
   const report = await selectImageCandidate({
@@ -62,6 +62,10 @@ export async function optimizeImage(request, output, evaluator, { trace = null, 
         { quality: candidate.quality, speed: candidate.speed }
       );
       const encodeMs = performance.now() - started;
+      const commands = await readFile(join(directory, "commands.json"));
+      const commandsHash = contentHash(commands);
+      const commandsName = `commands-${commandsHash}.json`;
+      await writeFile(join(root, commandsName), commands);
       const inputHash = contentHash(product.bytes);
       const key = cache.key(identity, { ...candidate, inputHash });
       let evaluation = await cache.read(key);
@@ -100,6 +104,7 @@ export async function optimizeImage(request, output, evaluator, { trace = null, 
         deliveryBytes,
         encodeMs,
         cacheHit,
+        encodingCommands: { uri: commandsName, sha256: commandsHash },
         directory: relative(root, directory).replaceAll("\\", "/"),
         delivery: deliverySummary
       };
@@ -163,5 +168,7 @@ export async function optimizeImage(request, output, evaluator, { trace = null, 
   await writeFile(temporary, bytes, { flag: "wx" });
   signal?.throwIfAborted();
   await rename(temporary, join(root, "directory.json"));
+  evaluator.releaseJob(working);
+  await retireSuccessfulImageJob(jobs, working);
   return { directory: product, bytes, report: summary, reportName };
 }

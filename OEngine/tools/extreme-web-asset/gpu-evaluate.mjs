@@ -4,7 +4,7 @@ import { ImageTextureTranscoder, imageGpuFormat } from "../../.test-dist/gpu/Ima
 import { imageTextureHash } from "../../.test-dist/assets/ImageTextureProduct.js";
 import { LIGHTING_BRDF_TYPES_WGSL, LIGHTING_BRDF_MATH_WGSL } from "../../.test-dist/shaders/lighting_brdf.js";
 import { APPEARANCE_NORMAL_FILTER_WGSL } from "../../.test-dist/shaders/appearance_normal_filter.js";
-import { encodeMetricValues } from "./metric-transport.mjs";
+import { encodeMetricValues, MetricStripeEmitter } from "./metric-transport.mjs";
 
 function command(device) {
   const observers = [];
@@ -178,6 +178,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       const source = await ImageTextureSource.open(url, hash, length, undefined, preparation);
       device.pushErrorScope("validation");
       let chunks = 0;
+      const transport = new MetricStripeEmitter(emit);
       try {
         for (const item of source.directory.items) {
           const plane = source.directory.planes[item.plane];
@@ -243,7 +244,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
                     rows
                   );
                   if (!values.every(Number.isFinite)) throw new Error("Nonfinite final GPU material output");
-                  await emit({
+                  await transport.add({
                     plane: item.plane,
                     mip: page ? item.mip : item.mip + mip,
                     x: page ? page.x * 128 - 8 : item.x,
@@ -265,6 +266,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             }
           }
         }
+        await transport.flush();
         if (errors.length) throw new Error(errors.join("\n"));
         return { identity, inputHash: hash, representation: "gpu-final-samples", chunks };
       } finally {

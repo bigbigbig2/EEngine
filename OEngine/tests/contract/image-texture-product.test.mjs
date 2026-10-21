@@ -12,9 +12,65 @@ import { sparkPrecisionSource } from "../../.test-dist/gpu/ImageTextureTranscode
 import { AssetWorkerPool } from "../../.test-dist/assets/codec/AssetWorkerPool.js";
 
 const hash = "a".repeat(64);
+test("bounded parallel canonical encoding preserves serial product bytes and settles siblings on failure", async () => {
+  const inputs = [];
+  for (let width = 512; width >= 1; width /= 2) {
+    const rgba = new Uint8Array(width * width * 4);
+    for (let at = 0; at < rgba.length; at++) rgba[at] = (at + Math.floor(at / 512)) % 256;
+    inputs.push({ width, height: width, rgba });
+  }
+  const request = {
+    semantic: "data-rgb",
+    quality: "high",
+    mode: "virtual",
+    mips: "provided",
+    toolHash: hash,
+    cellSize: 128,
+    inputs
+  };
+  let active = 0,
+    peak = 0;
+  const sink = {
+    async encodeAvif(input) {
+      peak = Math.max(peak, ++active);
+      await new Promise((resolve) => setTimeout(resolve, input.width % 3));
+      active--;
+      return input.rgba.subarray(0, 4);
+    },
+    async put(identity) {
+      return `${identity}.avif`;
+    }
+  };
+  const serial = await cookImageTexture(request, sink);
+  peak = 0;
+  const parallel = await cookImageTexture(request, { ...sink, encodeConcurrency: 4 });
+  assert.equal(peak, 4);
+  assert.equal(active, 0);
+  assert.deepEqual(parallel.bytes, serial.bytes);
+  assert.deepEqual(parallel.directory, serial.directory);
+  let calls = 0;
+  await assert.rejects(
+    cookImageTexture(request, {
+      ...sink,
+      encodeConcurrency: 4,
+      async encodeAvif(input) {
+        calls++;
+        if (calls === 1) throw new Error("injected encode failure");
+        return sink.encodeAvif(input);
+      }
+    }),
+    /injected encode failure/
+  );
+  assert.equal(active, 0);
+  assert.equal(calls, 4);
+  await assert.rejects(cookImageTexture(request, { ...sink, encodeConcurrency: 17 }), /concurrency/);
+});
 test("canonical tool identity invalidates a source recipe without changing decoded content identity", async () => {
   const request = {
-    semantic: "data-rgb", quality: "high", mode: "resident", mips: "runtime",
+    semantic: "data-rgb",
+    quality: "high",
+    mode: "resident",
+    mips: "runtime",
     toolHash: hash,
     inputs: [{ width: 1, height: 1, rgba: new Uint8Array([10, 20, 30, 255]) }]
   };

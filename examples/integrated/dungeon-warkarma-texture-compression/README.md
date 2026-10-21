@@ -30,7 +30,7 @@ yarn demo:dungeon
 ```
 
 页面：`http://localhost:5176/integrated/dungeon-warkarma-texture-compression/index.html`。
-独立构建输出到 `examples-static/integrated/dungeon-warkarma-texture-compression/`，包含本例自己的 GLB、几何包和全部纹理包。
+独立构建输出到 `examples-static/integrated/dungeon-warkarma-texture-compression/`，只包含已发布场景引用的几何、图片/精确段、目录和收据，不包含源 GLB 或搜索中间文件。
 运行时的几何流式读取需要静态服务器支持 HTTP Range；开发服务器已提供支持。
 `?mode=raw` 保留原始 Dungeon 的浏览器 cook 入口，不包含 playground；
 `?fixture=1` 不切换到任何共享测试模型。
@@ -48,8 +48,8 @@ node examples/integrated/dungeon-warkarma-texture-compression/build-playground.m
 ```
 
 从仓库根目录重新 cook（工具链前提与 Bistro 相同）：
-原生 BC 构建需要支持 C++20 signed shift 的编译器；本机使用校验过下载摘要的
-LLVM-MinGW 20261006。旧 GCC 8 无法构建当前固定版本 Basis。
+需要当前几何 Cooker、固定 libavif/libaom 工具及 canonical mip resampler。
+纹理不再由离线原生 BC 编码器生成；完整搜索使用本地 evaluation GPU，须与其它 GPU 验证串行。
 
 ```powershell
 npm install --prefix .local/offline-cook-deps pngjs@7.0.0 sharp@0.34.5 --no-audit --no-fund
@@ -57,15 +57,20 @@ node tools/test-build.mjs
 $env:CXX = (Resolve-Path .local/toolchains/llvm-mingw-20261006-ucrt-x86_64/bin/clang++.exe).Path
 node OEngine/tools/build-native-cooker.mjs
 node OEngine/tools/build-image-resampler-native.mjs
-node OEngine/tools/cook-offline-scene.mjs examples/integrated/dungeon-warkarma-texture-compression/assets/dungeon_warkarma.glb .local/models/dungeon-warkarma-cooked 4
+$env:EENGINE_IMAGE_QUALITY = "high"
+node OEngine/tools/cook-offline-scene.mjs examples/assets/three/rendering-lab/dungeon_warkarma.glb .local/models/dungeon-warkarma-cooked 1 --vt
 node OEngine/tools/verify-offline-scene.mjs .local/models/dungeon-warkarma-cooked
+node OEngine/tools/extreme-web-asset/scene-package.mjs .local/models/dungeon-warkarma-cooked examples/integrated/dungeon-warkarma-texture-compression/assets/cooked
+node examples/integrated/dungeon-warkarma-texture-compression/build-playground.mjs
 ```
 
-WebP 在离线阶段解码为原尺寸 straight RGBA，随后使用现有完整 mip 与
-`bc7e-scalar-6-bc4-hq` 编码流程。`EXT_texture_webp` 的 source 在离线材质导入前解析。
-发布时将 `scene.oescene`、`scene.materials.json`、全部 `.oegpack` 与
-`textures/*.textureproduct` 从 cook 输出复制到本例 `assets/cooked/`。
+WebP 在离线阶段解码为原尺寸 straight RGBA，canonical mip 完整生成后编码为 AVIF，
+alpha/coverage 使用独立精确段。`EXT_texture_webp` 的 source 在离线材质导入前解析。
+VT 每张纹理完整评价 60 个候选，不删 mip、不先做 BC 往返。浏览器下载图片后由统一
+Worker 准备，再由 GPU 编码并写入 BC 驻留页。publisher 校验最终目录、payload、
+receipt 和完整 search report 后复制不可变依赖，最后原子替换 `scene.materials.json`。
 中间描述、scratch 和进度记录保留在 `.local`，不属于运行时资源。
+示例的本地 Spark evaluation 挂载不代表生产分发授权；公开部署需合法配置 kernel 来源。
 
 模型来源与历史许可记录见 `assets/SOURCE.md` 和 `assets/LICENSE.txt`。
 本示例与原例一样不构成整套 renderer 的画质或性能验收。
