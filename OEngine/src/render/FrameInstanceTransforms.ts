@@ -44,7 +44,7 @@ const ENTRIES = [
   "frame_instance_finalize",
   "frame_instance_build",
 ] as const;
-export const DEFAULT_FRAME_INSTANCE_MAX_BYTES = 256 * 1024 * 1024;
+export const DEFAULT_FRAME_INSTANCE_MAX_BYTES = 1024 * 1024 * 1024;
 
 /** Device-owned final frame transform product. Async readiness is awaited during
  * scene publication, not in draw. Prepared resources follow VisibilityWorkSet

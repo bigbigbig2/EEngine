@@ -26,7 +26,7 @@ export type OegPackProductSourceSelectionV4 =
 
 export interface OegPackProductAssetOptions {
   /** Explicit `scene.oescene` payload, overriding any selection-provided source. */
-  readonly manifest?: string | ArrayBuffer | Uint8Array;
+  readonly manifest?: OegPackSceneManifestV4 | string | ArrayBuffer | Uint8Array;
   readonly signal?: AbortSignal;
   /** When false, skips redundant whole-page SHA-256 after compressed CRC32 validation. Defaults to true. */
   readonly verifyPageSha256?: boolean;
@@ -154,7 +154,12 @@ export class OegPackProductAsset implements GeometryProductProviderV1 {
       throwIfAborted(options.signal);
       const descriptor = descriptorFromOegPack(pack);
       const payload = options.manifest ?? ("manifest" in selection ? selection.manifest : undefined);
-      if (payload !== undefined) manifest = parseOegPackSceneManifestV4(payload);
+      if (payload !== undefined) {
+        manifest =
+          typeof payload === "object" && payload !== null && "schema" in payload
+            ? (payload as OegPackSceneManifestV4)
+            : parseOegPackSceneManifestV4(payload as string | ArrayBuffer | Uint8Array);
+      }
       else if (defaultManifestUrl !== undefined)
         manifest = parseOegPackSceneManifestV4(await fetchManifest(defaultManifestUrl, options.signal));
       return new OegPackProductAsset(

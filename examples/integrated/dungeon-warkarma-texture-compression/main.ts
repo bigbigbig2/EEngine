@@ -584,11 +584,33 @@ function refresh(): void {
     filter: renderer.vsmSettings.filterMode
   }))
     vsmCells.get(key)!.textContent = value;
+  const shadow = s.streaming?.publication;
+  const shadowStatus = shadow?.shadowStatus;
+  vsmCells.get("dirtyBudget")!.textContent = String(renderer.vsmSettings.dirtyPageBudget);
+  vsmCells.get("shadow")!.textContent = shadow
+    ? shadow.shadowValid
+      ? "valid"
+      : shadow.shadowLimited
+        ? "limited"
+        : "invalid"
+    : "--";
+  vsmCells.get("misses")!.textContent = String(shadowStatus?.allocationMisses ?? 0);
+  vsmCells.get("evictions")!.textContent = String(shadowStatus?.evictions ?? 0);
+  vsmCells.get("coarseMisses")!.textContent = String(shadowStatus?.coarseMisses ?? 0);
+  vsmCells.get("pairExcess")!.textContent = String(shadowStatus?.pairExcess ?? 0);
+  vsmCells.get("rasterFailures")!.textContent = String(shadowStatus?.rasterFailure ?? 0);
+  vsmCells.get("pendingPages")!.textContent = String(shadowStatus?.pendingPages ?? 0);
   const ao = renderer.ambientOcclusionSettings;
+  const materialAo =
+    cooked?.manifest.gltf.materials.filter((material) => material.occlusionTexture !== undefined).length ?? 0;
+  const materialAoNote =
+    materialAo > 0
+      ? ` Authored material AO (ORM.R): ${materialAo} materials.`
+      : " No authored material AO.";
   element("ao-state").textContent =
     ao.enabled && ao.strength > 0
-      ? `${ao.quality} · ${ao.radiusMeters} m · strength ${ao.strength}. Runs only for lit surfaces.`
-      : "Screen AO off · visibility 1. No lit consumer means no AO work.";
+      ? `${ao.quality} · ${ao.radiusMeters} m · strength ${ao.strength}. Runs only for lit surfaces.${materialAoNote}`
+      : `Screen GTAO off · visibility 1.${materialAoNote}`;
   const renderValues: Record<string, string> = {
     effects: [
       state.vsm && "VSM",
@@ -713,7 +735,7 @@ async function start(): Promise<void> {
     exposure: exposureSettings,
     surfaceCacheGi: query.get("gi") === "quality" ? SURFACE_CACHE_GI_PRESETS.quality :
       query.get("gi") === "1" ? SURFACE_CACHE_GI_PRESETS.balanced : { enabled: false },
-    renderScale: query.has("gi") ? 1 : 0.667
+    renderScale: 1
   });
   for (const [id, set] of effectSwitches) set(renderer, element<HTMLInputElement>(id).checked);
   applyAmbientOcclusionControls();
@@ -1085,7 +1107,15 @@ for (const [key, label] of [
   ["clips", "Clip levels"],
   ["page", "Page size"],
   ["slots", "Resident slot capacity"],
-  ["filter", "Shadow filter"]
+  ["filter", "Shadow filter"],
+  ["dirtyBudget", "Dirty page budget"],
+  ["shadow", "Shadow status"],
+  ["misses", "Allocation misses"],
+  ["evictions", "Evictions"],
+  ["coarseMisses", "Coarse misses"],
+  ["pairExcess", "Pair excess"],
+  ["rasterFailures", "Raster failures"],
+  ["pendingPages", "Pending pages"]
 ]) {
   const dt = document.createElement("dt"),
     dd = document.createElement("dd");

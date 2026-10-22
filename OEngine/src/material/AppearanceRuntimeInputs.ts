@@ -59,6 +59,11 @@ export function standardAppearanceParameters(material: StandardShadeMaterial): R
     material.specular_color_factor.g,
     material.specular_color_factor.b,
   ].forEach((v, i) => p.set(`specular color ${i}`, v));
+  [
+    material.translucency_color.r,
+    material.translucency_color.g,
+    material.translucency_color.b,
+  ].forEach((v, i) => p.set(`translucency color ${i}`, v));
   for (const [name, value] of [
     ["alpha", material.diffuse_color.a],
     ["metallic", material.metallic_factor],
@@ -70,6 +75,7 @@ export function standardAppearanceParameters(material: StandardShadeMaterial): R
     ["specular weight", material.specular_factor],
     ["coat weight", material.clearcoat_factor],
     ["coat roughness", material.clearcoat_roughness_factor],
+    ["translucency weight", material.translucency_weight],
   ] as const)
     p.set(name, value);
   return p;

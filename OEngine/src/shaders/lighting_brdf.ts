@@ -8,6 +8,8 @@ struct StandardMaterial {
   specularF90: f32,
   energyCompensation: vec3f,
   emissive: vec3f,
+  translucency: vec3f,
+  translucencyWeight: f32,
   opacity: f32,
   coatFactor: f32,
   coatRoughness: f32,
@@ -36,6 +38,8 @@ struct DirectPhysicalResponse {
   base_attenuation: f32,
   coat_no_l: f32,
   coat_brdf: f32,
+  translucency: vec3f,
+  translucency_no_l: f32,
   has_coat: bool,
 }
 
@@ -106,6 +110,10 @@ fn prepare_direct_physical(
   ) * material.energyCompensation;
   // Filament Standard profile uses Lambert for the direct diffuse lobe.
   let diffuse = material.diffuse;
+  let translucency = material.translucency * material.translucencyWeight;
+  // Thin leaf transmission: light arriving on the back side exits toward the
+  // viewer. This is a diffuse approximation, not specular transmission.
+  let translucency_no_l = saturate(dot(-n, l));
   var base_attenuation = 1.0;
   var coat_no_l = 0.0;
   var coat_brdf = 0.0;
@@ -120,13 +128,13 @@ fn prepare_direct_physical(
     base_attenuation = 1.0 - coat_fresnel;
   }
   return DirectPhysicalResponse(diffuse, specular, no_l, base_attenuation,
-    coat_no_l, coat_brdf, material.coatFactor > 0.0);
+    coat_no_l, coat_brdf, translucency, translucency_no_l, material.coatFactor > 0.0);
 }
 
 fn direct_physical_can_contribute(response: DirectPhysicalResponse) -> bool {
   // Use the prepared shading/coat response, never geometric-normal NdotL.
   // NaN compares unequal to zero, so uncertain arithmetic is not culled.
-  return response.no_l != 0.0 || (response.has_coat &&
+  return response.no_l != 0.0 || response.translucency_no_l != 0.0 || (response.has_coat &&
     response.coat_no_l != 0.0 && response.coat_brdf != 0.0);
 }
 
@@ -143,15 +151,17 @@ fn apply_direct_physical(
   if response.has_coat {
     coat_radiance = incident_color * response.coat_no_l * response.coat_brdf;
   }
+  let transmitted = incident_color * response.translucency_no_l *
+    response.translucency * RECIPROCAL_PI * base_attenuation;
   let contribution = radiance * (specular + diffuse * RECIPROCAL_PI) *
-    base_attenuation + coat_radiance;
+    base_attenuation + coat_radiance + transmitted;
   if !all(vec3<bool>(
     finite_f32(contribution.x), finite_f32(contribution.y), finite_f32(contribution.z)
   )) {
     return;
   }
   (*reflected).specular += radiance * specular * base_attenuation + coat_radiance;
-  (*reflected).diffuse += radiance * diffuse * RECIPROCAL_PI * base_attenuation;
+  (*reflected).diffuse += radiance * diffuse * RECIPROCAL_PI * base_attenuation + transmitted;
 }
 
 fn re_direct_physical(

@@ -92,6 +92,20 @@ export function lowerStandardAppearanceGraph(
       ),
     ),
   );
+  // Thin diffuse transmission is a foliage-only profile. It inherits the
+  // authored base color so a texel's tint and cutout stay coherent.
+  g.output(
+    "translucencyColor",
+    g.combine(
+      ...[material.translucency_color.r, material.translucency_color.g, material.translucency_color.b].map(
+        (value, index) => multiply(g.parameter(`translucency color ${index}`, finite(value, `translucency color ${index}`)), baseChannels[index]!),
+      ),
+    ),
+  );
+  g.output(
+    "translucencyWeight",
+    g.parameter("translucency weight", boundedFactor(material.translucency_weight, "translucency weight"), { low: 0, high: 1 }),
+  );
   const mappedNormal = (role: "normal" | "coatNormal", scale: number): AppearanceRef => {
     if (!leaves.has(role)) return g.constant([0, 0, 1]);
     const normal = rgb(leaf(role));

@@ -2,8 +2,8 @@
   "schema": "oengine-image-scene-materials-v2",
   "source": {
     "path": "dungeon_warkarma.glb + playground.glb",
-    "bytes": 8033232,
-    "sha256": "d0fc18043b26797a0ad2ebfd380ce19f78b4552669422a357398dc88e3bbd79c",
+    "bytes": 8033228,
+    "sha256": "30ac593f992901bea095adf76d8ef11ee724415ed562a20c5883ecd48442c306",
     "triangles": 86875,
     "meshes": 842,
     "primitives": 842,
@@ -12,8 +12,8 @@
     "images": 25,
     "cookedImages": 25
   },
-  "geometryManifest": "scene-6e596e9431d9bcc586f6bd213bb0a1ad95522ca33ab90267d64b4c6738cf064c.oescene",
-  "geometryManifestHash": "6e596e9431d9bcc586f6bd213bb0a1ad95522ca33ab90267d64b4c6738cf064c",
+  "geometryManifest": "scene-c702d3efeeee916f2d5d78088b1599d9c30d61c61de392ca6a7537731ad7a1de.oescene",
+  "geometryManifestHash": "c702d3efeeee916f2d5d78088b1599d9c30d61c61de392ca6a7537731ad7a1de",
   "gltf": {
     "materials": [
       {
@@ -8744,10 +8744,10 @@
   "framing": {
     "center": [
       2.3355305679649696,
-      4.045250110842965,
+      7.058273851438002,
       -0.517943459206613
     ],
-    "radius": 58.47561588002742
+    "radius": 58.78529493669376
   },
   "playground": {
     "seed": "0x5741524b",
@@ -8758,7 +8758,7 @@
       "spheres": 15,
       "steps": 5
     },
-    "groundSize": 184.12922859191895,
+    "groundSize": 294.6067657470703,
     "floor": -0.4742855000495911,
     "dungeonBounds": {
       "min": [

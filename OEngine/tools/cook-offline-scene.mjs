@@ -215,9 +215,13 @@ async function cookScene(input, output, workers, tiled = false, publishOnly = fa
   });
   log({ phase: "catalog", sourceBytes, sourceHash });
 
-  const images = document.images.map(() => ShadeImage.fromEncodedImage(new ArrayBuffer(0), "image/png"));
-  const textures = document.textures.map((value) => textureFromGltf(value, images, document.samplers));
-  const materials = document.materials.map((value) => parseGltfMaterial(value, textures));
+  const sourceImages = document.images ?? [];
+  const sourceTextures = document.textures ?? [];
+  const sourceMaterials = document.materials ?? [];
+  const sourceSamplers = document.samplers ?? [];
+  const images = sourceImages.map(() => ShadeImage.fromEncodedImage(new ArrayBuffer(0), "image/png"));
+  const textures = sourceTextures.map((value) => textureFromGltf(value, images, sourceSamplers));
+  const materials = sourceMaterials.map((value) => parseGltfMaterial(value, textures));
   // The standard appearance graph always exposes an alpha output, so a readMask
   // bit alone does not mean the material needs exact coverage. Only masked
   // coverage consumes it; opaque/transparent materials would otherwise ship a
@@ -481,13 +485,13 @@ async function cookScene(input, output, workers, tiled = false, publishOnly = fa
       meshes: document.meshes.length,
       primitives: geometry.meshes.length,
       materials: materials.length,
-      textures: document.textures.length,
-      images: document.images.length,
+      textures: sourceTextures.length,
+      images: sourceImages.length,
       cookedImages: cookedImages.size
     },
     geometryManifest,
     geometryManifestHash,
-    gltf: { materials: document.materials, textures: document.textures, samplers: document.samplers },
+    gltf: { materials: sourceMaterials, textures: sourceTextures, samplers: sourceSamplers },
     bindings: publishedBindings,
     instanceMaterials,
     instanceProfiles,

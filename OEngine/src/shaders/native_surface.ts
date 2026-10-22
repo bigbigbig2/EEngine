@@ -78,6 +78,8 @@ export function nativeSurfaceMaterialGraph(
           "specularWeight",
           "specularColor",
           "emissive",
+          "translucencyColor",
+          "translucencyWeight",
           "coatWeight",
           "coatRoughness",
           "coatNormalTS",
@@ -526,6 +528,8 @@ fn native_environment(material: StandardMaterial, normal: vec3f, direction: vec3
   // Both direct and environment paths retain the existing single-scatter profile.
   material.energyCompensation = vec3f(1.0);
   material.emissive = ${vector("emissive", "vec3f(0.0)")};
+  material.translucency = ${vector("translucencyColor", "vec3f(0.0)")};
+  material.translucencyWeight = clamp(${scalar("translucencyWeight", "0.0")}, 0.0, 1.0);
   material.coatFactor = clamp(${scalar("coatWeight", "0.0")}, 0.0, 1.0);
   material.coatRoughness = clamp(${scalar("coatRoughness", "1.0")}, 0.04, 1.0);
   material.coatNormal = select(normal, native_safe_normal(basis * ${vector("coatNormalTS", "vec3f(0.0, 0.0, 1.0)")}, normal), ${scalar("coatNormalTSValidity", "1.0")} > 0.5);

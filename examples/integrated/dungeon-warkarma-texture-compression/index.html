@@ -114,6 +114,8 @@
               <p class="note">Depth bias 为基础偏移，Angular bias 随表面朝向增加。过大的值会让阴影脱离物体。</p>
               <label class="control">Coverage scale<output id="vsm-coverage-value">1.00 ×</output><input id="vsm-coverage" type="range" min="0.25" max="4" step="0.05" value="1" /></label>
               <p class="note">缩小覆盖提高近处精度；扩大覆盖降低精度。松开滑块后应用，覆盖改变会重建页面。</p>
+              <label class="control">Dirty page budget<output id="vsm-dirty-budget-value">64</output><input id="vsm-dirty-budget" type="range" min="1" max="2048" step="1" value="64" /></label>
+              <p class="note">每帧最多选择多少完整 dirty shadow 页进行重建；过小会积压并进入 limited，过大会增加单帧 GPU 重建。Atlas/clip/page 容量由设备协商，不能在这里改。</p>
               <div class="vsm-actions"><button id="vsm-rebuild" class="text-button">Rebuild pages</button><button id="vsm-reset" class="text-button">Reset VSM</button></div>
               <dl id="vsm-state"></dl>
             </div>
@@ -131,7 +133,7 @@
               <label class="control">Final power<input id="ao-power" type="number" min="0.5" max="5" step="0.1" value="2.2" required /></label>
               <label class="control">Denoise passes<select id="ao-denoise"><option value="0">0 (final restore only)</option><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select></label>
             </div>
-            <p id="ao-state">Screen AO off · visibility 1. No lit consumer means no AO work.</p>
+            <p id="ao-state">Screen GTAO off · authored material AO is reported separately.</p>
             <label class="effect-heading" for="ssr"
               >SSSR<input
                 id="ssr"
@@ -243,8 +245,8 @@
             /></label>
             <div id="fsr3-parameters" class="effect-parameters">
               <label class="control"
-                >Render scale<output id="render-scale-value">66.7%</output
-                ><input id="render-scale" type="range" min="0.5" max="1" step="0.001" value="0.667"
+                >Render scale<output id="render-scale-value">100%</output
+                ><input id="render-scale" type="range" min="0.5" max="1" step="0.001" value="1"
               /></label>
               <label class="toggle-row"
                 >Camera jitter<input id="jitter" class="switch" type="checkbox" role="switch" checked

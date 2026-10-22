@@ -50,7 +50,9 @@ const center = min.map((value, axis) => (value + max[axis]) / 2);
 const floor = min[1] - 0.08;
 const span = Math.max(max[0] - min[0], max[2] - min[2]);
 const unit = span / 22;
-const planeSize = span * 5;
+// A larger ground and taller surrounding blocks give VSM tuning enough
+// receivers/casters beyond the dungeon shell.
+const planeSize = span * 8;
 
 const document = {
   asset: { version: "2.0", generator: "EEngine Dungeon Playground" },
@@ -244,7 +246,7 @@ for (let i = 0; i < 30; i++) {
     if (!insideDungeon && occupied.every((p) => Math.hypot(x - p.x, z - p.z) > reach + p.reach + unit)) break;
   }
   occupied.push({ x, z, reach });
-  const height = isSphere ? size * 2 : size * (1 + random() * 1.4);
+  const height = isSphere ? size * 2 : size * (2.2 + random() * 2.4);
   object(
     isSphere ? "spheres" : "cubes",
     isSphere ? sphere : box,
@@ -260,24 +262,24 @@ for (let i = 0; i < 6; i++)
     "walls",
     box,
     i % 2 ? 2 : 1,
-    [center[0] + (i - 2.5) * span * 0.24, floor + unit * (1.7 + (i % 2)), min[2] - span * 0.64],
-    [span * 0.2, unit * (3.4 + 2 * (i % 2)), unit * 0.6]
+    [center[0] + (i - 2.5) * span * 0.24, floor + unit * (3 + 1.5 * (i % 2)), min[2] - span * 0.64],
+    [span * 0.2, unit * (6 + 3 * (i % 2)), unit * 0.6]
   );
 for (const side of [-1, 1])
   object(
     "walls",
     box,
     1,
-    [center[0] + side * span * 1.1, floor + unit * 2, center[2]],
-    [unit * 0.6, unit * 4, span * 0.55]
+    [center[0] + side * span * 1.1, floor + unit * 3.5, center[2]],
+    [unit * 0.6, unit * 7, span * 0.55]
   );
 for (let i = 0; i < 5; i++)
   object(
     "steps",
     box,
     1,
-    [max[0] + span * 0.18, floor + unit * (i + 1) * 0.22, max[2] - i * unit],
-    [unit * 3, unit * (i + 1) * 0.44, unit]
+    [max[0] + span * 0.18, floor + unit * (i + 1) * 0.3, max[2] - i * unit],
+    [unit * 3, unit * (i + 1) * 0.6, unit]
   );
 
 const binary = Buffer.concat(chunks);

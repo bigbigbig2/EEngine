@@ -188,39 +188,52 @@ export function buildVirtualGeometrySceneSourceV1(
   // transforms these bounds exactly once, just like the Product hierarchy and
   // raster vertices. Publishing world bounds here applies the fit/instance
   // transform twice and can reject geometry that is still inside the view.
-  const transforms: number[] = [],
-    geometryIndices: number[] = [],
-    materialIndices: number[] = [],
-    bounds: number[] = [],
-    boundsMin: number[] = [],
-    boundsMax: number[] = [],
-    flags: number[] = [];
-  for (const instance of instances) {
+  const count = instances.length;
+  const transforms = new Float32Array(count * 16);
+  const geometryIndices = new Uint32Array(count);
+  const materialIndices = new Uint32Array(count);
+  const bounds = new Float32Array(count * 4);
+  const boundsMin = new Float32Array(count * 3);
+  const boundsMax = new Float32Array(count * 3);
+  const flags = declaredFlags ? new Uint32Array(count) : undefined;
+
+  const isIdentity = scale === 1 && offset[0] === 0 && offset[1] === 0 && offset[2] === 0;
+
+  for (let i = 0; i < count; i++) {
+    const instance = instances[i]!;
     const m = instance.transform;
-    const matrix = new Float32Array(16);
-    for (let column = 0; column < 4; column++) {
-      for (let row = 0; row < 4; row++) {
-        matrix[column * 4 + row] =
-          column < 3 && row < 3 ? m[column * 4 + row]! * scale : m[column * 4 + row]!;
+    const tBase = i * 16;
+    if (isIdentity) {
+      transforms.set(m, tBase);
+    } else {
+      for (let column = 0; column < 4; column++) {
+        for (let row = 0; row < 4; row++) {
+          transforms[tBase + column * 4 + row] =
+            column < 3 && row < 3 ? m[column * 4 + row]! * scale : m[column * 4 + row]!;
+        }
       }
+      transforms[tBase + 12] = m[12]! * scale + offset[0]!;
+      transforms[tBase + 13] = m[13]! * scale + offset[1]!;
+      transforms[tBase + 14] = m[14]! * scale + offset[2]!;
     }
-    matrix[12] = m[12]! * scale + offset[0]!;
-    matrix[13] = m[13]! * scale + offset[1]!;
-    matrix[14] = m[14]! * scale + offset[2]!;
-    transforms.push(...matrix);
-    geometryIndices.push(instance.assetIndex);
-    materialIndices.push(instance.materialIndex === 0xffffffff ? 0 : instance.materialIndex);
+    geometryIndices[i] = instance.assetIndex;
+    materialIndices[i] = instance.materialIndex === 0xffffffff ? 0 : instance.materialIndex;
     const base = instance.assetIndex * ASSET_RECORD_STRIDE;
-    bounds.push(
-      assetView.getFloat32(base + 32, true),
-      assetView.getFloat32(base + 36, true),
-      assetView.getFloat32(base + 40, true),
-      assetView.getFloat32(base + 44, true),
-    );
+    const bBase = i * 4;
+    bounds[bBase] = assetView.getFloat32(base + 32, true);
+    bounds[bBase + 1] = assetView.getFloat32(base + 36, true);
+    bounds[bBase + 2] = assetView.getFloat32(base + 40, true);
+    bounds[bBase + 3] = assetView.getFloat32(base + 44, true);
+
     const { min, max } = localBounds(instance.assetIndex);
-    boundsMin.push(...min);
-    boundsMax.push(...max);
-    if (declaredFlags) flags.push(instance.flags!);
+    const mBase = i * 3;
+    boundsMin[mBase] = min[0]!;
+    boundsMin[mBase + 1] = min[1]!;
+    boundsMin[mBase + 2] = min[2]!;
+    boundsMax[mBase] = max[0]!;
+    boundsMax[mBase + 1] = max[1]!;
+    boundsMax[mBase + 2] = max[2]!;
+    if (flags) flags[i] = instance.flags!;
   }
   const workload = geometryProductSceneWorkload(descriptor, instances);
   return Object.freeze({
@@ -230,14 +243,14 @@ export function buildVirtualGeometrySceneSourceV1(
       geometryProfiles: Object.freeze([...profiles]),
       assetCount,
       ...workload,
-      count: geometryIndices.length,
-      geometryIndices: Uint32Array.from(geometryIndices),
-      materialIndices: Uint32Array.from(materialIndices),
-      currentTransforms: Float32Array.from(transforms),
-      boundsSpheres: Float32Array.from(bounds),
-      boundsMin: Float32Array.from(boundsMin),
-      boundsMax: Float32Array.from(boundsMax),
-      ...(declaredFlags ? { flags: Uint32Array.from(flags) } : {}),
+      count,
+      geometryIndices,
+      materialIndices,
+      currentTransforms: transforms,
+      boundsSpheres: bounds,
+      boundsMin,
+      boundsMax,
+      ...(flags ? { flags } : {}),
     }),
   });
 }
@@ -267,21 +280,25 @@ export function mergeVirtualGeometryProductSceneSourcesV1(
     mutableMaterials[index] ??= new StandardShadeMaterial();
   const materials = Object.freeze(mutableMaterials);
   const geometryProfiles: VirtualGeometryGeometryProfile[] = [];
-  const geometryIndices: number[] = [];
-  const materialIndices: number[] = [];
-  const transforms: number[] = [];
-  const previousTransforms: number[] = [];
-  const boundsSpheres: number[] = [];
-  const boundsMin: number[] = [];
-  const boundsMax: number[] = [];
-  const flags: number[] = [];
-  const debugIds: number[] = [];
-  const productTableSlots: number[] = [];
-  const productGenerations: number[] = [];
   const meshes = parts.flatMap((part) => part.source.meshes ?? []);
   const hasPrevious = parts.some((part) => part.source.previousTransforms !== undefined);
   const hasFlags = parts.some((part) => part.source.flags !== undefined);
   const hasDebugIds = parts.some((part) => part.source.debugIds !== undefined);
+
+  const totalCount = parts.reduce((sum, part) => sum + part.source.count, 0);
+  const outGeometryIndices = new Uint32Array(totalCount);
+  const outMaterialIndices = new Uint32Array(totalCount);
+  const outProductTableSlots = new Uint32Array(totalCount);
+  const outProductGenerations = new Uint32Array(totalCount);
+  const outTransforms = new Float32Array(totalCount * 16);
+  const outPreviousTransforms = hasPrevious ? new Float32Array(totalCount * 16) : undefined;
+  const outBoundsSpheres = new Float32Array(totalCount * 4);
+  const outBoundsMin = new Float32Array(totalCount * 3);
+  const outBoundsMax = new Float32Array(totalCount * 3);
+  const outFlags = hasFlags ? new Uint32Array(totalCount) : undefined;
+  const outDebugIds = hasDebugIds ? new Uint32Array(totalCount) : undefined;
+
+  let cursor = 0;
   let expectedAssetBegin = 0;
   for (const part of parts) {
     const source = part.source;
@@ -289,23 +306,36 @@ export function mergeVirtualGeometryProductSceneSourcesV1(
       throw new RangeError("Multi-Product asset-reference ranges must be contiguous and ordered");
     }
     geometryProfiles.push(...source.geometryProfiles);
-    for (let index = 0; index < source.count; index++) {
-      geometryIndices.push(part.assetReferenceBegin + source.geometryIndices[index]!);
-      materialIndices.push(source.materialIndices[index]!);
-      productTableSlots.push(part.productTableSlot);
-      productGenerations.push(part.productGeneration);
-      transforms.push(...source.currentTransforms.subarray(index * 16, index * 16 + 16));
-      const previous = source.previousTransforms ?? source.currentTransforms;
-      if (hasPrevious) previousTransforms.push(...previous.subarray(index * 16, index * 16 + 16));
-      boundsSpheres.push(...source.boundsSpheres.subarray(index * 4, index * 4 + 4));
-      if (source.boundsMin === undefined || source.boundsMax === undefined) {
-        throw new RangeError("Multi-Product shard scene requires explicit bounds");
-      }
-      boundsMin.push(...source.boundsMin.subarray(index * 3, index * 3 + 3));
-      boundsMax.push(...source.boundsMax.subarray(index * 3, index * 3 + 3));
-      if (hasFlags) flags.push(source.flags?.[index] ?? DEFAULT_INSTANCE_SHADOW_FLAGS);
-      if (hasDebugIds) debugIds.push(source.debugIds?.[index] ?? geometryIndices.length - 1);
+    const count = source.count;
+    outTransforms.set(source.currentTransforms, cursor * 16);
+    if (outPreviousTransforms) {
+      outPreviousTransforms.set(source.previousTransforms ?? source.currentTransforms, cursor * 16);
     }
+    outBoundsSpheres.set(source.boundsSpheres, cursor * 4);
+    if (source.boundsMin === undefined || source.boundsMax === undefined) {
+      throw new RangeError("Multi-Product shard scene requires explicit bounds");
+    }
+    outBoundsMin.set(source.boundsMin, cursor * 3);
+    outBoundsMax.set(source.boundsMax, cursor * 3);
+
+    const srcGeometryIndices = source.geometryIndices;
+    const srcMaterialIndices = source.materialIndices;
+    const srcFlags = source.flags;
+    const srcDebugIds = source.debugIds;
+    const slot = part.productTableSlot;
+    const gen = part.productGeneration;
+    const assetBegin = part.assetReferenceBegin;
+
+    for (let index = 0; index < count; index++) {
+      const outIndex = cursor + index;
+      outGeometryIndices[outIndex] = assetBegin + srcGeometryIndices[index]!;
+      outMaterialIndices[outIndex] = srcMaterialIndices[index]!;
+      outProductTableSlots[outIndex] = slot;
+      outProductGenerations[outIndex] = gen;
+      if (outFlags) outFlags[outIndex] = srcFlags?.[index] ?? DEFAULT_INSTANCE_SHADOW_FLAGS;
+      if (outDebugIds) outDebugIds[outIndex] = srcDebugIds?.[index] ?? outIndex;
+    }
+    cursor += count;
     expectedAssetBegin += source.assetCount;
   }
   const capacity = checkedGeometryWorkCount(
@@ -327,17 +357,17 @@ export function mergeVirtualGeometryProductSceneSourcesV1(
       parts.reduce((sum, part) => sum + part.source.hierarchyRasterWorkCapacity, 0),
       "Multi-Product MeshletWork capacity",
     ),
-    count: geometryIndices.length,
-    geometryIndices: Uint32Array.from(geometryIndices),
-    productTableSlots: Uint32Array.from(productTableSlots),
-    productGenerations: Uint32Array.from(productGenerations),
-    materialIndices: Uint32Array.from(materialIndices),
-    currentTransforms: Float32Array.from(transforms),
-    ...(hasPrevious ? { previousTransforms: Float32Array.from(previousTransforms) } : {}),
-    boundsSpheres: Float32Array.from(boundsSpheres),
-    boundsMin: Float32Array.from(boundsMin),
-    boundsMax: Float32Array.from(boundsMax),
-    ...(hasFlags ? { flags: Uint32Array.from(flags) } : {}),
-    ...(hasDebugIds ? { debugIds: Uint32Array.from(debugIds) } : {}),
+    count: totalCount,
+    geometryIndices: outGeometryIndices,
+    productTableSlots: outProductTableSlots,
+    productGenerations: outProductGenerations,
+    materialIndices: outMaterialIndices,
+    currentTransforms: outTransforms,
+    ...(hasPrevious ? { previousTransforms: outPreviousTransforms } : {}),
+    boundsSpheres: outBoundsSpheres,
+    boundsMin: outBoundsMin,
+    boundsMax: outBoundsMax,
+    ...(hasFlags ? { flags: outFlags } : {}),
+    ...(hasDebugIds ? { debugIds: outDebugIds } : {}),
   });
 }

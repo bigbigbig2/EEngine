@@ -113,6 +113,10 @@ function snapshotMaterialInputs(material: StandardShadeMaterial): readonly unkno
     material.emissive_factor.r,
     material.emissive_factor.g,
     material.emissive_factor.b,
+    material.translucency_color.r,
+    material.translucency_color.g,
+    material.translucency_color.b,
+    material.translucency_weight,
     material.ambient_factors.a
   ];
   for (const [property, uv] of TEXTURE_INPUTS) {

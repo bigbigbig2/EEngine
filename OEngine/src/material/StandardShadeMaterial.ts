@@ -92,6 +92,9 @@ export class StandardShadeMaterial extends ShadeMaterial {
   clearcoat_normal_uv_scale: [number, number] = [1, 1];
   clearcoat_normal_uv_rotation = 0;
   emissive_factor = new Color(0, 0, 0);
+  /** Thin diffuse transmission used by the explicit foliage profile. */
+  translucency_color = new Color(0, 0, 0);
+  translucency_weight = 0;
   ambient_factors = new LinearModifier(1, 1);
 
   /** Numeric/raster publication changes; graph and texture topology still resync. */
@@ -117,6 +120,8 @@ export class StandardShadeMaterial extends ShadeMaterial {
       "texture_emissive",
       "diffuse_color",
       "emissive_factor",
+      "translucency_color",
+      "translucency_weight",
       "specular_color_factor",
       "ambient_factors"
     ] as const) {
@@ -175,6 +180,8 @@ export class StandardShadeMaterial extends ShadeMaterial {
       hashFloat(this.metallic_factor),
       hashFloat(this.transmission_factor),
       this.emissive_factor.hash(),
+      this.translucency_color.hash(),
+      hashFloat(this.translucency_weight),
       this.ambient_factors.hash(),
       hashOptional(this.texture_albedo),
       hashOptional(this.texture_normal),
@@ -277,6 +284,8 @@ export class StandardShadeMaterial extends ShadeMaterial {
       refOrDeepEquals(this.texture_emissive, other.texture_emissive) &&
       this.is_unlit === other.is_unlit &&
       this.emissive_factor.equals(other.emissive_factor) &&
+      this.translucency_color.equals(other.translucency_color) &&
+      this.translucency_weight === other.translucency_weight &&
       this.ambient_factors.equals(other.ambient_factors)
     );
   }

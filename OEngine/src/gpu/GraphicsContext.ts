@@ -29,7 +29,7 @@ import { GpuRenderWorld } from "./GpuRenderWorld.js";
 import { GpuMaterialStore } from "./GpuMaterialStore.js";
 import { AppearanceProgramRegistry } from "./AppearanceProgramRegistry.js";
 import { AppearanceStaticResidency } from "./AppearanceStaticResidency.js";
-import { FrameInstanceTransforms } from "../render/FrameInstanceTransforms.js";
+import { FrameInstanceTransforms, DEFAULT_FRAME_INSTANCE_MAX_BYTES } from "../render/FrameInstanceTransforms.js";
 import { FrameGeometryVertices } from "../render/FrameGeometryVertices.js";
 import { FrameGeometryArena } from "../render/FrameGeometryArena.js";
 import { TemporalOcclusionWork } from "../render/TemporalOcclusionWork.js";
@@ -266,7 +266,7 @@ export class GraphicsContext {
   }
 
   get frame_instances(): FrameInstanceTransforms {
-    this.frameInstancesValue ??= new FrameInstanceTransforms(this.device, this.resource_accounting);
+    this.frameInstancesValue ??= new FrameInstanceTransforms(this.device, this.resource_accounting, false, Math.max(DEFAULT_FRAME_INSTANCE_MAX_BYTES, Math.min(2 * 1024 * 1024 * 1024, Number(this.device.limits.maxBufferSize) * 2)));
     return this.frameInstancesValue;
   }
 

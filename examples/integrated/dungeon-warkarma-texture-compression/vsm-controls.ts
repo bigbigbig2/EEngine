@@ -17,6 +17,8 @@ export function setupVsmControls(getRenderer: () => Renderer | undefined, onChan
   const input = (id: string) => document.getElementById(id) as HTMLInputElement;
   const filter = document.getElementById("vsm-filter") as HTMLSelectElement;
   const view = document.getElementById("vsm-debug-view") as HTMLSelectElement;
+  const dirtyBudget = document.getElementById("vsm-dirty-budget") as HTMLInputElement;
+  const dirtyBudgetValue = document.getElementById("vsm-dirty-budget-value")!;
   const note = document.getElementById("vsm-debug-note")!;
   const notes: Record<VsmDebugView, string> = {
     none: "正常画面。参数在松开滑块后应用；调试视图关闭时不执行额外采样。",
@@ -38,6 +40,8 @@ export function setupVsmControls(getRenderer: () => Renderer | undefined, onChan
       label(id);
     }
     filter.value = settings.filterMode;
+    dirtyBudget.value = String(settings.dirtyPageBudget);
+    dirtyBudgetValue.textContent = String(settings.dirtyPageBudget);
     input("vsm-radius").disabled = settings.filterMode !== "disk4";
     if (settings.filterMode !== "disk4") {
       document.getElementById("vsm-radius-value")!.textContent =
@@ -64,6 +68,14 @@ export function setupVsmControls(getRenderer: () => Renderer | undefined, onChan
   });
   view.addEventListener("change", () => {
     getRenderer()?.setVsmSettings({ debugView: view.value as VsmDebugView });
+    onChange();
+    sync();
+  });
+  dirtyBudget.addEventListener("input", () => {
+    dirtyBudgetValue.textContent = dirtyBudget.value;
+  });
+  dirtyBudget.addEventListener("change", () => {
+    getRenderer()?.setVsmSettings({ dirtyPageBudget: Number(dirtyBudget.value) });
     onChange();
     sync();
   });

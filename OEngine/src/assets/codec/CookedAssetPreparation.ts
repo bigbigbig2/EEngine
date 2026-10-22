@@ -282,13 +282,13 @@ export class CookedAssetPreparation {
   /** Sources register immutable metadata/index storage at open, not first payload
    * demand, so dormant sources cannot bypass the shared directory capacity. */
   registerImageSource(session: string, directory: ImageTextureDirectory, spatialIndexBytes: number): void {
-    checkedImageInteger(spatialIndexBytes, 0, 8 * MiB);
+    checkedImageInteger(spatialIndexBytes, 0, 32 * MiB);
     const registration = this.#registerImageDirectory(session, directory);
     if (registration.indexBytes !== 0) {
       throw new Error("Image source spatial index was already registered");
     }
     const extra = spatialIndexBytes;
-    if (this.#imageDirectoryBytes + extra > 8 * MiB) {
+    if (this.#imageDirectoryBytes + extra > 32 * MiB) {
       this.releaseImageDirectory(session, directory);
       throw new RangeError("Image source/index global metadata credit exceeded");
     }
@@ -499,7 +499,7 @@ export class CookedAssetPreparation {
     if (!registration) {
       const bytes = writeImageTextureDirectory(directory);
       const charge = bytes.byteLength * 4 + directory.items.length * 128;
-      if (this.#imageDirectoryBytes + charge > 8 * MiB) {
+      if (this.#imageDirectoryBytes + charge > 32 * MiB) {
         throw new RangeError("Image directory global metadata credit exceeded");
       }
       const snapshot = structuredClone(directory);
