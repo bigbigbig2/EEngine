@@ -23,7 +23,7 @@ struct VsmSamplingConstants {
   clip_origin_extent: array<vec4f, 6>,
   dimensions: vec4u, // virtual pages/axis, page size, border, atlas pages/axis
   control: vec4u,    // clip levels, generation, filter mode, noise phase
-  filter_params: vec4f, // angular/depth bias, reserved, disk radius in actual shadow texels
+  filter_params: vec4f, // angular/depth bias, clip transition ratio, disk radius in actual shadow texels
   depth_range: vec4f, // GPU caster min/max Z, inverse range, validity
   identity: vec4u, // projection epoch, owner namespace, debug view, filter data word offset
 };
@@ -202,6 +202,31 @@ fn vsm_sample_page(entry: VsmPageEntry, local_uv: vec2f,
   return visible * 0.25;
 }
 
+fn vsm_clip_transition_weight(light_xy: vec2f, level: u32) -> f32 {
+  if (level + 1u >= min(6u, vsm_constants.control.x) || vsm_constants.filter_params.z <= 0.0) {
+    return 0.0;
+  }
+  let pages = max(1u, vsm_constants.dimensions.x);
+  let clip = vsm_constants.clip_origin_extent[level];
+  let page_world = clip.z / f32(pages);
+  let local = light_xy / page_world - vec2f(vsm_window_minimum(clip, 0u, pages));
+  let window = vec2f(vsm_window_size(clip, 0u, pages));
+  let edge_distance = min(min(local.x, window.x - local.x), min(local.y, window.y - local.y));
+  let width = max(1.0, f32(pages) * vsm_constants.filter_params.z);
+  return 1.0 - smoothstep(0.0, width, edge_distance);
+}
+
+fn vsm_sample_query(query: VsmPageQuery, light_xy: vec2f, normal_ws: vec3f,
+  reference_depth: f32, angular_bias: f32, rotation: vec2f) -> f32 {
+  let local_uv = vsm_page_local_uv(light_xy, query.level, query.entry.mip);
+  let extent = vsm_constants.clip_origin_extent[query.level].z;
+  let depth_per_texel = extent / f32(vsm_constants.dimensions.x * vsm_constants.dimensions.y) *
+    exp2(f32(query.entry.mip)) * vsm_constants.depth_range.z;
+  return vsm_sample_page(query.entry, local_uv, reference_depth,
+    (vsm_constants.filter_params.y + angular_bias) * depth_per_texel,
+    rotation, vsm_receiver_plane_gradient(normal_ws, depth_per_texel));
+}
+
 var<private> vsm_visibility_qualified: bool;
 fn vsm_sample_directional(position_ws: vec3f, normal_ws: vec3f,
   incident: GpuPrimitiveTypeTable, receiver: ${finalPixel ? "vec2u" : "vec2f"}) -> f32 {
@@ -216,19 +241,25 @@ fn vsm_sample_directional(position_ws: vec3f, normal_ws: vec3f,
   }
   let receiver_cosine = clamp(dot(normal_ws, incident.direction), 1e-3, 1.0);
   let angular_bias = vsm_constants.filter_params.x * (1.0 - receiver_cosine);
-  let entry = query.entry;
-  let local_uv = vsm_page_local_uv(light.xy, query.level, entry.mip);
-  let extent = vsm_constants.clip_origin_extent[query.level].z;
   let reference_depth = (vsm_constants.depth_range.y - light.z) * vsm_constants.depth_range.z;
   // A neutral/clamped depth result outside the published projection is not
   // measured receiver visibility for another transport consumer.
   vsm_visibility_qualified = reference_depth >= 0.0 && reference_depth <= 1.0;
-  let depth_per_texel = extent / f32(vsm_constants.dimensions.x * vsm_constants.dimensions.y) *
-    exp2(f32(entry.mip)) * vsm_constants.depth_range.z;
-  return vsm_sample_page(entry, local_uv, reference_depth,
-    (vsm_constants.filter_params.y + angular_bias) * depth_per_texel,
-    ${finalPixel ? "vsm_filter_rotation(receiver)" : "receiver"},
-    vsm_receiver_plane_gradient(normal_ws, depth_per_texel));
+  let rotation = ${finalPixel ? "vsm_filter_rotation(receiver)" : "receiver"};
+  let current = vsm_sample_query(query, light.xy, normal_ws, reference_depth, angular_bias, rotation);
+  if (query.status != VSM_QUERY_FINE) {
+    return current;
+  }
+  let blend = vsm_clip_transition_weight(light.xy, query.level);
+  if (blend <= 0.0) {
+    return current;
+  }
+  let coarse = vsm_lookup(query.level + 1u, light.xy, 5u);
+  if (coarse.status != VSM_QUERY_COARSE) {
+    return current;
+  }
+  let fallback = vsm_sample_query(coarse, light.xy, normal_ws, reference_depth, angular_bias, rotation);
+  return mix(current, fallback, blend);
 }
 
 // Debug-only queries. No per-pixel atomic counter or additional frame product.

@@ -2890,6 +2890,11 @@ export class Renderer {
         camera.transform.matrix[13]!,
         camera.transform.matrix[14]!,
       ];
+      const cameraForward: [number, number, number] = [
+        camera.transform.matrix[8]!,
+        camera.transform.matrix[9]!,
+        camera.transform.matrix[10]!,
+      ];
       const sunDirection = scene.physical_environment.snapshot().sunDirectionWorld;
       const vsmEnabled =
         hasLit &&
@@ -2941,6 +2946,7 @@ export class Renderer {
             this._vsmGeneration.currentGeneration,
             this._vsmGeneration.currentProjectionEpoch,
             this._vsmSettings,
+            cameraForward,
           )
         : null;
       const vsmSourceRevision =

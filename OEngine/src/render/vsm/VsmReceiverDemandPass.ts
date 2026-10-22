@@ -104,7 +104,10 @@ export function packVsmSamplingConstants(input: VsmReceiverDemandInputs): ArrayB
     throw new RangeError("VSM disk filtering requires a complete noise publication and valid phase");
   }
   uints.set([profile.clipLevels, input.generation, VSM_FILTER_MODES[filterMode], phase], 44);
-  floats.set([settings.angularBiasTexels, settings.depthBiasTexels, 0, settings.filterRadiusTexels], 48);
+  floats.set(
+    [settings.angularBiasTexels, settings.depthBiasTexels, settings.clipTransitionRatio, settings.filterRadiusTexels],
+    48,
+  );
   uints[VSM_IDENTITY_BYTE_OFFSET / 4 + 2] = VSM_DEBUG_VIEWS[settings.debugView];
   uints[VSM_IDENTITY_BYTE_OFFSET / 4 + 3] = noiseOffset;
   return data;

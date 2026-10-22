@@ -13,11 +13,13 @@ VSM 面板提供以下实时调试参数，滑块松开后生效：
 
 | 参数 | 默认值 | 用途 |
 | --- | --- | --- |
-| PCF samples | 4×4 | 1×1 至设备允许的上限，比较过滤质量与采样成本 |
-| Filter radius | 0.75 texel | 0–3，调整过滤宽度，不是物理光源软阴影半径 |
-| Depth / Normal / Slope bias | 2 / 0.5 / 1.5 texel | 分别调整深度、法线相关与斜率相关偏移；过大会使阴影脱离物体 |
-| Coverage scale | 1× | 0.25–4，扩大范围会降低世界空间精度，并重建页面 |
-| Rebuild pages / Reset VSM | — | 手动失效重建 / 恢复全部默认参数 |
+| Filter | Vogel disk 4 samples | 也可切换稳定 2×2 或单点阴影 |
+| Filter radius | 1.50 texel | 0–3，调整过滤宽度，不是物理光源软阴影半径 |
+| Depth / Angular bias | 1 / 1 texel | 过大会使阴影脱离物体 |
+| Coverage scale | 3.5× | 0.25–4，扩大范围会降低世界空间精度，并重建页面 |
+| Level transition | 0.16× | 在 clip level 外缘与 coarse page 混合，减少层级硬切换 |
+| Dirty page budget | 128 | 每帧最多选择的完整 dirty shadow 页；用于更快完成当前视图 |
+| Rebuild pages / Reset VSM | — | 手动失效重建 / 恢复本示例推荐参数 |
 
 Debug view 可选阴影可见度（白受光、黑遮挡）、实际采样 clip level，或页面状态
 （绿 Fine、蓝 Coarse、紫 Missing、红 Stale、黄 Dirty、灰 Outside）。青色表示没有

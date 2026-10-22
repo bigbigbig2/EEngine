@@ -15,6 +15,8 @@ export interface VsmSettings {
   readonly filterMode: VsmFilterMode;
   readonly filterRadiusTexels: number;
   readonly clipExtentScale: number;
+  /** Fraction of a fine clip window used to blend into the next coarse level. */
+  readonly clipTransitionRatio: number;
   readonly debugView: VsmDebugView;
   /** Bounded complete shadow pages selected for raster work per frame.
    * Prevents unbounded GPU rebuild storms while streaming geometry. */
@@ -27,6 +29,7 @@ export const VSM_DEFAULT_SETTINGS: Readonly<VsmSettings> = Object.freeze({
   filterMode: "disk4",
   filterRadiusTexels: 1.5,
   clipExtentScale: 1,
+  clipTransitionRatio: 0.16,
   debugView: "none",
   dirtyPageBudget: 64,
 });
@@ -62,6 +65,13 @@ export function resolveVsmSettings(current: VsmSettings, patch: Partial<VsmSetti
   }
   if (!Number.isFinite(next.clipExtentScale) || next.clipExtentScale < 0.25 || next.clipExtentScale > 4) {
     throw new RangeError("VSM clip extent scale must be finite in [0.25, 4]");
+  }
+  if (
+    !Number.isFinite(next.clipTransitionRatio) ||
+    next.clipTransitionRatio < 0 ||
+    next.clipTransitionRatio > 0.35
+  ) {
+    throw new RangeError("VSM clip transition ratio must be finite in [0, 0.35]");
   }
   if (!Object.prototype.hasOwnProperty.call(VSM_DEBUG_VIEWS, next.debugView)) {
     throw new RangeError("Unknown VSM debug view");

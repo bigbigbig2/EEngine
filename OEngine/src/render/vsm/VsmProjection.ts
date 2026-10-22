@@ -23,7 +23,7 @@ function normalize3(x: number, y: number, z: number): [number, number, number] {
   return [x / length, y / length, z / length];
 }
 
-/** World-fixed light basis and camera-centered integer page window. */
+/** World-fixed light basis and view-centered integer page window. */
 export function buildVsmDirectionalFrameConstants(
   sunDirectionWorld: readonly [number, number, number],
   cameraPosition: readonly [number, number, number],
@@ -31,7 +31,8 @@ export function buildVsmDirectionalFrameConstants(
   resources: VsmResources,
   generation: number,
   projectionEpoch = generation,
-  settings: Readonly<VsmSettings> = VSM_DEFAULT_SETTINGS
+  settings: Readonly<VsmSettings> = VSM_DEFAULT_SETTINGS,
+  cameraForwardWorld?: readonly [number, number, number]
 ): VsmDirectionalFrameConstants {
   const profile = resources.capabilities;
   if (resources.profile === "shadow-disabled") {
@@ -54,7 +55,16 @@ export function buildVsmDirectionalFrameConstants(
     travel[2] * right[0] - travel[0] * right[2],
     travel[0] * right[1] - travel[1] * right[0]
   ];
-  const center = [cameraPosition[0], cameraPosition[1], cameraPosition[2]] as const;
+  const baseExtent = Math.max(32, Math.min(Math.max(32, cameraFar), 2048) * 0.125) * settings.clipExtentScale;
+  const forward: [number, number, number] =
+    cameraForwardWorld === undefined
+      ? [0, 0, 0]
+      : normalize3(cameraForwardWorld[0], cameraForwardWorld[1], cameraForwardWorld[2]);
+  const center = [
+    cameraPosition[0] + forward[0] * baseExtent * 0.5,
+    cameraPosition[1] + forward[1] * baseExtent * 0.5,
+    cameraPosition[2] + forward[2] * baseExtent * 0.5,
+  ] as const;
   const lightView = Object.freeze([
     right[0],
     up[0],
@@ -76,7 +86,6 @@ export function buildVsmDirectionalFrameConstants(
   if (!Number.isFinite(cameraFar) || cameraFar <= 0 || !cameraPosition.every(Number.isFinite)) {
     throw new RangeError("VSM camera must be finite with positive far distance");
   }
-  const baseExtent = Math.max(32, Math.min(Math.max(32, cameraFar), 2048) * 0.125) * settings.clipExtentScale;
   const levels = Array.from({ length: profile.clipLevels }, (_, level) => {
     const extent = baseExtent * 2 ** level;
     const texelWorld = extent / (profile.virtualPagesPerAxis * profile.pageSize);

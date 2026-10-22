@@ -112,9 +112,11 @@
               <label class="control">Depth bias (texels)<output id="vsm-depth-bias-value">1.00</output><input id="vsm-depth-bias" type="range" min="0" max="8" step="0.05" value="1" /></label>
               <label class="control">Angular depth bias (texels)<output id="vsm-angular-bias-value">1.00</output><input id="vsm-angular-bias" type="range" min="0" max="8" step="0.05" value="1" /></label>
               <p class="note">Depth bias 为基础偏移，Angular bias 随表面朝向增加。过大的值会让阴影脱离物体。</p>
-              <label class="control">Coverage scale<output id="vsm-coverage-value">1.00 ×</output><input id="vsm-coverage" type="range" min="0.25" max="4" step="0.05" value="1" /></label>
+              <label class="control">Coverage scale<output id="vsm-coverage-value">3.50 ×</output><input id="vsm-coverage" type="range" min="0.25" max="4" step="0.05" value="3.5" /></label>
               <p class="note">缩小覆盖提高近处精度；扩大覆盖降低精度。松开滑块后应用，覆盖改变会重建页面。</p>
-              <label class="control">Dirty page budget<output id="vsm-dirty-budget-value">64</output><input id="vsm-dirty-budget" type="range" min="1" max="2048" step="1" value="64" /></label>
+              <label class="control">Level transition<output id="vsm-transition-value">0.16 ×</output><input id="vsm-transition" type="range" min="0" max="0.35" step="0.01" value="0.16" /></label>
+              <p class="note">在当前层级外缘与已有 coarse page 混合，减少层级硬切换；范围越大越平滑，但边缘额外采样越多。</p>
+              <label class="control">Dirty page budget<output id="vsm-dirty-budget-value">128</output><input id="vsm-dirty-budget" type="range" min="1" max="2048" step="1" value="128" /></label>
               <p class="note">每帧最多选择多少完整 dirty shadow 页进行重建；过小会积压并进入 limited，过大会增加单帧 GPU 重建。Atlas/clip/page 容量由设备协商，不能在这里改。</p>
               <div class="vsm-actions"><button id="vsm-rebuild" class="text-button">Rebuild pages</button><button id="vsm-reset" class="text-button">Reset VSM</button></div>
               <dl id="vsm-state"></dl>

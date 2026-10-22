@@ -10,8 +10,18 @@ const controls = [
   ["vsm-radius", "filterRadiusTexels"],
   ["vsm-depth-bias", "depthBiasTexels"],
   ["vsm-angular-bias", "angularBiasTexels"],
-  ["vsm-coverage", "clipExtentScale"]
+  ["vsm-coverage", "clipExtentScale"],
+  ["vsm-transition", "clipTransitionRatio"]
 ] as const;
+
+export const DUNGEON_VSM_PRESET = Object.freeze({
+  clipExtentScale: 3.5,
+  clipTransitionRatio: 0.16,
+  filterRadiusTexels: 1.5,
+  depthBiasTexels: 1,
+  angularBiasTexels: 1,
+  dirtyPageBudget: 128,
+});
 
 export function setupVsmControls(getRenderer: () => Renderer | undefined, onChange: () => void) {
   const input = (id: string) => document.getElementById(id) as HTMLInputElement;
@@ -30,7 +40,7 @@ export function setupVsmControls(getRenderer: () => Renderer | undefined, onChan
   function label(id: string) {
     const value = Number(input(id).value);
     document.getElementById(`${id}-value`)!.textContent =
-      `${value.toFixed(2)}${id === "vsm-coverage" ? " ×" : ""}`;
+      `${value.toFixed(2)}${id === "vsm-coverage" || id === "vsm-transition" ? " ×" : ""}`;
   }
   function sync() {
     const renderer = getRenderer();
@@ -84,7 +94,7 @@ export function setupVsmControls(getRenderer: () => Renderer | undefined, onChan
     onChange();
   });
   document.getElementById("vsm-reset")!.addEventListener("click", () => {
-    getRenderer()?.setVsmSettings(VSM_DEFAULT_SETTINGS);
+    getRenderer()?.setVsmSettings({ ...VSM_DEFAULT_SETTINGS, ...DUNGEON_VSM_PRESET });
     onChange();
     sync();
   });

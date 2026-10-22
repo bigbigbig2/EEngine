@@ -32,16 +32,33 @@ function packed(settings, profile = resources) {
   });
 }
 
-test("default disk4 has four total samples, actual radius and merged angular depth bias", () => {
+test("default disk4 has four total samples, a bounded level transition and merged angular depth bias", () => {
   const bytes = packed(VSM_DEFAULT_SETTINGS);
   const floats = new Float32Array(bytes),
     words = new Uint32Array(bytes);
-  assert.deepEqual(Array.from(floats.subarray(48, 52)), [1, 1, 0, 1.5]);
+  assert.deepEqual(Array.from(floats.subarray(48, 52)), [1, 1, Math.fround(0.16), 1.5]);
   assert.equal(words[46], 2);
   assert.equal(words[47], 63);
   assert.deepEqual(Array.from(words.subarray(56, 60)), [43, 19, 0, 2048]);
   assert.equal(bytes.byteLength, 256);
   assert.equal(frame().clipOriginExtent[0][2], 32);
+});
+
+test("directional clip windows can center on the view footprint without changing legacy callers", () => {
+  const cameraCentered = frame();
+  const viewCentered = buildVsmDirectionalFrameConstants(
+    [0, 1, 0],
+    [0, 0, 0],
+    256,
+    resources,
+    7,
+    43,
+    VSM_DEFAULT_SETTINGS,
+    [0, 0, 1],
+  );
+  assert.deepEqual(cameraCentered.clipOriginExtent[0], [-16, -16, 32, 0.001953125]);
+  assert.notDeepEqual(viewCentered.clipOriginExtent[0], cameraCentered.clipOriginExtent[0]);
+  assert.equal(viewCentered.clipOriginExtent[0][2], 32);
 });
 
 test("all kernels retain projection/depth identity and disk offsets stay within rasterized gutter", () => {
@@ -58,7 +75,7 @@ test("all kernels retain projection/depth identity and disk offsets stay within 
       debugView: "page-state",
     });
     const bytes = packed(settings);
-    assert.deepEqual(Array.from(new Float32Array(bytes).subarray(48, 52)), [0.75, 4, 0, 3]);
+    assert.deepEqual(Array.from(new Float32Array(bytes).subarray(48, 52)), [0.75, 4, Math.fround(0.16), 3]);
     assert.equal(new Uint32Array(bytes)[46], code);
     assert.deepEqual(Array.from(new Uint32Array(bytes).subarray(56, 60)), [43, 19, 3, 2048]);
     assert.deepEqual(Array.from(new Float32Array(bytes).subarray(52, 56)), [0, 0, 0, 0]);
@@ -137,10 +154,13 @@ test("invalid or nonfinite tuning cannot mutate the frozen live settings", () =>
     { filterRadiusTexels: 3.01 },
     { clipExtentScale: 0 },
     { clipExtentScale: Infinity },
+    { clipTransitionRatio: -0.01 },
+    { clipTransitionRatio: 0.36 },
     { debugView: "atlas" },
   ]) {
     assert.throws(() => resolveVsmSettings(VSM_DEFAULT_SETTINGS, patch), RangeError);
   }
   assert.ok(Object.isFrozen(VSM_DEFAULT_SETTINGS));
   assert.equal(VSM_DEFAULT_SETTINGS.depthBiasTexels, 1);
+  assert.equal(VSM_DEFAULT_SETTINGS.clipTransitionRatio, 0.16);
 });

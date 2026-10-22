@@ -39,7 +39,7 @@ import {
 } from "lucide";
 import "./style.css";
 import { loadCookedScene } from "./cooked-scene.ts";
-import { setupVsmControls } from "./vsm-controls.ts";
+import { DUNGEON_VSM_PRESET, setupVsmControls } from "./vsm-controls.ts";
 import { calendarSunDirection, formatSunDay, formatSunTime, SUN_CALENDAR_YEAR } from "./sun-calendar.ts";
 
 const MiB = 1024 ** 2;
@@ -742,6 +742,7 @@ async function start(): Promise<void> {
   applyReflectionControls();
   await renderer.initialize({ context });
   if (closing) return;
+  renderer.setVsmSettings(DUNGEON_VSM_PRESET);
   vsmControls.sync();
   renderer.profiler.configure({ enabled: false });
   applySunControls();
