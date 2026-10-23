@@ -1,10 +1,11 @@
+import { VSM_MAX_CLIP_LEVELS } from "../gpu/GpuVsmProjectionAbi.js";
 import { VSM_PAGE_TABLE_WGSL } from "./vsm_page_table.js";
 
 export const VSM_INVALIDATION_WGSL = /* wgsl */ `
 ${VSM_PAGE_TABLE_WGSL}
 struct Constants {
   light_view: mat4x4f,
-  clips: array<vec4f, 6>,
+  clips: array<vec4f, ${VSM_MAX_CLIP_LEVELS}>,
   dimensions: vec4u,
   control: vec4u,
   parameters: vec4f,

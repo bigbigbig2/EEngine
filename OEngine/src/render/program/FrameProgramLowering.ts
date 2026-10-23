@@ -239,6 +239,7 @@ function compileSceneGraph(
         graph,
         bind("vsm-allocation-job", (bindings) => ({
           demand: demand.demand,
+          priority: demand.priority,
           resources: vsmOwner,
           generation: bindings.vsmFrame!.generation,
           contentVersion: casterInvalidation.contentVersion,
@@ -246,6 +247,7 @@ function compileSceneGraph(
           frame: vsmFrame,
         })),
       );
+      vsmRequested = vsmAllocation.admitted;
     }
   }
   const materialRecords = graph.import_resource(

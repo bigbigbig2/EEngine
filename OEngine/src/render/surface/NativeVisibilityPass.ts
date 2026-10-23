@@ -1,3 +1,4 @@
+import { VSM_PROJECTION_CONSTANT_BYTES } from "../../gpu/GpuVsmProjectionAbi.js";
 import type { ResourceHandle } from "../../debug/profiling/ResourceAccounting.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
@@ -151,7 +152,7 @@ export class NativeVisibilityPass {
     }
     if (
       input.vsmAtlas &&
-      (input.vsmAtlas.constants.size < 240 ||
+      (input.vsmAtlas.constants.size < VSM_PROJECTION_CONSTANT_BYTES ||
         input.vsmAtlas.constants.size > limits.maxUniformBufferBindingSize ||
         (input.vsmAtlas.constants.usage & GPUBufferUsage.UNIFORM) === 0)
     ) {

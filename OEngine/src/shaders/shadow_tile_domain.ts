@@ -1,14 +1,15 @@
+import { VSM_MAX_CLIP_LEVELS, VSM_SHADOW_DOMAIN_HEADER_BYTES } from "../gpu/GpuVsmProjectionAbi.js";
 import { VSM_PAGE_TABLE_WGSL } from "./vsm_page_table.js";
 
 // Two conservative toroidal 32x32 grids per clip. One bit is eight fine tiles.
 // Aliasing can add work, but cannot reject a true intersection.
-export const SHADOW_TILE_DOMAIN_BYTES = 256 + 2 * 6 * 32 * 4;
+export const SHADOW_TILE_DOMAIN_BYTES = VSM_SHADOW_DOMAIN_HEADER_BYTES + 2 * VSM_MAX_CLIP_LEVELS * 32 * 4;
 
 export const SHADOW_TILE_QUERY_WGSL = /* wgsl */ `
 struct ShadowTileDomain {
   light_view: mat4x4f,
-  clips: array<vec4f, 6>,
-  padding: array<vec4u, 6>,
+  clips: array<vec4f, ${VSM_MAX_CLIP_LEVELS}>,
+  padding: array<vec4u, ${(VSM_SHADOW_DOMAIN_HEADER_BYTES - 64 - VSM_MAX_CLIP_LEVELS * 16) / 16}>,
   rows: array<u32>,
 };
 @group(2) @binding(15) var<storage, read> shadow_tiles: ShadowTileDomain;
@@ -28,7 +29,7 @@ fn hierarchy_shadow_intersects(sphere: OEngineWorldSphere, domain: u32) -> bool 
   );
   if (any(light != light) || any(abs(light) > vec4f(1e30)) ||
       any(radius != radius) || any(radius > vec2f(1e30))) { return true; }
-  for (var level = 0u; level < 6u; level++) {
+  for (var level = 0u; level < ${VSM_MAX_CLIP_LEVELS}u; level++) {
     let clip = shadow_tiles.clips[level];
     if (clip.z <= 0.0) { continue; }
     let cell = clip.z / 16.0;
@@ -40,7 +41,7 @@ fn hierarchy_shadow_intersects(sphere: OEngineWorldSphere, domain: u32) -> bool 
     let mask = shadow_column_mask(lo.x, hi.x);
     let rows = min(32, hi.y - lo.y + 1);
     for (var y = 0; y < rows; y++) {
-      let index = domain * 192u + level * 32u + (u32(lo.y + y) & 31u);
+      let index = domain * ${VSM_MAX_CLIP_LEVELS * 32}u + level * 32u + (u32(lo.y + y) & 31u);
       if ((shadow_tiles.rows[index] & mask) != 0u) { return true; }
     }
   }
@@ -58,7 +59,7 @@ export const SHADOW_TILE_BUILD_WGSL = /* wgsl */ `
 ${VSM_PAGE_TABLE_WGSL}
 struct Constants {
   light_view: mat4x4f,
-  clips: array<vec4f, 6>,
+  clips: array<vec4f, ${VSM_MAX_CLIP_LEVELS}>,
   control: vec4u, // virtual entries, pages per axis, page size, border
 };
 struct PageWork {
@@ -82,7 +83,7 @@ fn mark_page(level: u32, mip: u32, world: vec2i, domain: u32) {
   var mask = 0u;
   for (var x = lo.x; x <= hi.x; x++) { mask |= 1u << (u32(x) & 31u); }
   for (var y = lo.y; y <= hi.y; y++) {
-    atomicOr(&rows[domain * 192u + level * 32u + (u32(y) & 31u)], mask);
+    atomicOr(&rows[domain * ${VSM_MAX_CLIP_LEVELS * 32}u + level * 32u + (u32(y) & 31u)], mask);
   }
 }
 @compute @workgroup_size(64)

@@ -1,7 +1,8 @@
+import { VSM_MAX_CLIP_LEVELS } from "../gpu/GpuVsmProjectionAbi.js";
 export const VSM_ATLAS_PAGE_CLEAR_WGSL = /* wgsl */ `
 struct Constants {
   light_view: mat4x4f,
-  clip_origin_extent: array<vec4f, 6>,
+  clip_origin_extent: array<vec4f, ${VSM_MAX_CLIP_LEVELS}>,
   dimensions: vec4u, // pages/axis, page size, border, atlas dimension
   control: vec4u,    // generation, work capacity, caster capacity, resident slots
 };

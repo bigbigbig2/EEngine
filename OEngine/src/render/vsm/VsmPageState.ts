@@ -5,8 +5,8 @@ export const VSM_PAGE_WORK_WORDS = 8;
 export const VSM_DEMAND_HEADER_WORDS = 4;
 export const VSM_DEMAND_RECORD_WORDS = 4;
 export const VSM_SCAN_LANES = 64;
-/** Each clip level owns disjoint mip planes, including the coarsest fallback plane. */
-export const VSM_MIP_LEVELS = 6;
+/** Physical planes only: fine and emergency fallback. */
+export const VSM_STORED_MIPS = [0, 5] as const;
 
 export const VSM_PAGE_FLAGS = Object.freeze({
   allocated: 1 << 0,
@@ -68,7 +68,7 @@ export function vsmEntriesPerClipLevel(pagesPerAxis: number): number {
     throw new RangeError("VSM pages per axis must be positive");
   }
   let count = 0;
-  for (let mip = 0; mip < VSM_MIP_LEVELS; mip++) {
+  for (const mip of VSM_STORED_MIPS) {
     const axis = vsmMipStorageAxis(pagesPerAxis, mip);
     count += axis * axis;
   }
@@ -88,8 +88,7 @@ export function vsmPageTableEntryIndex(
     !Number.isInteger(level) ||
     level < 0 ||
     !Number.isInteger(mip) ||
-    mip < 0 ||
-    mip >= VSM_MIP_LEVELS ||
+    (mip !== 0 && mip !== 5) ||
     !Number.isInteger(pageX) ||
     pageX < 0 ||
     pageX >= axis ||
@@ -100,9 +99,8 @@ export function vsmPageTableEntryIndex(
     throw new RangeError("VSM page coordinate is outside the fixed virtual page domain");
   }
   let offset = level * perLevel;
-  for (let previous = 0; previous < mip; previous++) {
-    const planeAxis = vsmMipStorageAxis(pagesPerAxis, previous);
-    offset += planeAxis * planeAxis;
+  if (mip === 5) {
+    offset += pagesPerAxis * pagesPerAxis;
   }
   return offset + pageY * axis + pageX;
 }
@@ -152,11 +150,13 @@ export function vsmWorldPageEntryIndex(
 }
 
 /** Coarse has a larger address ring, while its world texel scale is unchanged.
- * A rolling fine window intersects up to 5x5 coarse pages, which cannot have
- * unique addresses in the old 4x4 ring. */
+ * A 64-page rolling window intersects up to 3x3 coarse cells in a 4x4 ring. */
 export function vsmMipStorageAxis(pages: number, mip: number): number {
   const axis = Math.max(1, Math.floor(pages / 2 ** mip));
-  return mip === VSM_MIP_LEVELS - 1 ? axis * 2 : axis;
+  if (mip !== 0 && mip !== 5) {
+    throw new RangeError("VSM has no intermediate mip storage");
+  }
+  return mip === 5 ? axis * 2 : axis;
 }
 
 export function vsmScanBytes(entries: number): number {

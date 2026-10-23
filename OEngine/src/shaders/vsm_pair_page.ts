@@ -1,3 +1,4 @@
+import { VSM_MAX_CLIP_LEVELS } from "../gpu/GpuVsmProjectionAbi.js";
 /** Shared explicit/implicit page validation and gutter-expanded intersection.
  * Requires constants, page table ABI and VsmPageWork in the consumer. */
 export const VSM_PAIR_PAGE_WGSL = /* wgsl */ `
@@ -12,7 +13,7 @@ fn vsm_pair_page_valid(work: VsmPageWork, entry: VsmPageEntry) -> bool {
 }
 fn vsm_pair_overlaps(light_xy: vec4f, entry: VsmPageEntry, virtual_page: u32) -> bool {
   let level = vsm_page_entry_coordinates(virtual_page, constants.dimensions.x).x;
-  let page_world = constants.clip_origin_extent[min(level, 5u)].z /
+  let page_world = constants.clip_origin_extent[min(level, ${VSM_MAX_CLIP_LEVELS - 1}u)].z /
     f32(max(1u, constants.dimensions.x >> min(entry.mip, 5u)));
   let gutter = page_world * f32(constants.dimensions.z) / f32(constants.dimensions.y);
   let low = vec2f(f32(entry.world_x), f32(entry.world_y)) * page_world;

@@ -1,3 +1,8 @@
+import {
+  VSM_DIMENSIONS_WORD,
+  VSM_CONTROL_WORD,
+  VSM_PROJECTION_CONSTANT_BYTES as VSM_ABI_BYTES,
+} from "../../gpu/GpuVsmProjectionAbi.js";
 import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
@@ -22,7 +27,7 @@ export class VsmInvalidationPass {
   constructor(private readonly device: GPUDevice) {
     this.constants = device.createBuffer({
       label: "VSM/window invalidation constants",
-      size: 256,
+      size: VSM_ABI_BYTES,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     this.layout = device.createBindGroupLayout({
@@ -109,8 +114,8 @@ export class VsmInvalidationPass {
         const packed = packVsmProjection(data.frame);
         const words = new Uint32Array(packed);
         const capabilities = data.resources.capabilities;
-        words.set([capabilities.virtualPagesPerAxis, capabilities.atlasPagesPerAxis, 0, 0], 40);
-        words.set([state.generation, state.fullInvalidate ? 1 : 0, 0, 0], 44);
+        words.set([capabilities.virtualPagesPerAxis, capabilities.atlasPagesPerAxis, 0, 0], VSM_DIMENSIONS_WORD);
+        words.set([state.generation, state.fullInvalidate ? 1 : 0, 0, 0], VSM_CONTROL_WORD);
         command.writeBuffer(this.constants, 0, packed, 0, packed.byteLength);
         const group = this.device.createBindGroup({
           layout: this.layout,

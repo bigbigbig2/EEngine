@@ -42,6 +42,8 @@ const distributablePackage = {
 };
 
 const nativeAssets = [
+  ["assets/vsm/NOTICE.txt", "src/render/assets/vsm/NOTICE.txt"],
+  ["assets/vsm/Timberdoodle-LICENSE.txt", "src/render/assets/vsm/Timberdoodle-LICENSE.txt"],
   ["avif_dec.wasm", "src/loaders/avif_dec.wasm"],
   [
     "web-cook/oengine-web-geometry-cooker.mjs",

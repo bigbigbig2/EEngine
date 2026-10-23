@@ -1,3 +1,8 @@
+import {
+  VSM_DIMENSIONS_WORD,
+  VSM_CONTROL_WORD,
+  VSM_PROJECTION_CONSTANT_BYTES as VSM_ABI_BYTES,
+} from "../../gpu/GpuVsmProjectionAbi.js";
 import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import type { FrameProfiler } from "../../debug/FrameProfiler.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
@@ -78,7 +83,7 @@ export class VsmDepthBoundsPass {
     );
     this.dirtyConstants = device.createBuffer({
       label: "VSM/caster invalidation constants",
-      size: 256,
+      size: VSM_ABI_BYTES,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     this.layout = device.createBindGroupLayout({
@@ -354,11 +359,11 @@ export class VsmDepthBoundsPass {
       const caps = data.resources.capabilities;
       new Uint32Array(projection).set(
         [caps.virtualPagesPerAxis, caps.atlasPagesPerAxis, caps.pageSize, caps.border],
-        40,
+        VSM_DIMENSIONS_WORD,
       );
       new Uint32Array(projection).set(
         [data.frame.generation, caps.residentSlots, data.state.frameSerial, 0],
-        44,
+        VSM_CONTROL_WORD,
       );
       command.writeBuffer(this.dirtyConstants, 0, projection, 0, projection.byteLength);
       const dirty = command.beginComputePass({ label: "VSM/dirty changed caster slots" });

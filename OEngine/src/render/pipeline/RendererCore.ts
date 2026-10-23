@@ -156,7 +156,7 @@ import type { GraphicsMemoryEvidence, GraphicsOwnerCreationEvidence } from "../.
 import { PhysicalEnvironmentRuntime } from "../environment/PhysicalEnvironmentRuntime.js";
 import { Fsr3UpscalerRuntime } from "../passes/fsr3/Fsr3UpscalerRuntime.js";
 import { RadiometryRuntime, type PreExposureContract } from "../RadiometryContract.js";
-import { negotiateVsmCapabilities } from "../vsm/VsmCapabilities.js";
+import { negotiateVsmCapabilities, type VsmResourceBudget } from "../vsm/VsmCapabilities.js";
 import { VsmResources, type VsmDiagnostics } from "../vsm/VsmResources.js";
 import { buildVsmDirectionalFrameConstants, VsmReceiverDemandPass } from "../vsm/VsmReceiverDemandPass.js";
 import {
@@ -187,6 +187,7 @@ export interface PreparedSceneMaterials {
 }
 
 export interface RendererInitializeOptions {
+  vsmResourceBudget?: VsmResourceBudget;
   context?: GPUCanvasContext;
   adapter?: GPUAdapter;
   device?: GPUDevice;
@@ -2278,7 +2279,7 @@ export class Renderer {
     // earlier would dereference an undefined device owner.
     // Directional VSM has one consumer: the Physical Sun in Native Surface.
     if (config.enableVsm !== false && config.enablePhysicalEnvironment !== false) {
-      const vsmCapabilities = negotiateVsmCapabilities(device);
+      const vsmCapabilities = negotiateVsmCapabilities(device, options.vsmResourceBudget);
       if (vsmCapabilities.profile !== "shadow-disabled") {
         this._vsmFilterData = await loadVsmFilterData();
         if (this._destroyed || this._deviceLost || this.device !== device) {
@@ -2890,11 +2891,6 @@ export class Renderer {
         camera.transform.matrix[13]!,
         camera.transform.matrix[14]!,
       ];
-      const cameraForward: [number, number, number] = [
-        camera.transform.matrix[8]!,
-        camera.transform.matrix[9]!,
-        camera.transform.matrix[10]!,
-      ];
       const sunDirection = scene.physical_environment.snapshot().sunDirectionWorld;
       const vsmEnabled =
         hasLit &&
@@ -2946,7 +2942,6 @@ export class Renderer {
             this._vsmGeneration.currentGeneration,
             this._vsmGeneration.currentProjectionEpoch,
             this._vsmSettings,
-            cameraForward,
           )
         : null;
       const vsmSourceRevision =

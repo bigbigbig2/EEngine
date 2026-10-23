@@ -78,13 +78,13 @@ test("VSM aggregation keeps barriers uniform and diagnostics count actual public
   const main = source.slice(source.indexOf("fn main("), source.indexOf("fn mark_coarse("));
   assert.doesNotMatch(main, /return;/);
   assert.equal(main.match(/workgroupBarrier\(\)/g).length, 2);
-  assert.match(main, /publish_receiver_word\(page, lane\)/);
+  assert.match(main, /publish_receiver_pages\(pair, lane\)/);
   assert.match(main, /diagnostic_workgroups\[index \+ 1u\]/);
   assert.doesNotMatch(VSM_RECEIVER_DEMAND_WGSL, /diagnostic_/);
   assert.equal(VSM_RECEIVER_DEMAND_WGSL.match(/workgroupBarrier\(\)/g).length, 1);
   assert.equal(source.match(/atomicAdd\(&diagnostic_totals\[3\]/g).length, 2);
-  assert.match(VSM_RECEIVER_DEMAND_WGSL, /attempt < 64u/);
-  assert.match(VSM_RECEIVER_DEMAND_WGSL, /if \(!merged\)/);
+  assert.match(VSM_RECEIVER_DEMAND_WGSL, /attempt < 128u/);
+  assert.match(VSM_RECEIVER_DEMAND_WGSL, /atomicAdd\(&receiver_priority\[page\], weight\)/);
   assert.doesNotMatch(VSM_RECEIVER_DEMAND_WGSL, /wg_tile_corner_pages/);
   assert.match(VSM_RECEIVER_DEMAND_WGSL, /instances\[instance_slot\]\.flags/);
 });

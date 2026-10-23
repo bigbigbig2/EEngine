@@ -1,3 +1,4 @@
+import { VSM_MAX_CLIP_LEVELS, VSM_PROJECTION_CONSTANT_BYTES } from "../../gpu/GpuVsmProjectionAbi.js";
 import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
@@ -14,7 +15,7 @@ export function vsmSamplingDescriptorCount(pages: number, levels: number): numbe
     pages < 1 ||
     !Number.isSafeInteger(levels) ||
     levels < 1 ||
-    levels > 6
+    levels > VSM_MAX_CLIP_LEVELS
   ) {
     throw new RangeError("VSM sampling publication requires a complete clip/page domain");
   }
@@ -38,7 +39,7 @@ export class VsmSamplingPublicationPass {
   constructor(private readonly device: GPUDevice) {
     this.layout = device.createBindGroupLayout({
       entries: [
-        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 256 } },
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: VSM_PROJECTION_CONSTANT_BYTES } },
         { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
       ],

@@ -1,9 +1,10 @@
+import { VSM_MAX_CLIP_LEVELS } from "../gpu/GpuVsmProjectionAbi.js";
 /** WGSL helpers shared by demand, allocation and sampling stages. */
 export const VSM_PAGE_TABLE_WGSL = /* wgsl */ `
 const VSM_INVALID_SLOT: u32 = 0xffffffffu;
 const VSM_PAGE_ALLOCATED: u32 = 1u;
 const VSM_PAGE_GENERATION_VALID: u32 = 8u;
-const VSM_MIP_LEVELS: u32 = 6u;
+const VSM_CLIP_LEVELS: u32 = ${VSM_MAX_CLIP_LEVELS}u;
 
 fn vsm_storage_axis(pages: u32, mip: u32) -> u32 {
   let axis = max(1u, pages >> mip);
@@ -37,39 +38,24 @@ struct VsmMetaEntry {
 };
 
 fn vsm_entries_per_clip_level(pages_per_axis: u32) -> u32 {
-  var count = 0u;
-  for (var mip = 0u; mip < VSM_MIP_LEVELS; mip++) {
-    let axis = vsm_storage_axis(pages_per_axis, mip);
-    count += axis * axis;
-  }
-  return count;
+  let coarse = vsm_storage_axis(pages_per_axis, 5u);
+  return pages_per_axis * pages_per_axis + coarse * coarse;
 }
 
 fn vsm_page_entry_index(level: u32, mip: u32, page_x: u32, page_y: u32,
   pages_per_axis: u32) -> u32 {
-  var offset = level * vsm_entries_per_clip_level(pages_per_axis);
-  for (var previous = 0u; previous < min(mip, VSM_MIP_LEVELS); previous++) {
-    let axis = vsm_storage_axis(pages_per_axis, previous);
-    offset += axis * axis;
-  }
-  let axis = vsm_storage_axis(pages_per_axis, min(mip, VSM_MIP_LEVELS - 1u));
-  return offset + page_y * axis + page_x;
+  let offset = level * vsm_entries_per_clip_level(pages_per_axis) +
+    select(0u, pages_per_axis * pages_per_axis, mip == 5u);
+  return offset + page_y * vsm_storage_axis(pages_per_axis, mip) + page_x;
 }
 
-/** Decode the ABI index as (clip level, mip, page x, page y). */
 fn vsm_page_entry_coordinates(index: u32, pages_per_axis: u32) -> vec4u {
   let per_level = vsm_entries_per_clip_level(pages_per_axis);
-  let level = index / per_level;
-  var local = index % per_level;
-  for (var mip = 0u; mip < VSM_MIP_LEVELS; mip++) {
-    let axis = vsm_storage_axis(pages_per_axis, mip);
-    let plane = axis * axis;
-    if (local < plane) {
-      return vec4u(level, mip, local % axis, local / axis);
-    }
-    local -= plane;
-  }
-  return vec4u(0xffffffffu);
+  let local = index % per_level;
+  let mip = select(0u, 5u, local >= pages_per_axis * pages_per_axis);
+  let plane_local = local - select(0u, pages_per_axis * pages_per_axis, mip == 5u);
+  let axis = vsm_storage_axis(pages_per_axis, mip);
+  return vec4u(index / per_level, mip, plane_local % axis, plane_local / axis);
 }
 
 fn vsm_page_is_current(entry: VsmPageEntry, generation: u32) -> bool {
@@ -111,16 +97,21 @@ fn vsm_world_in_window(world: vec2i, clip: vec4f, mip: u32, pages: u32) -> bool 
   let minimum = vsm_window_minimum(clip, mip, pages);
   return all(world >= minimum) && all(world < minimum + vsm_window_size(clip, mip, pages));
 }
-/** Shared receiver/sampler domain and target precision: first containing clip, mip0. */
-fn vsm_select_clip(light_xy: vec2f, clips: array<vec4f, 6>, levels: u32, pages: u32) -> u32 {
-  for (var level = 0u; level < min(levels, 6u); level++) {
-    let world = vsm_world_page(light_xy, clips[level], 0u, pages);
-    if (vsm_world_in_window(world, clips[level], 0u, pages)) {
-      return level;
-    }
-  }
-  return VSM_INVALID_SLOT;
+// Timberdoodle clip_info_from_uvs active distance branch, Apache-2.0,
+// 1987cf3b8ddda42585d2470bb5806efbc96c6cae. clip.z is FULL extent here.
+fn vsm_select_clip(distance: f32, base_extent: f32, bias: f32, levels: u32, pages: u32) -> u32 {
+  let base_scale = base_extent * 0.5 * f32(pages - 2u) / f32(pages);
+  return u32(clamp(ceil(log2(max(distance, 1e-20) / base_scale * bias)),
+    1.0, f32(min(levels, VSM_CLIP_LEVELS) - 1u)));
 }
+
+fn vsm_transition_weight(distance: f32, level: u32, base_extent: f32,
+  bias: f32, levels: u32, pages: u32, ratio: f32) -> f32 {
+  if (level + 1u >= levels || ratio <= 0.0) { return 0.0; }
+  let boundary = base_extent * 0.5 * f32(pages - 2u) / f32(pages) * exp2(f32(level)) / bias;
+  return smoothstep(boundary * (1.0 - ratio), boundary, distance);
+}
+
 fn vsm_key_matches(entry: VsmPageEntry, world: vec2i, identity: vec4u) -> bool {
   return entry.world_x == world.x && entry.world_y == world.y &&
     entry.projection_epoch == identity.x && entry.content_namespace == identity.y;

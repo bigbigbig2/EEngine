@@ -1,3 +1,4 @@
+import { VSM_MAX_CLIP_LEVELS } from "../gpu/GpuVsmProjectionAbi.js";
 import {
   VSM_FILTER_MODES,
   VSM_FILTER_NOISE_BYTES,
@@ -20,12 +21,14 @@ ${VSM_PAGE_TABLE_WGSL}
 
 struct VsmSamplingConstants {
   light_view: mat4x4f,
-  clip_origin_extent: array<vec4f, 6>,
+  clip_origin_extent: array<vec4f, ${VSM_MAX_CLIP_LEVELS}>,
   dimensions: vec4u, // virtual pages/axis, page size, border, atlas pages/axis
   control: vec4u,    // clip levels, generation, filter mode, noise phase
   filter_params: vec4f, // angular/depth bias, clip transition ratio, disk radius in actual shadow texels
   depth_range: vec4f, // GPU caster min/max Z, inverse range, validity
   identity: vec4u, // projection epoch, owner namespace, debug view, filter data word offset
+  selector: vec4f, // camera world position, distance multiplier
+  footprint: vec4f, // bounded maximum filter radius (texels), reserved
 };
 
 const VSM_QUERY_FINE: u32 = 0u;
@@ -75,9 +78,9 @@ fn vsm_zero_entry() -> VsmPageEntry {
   return VsmPageEntry(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0, 0, 0u, 0u);
 }
 
-fn vsm_clip_level(light_xy: vec2f) -> u32 {
-  return vsm_select_clip(light_xy, vsm_constants.clip_origin_extent,
-    vsm_constants.control.x, vsm_constants.dimensions.x);
+fn vsm_clip_level(distance: f32) -> u32 {
+  return vsm_select_clip(distance, vsm_constants.clip_origin_extent[0].z,
+    vsm_constants.selector.w, vsm_constants.control.x, vsm_constants.dimensions.x);
 }
 
 fn vsm_lookup(level: u32, light_xy: vec2f, mip: u32) -> VsmPageQuery {
@@ -100,8 +103,8 @@ fn vsm_lookup(level: u32, light_xy: vec2f, mip: u32) -> VsmPageQuery {
   return VsmPageQuery(entry, level, status, status);
 }
 
-fn vsm_query_directional(light_xy: vec2f) -> VsmPageQuery {
-  let selected = vsm_clip_level(light_xy);
+fn vsm_query_directional(light_xy: vec2f, distance: f32) -> VsmPageQuery {
+  let selected = vsm_clip_level(distance);
   if (selected == VSM_INVALID_SLOT) {
     return VsmPageQuery(vsm_zero_entry(), 0u, VSM_QUERY_OUTSIDE, VSM_QUERY_OUTSIDE);
   }
@@ -109,7 +112,16 @@ fn vsm_query_directional(light_xy: vec2f) -> VsmPageQuery {
   if (fine.status == VSM_QUERY_FINE) {
     return fine;
   }
-  for (var level = selected; level < min(6u, vsm_constants.control.x); level++) {
+  // Search fine clips in precision order before any 32x emergency page.
+  // Only selected + 1 receives support demand; farther hits are opportunistic.
+  for (var level = selected + 1u; level < min(VSM_CLIP_LEVELS, vsm_constants.control.x); level++) {
+    var adjacent = vsm_lookup(level, light_xy, 0u);
+    if (adjacent.status == VSM_QUERY_FINE) {
+      adjacent.target_status = fine.status;
+      return adjacent;
+    }
+  }
+  for (var level = selected; level < min(${VSM_MAX_CLIP_LEVELS}u, vsm_constants.control.x); level++) {
     var coarse = vsm_lookup(level, light_xy, 5u);
     if (coarse.status == VSM_QUERY_COARSE) {
       coarse.target_status = fine.status;
@@ -202,18 +214,10 @@ fn vsm_sample_page(entry: VsmPageEntry, local_uv: vec2f,
   return visible * 0.25;
 }
 
-fn vsm_clip_transition_weight(light_xy: vec2f, level: u32) -> f32 {
-  if (level + 1u >= min(6u, vsm_constants.control.x) || vsm_constants.filter_params.z <= 0.0) {
-    return 0.0;
-  }
-  let pages = max(1u, vsm_constants.dimensions.x);
-  let clip = vsm_constants.clip_origin_extent[level];
-  let page_world = clip.z / f32(pages);
-  let local = light_xy / page_world - vec2f(vsm_window_minimum(clip, 0u, pages));
-  let window = vec2f(vsm_window_size(clip, 0u, pages));
-  let edge_distance = min(min(local.x, window.x - local.x), min(local.y, window.y - local.y));
-  let width = max(1.0, f32(pages) * vsm_constants.filter_params.z);
-  return 1.0 - smoothstep(0.0, width, edge_distance);
+fn vsm_clip_transition_weight(distance: f32, level: u32) -> f32 {
+  return vsm_transition_weight(distance, level, vsm_constants.clip_origin_extent[0].z,
+    vsm_constants.selector.w, vsm_constants.control.x, vsm_constants.dimensions.x,
+    vsm_constants.filter_params.z);
 }
 
 fn vsm_sample_query(query: VsmPageQuery, light_xy: vec2f, normal_ws: vec3f,
@@ -235,7 +239,8 @@ fn vsm_sample_directional(position_ws: vec3f, normal_ws: vec3f,
     return 1.0;
   }
   let light = (vsm_constants.light_view * vec4f(position_ws, 1.0)).xyz;
-  let query = vsm_query_directional(light.xy);
+  let distance = length(position_ws - vsm_constants.selector.xyz);
+  let query = vsm_query_directional(light.xy, distance);
   if (query.status != VSM_QUERY_FINE && query.status != VSM_QUERY_COARSE) {
     return 1.0;
   }
@@ -250,16 +255,20 @@ fn vsm_sample_directional(position_ws: vec3f, normal_ws: vec3f,
   if (query.status != VSM_QUERY_FINE) {
     return current;
   }
-  let blend = vsm_clip_transition_weight(light.xy, query.level);
+  // A neighbour already used as fallback must not acquire an unrequested
+  // third transition endpoint.
+  if (query.level != vsm_clip_level(distance)) { return current; }
+  let blend = vsm_clip_transition_weight(distance, query.level);
   if (blend <= 0.0) {
     return current;
   }
-  let coarse = vsm_lookup(query.level + 1u, light.xy, 5u);
-  if (coarse.status != VSM_QUERY_COARSE) {
+  let adjacent_level = query.level + 1u;
+  let adjacent = vsm_lookup(adjacent_level, light.xy, 0u);
+  if (adjacent.status != VSM_QUERY_FINE) {
     return current;
   }
-  let fallback = vsm_sample_query(coarse, light.xy, normal_ws, reference_depth, angular_bias, rotation);
-  return mix(current, fallback, blend);
+  let next = vsm_sample_query(adjacent, light.xy, normal_ws, reference_depth, angular_bias, rotation);
+  return mix(current, next, blend);
 }
 
 // Debug-only queries. No per-pixel atomic counter or additional frame product.
@@ -269,7 +278,8 @@ fn vsm_debug_color(position_ws: vec3f, normal_ws: vec3f, sun_direction: vec3f,
     return vec3f(0.0, 0.6, 0.6);
   }
   let light = (vsm_constants.light_view * vec4f(position_ws, 1.0)).xyz;
-  let query = vsm_query_directional(light.xy);
+  let distance = length(position_ws - vsm_constants.selector.xyz);
+  let query = vsm_query_directional(light.xy, distance);
   let mode = vsm_constants.identity.z;
   if (mode == 3u) {
     switch query.status {
@@ -286,9 +296,9 @@ fn vsm_debug_color(position_ws: vec3f, normal_ws: vec3f, sun_direction: vec3f,
     return vec3f(1.0, 0.0, 1.0);
   }
   if (mode == 2u) {
-    let colors = array<vec3f, 6>(vec3f(0.9, 0.1, 0.1), vec3f(1.0, 0.55, 0.0),
-      vec3f(0.9, 0.85, 0.0), vec3f(0.05, 0.8, 0.15), vec3f(0.0, 0.5, 1.0), vec3f(0.65, 0.1, 1.0));
-    return colors[min(query.level, 5u)];
+    let hue = f32(query.level) * 0.618033989;
+    return clamp(abs(fract(vec3f(hue) + vec3f(0.0, 0.666666667, 0.333333333)) * 6.0 - 3.0) - 1.0,
+      vec3f(0.0), vec3f(1.0)) * 0.85 + vec3f(0.05);
   }
   var incident: GpuPrimitiveTypeTable;
   incident.direction = sun_direction;

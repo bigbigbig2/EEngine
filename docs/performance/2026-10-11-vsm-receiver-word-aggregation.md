@@ -1,6 +1,7 @@
 ---
 id: performance/vsm-receiver-word-aggregation-2026-10-11
-state: current
+state: history
+supersededBy: ../next-execution/eengine-vsm-quality-execution-2026-10.md
 verifies:
   files:
     - OEngine/src/shaders/vsm_receiver_demand.ts
@@ -8,7 +9,7 @@ verifies:
     - OEngine/src/render/vsm/VsmCapabilities.ts
     - OEngine/tests/oracle/vsm-receiver-aggregation-gpu.mjs
     - OEngine/tests/oracle/performance-diagnostic-gpu.mjs
-    - OEngine/tests/oracle/vsm-v4-r2-gpu.mjs
+    - OEngine/tests/oracle/vsm-quality-contract-gpu.mjs
     - OEngine/tests/contract/performance-diagnostic-shaders.test.mjs
     - validation/tools/vsm-receiver-statistics.mjs
     - validation/tools/vsm-receiver-statistics.test.mjs

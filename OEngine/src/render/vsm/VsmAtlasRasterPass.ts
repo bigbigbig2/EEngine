@@ -1,3 +1,8 @@
+import {
+  VSM_DIMENSIONS_WORD,
+  VSM_CONTROL_WORD,
+  VSM_PROJECTION_CONSTANT_BYTES as VSM_ABI_BYTES,
+} from "../../gpu/GpuVsmProjectionAbi.js";
 import { PreparedComputePipeline, PreparedRenderPipeline } from "../../gpu/PreparedPipeline.js";
 import { VSM_PAGE_COMMIT_WGSL } from "../../shaders/vsm_page_commit.js";
 import { packVsmProjection, VSM_DEPTH_RANGE_BYTE_OFFSET, VSM_DEPTH_RANGE_BYTES } from "./VsmProjection.js";
@@ -55,14 +60,14 @@ export interface VsmAtlasRasterInputs {
   readonly productHeap?: ResourceId;
   readonly productBanks?: readonly ResourceId[];
 }
-const CONSTANT_BYTES = 256;
+const CONSTANT_BYTES = VSM_ABI_BYTES;
 
 function packConstants(input: VsmAtlasRasterInputs): ArrayBuffer {
   const data = packVsmProjection(input.frame);
   const uints = new Uint32Array(data);
   const c = input.resources.capabilities;
-  uints.set([c.virtualPagesPerAxis, c.pageSize, c.border, c.atlasDimension], 40);
-  uints.set([input.generation >>> 0, 0, c.casterRecordCapacity >>> 0, c.residentSlots >>> 0], 44);
+  uints.set([c.virtualPagesPerAxis, c.pageSize, c.border, c.atlasDimension], VSM_DIMENSIONS_WORD);
+  uints.set([input.generation >>> 0, 0, c.casterRecordCapacity >>> 0, c.residentSlots >>> 0], VSM_CONTROL_WORD);
   return data;
 }
 

@@ -32,7 +32,7 @@ verifies:
     - OEngine/src/shaders/vsm_sampling.ts
     - OEngine/tests/oracle/geometry-shadow-view-gpu.mjs
     - OEngine/tests/oracle/native-vsm-coverage-gpu.mjs
-    - OEngine/tests/oracle/vsm-v4-r2-gpu.mjs
+    - OEngine/tests/oracle/vsm-quality-contract-gpu.mjs
     - OEngine/src/render/surface/SurfaceV4.ts
 ---
 

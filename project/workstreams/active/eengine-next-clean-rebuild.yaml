@@ -11,8 +11,8 @@ roadmap:
   execution: docs/next-execution/eengine-feature-expansion-execution-2026-10.md
 # Only the selected module pair is the current authority; roadmap remains stable.
 authority:
-  design: docs/next-design/eengine-extreme-web-asset-compression-2026-10.md
-  execution: docs/next-execution/eengine-extreme-web-asset-compression-execution-2026-10.md
+  design: docs/next-design/eengine-vsm-quality-2026-10.md
+  execution: docs/next-execution/eengine-vsm-quality-execution-2026-10.md
 goal: >-
   Build an extreme-performance GPU-driven WebGPU-native AAA renderer for
   scalable GPUs, including measured low-memory profiles without a 4GB large-scene guarantee. Follow global V4 invariants
@@ -25,28 +25,24 @@ goal: >-
   historical measurements retain their original device and thermal-state identity.
 
 currentSlice:
-  id: extreme-web-asset-compression
-  title: Port-first extreme Web asset compression
+  id: vsm-quality-reconstruction
+  title: Directional VSM quality and GPU work reconstruction
   status: in-progress
   goal: >-
-    Follow the user's replacement-design authorization for port-first image
-    delivery and runtime GPU encoding across the complete LDR PBR texture set.
-    Cover ordinary textures, virtual textures and source-exact compact geometry;
-    use the authority pair for architecture and detailed execution state.
-    Implement each complete closure and cut over every direct consumer in the
-    same unit; immediately delete replaced contracts and dedicated dependencies.
-    Temporary intermediate breakage is allowed, without legacy bridges or fallbacks.
-    The user has authorized final E5 integration after committing E4.
-    Fix integration failures in the documented architecture and actual owners,
-    without ad-hoc compatibility patches or restoring retired paths.
-    Follow the user's revised cadence: E0-E4 use design/source review and only
-    minimal relevant correctness checks. Do not retain legacy compatibility to
-    keep intermediate examples runnable. Full asset cook/recook, deployment and
-    full-path integration tests belong only to the final E5 unit.
-    Detailed unit results live in the execution authority.
-    Do not start other renderer modules.
+    Follow the user's 2026-10-23 revised source-led design: three complete closures
+    for page/quality resources, shared geometry and page-confined hardware raster
+    with precise updates, then stable PCF/complete PCSS and final integration.
+    No dual-backend competition or repeated intermediate test campaigns.
+    Preserve complete-page correctness and bounded work; final parameter tuning
+    is user-led. The user authorized implementation and commit of step 1 only;
+    stop before step 2 until further authorization.
+    Detailed states and retained old Q1 results live only in execution.
 
 pausedModules:
+  - id: extreme-web-asset-compression
+    design: docs/next-design/eengine-extreme-web-asset-compression-2026-10.md
+    execution: docs/next-execution/eengine-extreme-web-asset-compression-execution-2026-10.md
+    reason: User explicitly started VSM reconstruction on 2026-10-23; retain asset implementation and unfinished E5 integration without changing its results.
   - id: surface-cache-gi
     design: docs/next-design/eengine-surface-cache-gi-2026-10.md
     execution: docs/next-execution/eengine-surface-cache-gi-execution-2026-10.md

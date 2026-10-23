@@ -1,14 +1,17 @@
+import { VSM_MAX_CLIP_LEVELS } from "../gpu/GpuVsmProjectionAbi.js";
 import { VSM_PAGE_TABLE_WGSL } from "./vsm_page_table.js";
 
-/** Touch completes before slot reclamation. Coarse has reserved capacity;
- * all page and slot writers are unique. No cross-workgroup locks or retries. */
+/** Adapt Timberdoodle find_free_pages/allocate_pages free-first, unvisited-next
+ * queues to ordered 32-bit records and unique writers. Local policies add
+ * coarse partitions, cold ordering, admission and complete dirty-page budgets.
+ * No split 64-bit atomics, cross-workgroup locks or retries. */
 export const VSM_ALLOCATE_PAGES_WGSL = /* wgsl */ `
 ${VSM_PAGE_TABLE_WGSL}
 struct Constants {
   control: vec4u, // generation, request capacity, slots, clips
   dimensions: vec4u, // pages, atlas axis, entries, submitted frame serial
   identity: vec4u, // projection epoch, namespace, coarse reserved slots, dirty page budget
-  clips: array<vec4f, 6>,
+  clips: array<vec4f, ${VSM_MAX_CLIP_LEVELS}>,
 };
 struct Request {
   virtual_page: u32,
@@ -105,10 +108,10 @@ fn slot_class(slot: u32) -> u32 {
   if ((slot_meta.flags & 9u) != 9u) {
     return select(2u, 0u, coarse);
   }
-  // Dirty but unrequested content is reclaimable. Content generations do
-  // not substitute for frame visits and cannot permanently lock the pool.
-  if (slot_meta.last_visited != constants.dimensions.w && !is_requested(slot_meta.virtual_page) &&
-      (slot_meta.flags & 4u) == 0u) {
+  // Prior-frame in-flight bits are not live protection: previous commands are
+  // queue-ordered before this allocation, and this frame has not published work
+  // yet. Failed old work must not displace the current quality admission.
+  if (slot_meta.last_visited != constants.dimensions.w && !is_requested(slot_meta.virtual_page)) {
     return select(3u, 1u, coarse);
   }
   return 4u;

@@ -15,7 +15,10 @@ export interface VsmSettings {
   readonly filterMode: VsmFilterMode;
   readonly filterRadiusTexels: number;
   readonly clipExtentScale: number;
-  /** Fraction of a fine clip window used to blend into the next coarse level. */
+  /** Donor distance multiplier. >=1 retains the window containment guarantee. */
+  readonly clipSelectionBias: number;
+  /** Fraction of the distance shell used to blend into the next ready fine clip.
+   * Emergency coarse pages never participate in this transition. */
   readonly clipTransitionRatio: number;
   readonly debugView: VsmDebugView;
   /** Bounded complete shadow pages selected for raster work per frame.
@@ -29,6 +32,7 @@ export const VSM_DEFAULT_SETTINGS: Readonly<VsmSettings> = Object.freeze({
   filterMode: "disk4",
   filterRadiusTexels: 1.5,
   clipExtentScale: 1,
+  clipSelectionBias: 1,
   clipTransitionRatio: 0.16,
   debugView: "none",
   dirtyPageBudget: 64,
@@ -47,6 +51,9 @@ export function resolveVsmSettings(current: VsmSettings, patch: Partial<VsmSetti
     }
   }
   const next = { ...current, ...patch };
+  if (!Number.isFinite(next.clipSelectionBias) || next.clipSelectionBias < 1 || next.clipSelectionBias > 8) {
+    throw new RangeError("VSM clip selection bias must be finite in [1, 8]");
+  }
   for (const key of ["angularBiasTexels", "depthBiasTexels"] as const) {
     if (!Number.isFinite(next[key]) || next[key] < 0 || next[key] > 16) {
       throw new RangeError(`VSM ${key} must be finite in [0, 16]`);

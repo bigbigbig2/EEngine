@@ -1,9 +1,10 @@
+import { VSM_MAX_CLIP_LEVELS, VSM_RECEIVER_DESCRIPTOR_REFERENCES } from "../gpu/GpuVsmProjectionAbi.js";
 import { surfaceGeometryCompletionWgsl } from "./surface_geometry_completion.js";
 import { NATIVE_RESOLVED_POSITION_WGSL } from "./native_resolved_position.js";
 import { LOCAL_LIGHT_TYPES_WGSL } from "../gpu/GpuLocalLightWorkAbi.js";
 import { VSM_SAMPLING_TYPES_WGSL } from "./vsm_sampling.js";
 
-/** One receiver owns its lookup and seven keyed page references. No hash table,
+/** One receiver owns its lookup and bounded keyed page references. No hash table,
  * dedup races or page-count readback. PCF taps address the selected atlas page.
  * Borrow exactly Native's geometry decoder/receiver reconstruction. 64 lanes,
  * sequential outputs and bounded random reads, no atomics/workgroup barriers. */
@@ -64,10 +65,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let pixel = vec2u(settings.window.x + id.x % settings.window.y,
     settings.window.w + id.x / settings.window.y);
   let lookup = settings.destination.x + id.x * 2u;
-  let descriptors = settings.destination.y + id.x * 35u;
+  let descriptors = settings.destination.y + id.x * ${VSM_RECEIVER_DESCRIPTOR_REFERENCES * 5}u;
   destination[lookup] = 0u;
   destination[lookup + 1u] = 0u;
-  for (var reference = 0u; reference < 7u; reference++) {
+  for (var reference = 0u; reference < ${VSM_RECEIVER_DESCRIPTOR_REFERENCES}u; reference++) {
     gather_descriptor(descriptors + reference * 5u, 0xffffffffu);
   }
   let key = textureLoad(visibility, vec2i(pixel), 0).r;
@@ -97,14 +98,14 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     return;
   }
   let light = (vsm_constants.light_view * vec4f(position, 1.0)).xy;
-  let selected = vsm_select_clip(light, vsm_constants.clip_origin_extent,
-    vsm_constants.control.x, vsm_constants.dimensions.x);
+  let selected = vsm_select_clip(length(position - vsm_constants.selector.xyz), vsm_constants.clip_origin_extent[0].z,
+    vsm_constants.selector.w, vsm_constants.control.x, vsm_constants.dimensions.x);
   if (selected == VSM_INVALID_SLOT) {
     return;
   }
-  for (var reference = 0u; reference < 7u; reference++) {
-    let level = select(reference - 1u, selected, reference == 0u);
-    let mip = select(5u, 0u, reference == 0u);
+  for (var reference = 0u; reference < ${VSM_RECEIVER_DESCRIPTOR_REFERENCES}u; reference++) {
+    let level = reference % ${VSM_MAX_CLIP_LEVELS}u;
+    let mip = select(0u, 5u, reference >= ${VSM_MAX_CLIP_LEVELS}u);
     if (level >= vsm_constants.control.x || level < selected) {
       continue;
     }

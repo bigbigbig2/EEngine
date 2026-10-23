@@ -1,9 +1,11 @@
+import { VSM_RESIDENCY_CONSTANT_BYTES } from "../../gpu/GpuVsmProjectionAbi.js";
 import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { VSM_ALLOCATE_PAGES_WGSL } from "../../shaders/vsm_allocate_pages.js";
 import { VSM_DEMAND_SCAN_WGSL } from "../../shaders/vsm_demand_scan.js";
+import { VSM_ADMISSION_WGSL } from "../../shaders/vsm_admission.js";
 import type { VsmAllocationFrame } from "./VsmResidency.js";
 import type { VsmResources, VsmBufferKey } from "./VsmResources.js";
 import type { VsmDirectionalFrameConstants } from "./VsmProjection.js";
@@ -11,6 +13,7 @@ import type { VsmDirectionalFrameConstants } from "./VsmProjection.js";
 export interface VsmAllocatePagesInputs {
   /** The receiver-produced complete request bitset, before compaction. */
   readonly demand: ResourceId;
+  readonly priority: ResourceId;
   readonly resources: VsmResources;
   readonly generation: number;
   readonly frameSerial: number;
@@ -19,6 +22,9 @@ export interface VsmAllocatePagesInputs {
 }
 
 type Stage =
+  | "histogram"
+  | "cutoff"
+  | "admit"
   | "count_words"
   | "prefix_requests"
   | "prefix_misses"
@@ -28,6 +34,9 @@ type Stage =
   | "allocate"
   | "publish_dirty";
 const STAGES: readonly Stage[] = [
+  "histogram",
+  "cutoff",
+  "admit",
   "count_words",
   "prefix_requests",
   "prefix_misses",
@@ -38,10 +47,10 @@ const STAGES: readonly Stage[] = [
   "publish_dirty",
 ];
 
-/** Shared scan/residency constants ABI: three vec4u followed by six clip vec4f. */
+/** Shared scan/residency constants ABI: three vec4u followed by sixteen clip vec4f. */
 export function packVsmResidencyConstants(input: VsmAllocatePagesInputs): ArrayBuffer {
   const profile = input.resources.capabilities;
-  const data = new ArrayBuffer(256);
+  const data = new ArrayBuffer(VSM_RESIDENCY_CONSTANT_BYTES);
   new Uint32Array(data).set([
     input.generation,
     profile.demandCapacity,
@@ -77,7 +86,7 @@ export class VsmAllocatePagesPass {
   constructor(private readonly device: GPUDevice) {
     this.constants = device.createBuffer({
       label: "VSM/complete residency constants",
-      size: 256,
+      size: VSM_RESIDENCY_CONSTANT_BYTES,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     const scan = device.createShaderModule({
@@ -88,7 +97,12 @@ export class VsmAllocatePagesPass {
       label: "VSM/ordered residency",
       code: VSM_ALLOCATE_PAGES_WGSL,
     });
+    const admission = device.createShaderModule({
+      label: "VSM/screen-benefit admission",
+      code: VSM_ADMISSION_WGSL,
+    });
     for (const entryPoint of STAGES) {
+      const admissionStage = entryPoint === "histogram" || entryPoint === "cutoff" || entryPoint === "admit";
       const scanStage =
         entryPoint === "count_words" ||
         entryPoint === "prefix_requests" ||
@@ -100,7 +114,7 @@ export class VsmAllocatePagesPass {
           label: `VSM/${entryPoint}`,
           // Entry-specific layouts retain the portable eight-storage-buffer limit.
           layout: "auto",
-          compute: { module: scanStage ? scan : residency, entryPoint },
+          compute: { module: admissionStage ? admission : scanStage ? scan : residency, entryPoint },
         }),
       );
     }
@@ -125,8 +139,19 @@ export class VsmAllocatePagesPass {
       }
       entries.push({ binding, resource: { buffer } });
     };
-    const bits: VsmBufferKey = misses ? "missingPages" : "requestedPages";
-    if (stage === "count_words" || stage === "scatter") {
+    const bits: VsmBufferKey = misses ? "missingPages" : "admittedPages";
+    if (stage === "histogram") {
+      bind(1, "requestedPages");
+      bind(2, "receiverPriority");
+      bind(4, "admissionStatistics");
+    } else if (stage === "cutoff") {
+      bind(4, "admissionStatistics");
+    } else if (stage === "admit") {
+      bind(1, "requestedPages");
+      bind(2, "receiverPriority");
+      bind(3, "admittedPages");
+      bind(4, "admissionStatistics");
+    } else if (stage === "count_words" || stage === "scatter") {
       bind(1, bits);
       bind(2, "demandScan");
       if (stage === "scatter") {
@@ -146,7 +171,7 @@ export class VsmAllocatePagesPass {
       bind(8, "overflowCounters");
       bind(9, "contentVersion");
     } else if (stage === "collect_slots") {
-      bind(1, "requestedPages");
+      bind(1, "admittedPages");
       bind(5, "metaTable");
       bind(7, "slotCandidates");
     } else if (stage === "allocate") {
@@ -158,7 +183,7 @@ export class VsmAllocatePagesPass {
       bind(9, "contentVersion");
       bind(10, "demandScan");
     } else {
-      bind(1, "requestedPages");
+      bind(1, "admittedPages");
       bind(4, "pageTable");
       bind(5, "metaTable");
       bind(6, "allocation");
@@ -191,6 +216,8 @@ export class VsmAllocatePagesPass {
       "demandScan",
       "demandIndirect",
       "slotCandidates",
+      "admittedPages",
+      "admissionStatistics",
       "allocation",
       "overflowCounters",
     ];
@@ -208,8 +235,9 @@ export class VsmAllocatePagesPass {
       (data, _resolved, context) => {
         const command = context.encoder as ShadeGPUCommandContext;
         const owner = data.resources;
-        command.writeBuffer(this.constants, 0, packVsmResidencyConstants(data), 0, 256);
+        command.writeBuffer(this.constants, 0, packVsmResidencyConstants(data), 0, VSM_RESIDENCY_CONSTANT_BYTES);
         command.clearBuffer(owner.missingPages!);
+        command.clearBuffer(owner.getBuffer("admissionStatistics")!);
         command.clearBuffer(owner.overflowCounters!, 0, 16);
         const wordGroups = Math.ceil(Math.ceil(owner.capabilities.virtualEntryCount / 32) / 64);
         const pass = command.beginComputePass({ label: "VSM/complete demand and ordered residency" });
@@ -219,16 +247,21 @@ export class VsmAllocatePagesPass {
           if (indirect) {
             pass.dispatchWorkgroupsIndirect(owner.demandIndirect!, 0);
           } else {
-            pass.dispatchWorkgroups(stage === "count_words" || stage === "scatter" ? wordGroups : 1);
+            pass.dispatchWorkgroups(
+              stage === "count_words" || stage === "scatter" || stage === "histogram" ? wordGroups : 1,
+            );
           }
         };
+        encode("histogram", false);
+        encode("cutoff", false);
+        encode("admit", false);
         encode("count_words", false);
         encode("prefix_requests", false);
         encode("scatter", false);
         encode("touch", false, true);
         encode("collect_slots", false);
-        // Reuse the request records after touch. The immutable requested bitset
-        // still protects all hits; the demand header preserves complete counts.
+        // Reuse request records after touch. The admitted bitset protects all
+        // accepted hits; separate statistics preserve complete raw fine counts.
         encode("count_words", true);
         encode("prefix_misses", true);
         encode("scatter", true);
@@ -238,6 +271,7 @@ export class VsmAllocatePagesPass {
       },
     );
     produce.read(input.demand);
+    produce.read(input.priority);
     const published = new Map<VsmBufferKey, ResourceId>();
     for (const [key, handle] of handles) {
       published.set(key, produce.write(handle));
@@ -247,6 +281,7 @@ export class VsmAllocatePagesPass {
     return {
       allocation: published.get("allocation")!,
       demand: published.get("demand")!,
+      admitted: published.get("admittedPages")!,
       pageTable: published.get("pageTable")!,
       metaTable: published.get("metaTable")!,
       contentVersion,

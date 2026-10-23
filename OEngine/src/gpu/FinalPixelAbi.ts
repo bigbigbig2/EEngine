@@ -1,3 +1,4 @@
+import { VSM_RECEIVER_DESCRIPTOR_REFERENCES } from "./GpuVsmProjectionAbi.js";
 import { VSM_FILTER_DATA_BYTES } from "./GpuVsmFilterAbi.js";
 /** Internal V5 ABI used by the production Final Pixel frame program. */
 export const FINAL_PIXEL_DIRECTORY_WORDS = 8;
@@ -148,13 +149,13 @@ export function planFinalPixelLightingDirectory(
   let windowWidth = giExtent?.[0] ?? 0;
   let nativeBytes = 0;
   if (remapped) {
-    // One receiver needs its exact local lookup and all seven possible VSM
-    // descriptors (fine + six coarse), each with its original index. PCF taps
+    // One receiver needs its exact local lookup and all bounded VSM fine/coarse
+    // descriptors, each with its original index. PCF taps
     // stay inside the selected page and do not add descriptor references.
     const fixed = solarBytes + filterNoiseBytes;
     const windowBytes = (width: number, height: number) =>
       fixed +
-      width * height * (8 + 7 * 20) +
+      width * height * (8 + VSM_RECEIVER_DESCRIPTOR_REFERENCES * 20) +
       (Math.ceil(width / 2) + 4) * (Math.ceil(height / 2) + 4) * fieldStride +
       alignment * 3;
     windowRows = 8;
@@ -276,8 +277,8 @@ fn final_pixel_vsm_descriptor_count() -> u32 {
 }
 fn final_pixel_vsm_descriptor(index: u32) -> VsmSamplingDescriptor {
   if (lighting_ranges.remap.x != 0u) {
-    let first = lighting_ranges.local_vsm.z + final_pixel_receiver_index() * 35u;
-    for (var reference = 0u; reference < 7u; reference++) {
+    let first = lighting_ranges.local_vsm.z + final_pixel_receiver_index() * ${VSM_RECEIVER_DESCRIPTOR_REFERENCES * 5}u;
+    for (var reference = 0u; reference < ${VSM_RECEIVER_DESCRIPTOR_REFERENCES}u; reference++) {
       let at = first + reference * 5u;
       if (lighting_directory[at] == index) {
         return VsmSamplingDescriptor(lighting_directory[at + 1u], lighting_directory[at + 2u],

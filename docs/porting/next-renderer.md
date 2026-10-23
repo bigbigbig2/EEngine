@@ -3,11 +3,19 @@ id: porting/next-renderer
 state: current
 verifies:
   files:
+    - docs/next-design/eengine-vsm-quality-2026-10.md
+    - docs/next-execution/eengine-vsm-quality-execution-2026-10.md
     - docs/next-design/eengine-extreme-web-asset-compression-2026-10.md
     - OEngine/src/assets/codec/ImageTextureCook.ts
     - OEngine/src/assets/geometry-product/GeometryProductResidentAttributes.ts
     - OEngine/tools/oengine-asset-core/vendor/meshoptimizer/source.json
     - tools
+    - OEngine/src/gpu/GpuVsmProjectionAbi.ts
+    - OEngine/src/render/assets/vsm
+    - OEngine/src/gpu/GpuVsmAdmissionAbi.ts
+    - OEngine/src/shaders/vsm_admission.ts
+    - OEngine/src/shaders/vsm_receiver_demand.ts
+    - OEngine/src/shaders/vsm_sampling.ts
     - OEngine/src/gpu/GpuVsmPairAbi.ts
     - OEngine/src/render/ShadowMeshletBounds.ts
     - OEngine/src/shaders/shadow_meshlet_bounds.ts
@@ -1927,3 +1935,88 @@ Reference / Original：重新核对上文固定LibVT `464397d9e2c655f72ad59cd116
 - **Reference / External tool**：FFmpeg n8.1.2，tag object `1c2c67c0b9f7f66ab32c19dcf7f227bcd290aa4c`，peeled commit `38b88335f99e76ed89ff3c93f877fdefce736c13`，已读取真实 `libavfilter/vf_ssim.c::ssim_4x4xn_8bit/ssim_end1/ssim_endn_8bit` 与filter数据流。原文件LGPL-2.1-or-later；本机Gyan full binary启用GPL/version3，运行时记录完整binary SHA256及`-version`，不将该可执行文件或SSIM源码打入Web runtime。`metrics.mjs::nativeSsim`实际调用native filter，不是自己重写SSIM。32行窗口/极小窗口扩展/原像素权重是显式本地评价协议，不冒称原工具默认整图指标；更换binary则缓存失效。
 - **Retained / Adapt**：Spark/glTF-tex/libavif/libaom继续使用既有pin与许可边界；新增`gpu-evaluate`调用完整原recorder而不重实现BC。六照明探针直接拼接EEngine `lighting_brdf`与`appearance_normal_filter`原完整函数；包装与采样域是Local，不是全部材质画质证明。
 - **Local**：有限非单调候选枚举、donor-relative质量向量、immutable缓存/报告、HTTP Range合并、decoded邻域LRU和引用计数lease均为本地普通工程/生命周期代码，不包装为算法移植。Range≤256KiB/gap≤4096B/过取≤12.5%、LRU双backing≤8MiB与5秒idle为显式有界参数；不是引入新codec、第二pool或旧ABI桥。
+
+
+## 2026-10-23 Directional VSM Q1 Quality Contract
+
+**Reference, not a new complete donor port**: Timberdoodle Apache-2.0 commit
+`1987cf3b8ddda42585d2470bb5806efbc96c6cae`,
+[`src/rendering/virtual_shadow_maps`](https://github.com/Ipotrick/Timberdoodle/tree/1987cf3b8ddda42585d2470bb5806efbc96c6cae/src/rendering/virtual_shadow_maps),
+[`src/shader_lib/vsm_util.glsl`](https://github.com/Ipotrick/Timberdoodle/blob/1987cf3b8ddda42585d2470bb5806efbc96c6cae/src/shader_lib/vsm_util.glsl),
+[`src/rendering/tasks/shade_opaque.hlsl`](https://github.com/Ipotrick/Timberdoodle/blob/1987cf3b8ddda42585d2470bb5806efbc96c6cae/src/rendering/tasks/shade_opaque.hlsl)
+and `src/shader_shared/vsm_shared.inl`. Re-read the actual cached source and
+matched 17 source files byte-for-byte to the pinned remote revision.
+
+| Source stage | Local mapping | Adoption boundary |
+|---|---|---|
+| `mark_required_pages.hlsl::main`: nonzero valid depth, shared clip selection and grouped request publication | `vsm_receiver_demand`: accept `0 < depth <= 1`; shared `vsm_fine_page_pair`, portable workgroup page-key aggregation, exact weights and bounded-probe fallback | Local integration. Donor distance selection differs from local containing-clip selection; local two-endpoint demand/weights are explicit redesign, not a faithful donor selection port. |
+| `find_free_pages.glsl`, `allocate_pages.hlsl`: free/unvisited queues | `vsm_admission`/`GpuVsmAdmissionAbi` -> `VsmAllocatePagesPass` -> admitted protection/allocation/ShadowGeometry | Local complete raw demand plus deterministic log2 benefit tiers and page-key ties, all coarse admitted, explicit capacity pressure. No matching donor quality allocator is claimed. |
+| `shade_opaque.hlsl::get_vsm_shadow`, `vsm_sampling.hlsl` and `force_always_resident_pages.hlsl` | `vsm_sampling`: primary fine -> containing adjacent fine -> emergency coarse; primary blends only into the requested fine endpoint | Local directional coarse pool/transition redesign. Donor force-resident mainly handles point/spot mip policy and donor four random raw taps do not validate the local Vogel profile. |
+| `cull_and_draw_directional_pages.hlsl`, `cull_and_draw_pages_shared.hlsl::generic_vsm_mesh`, `gen_dirty_bit_hiz.hlsl` | Q2 candidate review only: shared source setup, triangle dirty rejection, page-confined depth raster versus virtual-clip atomic writes | Reference only. No mesh/task/Vulkan API port or completed work-avoidance adoption is claimed in Q1. |
+
+Preserved local contracts: per-actual-texel receiver plane, reverse-Z zero-empty,
+full gutter raster, full identity and reverse ownership, complete-page commit,
+empty-page readiness, abort/retry and device-local resource retirement. Old
+prior-frame failed in-flight bits no longer pin nonadmitted slots; queue ordering
+and current-frame allocation-before-work-publication define that lifetime.
+
+Independent CPU/GPU ranking and weighted aggregation, real production
+FrameGraph/allocator with wrong old residents, actual high/bounded layouts,
+compact-vs-management identity, paired receiver requests, full-page lifecycle
+and eleven real atlas transition samples are recorded in the
+[current VSM execution](../next-execution/eengine-vsm-quality-execution-2026-10.md).
+No full Renderer visual/performance qualification or completed Q2-Q4 adoption is
+implied. Q1 is necessary bounded correctness/quality work, not a net-speed claim.
+
+
+## 2026-10-23 VSM 重构来源选择
+
+本节记录用户选择的完整模块目标及后续授权步骤1的实际适配，不改写旧Q1的实际来源或通过结果，
+不提升R07/任何新机制为adopted。执行只读[当前三步计划](../next-execution/eengine-vsm-quality-execution-2026-10.md)。
+已核读下列固定revision实际源码；来源、license、具体保留/排除阶段如下。
+
+| 固定source | 目标owner / producer → consumer | 必须保留 / 适配 / 未覆盖 |
+|---|---|---|
+| Timberdoodle Apache-2.0 `1987cf3b8ddda42585d2470bb5806efbc96c6cae`；`src/shader_lib/vsm_util.glsl::clip_info_from_uvs`、`src/shader_shared/vsm_shared.inl`；`src/rendering/virtual_shadow_maps/{mark_required_pages.hlsl,find_free_pages.glsl,allocate_pages.hlsl,free_wrapped_pages.hlsl,invalidate_pages.hlsl,gen_dirty_bit_hiz.hlsl,cull_and_draw_directional_pages.hlsl,cull_and_draw_pages_shared.hlsl}` | VSM projection/receiver/residency/dirty → Geometry selected-domain/setup → native atlas → commit/Native sun | Planned port active distance分支、64texel/64page virtual clip、roll、free/unvisited、meshlet/triangle dirty/backface语义。API适配compute/indirect与32位分阶段写者，不复制wave32/DispatchMesh/地址/64位原子。donor point/spot常驻与四rawtap不纳入本轮profile。实际最低distance level1必须保留并正确换算有效精度。 |
+| Sundial MIT `c262b6f16bc1cf9ee41ac9c796d29fa5053e0d3d`；`src/core/raster.ts::rasterWGSL/casterVertex`、`kernels.ts::cullClusters/finalizeDraws`、`PagedShadowCore.ts`实际beginRenderPass/drawIndirect编码段 | VSM triangle/page bins → clip-distance vertex stage → depth atlas | Planned adapt四clip planes、批量indirect atlas绘制及selected rect拒绝；本地gutter扩展、native coverage和无feature polygon clip。不是复制整套Sundial：不纳入稀疏需求、fragment discard fallback、cluster/page重复transform、邻页clamp、固定alpha、双池/预算政策。 |
+| Colossus MIT `7e8855f3bd0d2e1c45b7f8012c8719876f422b40`；`web/vsm.wgsl::vsm_raster/setup/walk/rendering`、`vsm_common.wgsl::vsm_sortable/vsm_atlas_index`、`web/renderer.js`调用链 | Reference共享唯一顶点/dirty page span → 本地shared source setup | Reference only，不移植软件depth raster/原子atlas。>1023跨度triangle拒绝、队列min截断、固定太阳、无任意MASK使其不能完整替代本轮后端；不取它的PCSS为过滤donor。 |
+| Bevy MIT OR Apache-2.0 `fd98063564218bd210308675602a3e9643014c31`；`crates/bevy_pbr/src/render/shadow_sampling.wesl::{sample_shadow_map_castano_thirteen,search_for_blockers_in_shadow_map,search_for_blockers_in_shadow_map_hardware,sample_shadow_map_pcss,sample_shadow_map_jimenez_fourteen,calculate_uv_offset_scale_jimenez_fourteen,random_rotation_matrix}`，配套`utils.wesl` spiral常量与`shadows.wesl::{world_to_directional_light_local,sample_directional_cascade}`调用链 | VSM stable/soft sampler → Native sun → 现有HDR Temporal | Planned adapt全部核/权重/八blocker/无blocker/blur公式/八spiral/空间-时变旋转；深度域显式映射，实际texel plane和零空深度为本地能力保留。raw四比较重建HW tap，非逐位相同单reference sampler；page footprint、跨页和最终Temporal为本地集成。cubemap/point/spot不在本轮范围。 |
+
+可点击固定source：[Timberdoodle](https://github.com/Ipotrick/Timberdoodle/tree/1987cf3b8ddda42585d2470bb5806efbc96c6cae)、
+[Sundial](https://github.com/increasinglyHuman/poqpoq-sundial/tree/c262b6f16bc1cf9ee41ac9c796d29fa5053e0d3d)、
+[Colossus](https://github.com/apollo-2006/colossus/tree/7e8855f3bd0d2e1c45b7f8012c8719876f422b40)、
+[Bevy](https://github.com/bevyengine/bevy/tree/fd98063564218bd210308675602a3e9643014c31)。
+
+Local / Original integration明确保留：Q1完整raw/admitted需求、2:1/log2/page-key容量政策；directional emergency coarse；
+namespace/epoch/reverse-owner/完整页commit/abort；compiled任意MASK；显式polygon clipping与transient共享几何流；
+mutation descriptor与现有Temporal接线。它们不归因于donor，也不是所有平台必须如此。
+
+Native平台事实：[wgpu experimental mesh shading](https://wgpu.rs/doc/wgpu/documentation/extensions/mesh_shading/index.html)
+及[Bevy 0.20 mesh shaders](https://bevy.org/news/bevy-0-20/#mesh-shaders)于2026-10-23核对。
+wgpu native有mesh/task扩展，浏览器没有此API；当前engine使用navigator.gpu，不因Bevy/wgpu原生支持而具备该能力。
+此项是平台研究，不复制wgpu/Bevy native backend，不把尚未实施的native backend计为本轮移植。
+Kooch当前All Rights Reserved不可直接移植；Quasar/NullGraph/Render-Tech-Lab本轮未建立完整可用VSM donor。
+
+未来提升planned为production adapt前，保留来源对照、少量独立语义与真实新consumer证据；
+全部安排在三步出口与最终集中检查，不为每个小patch新建oracle、benchmark/evidence平台。
+
+### 步骤1实际映射与证据边界
+
+- **Port / active selector**：同pin `vsm_util.glsl::clip_info_from_uvs` 的distance/`62/64`页对齐guard、
+  乘法bias、ceil/log2、最低level1与上限clamp → `vsm_page_table.ts::vsm_select_clip` →
+  `vsm_receiver_demand`、`vsm_sampling`、`scgi_lighting_gather`。donor `vsm.inl::calculate_clip_projection`
+  使用±half scale，本地`clip.z`是full extent，因此公式显式乘0.5，未漏这一倍。
+- **Adapt / physical queue semantics**：`find_free_pages.glsl::count_pages_and_reserve_buffer_slots`、
+  `allocate_pages.hlsl::main` 的free-first/unvisited-next与reverse ownership →
+  `vsm_allocate_pages::{touch,slot_class,collect_slots,allocate}`。64-lane prefix代替subgroup32 ballots，
+  32位record在独立dispatch间交接，旧entry撤销与新page/meta有唯一writer；不拆64位并发原子。
+  本地cold排序、raw/admitted前置、coarse独立分区及dirty budget完整保留，不称同一allocator profile。
+- **Local integration**：`GpuVsmProjectionAbi`统一16层容量与全部消费者；64texel/64page、mip0/5、
+  cameraPosition/distance transition、future bounded footprint、默认10层最远边缘保护、资源预算、SCGI remap完整链。
+  donor按其NDC ceil snap，本地保留world-grid floor snap；guard保留一页偏差。
+  donor含height/near-far clip camera，本地继续共享稳定caster depth range/reverse-Z，这是已有深度架构适配，非整相机逐行移植。
+- **License**：新增`OEngine/src/render/assets/vsm/{NOTICE.txt,Timberdoodle-LICENSE.txt}`，构建带入发行资源。
+- **Not yet**：dirty hierarchy、source setup、triangle拒绝/页裁剪、Bevy stable/PCSS与精确增量失效仍是步骤2/3目标。
+  本步不提升整个VSM/R07为adopted，不把selector/queue检查扩大为光栅或过滤移植证据。
+- 当前WGSL/独立CPU/生产GPU证据见执行计划的单一出口记录；源码pin与half/full extent已再次直接核读。
+  世界texel质量差异如实记录，不以“源移植”字样暗示比旧XY所有距离都细。

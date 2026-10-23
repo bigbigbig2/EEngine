@@ -1,3 +1,4 @@
+import { VSM_PROJECTION_CONSTANT_BYTES, VSM_DIMENSIONS_WORD, VSM_CONTROL_WORD, VSM_PARAMETERS_WORD, VSM_IDENTITY_BYTE_OFFSET } from "../../.test-dist/gpu/GpuVsmProjectionAbi.js";
 import { VSM_SAMPLING_WGSL, VSM_FILTER_NOISE_WGSL } from "../../.test-dist/shaders/vsm_sampling.js";
 import { loadVsmFilterData } from "../../.test-dist/render/vsm/VsmFilterNoise.js";
 
@@ -42,11 +43,11 @@ export async function runVsmFilterGpuOracle(device) {
   payload.fill(0xff, 0, 256);
   payload.set(filterData, 256);
   const noise = make(payload.length, GPUBufferUsage.STORAGE, payload);
-  const constants = new Float32Array(64),
+  const constants = new Float32Array(VSM_PROJECTION_CONSTANT_BYTES / 4),
     words = new Uint32Array(constants.buffer);
-  words.set([128, 128, 4, 3, 1, 7, 2, 0], 40);
-  words[59] = 64;
-  const uniform = make(256, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, constants);
+  words.set([128, 128, 4, 3, 1, 7, 2, 0], VSM_DIMENSIONS_WORD);
+  words[VSM_IDENTITY_BYTE_OFFSET / 4 + 3] = 64;
+  const uniform = make(VSM_PROJECTION_CONSTANT_BYTES, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, constants);
   const authored = [];
   const coordinates = [0, 1 / 256, 0.25, 0.5, 0.75, 1 - 1 / 256, -3 / 128, 131 / 128];
   for (const slot of [
@@ -188,9 +189,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         for (const radius of [0, 1.5, 3])
           for (let phase = 0; phase < 64; phase++) configurations.push({ mode: 2, radius, phase });
         for (const [index, config] of configurations.entries()) {
-          words[46] = config.mode;
-          words[47] = config.phase;
-          constants[51] = config.radius;
+          words[VSM_CONTROL_WORD + 2] = config.mode;
+          words[VSM_CONTROL_WORD + 3] = config.phase;
+          constants[VSM_PARAMETERS_WORD + 3] = config.radius;
           device.queue.writeBuffer(uniform, 0, constants);
           const encoder = device.createCommandEncoder();
           if (index === 0) {

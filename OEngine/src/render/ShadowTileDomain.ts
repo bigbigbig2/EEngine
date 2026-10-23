@@ -1,3 +1,8 @@
+import {
+  VSM_DIMENSIONS_WORD,
+  VSM_SHADOW_DOMAIN_HEADER_BYTES,
+  VSM_SHADOW_DOMAIN_CONSTANT_BYTES,
+} from "../gpu/GpuVsmProjectionAbi.js";
 import { PreparedComputePipeline } from "../gpu/PreparedPipeline.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import { SHADOW_TILE_BUILD_WGSL, SHADOW_TILE_DOMAIN_BYTES } from "../shaders/shadow_tile_domain.js";
@@ -39,7 +44,7 @@ export class ShadowTileDomain {
   private readonly constants: GPUBuffer;
   private readonly pipeline: PreparedComputePipeline;
   private readonly groups = new WeakMap<GPUBuffer, WeakMap<GPUBuffer, GPUBindGroup>>();
-  private readonly header = new ArrayBuffer(256);
+  private readonly header = new ArrayBuffer(VSM_SHADOW_DOMAIN_HEADER_BYTES);
   private readonly handles: ResourceHandle[] = [];
   private destroyed = false;
 
@@ -50,7 +55,7 @@ export class ShadowTileDomain {
     if (
       device.limits.maxStorageBufferBindingSize < SHADOW_TILE_DOMAIN_BYTES ||
       device.limits.maxBufferSize < SHADOW_TILE_DOMAIN_BYTES ||
-      device.limits.maxUniformBufferBindingSize < 176 ||
+      device.limits.maxUniformBufferBindingSize < VSM_SHADOW_DOMAIN_CONSTANT_BYTES ||
       device.limits.minStorageBufferOffsetAlignment > 256 ||
       device.limits.maxBindingsPerBindGroup < 16 ||
       device.limits.maxBindGroups < 3
@@ -64,7 +69,7 @@ export class ShadowTileDomain {
     });
     this.constants = device.createBuffer({
       label: "Shadow geometry/tile domain constants",
-      size: 176,
+      size: VSM_SHADOW_DOMAIN_CONSTANT_BYTES,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     this.pipeline = obtainTilePipeline(device);
@@ -98,11 +103,11 @@ export class ShadowTileDomain {
     const perLevel = vsmEntriesPerClipLevel(VSM_VIRTUAL_PAGES_PER_AXIS);
     new Uint32Array(bytes).set(
       [perLevel * frame.clipOriginExtent.length, VSM_VIRTUAL_PAGES_PER_AXIS, VSM_PAGE_SIZE, VSM_BORDER],
-      40
+      VSM_DIMENSIONS_WORD
     );
-    command.writeBuffer(this.constants, 0, bytes, 0, 176);
-    command.writeBuffer(this.buffer, 0, bytes, 0, 256);
-    command.clearBuffer(this.buffer, 256, SHADOW_TILE_DOMAIN_BYTES - 256);
+    command.writeBuffer(this.constants, 0, bytes, 0, VSM_SHADOW_DOMAIN_CONSTANT_BYTES);
+    command.writeBuffer(this.buffer, 0, bytes, 0, VSM_SHADOW_DOMAIN_HEADER_BYTES);
+    command.clearBuffer(this.buffer, VSM_SHADOW_DOMAIN_HEADER_BYTES, SHADOW_TILE_DOMAIN_BYTES - VSM_SHADOW_DOMAIN_HEADER_BYTES);
     let byAllocation = this.groups.get(requested);
     if (byAllocation === undefined) {
       byAllocation = new WeakMap();
@@ -117,7 +122,7 @@ export class ShadowTileDomain {
           { binding: 0, resource: { buffer: this.constants } },
           { binding: 1, resource: { buffer: requested } },
           { binding: 2, resource: { buffer: allocation } },
-          { binding: 3, resource: { buffer: this.buffer, offset: 256 } }
+          { binding: 3, resource: { buffer: this.buffer, offset: VSM_SHADOW_DOMAIN_HEADER_BYTES } }
         ]
       });
       byAllocation.set(allocation, group);

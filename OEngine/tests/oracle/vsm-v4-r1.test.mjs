@@ -39,7 +39,7 @@ test("world page storage modulo preserves signed identity and mip plane separati
       assert.ok(!seen.has(address));
       seen.add(address);
       assert.equal(address, vsmWorldPageEntryIndex(2, 0, x + 128, y - 128, 128));
-      assert.notEqual(address, vsmWorldPageEntryIndex(2, 1, x, y, 128));
+      assert.notEqual(address, vsmWorldPageEntryIndex(2, 5, x, y, 128));
     }
   }
   assert.throws(() => vsmWorldPageEntryIndex(0, 0, 2 ** 31, 0, 128), /i32/);
@@ -49,13 +49,13 @@ test("world projection does not translate with camera, including the light axis"
   const resources = {
     profile: "vsm-directional-high",
     namespace: 19,
-    capabilities: { clipLevels: 6, virtualPagesPerAxis: 128, pageSize: 128 }
+    capabilities: { clipLevels: 10, virtualPagesPerAxis: 64, pageSize: 64 }
   };
   const initial = buildVsmDirectionalFrameConstants([0, 1, 0], [-0.31, 2, -0.47], 256, resources, 8);
   const axial = buildVsmDirectionalFrameConstants([0, 1, 0], [-0.31, 103, -0.47], 256, resources, 8);
   assert.deepEqual(initial.lightView, axial.lightView);
   assert.deepEqual(initial.clipOriginExtent, axial.clipOriginExtent);
-  const within = buildVsmDirectionalFrameConstants([0, 1, 0], [-0.3, 2, -0.46], 256, resources, 8);
+  const within = buildVsmDirectionalFrameConstants([0, 1, 0], [-0.309, 2, -0.469], 256, resources, 8);
   assert.deepEqual(initial.clipOriginExtent, within.clipOriginExtent);
   const rolling = buildVsmDirectionalFrameConstants([0, 1, 0], [-0.06, 2, -0.47], 256, resources, 8);
   assert.deepEqual(initial.lightView, rolling.lightView);

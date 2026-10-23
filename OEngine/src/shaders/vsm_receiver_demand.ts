@@ -1,58 +1,47 @@
+import { VSM_MAX_CLIP_LEVELS } from "../gpu/GpuVsmProjectionAbi.js";
 import { GPU_INSTANCE_FLAGS, GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { VSM_PAGE_TABLE_WGSL } from "./vsm_page_table.js";
 
-/** Portable 64-lane aggregation. Workgroup storage is zero-initialized by WGSL.
- * A bounded probe failure publishes the original bit instead of dropping it. */
-export const VSM_RECEIVER_WORD_AGGREGATION_WGSL = /* wgsl */ `
-var<workgroup> receiver_words: array<atomic<u32>, 64>;
-var<workgroup> receiver_masks: array<atomic<u32>, 64>;
+/** Complete two-level demand, aggregated into 128 slots per 64-lane group.
+ * Footprints may exceed the hash capacity: probe exhaustion publishes both
+ * the bit and score directly, without dropping demand. */
+export const VSM_RECEIVER_AGGREGATION_WGSL = /* wgsl */ `
+var<workgroup> receiver_keys: array<atomic<u32>, 128>;
+var<workgroup> receiver_scores: array<atomic<u32>, 128>;
 
-fn publish_receiver_word(page: u32, lane: u32) {
-  if (page != VSM_INVALID_SLOT) {
-    let word = page / 32u;
-    let bit = 1u << (page % 32u);
-    // page is u32, so word + 1 cannot overflow. Zero remains the empty key.
-    let key = word + 1u;
-    var slot = (word * 2654435761u) & 63u;
-    var merged = false;
-    for (var attempt = 0u; attempt < 64u; attempt++) {
-      let existing = atomicLoad(&receiver_words[slot]);
-      if (existing == key) {
-        if ((atomicLoad(&receiver_masks[slot]) & bit) == 0u) {
-          atomicOr(&receiver_masks[slot], bit);
-        }
-        merged = true;
-        break;
-      }
-      if (existing == 0u) {
-        let reservation = atomicCompareExchangeWeak(&receiver_words[slot], 0u, key);
-        if (reservation.exchanged || reservation.old_value == key) {
-          if ((atomicLoad(&receiver_masks[slot]) & bit) == 0u) {
-            atomicOr(&receiver_masks[slot], bit);
-          }
-          merged = true;
-          break;
-        }
-        // A spurious failure at an empty slot retries that slot. The bound also
-        // covers spurious failures; exhaustion still publishes the exact bit.
-        if (reservation.old_value != 0u) {
-          slot = (slot + 1u) & 63u;
-        }
-      } else {
-        slot = (slot + 1u) & 63u;
-      }
+fn record_receiver_page(page: u32, weight: u32) {
+  if (page == VSM_INVALID_SLOT) {
+    return;
+  }
+  let key = page + 1u;
+  var slot = (page * 2654435761u) & 127u;
+  for (var attempt = 0u; attempt < 128u; attempt++) {
+    let reservation = atomicCompareExchangeWeak(&receiver_keys[slot], 0u, key);
+    if (reservation.exchanged || reservation.old_value == key) {
+      atomicAdd(&receiver_scores[slot], weight);
+      return;
     }
-    if (!merged) {
-      atomicOr(&requested[word], bit);
+    if (reservation.old_value != 0u) {
+      slot = (slot + 1u) & 127u;
     }
   }
-  // Empty/partial groups and rejected receiver lanes must all reach this.
+  atomicOr(&requested[page / 32u], 1u << (page % 32u));
+  atomicAdd(&receiver_priority[page], weight);
+}
+
+fn publish_receiver_pages(pair: vec2u, lane: u32) {
+  record_receiver_page(pair.x, 2u);
+  record_receiver_page(pair.y, 1u);
   workgroupBarrier();
-  let key = atomicLoad(&receiver_words[lane]);
-  if (key != 0u) {
-    atomicOr(&requested[key - 1u], atomicLoad(&receiver_masks[lane]));
+  for (var slot = lane; slot < 128u; slot += 64u) {
+    let key = atomicLoad(&receiver_keys[slot]);
+    if (key != 0u) {
+      let page = key - 1u;
+      atomicOr(&requested[page / 32u], 1u << (page % 32u));
+      atomicAdd(&receiver_priority[page], atomicLoad(&receiver_scores[slot]));
+    }
   }
 }
 `;
@@ -80,12 +69,14 @@ struct Camera {
 
 struct Constants {
   light_view: mat4x4f,
-  clip_origin_extent: array<vec4f, 6>,
+  clip_origin_extent: array<vec4f, ${VSM_MAX_CLIP_LEVELS}>,
   dimensions: vec4u,
   control: vec4u,
   viewport: vec4f,
   depth_range: vec4f,
   identity: vec4u,
+  selector: vec4f, // camera world position, distance multiplier
+  footprint: vec4f, // bounded maximum filter radius (texels), reserved
 };
 
 @group(0) @binding(0) var<uniform> camera: Camera;
@@ -95,6 +86,7 @@ struct Constants {
 @group(0) @binding(4) var<storage, read_write> requested: array<atomic<u32>>;
 @group(0) @binding(5) var<storage, read> meshlet_work: OEngineMeshletWorkQueueRead;
 @group(0) @binding(6) var<storage, read> instances: array<OEngineInstanceRecord>;
+@group(0) @binding(8) var<storage, read_write> receiver_priority: array<atomic<u32>>;
 
 fn world_from_depth(pixel: vec2u, depth: f32) -> vec3f {
   let uv = (vec2f(pixel) + vec2f(0.5)) * constants.viewport.xy;
@@ -103,56 +95,90 @@ fn world_from_depth(pixel: vec2u, depth: f32) -> vec3f {
   return projected.xyz / projected.w;
 }
 
-fn project_pixel_depth_to_page(pixel: vec2u, depth: f32) -> u32 {
+var<private> receiver_light_xy: vec2f;
+fn project_pixel_depth_to_pages(pixel: vec2u, depth: f32) -> vec2u {
   let world = world_from_depth(pixel, depth);
-  let light_position = (constants.light_view * vec4f(world, 1.0)).xyz;
-  let level = vsm_select_clip(light_position.xy, constants.clip_origin_extent, constants.control.x, constants.dimensions.w);
-  if (level == VSM_INVALID_SLOT) {
-    return VSM_INVALID_SLOT;
+  if (any(world != world) || any(abs(world) > vec3f(3.4028234663852886e38))) {
+    return vec2u(VSM_INVALID_SLOT);
   }
-  let mip = 0u;
-  let clip = constants.clip_origin_extent[level];
-  let world_page = vsm_world_page(light_position.xy, clip, mip, constants.dimensions.w);
-  let virtual_page = vsm_world_page_entry_index(level, mip, world_page, constants.dimensions.w);
-  return virtual_page;
+  let light = constants.light_view * vec4f(world, 1.0);
+  receiver_light_xy = light.xy;
+  let selected = vsm_select_clip(length(world - constants.selector.xyz),
+    constants.clip_origin_extent[0].z, constants.selector.w, constants.control.x, constants.dimensions.w);
+  var result = vec2u(VSM_INVALID_SLOT);
+  for (var endpoint = 0u; endpoint < 2u; endpoint++) {
+    let level = selected + endpoint;
+    if (level >= constants.control.x) { break; }
+    let clip = constants.clip_origin_extent[level];
+    let page = vsm_world_page(light.xy, clip, 0u, constants.dimensions.w);
+    if (vsm_world_in_window(page, clip, 0u, constants.dimensions.w)) {
+      result[endpoint] = vsm_world_page_entry_index(level, 0u, page, constants.dimensions.w);
+    }
+  }
+  return result;
 }
 
-// Clip selection is discontinuous across nested clip windows. Equal corner
+// Distance selection is discontinuous across clip shells. Equal corner
 // indices do not prove that an interior pixel selects the same finer level.
-// Only exact per-receiver requests are merged by the word aggregation below.
-fn receiver_page(id: vec3u) -> u32 {
+// Only exact per-receiver requests are merged by the page-key aggregation below.
+fn receiver_pages(id: vec3u) -> vec2u {
   if (id.x >= constants.dimensions.x || id.y >= constants.dimensions.y) {
-    return VSM_INVALID_SLOT;
+    return vec2u(VSM_INVALID_SLOT);
   }
   let pixel = vec2i(id.xy);
   let depth = textureLoad(receiver_depth, pixel, 0);
-  if (!(depth > 0.0001 && depth <= 1.0)) {
-    return VSM_INVALID_SLOT;
+  if (!(depth > 0.0 && depth <= 1.0)) {
+    return vec2u(VSM_INVALID_SLOT);
   }
   let key = textureLoad(visibility_key, pixel, 0).x;
   let decoded = oengine_visibility_key_resolve(key, meshlet_work.header.generation, meshlet_work.header.written_count);
   if (decoded.valid == 0u || decoded.meshlet_work_slot >= min(meshlet_work.header.capacity, arrayLength(&meshlet_work.elements))) {
-    return VSM_INVALID_SLOT;
+    return vec2u(VSM_INVALID_SLOT);
   }
   let instance_slot = meshlet_work.elements[decoded.meshlet_work_slot].instance_slot;
   if (instance_slot >= arrayLength(&instances)) {
-    return VSM_INVALID_SLOT;
+    return vec2u(VSM_INVALID_SLOT);
   }
   let flags = instances[instance_slot].flags;
   if ((flags & ${GPU_INSTANCE_FLAGS.Active | GPU_INSTANCE_FLAGS.ReceivesShadow}u) != ${GPU_INSTANCE_FLAGS.Active | GPU_INSTANCE_FLAGS.ReceivesShadow}u ||
       (flags & ${GPU_INSTANCE_FLAGS.Transparent}u) != 0u || oengine_instance_shading_bin_id(flags) < 4u) {
-    return VSM_INVALID_SLOT;
+    return vec2u(VSM_INVALID_SLOT);
   }
-  return project_pixel_depth_to_page(id.xy, depth);
+  return project_pixel_depth_to_pages(id.xy, depth);
 }
 
-${VSM_RECEIVER_WORD_AGGREGATION_WGSL}
+${VSM_RECEIVER_AGGREGATION_WGSL}
+
+// Bound is negotiated by the CPU before encoding; each endpoint visits <= 3x3
+// pages. Gutter-covered taps need no neighbour residency; larger kernels expand demand.
+fn record_receiver_footprint(id: vec3u, pair: vec2u) {
+  if (all(pair == vec2u(VSM_INVALID_SLOT)) || constants.footprint.x <= constants.footprint.w) { return; }
+  let light = receiver_light_xy;
+  let pages = constants.dimensions.w;
+  for (var endpoint = 0u; endpoint < 2u; endpoint++) {
+    if (pair[endpoint] == VSM_INVALID_SLOT) { continue; }
+    let level = vsm_page_entry_coordinates(pair[endpoint], pages).x;
+    let clip = constants.clip_origin_extent[level];
+    let radius_world = constants.footprint.x * clip.w;
+    let lo = vsm_world_page(light - vec2f(radius_world), clip, 0u, pages);
+    let hi = vsm_world_page(light + vec2f(radius_world), clip, 0u, pages);
+    for (var y = lo.y; y <= hi.y; y++) {
+      for (var x = lo.x; x <= hi.x; x++) {
+        let world = vec2i(x, y);
+        if (!vsm_world_in_window(world, clip, 0u, pages)) { continue; }
+        let page = vsm_world_page_entry_index(level, 0u, world, pages);
+        if (page != pair[endpoint]) { record_receiver_page(page, select(2u, 1u, endpoint == 1u)); }
+      }
+    }
+  }
+}
 
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) id: vec3u,
   @builtin(local_invocation_index) lane: u32) {
-  let page = receiver_page(id);
-  publish_receiver_word(page, lane);
+  let pair = receiver_pages(id);
+  record_receiver_footprint(id, pair);
+  publish_receiver_pages(pair, lane);
 }
 @compute @workgroup_size(64)
 fn mark_coarse(@builtin(global_invocation_id) id: vec3u) {
@@ -184,7 +210,7 @@ export function vsmReceiverDemandDiagnosticWgsl(): string {
   const begin = VSM_RECEIVER_DEMAND_WGSL.indexOf("@compute @workgroup_size(8, 8, 1)");
   const end = VSM_RECEIVER_DEMAND_WGSL.indexOf("@compute @workgroup_size(64)", begin);
   const original = VSM_RECEIVER_DEMAND_WGSL.slice(begin, end);
-  if (begin < 0 || end < 0 || !original.includes("publish_receiver_word(page, lane);")) {
+  if (begin < 0 || end < 0 || !original.includes("publish_receiver_pages(pair, lane);")) {
     throw new Error("VSM diagnostic receiver specialization no longer matches its producer");
   }
   const main = /* wgsl */ `
@@ -196,9 +222,11 @@ var<workgroup> diagnostic_totals: array<atomic<u32>, 4>;
 fn main(@builtin(global_invocation_id) id: vec3u,
   @builtin(local_invocation_index) lane: u32, @builtin(workgroup_id) group: vec3u,
   @builtin(num_workgroups) groups: vec3u) {
-  let page = receiver_page(id);
+  let pair = receiver_pages(id);
+  record_receiver_footprint(id, pair);
+  let page = pair.x;
   diagnostic_pages[lane] = page;
-  publish_receiver_word(page, lane);
+  publish_receiver_pages(pair, lane);
   workgroupBarrier();
   if (page != VSM_INVALID_SLOT) {
     var first_page = true;
@@ -228,13 +256,10 @@ fn main(@builtin(global_invocation_id) id: vec3u,
 `;
   // Count both exhausted-probe publication and normal slot publication. This
   // specialization is absent from timed/production shaders.
-  const aggregation = VSM_RECEIVER_WORD_AGGREGATION_WGSL.replaceAll(
+  const aggregation = VSM_RECEIVER_AGGREGATION_WGSL.replaceAll(
     "atomicOr(&requested[",
     "atomicAdd(&diagnostic_totals[3], 1u);\n    atomicOr(&requested[",
   );
-  const prefix = VSM_RECEIVER_DEMAND_WGSL.slice(0, begin).replace(
-    VSM_RECEIVER_WORD_AGGREGATION_WGSL,
-    aggregation,
-  );
+  const prefix = VSM_RECEIVER_DEMAND_WGSL.slice(0, begin).replace(VSM_RECEIVER_AGGREGATION_WGSL, aggregation);
   return prefix + main + VSM_RECEIVER_DEMAND_WGSL.slice(end);
 }

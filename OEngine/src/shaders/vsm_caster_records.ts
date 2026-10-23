@@ -1,3 +1,4 @@
+import { VSM_MAX_CLIP_LEVELS } from "../gpu/GpuVsmProjectionAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { SHADOW_BOUNDS_WGSL, VSM_PAIR_WRITE_WGSL } from "../gpu/GpuVsmPairAbi.js";
 import { VSM_PAGE_TABLE_WGSL } from "./vsm_page_table.js";
@@ -14,7 +15,7 @@ ${GPU_MESHLET_RASTER_WORK_WGSL}
 ${SHADOW_BOUNDS_WGSL}
 struct Constants {
   light_view: mat4x4f,
-  clip_origin_extent: array<vec4f, 6>,
+  clip_origin_extent: array<vec4f, ${VSM_MAX_CLIP_LEVELS}>,
   dimensions: vec4u,
   control: vec4u,
   parameters: vec4f,
@@ -160,7 +161,7 @@ fn main(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_inde
           }
         } else {
           let level = vsm_page_entry_coordinates(page.virtual_page, constants.dimensions.x).x;
-          let page_world = constants.clip_origin_extent[min(level, 5u)].z /
+          let page_world = constants.clip_origin_extent[min(level, ${VSM_MAX_CLIP_LEVELS - 1}u)].z /
             f32(max(1u, constants.dimensions.x >> min(entry.mip, 5u)));
           let gutter = page_world * f32(constants.dimensions.z) / f32(constants.dimensions.y);
           let low = vec2f(f32(entry.world_x), f32(entry.world_y)) * page_world;

@@ -1,3 +1,4 @@
+import { VSM_MAX_CLIP_LEVELS, VSM_PROJECTION_CONSTANT_BYTES } from "../gpu/GpuVsmProjectionAbi.js";
 import { FRAME_GEOMETRY_MESHLET_STRIDE } from "../gpu/GpuWinnerInterpolationAbi.js";
 import { VSM_PAIR_WGSL, SHADOW_BOUNDS_WGSL } from "../gpu/GpuVsmPairAbi.js";
 import { VSM_PAIR_PAGE_WGSL } from "./vsm_pair_page.js";
@@ -248,7 +249,7 @@ ${
   vsmAtlas
     ? `${VSM_PAGE_TABLE_WGSL}
 struct VsmAtlasConstants {
-  light_view: mat4x4f, clip_origin_extent: array<vec4f, 6>, dimensions: vec4u, control: vec4u,
+  light_view: mat4x4f, clip_origin_extent: array<vec4f, ${VSM_MAX_CLIP_LEVELS}>, dimensions: vec4u, control: vec4u,
   parameters: vec4f, depth_range: vec4f, identity: vec4u,
 }
 struct VsmPageTableBuffer { entries: array<VsmPageEntry>, }
@@ -450,7 +451,7 @@ fn native_visibility_fragment(fragment: NativeVisibilityVertex) -> @location(0) 
       uniform(3, 3, NATIVE_VISIBILITY_VIEW_BYTES),
       ...(partitioned ? [read(5, 1), read(6, 1), uniform(7, 1, 16)] : []),
       ...(productGeometry ? [read(8, 1), read(9, 1), read(10, 1), read(11, 1), read(12, 1)] : []),
-      ...(vsmAtlas ? [uniform(13, 1, 240), read(14, 1), read(15, 1), read(16, 1), read(17, 1)] : []),
+      ...(vsmAtlas ? [uniform(13, 1, VSM_PROJECTION_CONSTANT_BYTES), read(14, 1), read(15, 1), read(16, 1), read(17, 1)] : []),
     ],
     [],
     [

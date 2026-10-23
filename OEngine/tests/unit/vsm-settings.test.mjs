@@ -1,3 +1,5 @@
+import { VSM_PARAMETERS_WORD, VSM_CONTROL_WORD, VSM_IDENTITY_BYTE_OFFSET, VSM_DEPTH_RANGE_BYTE_OFFSET,
+  VSM_PROJECTION_CONSTANT_BYTES, VSM_SELECTOR_WORD } from "../../.test-dist/gpu/GpuVsmProjectionAbi.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { VSM_DEFAULT_SETTINGS, resolveVsmSettings } from "../../.test-dist/render/vsm/VsmSettings.js";
@@ -9,11 +11,11 @@ const resources = {
   profile: "vsm-directional-high",
   namespace: 19,
   capabilities: {
-    clipLevels: 6,
-    virtualPagesPerAxis: 128,
-    pageSize: 128,
+    clipLevels: 10,
+    virtualPagesPerAxis: 64,
+    pageSize: 64,
     border: 4,
-    atlasPagesPerAxis: 30,
+    atlasPagesPerAxis: 56,
     atlasDimension: 4096,
   },
 };
@@ -36,29 +38,20 @@ test("default disk4 has four total samples, a bounded level transition and merge
   const bytes = packed(VSM_DEFAULT_SETTINGS);
   const floats = new Float32Array(bytes),
     words = new Uint32Array(bytes);
-  assert.deepEqual(Array.from(floats.subarray(48, 52)), [1, 1, Math.fround(0.16), 1.5]);
-  assert.equal(words[46], 2);
-  assert.equal(words[47], 63);
-  assert.deepEqual(Array.from(words.subarray(56, 60)), [43, 19, 0, 2048]);
-  assert.equal(bytes.byteLength, 256);
-  assert.equal(frame().clipOriginExtent[0][2], 32);
+  assert.deepEqual(Array.from(floats.subarray(VSM_PARAMETERS_WORD, VSM_PARAMETERS_WORD + 4)), [1, 1, Math.fround(0.16), 1.5]);
+  assert.equal(words[VSM_CONTROL_WORD + 2], 2);
+  assert.equal(words[VSM_CONTROL_WORD + 3], 63);
+  assert.deepEqual(Array.from(words.subarray(VSM_IDENTITY_BYTE_OFFSET / 4, VSM_IDENTITY_BYTE_OFFSET / 4 + 4)), [43, 19, 0, 2048]);
+  assert.equal(bytes.byteLength, VSM_PROJECTION_CONSTANT_BYTES);
+  assert.equal(frame().clipOriginExtent[0][2], 4);
 });
 
-test("directional clip windows can center on the view footprint without changing legacy callers", () => {
-  const cameraCentered = frame();
-  const viewCentered = buildVsmDirectionalFrameConstants(
-    [0, 1, 0],
-    [0, 0, 0],
-    256,
-    resources,
-    7,
-    43,
-    VSM_DEFAULT_SETTINGS,
-    [0, 0, 1],
-  );
-  assert.deepEqual(cameraCentered.clipOriginExtent[0], [-16, -16, 32, 0.001953125]);
-  assert.notDeepEqual(viewCentered.clipOriginExtent[0], cameraCentered.clipOriginExtent[0]);
-  assert.equal(viewCentered.clipOriginExtent[0][2], 32);
+test("distance profile is camera-centered and preserves effective finest texel", () => {
+  const value = frame();
+  assert.deepEqual(value.clipOriginExtent[0], [-2, -2, 4, 1/1024]);
+  assert.equal(value.clipOriginExtent[1][3], 32/16384);
+  assert.ok(value.clipOriginExtent.at(-1)[2] >= 32*32);
+  assert.deepEqual(Array.from(new Float32Array(packed(VSM_DEFAULT_SETTINGS)).subarray(VSM_SELECTOR_WORD,VSM_SELECTOR_WORD+4)),[0,0,0,1]);
 });
 
 test("all kernels retain projection/depth identity and disk offsets stay within rasterized gutter", () => {
@@ -75,16 +68,16 @@ test("all kernels retain projection/depth identity and disk offsets stay within 
       debugView: "page-state",
     });
     const bytes = packed(settings);
-    assert.deepEqual(Array.from(new Float32Array(bytes).subarray(48, 52)), [0.75, 4, Math.fround(0.16), 3]);
-    assert.equal(new Uint32Array(bytes)[46], code);
-    assert.deepEqual(Array.from(new Uint32Array(bytes).subarray(56, 60)), [43, 19, 3, 2048]);
-    assert.deepEqual(Array.from(new Float32Array(bytes).subarray(52, 56)), [0, 0, 0, 0]);
+    assert.deepEqual(Array.from(new Float32Array(bytes).subarray(VSM_PARAMETERS_WORD, VSM_PARAMETERS_WORD + 4)), [0.75, 4, Math.fround(0.16), 3]);
+    assert.equal(new Uint32Array(bytes)[VSM_CONTROL_WORD + 2], code);
+    assert.deepEqual(Array.from(new Uint32Array(bytes).subarray(VSM_IDENTITY_BYTE_OFFSET / 4, VSM_IDENTITY_BYTE_OFFSET / 4 + 4)), [43, 19, 3, 2048]);
+    assert.deepEqual(Array.from(new Float32Array(bytes).subarray(VSM_DEPTH_RANGE_BYTE_OFFSET / 4, VSM_DEPTH_RANGE_BYTE_OFFSET / 4 + 4)), [0, 0, 0, 0]);
   }
   for (const radius of [0, 0.75, 1.5, 3])
     for (let angle = 0; angle < 360; angle++)
       for (const uv of [0, 1 - 1e-7]) {
-        const texel = Math.floor(uv * 128 + Math.cos((angle * Math.PI) / 180) * radius + 0.5);
-        assert.ok(texel >= -4 && texel < 132);
+        const texel = Math.floor(uv * 64 + Math.cos((angle * Math.PI) / 180) * radius + 0.5);
+        assert.ok(texel >= -4 && texel < 68);
       }
   assert.throws(
     () => packVsmSamplingConstants({ resources, frame: frame(), width: 16, height: 16, generation: 7 }),
@@ -101,8 +94,8 @@ test("zero-radius disk folds to one point without requiring a noise publication"
     height: 16,
     generation: 7,
   });
-  assert.equal(new Uint32Array(bytes)[46], 0);
-  assert.equal(new Uint32Array(bytes)[59], 0);
+  assert.equal(new Uint32Array(bytes)[VSM_CONTROL_WORD + 2], 0);
+  assert.equal(new Uint32Array(bytes)[VSM_IDENTITY_BYTE_OFFSET / 4 + 3], 0);
 });
 
 test("coverage changes rebuild transactionally while sampling changes do not redraw depth", () => {
@@ -129,7 +122,7 @@ test("coverage changes rebuild transactionally while sampling changes do not red
   assert.equal(sampling.rebuildDepth, false);
   owner.commit(sampling);
   const enlarged = frame(resolveVsmSettings(VSM_DEFAULT_SETTINGS, { clipExtentScale: 2 }));
-  assert.equal(enlarged.clipOriginExtent[0][2], 64);
+  assert.equal(enlarged.clipOriginExtent[0][2], 8);
   const changed = owner.prepare({ ...input, clipOriginExtent: enlarged.clipOriginExtent });
   assert.equal(changed.fullInvalidate, true);
   assert.equal(changed.rebuildDepth, true);
@@ -152,6 +145,8 @@ test("invalid or nonfinite tuning cannot mutate the frozen live settings", () =>
     { filterMode: "grid16" },
     { normalBiasTexels: 0.5 },
     { filterRadiusTexels: 3.01 },
+    { clipSelectionBias: 0.5 },
+    { clipSelectionBias: Infinity },
     { clipExtentScale: 0 },
     { clipExtentScale: Infinity },
     { clipTransitionRatio: -0.01 },

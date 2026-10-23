@@ -1,10 +1,16 @@
 import type { VsmResources } from "./VsmResources.js";
 import { VSM_DEFAULT_SETTINGS, type VsmSettings } from "./VsmSettings.js";
 
-export const VSM_PROJECTION_CONSTANT_BYTES = 256;
-export const VSM_DEPTH_RANGE_BYTE_OFFSET = 208;
+import {
+  VSM_MAX_CLIP_LEVELS,
+  VSM_PROJECTION_CONSTANT_BYTES,
+  VSM_DEPTH_RANGE_BYTE_OFFSET,
+  VSM_IDENTITY_BYTE_OFFSET,
+  VSM_SELECTOR_WORD,
+  VSM_FOOTPRINT_WORD,
+} from "../../gpu/GpuVsmProjectionAbi.js";
+export { VSM_PROJECTION_CONSTANT_BYTES, VSM_DEPTH_RANGE_BYTE_OFFSET, VSM_IDENTITY_BYTE_OFFSET };
 export const VSM_DEPTH_RANGE_BYTES = 16;
-export const VSM_IDENTITY_BYTE_OFFSET = 224;
 
 export interface VsmDirectionalFrameConstants {
   readonly generation: number;
@@ -13,6 +19,7 @@ export interface VsmDirectionalFrameConstants {
   readonly lightView: readonly number[];
   readonly clipOriginExtent: readonly (readonly [number, number, number, number])[];
   readonly settings?: Readonly<VsmSettings>;
+  readonly cameraPosition: readonly [number, number, number];
 }
 
 function normalize3(x: number, y: number, z: number): [number, number, number] {
@@ -32,7 +39,6 @@ export function buildVsmDirectionalFrameConstants(
   generation: number,
   projectionEpoch = generation,
   settings: Readonly<VsmSettings> = VSM_DEFAULT_SETTINGS,
-  cameraForwardWorld?: readonly [number, number, number]
 ): VsmDirectionalFrameConstants {
   const profile = resources.capabilities;
   if (resources.profile === "shadow-disabled") {
@@ -55,16 +61,10 @@ export function buildVsmDirectionalFrameConstants(
     travel[2] * right[0] - travel[0] * right[2],
     travel[0] * right[1] - travel[1] * right[0]
   ];
-  const baseExtent = Math.max(32, Math.min(Math.max(32, cameraFar), 2048) * 0.125) * settings.clipExtentScale;
-  const forward: [number, number, number] =
-    cameraForwardWorld === undefined
-      ? [0, 0, 0]
-      : normalize3(cameraForwardWorld[0], cameraForwardWorld[1], cameraForwardWorld[2]);
-  const center = [
-    cameraPosition[0] + forward[0] * baseExtent * 0.5,
-    cameraPosition[1] + forward[1] * baseExtent * 0.5,
-    cameraPosition[2] + forward[2] * baseExtent * 0.5,
-  ] as const;
+  // Old finest texel = oldExtent/16384. Donor selects level >= 1, so
+  // new level-0 extent = oldExtent/8 gives level-1 extent/4096 equal precision.
+  const baseExtent = Math.max(32, Math.min(Math.max(32, cameraFar), 2048) * 0.125) * settings.clipExtentScale / 8;
+  const center = cameraPosition;
   const lightView = Object.freeze([
     right[0],
     up[0],
@@ -104,20 +104,30 @@ export function buildVsmDirectionalFrameConstants(
     projectionEpoch,
     namespace: resources.namespace,
     settings,
+    cameraPosition,
     lightView,
     clipOriginExtent: Object.freeze(levels)
   });
 }
 
-/** Common light/clip/identity block. The GPU copies the stable depth product at 208. */
+/** Common projection block; stable depth is copied at the shared ABI offset. */
 export function packVsmProjection(frame: VsmDirectionalFrameConstants): ArrayBuffer {
+  if (frame.lightView.length !== 16 || !frame.lightView.every(Number.isFinite) ||
+      frame.cameraPosition.length !== 3 || !frame.cameraPosition.every(Number.isFinite) ||
+      frame.clipOriginExtent.length < 2 || frame.clipOriginExtent.length > VSM_MAX_CLIP_LEVELS ||
+      !frame.clipOriginExtent.every((clip) => clip.every(Number.isFinite) && clip[2] > 0)) {
+    throw new RangeError("VSM projection requires a finite camera and complete clip domain");
+  }
   const data = new ArrayBuffer(VSM_PROJECTION_CONSTANT_BYTES);
   const f = new Float32Array(data);
   const u = new Uint32Array(data);
   f.set(frame.lightView);
-  for (let level = 0; level < 6; level++) {
-    f.set(frame.clipOriginExtent[level] ?? [0, 0, 1, 1], 16 + level * 4);
+  for (let level = 0; level < VSM_MAX_CLIP_LEVELS; level++) {
+    f.set(frame.clipOriginExtent[level] ?? [0, 0, 0, 0], 16 + level * 4);
   }
+  f.set([...frame.cameraPosition, (frame.settings ?? VSM_DEFAULT_SETTINGS).clipSelectionBias], VSM_SELECTOR_WORD);
+  // Future PCSS must publish its maximum footprint here before enabling taps.
+  f.set([0, 0, 0, 0], VSM_FOOTPRINT_WORD);
   u.set([frame.projectionEpoch, frame.namespace, 0, 0], VSM_IDENTITY_BYTE_OFFSET / 4);
   return data;
 }

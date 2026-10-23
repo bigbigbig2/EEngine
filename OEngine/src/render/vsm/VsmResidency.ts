@@ -6,6 +6,7 @@ import type { VsmResources } from "./VsmResources.js";
 export interface VsmAllocationFrame {
   readonly allocation: ResourceId;
   readonly demand: ResourceId;
+  readonly admitted: ResourceId;
   readonly pageTable: ResourceId;
   readonly metaTable: ResourceId;
   readonly contentVersion: ResourceId;

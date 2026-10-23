@@ -1,3 +1,4 @@
+import { VSM_MAX_CLIP_LEVELS } from "../gpu/GpuVsmProjectionAbi.js";
 import { VSM_PAGE_TABLE_WGSL } from "./vsm_page_table.js";
 import { VSM_CASTER_DAMAGE_WGSL } from "./vsm_depth_bounds.js";
 
@@ -8,7 +9,7 @@ ${VSM_PAGE_TABLE_WGSL}
 ${VSM_CASTER_DAMAGE_WGSL}
 struct Constants {
   light_view: mat4x4f,
-  clips: array<vec4f, 6>,
+  clips: array<vec4f, ${VSM_MAX_CLIP_LEVELS}>,
   dimensions: vec4u, // virtual axis, atlas axis, page size, gutter
   control: vec4u, // generation, resident slots
   parameters: vec4f,
@@ -39,7 +40,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   if (count > arrayLength(&damages.records)) { dirty = true; }
   if (!dirty) {
     let coordinate = vsm_page_entry_coordinates(slot_meta.virtual_page, constants.dimensions.x);
-    let page_world = constants.clips[min(coordinate.x, 5u)].z /
+    let page_world = constants.clips[min(coordinate.x, ${VSM_MAX_CLIP_LEVELS - 1}u)].z /
       f32(max(1u, constants.dimensions.x >> min(entry.mip, 5u)));
     let gutter = page_world * f32(constants.dimensions.w) / f32(constants.dimensions.z);
     let low = vec2f(f32(entry.world_x), f32(entry.world_y)) * page_world;

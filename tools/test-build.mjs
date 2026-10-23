@@ -79,6 +79,7 @@ export async function buildTests(root = REPO_ROOT) {
     await cp(codecVendor, resolve(output, "assets/codec/vendor"), { recursive: true });
   }
   const filterAssets = resolve(output, "render/assets/textures");
+  await cp(resolve(engine, "src/render/assets/vsm"), resolve(output, "render/assets/vsm"), { recursive: true });
   await cp(resolve(engine, "src/render/assets/sssr"), resolve(output, "render/assets/sssr"), { recursive: true });
   await mkdir(filterAssets, { recursive: true });
   await cp(

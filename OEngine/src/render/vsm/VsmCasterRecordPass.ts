@@ -1,3 +1,9 @@
+import {
+  VSM_DIMENSIONS_WORD,
+  VSM_CONTROL_WORD,
+  VSM_IDENTITY_BYTE_OFFSET as VSM_ABI_IDENTITY_OFFSET,
+  VSM_PROJECTION_CONSTANT_BYTES as VSM_ABI_BYTES,
+} from "../../gpu/GpuVsmProjectionAbi.js";
 import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import { packVsmProjection, VSM_DEPTH_RANGE_BYTE_OFFSET, VSM_DEPTH_RANGE_BYTES } from "./VsmProjection.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
@@ -33,7 +39,7 @@ export interface VsmCasterRecordFrame {
   readonly workCapacity: number;
 }
 
-const CONSTANT_BYTES = 256;
+const CONSTANT_BYTES = VSM_ABI_BYTES;
 
 export function vsmCasterDispatch(capacity: number, dimension: number): readonly [number, number] {
   const groups = Math.ceil(capacity / 64);
@@ -54,7 +60,7 @@ function packConstants(input: VsmCasterRecordInputs): ArrayBuffer {
   const data = packVsmProjection(input.frame);
   const uints = new Uint32Array(data);
   const profile = input.resources.capabilities;
-  uints.set([profile.virtualPagesPerAxis, profile.pageSize, profile.border, profile.atlasDimension], 40);
+  uints.set([profile.virtualPagesPerAxis, profile.pageSize, profile.border, profile.atlasDimension], VSM_DIMENSIONS_WORD);
   uints.set(
     [
       input.generation >>> 0,
@@ -62,9 +68,9 @@ function packConstants(input: VsmCasterRecordInputs): ArrayBuffer {
       profile.casterRecordCapacity >>> 0,
       profile.residentSlots >>> 0,
     ],
-    44,
+    VSM_CONTROL_WORD,
   );
-  uints[59] = input.resources.capabilities.limits.maxComputeWorkgroupsPerDimension;
+  uints[VSM_ABI_IDENTITY_OFFSET / 4 + 3] = input.resources.capabilities.limits.maxComputeWorkgroupsPerDimension;
   return data;
 }
 

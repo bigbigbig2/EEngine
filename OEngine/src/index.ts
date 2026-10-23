@@ -647,6 +647,7 @@ export type {
 } from "./debug/BenchmarkSceneManifest.js";
 
 export type { PhysicalLightingDiagnostic } from "./render/environment/PhysicalEnvironmentState.js";
+export type { VsmResourceBudget } from "./render/vsm/VsmCapabilities.js";
 export {
   VSM_DEFAULT_SETTINGS,
   type VsmSettings,

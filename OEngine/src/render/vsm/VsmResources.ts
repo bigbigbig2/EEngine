@@ -1,5 +1,7 @@
+import { VSM_PROJECTION_CONSTANT_BYTES } from "../../gpu/GpuVsmProjectionAbi.js";
 import type { VsmCapabilities } from "./VsmCapabilities.js";
 import { VSM_PAIR_HEADER_BYTES, VSM_PAIR_STRIDE } from "../../gpu/GpuVsmPairAbi.js";
+import { VSM_ADMISSION_ABI } from "../../gpu/GpuVsmAdmissionAbi.js";
 
 export type VsmBufferKey =
   | "pageTable"
@@ -12,6 +14,9 @@ export type VsmBufferKey =
   | "rasterIndirect"
   | "pageConstants"
   | "requestedPages"
+  | "receiverPriority"
+  | "admittedPages"
+  | "admissionStatistics"
   | "missingPages"
   | "demandScan"
   | "demandIndirect"
@@ -42,6 +47,12 @@ export interface VsmDiagnostics {
   readonly atlasPixels: number;
   readonly samplingFallback: null;
   readonly overflowMask: null;
+  readonly admission: Readonly<{
+    buffer: GPUBuffer;
+    rawFineCountByteOffset: number;
+    admittedFineCountByteOffset: number;
+    fineCapacity: number;
+  }>;
 }
 
 /** Persistent device-local VSM storage. FrameGraph owns only per-frame scratch. */
@@ -121,15 +132,28 @@ export class VsmResources {
       16,
       GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     );
-    this.createBuffer("pageConstants", 256,
-      GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
-    for (const key of ["requestedPages", "missingPages"] as const) {
+    this.createBuffer(
+      "pageConstants",
+      VSM_PROJECTION_CONSTANT_BYTES,
+      GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+    );
+    for (const key of ["requestedPages", "admittedPages", "missingPages"] as const) {
       this.createBuffer(
         key,
         capabilities.requestedPagesBytes,
         GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
       );
     }
+    this.createBuffer(
+      "receiverPriority",
+      capabilities.receiverPriorityBytes,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+    );
+    this.createBuffer(
+      "admissionStatistics",
+      VSM_ADMISSION_ABI.byteLength,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+    );
     this.createBuffer(
       "demandScan",
       capabilities.demandScanBytes,
@@ -240,6 +264,12 @@ export class VsmResources {
       atlasPixels: this.atlasDepth.width * this.atlasDepth.height,
       samplingFallback: null,
       overflowMask: null,
+      admission: Object.freeze({
+        buffer: this.getBuffer("admissionStatistics")!,
+        rawFineCountByteOffset: VSM_ADMISSION_ABI.rawFineCountWord * 4,
+        admittedFineCountByteOffset: VSM_ADMISSION_ABI.admittedFineCountWord * 4,
+        fineCapacity: this.capabilities.residentSlots - this.capabilities.coarseReservedSlots,
+      }),
     });
   }
 

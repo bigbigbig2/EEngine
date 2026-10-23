@@ -1,0 +1,16 @@
+Timberdoodle directional VSM algorithm adaptation
+Source: https://github.com/Ipotrick/Timberdoodle
+Revision: 1987cf3b8ddda42585d2470bb5806efbc96c6cae
+License: Apache-2.0, reproduced in Timberdoodle-LICENSE.txt.
+
+vsm_util.glsl::clip_info_from_uvs active distance selector is translated to
+vsm_page_table.ts. Its half extent is represented by half of the local full
+clip extent. Camera/page snapping uses the local world-grid basis.
+find_free_pages.glsl and allocate_pages.hlsl free/unvisited queue semantics
+inform vsm_allocate_pages.ts; subgroup ballots and packed 64-bit image entries
+are replaced by 64-lane prefix scans, separate ordered dispatches and unique
+32-bit record writers. Admission, coarse reservation, cold ordering and
+dirty-page budget policies are local, not Timberdoodle algorithms.
+
+This notice does not claim a port of the upstream mesh shader raster pipeline.
+See docs/porting/next-renderer.md for the source-to-owner map and boundaries.

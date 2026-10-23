@@ -1,3 +1,4 @@
+import { VSM_PROJECTION_CONSTANT_BYTES } from "../../gpu/GpuVsmProjectionAbi.js";
 import { encodeScgiNativeWindow, type ScgiNativeWindowInput } from "../gi/ScgiNativeWindow.js";
 import { scgiLightingGatherWgsl } from "../../shaders/scgi_lighting_gather.js";
 import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
@@ -226,7 +227,7 @@ export class SurfaceV4 {
     }
     const shadowConstants = this.device.createBuffer({
       label: "SurfaceV4/disabled VSM constants",
-      size: 256,
+      size: VSM_PROJECTION_CONSTANT_BYTES,
       usage: GPUBufferUsage.UNIFORM,
     });
     const shadowVisibility = this.device.createTexture({

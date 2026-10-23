@@ -1,3 +1,4 @@
+import { VSM_MAX_CLIP_LEVELS } from "../gpu/GpuVsmProjectionAbi.js";
 import { VSM_SAMPLING_TYPES_WGSL } from "./vsm_sampling.js";
 
 /** Full-domain publication after raster/content commit. No atomics or history.
@@ -13,7 +14,7 @@ ${VSM_SAMPLING_TYPES_WGSL}
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let pages = max(1u, constants.dimensions.x);
   let per_clip = vsm_sampling_entries_per_clip(pages);
-  let count = min(6u, constants.control.x) * per_clip;
+  let count = min(${VSM_MAX_CLIP_LEVELS}u, constants.control.x) * per_clip;
   if (id.x >= count || id.x >= arrayLength(&descriptors)) {
     return;
   }

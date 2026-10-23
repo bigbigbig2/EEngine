@@ -578,21 +578,13 @@ export const oracles = Object.freeze([
       "Production history-write to RCAS against frozen duplicate-output math: full RGB, lock alpha, HDR, jitter, motion, partial extents and upscale ratios."
   }),
   Object.freeze({
-    name: "vsm-sampling-publication",
-    file: "OEngine/tests/oracle/vsm-sampling-publication-gpu.mjs",
-    url: "/OEngine/tests/oracle/vsm-sampling-publication-gpu.mjs",
-    entry: "runVsmSamplingPublicationGpuOracle",
+    name: "vsm-quality-contract",
+    file: "OEngine/tests/oracle/vsm-quality-contract-gpu.mjs",
+    url: "/OEngine/tests/oracle/vsm-quality-contract-gpu.mjs",
+    entry: "runVsmQualityContractGpuOracle",
+    timeoutMs: 120000,
     description:
-      "Compact post-commit queries vs frozen original WGSL: full identity, rolling windows, f32 boundaries, all states and exact box PCF."
-  }),
-  Object.freeze({
-    name: "vsm-receiver-exact",
-    file: "OEngine/tests/oracle/vsm-receiver-exact-gpu.mjs",
-    url: "/OEngine/tests/oracle/vsm-receiver-exact-gpu.mjs",
-    entry: "runVsmReceiverExactGpuOracle",
-    description:
-      "Exact production receiver requests across nested clip boundaries, including a rotated tile with coarse corners and fine interior.",
-    timeoutMs: 60000
+      "Production admission/allocator abort/retry, deterministic over-capacity replacement, fine transitions and emergency fallback."
   }),
   Object.freeze({
     name: "vsm-receiver-aggregation",
@@ -600,7 +592,7 @@ export const oracles = Object.freeze([
     url: "/OEngine/tests/oracle/vsm-receiver-aggregation-gpu.mjs",
     entry: "runVsmReceiverAggregationGpuOracle",
     description:
-      "Exact production word aggregation, full-table collisions, partial/empty groups, bounded fallback and reset."
+      "Exact production paired-page aggregation and weighted scores, 128-key collisions, partial/empty groups, bounded fallback and reset."
   }),
   Object.freeze({
     name: "performance-diagnostics",
@@ -654,15 +646,6 @@ export const oracles = Object.freeze([
     requiredLimits: { maxStorageBuffersPerShaderStage: 8 },
     description:
       "Tight Geometry bounds, C−1/C/C+1 explicit/implicit modes, native partition failure, empty completion, abort retry and gutter addresses."
-  }),
-  Object.freeze({
-    name: "vsm-v4-r2",
-    file: "OEngine/tests/oracle/vsm-v4-r2-gpu.mjs",
-    url: "/OEngine/tests/oracle/vsm-v4-r2-gpu.mjs",
-    entry: "runVsmR2GpuOracle",
-    requiredLimits: { maxStorageBuffersPerShaderStage: 8 },
-    description:
-      "Complete receiver demand, coarse guard capacity, same-epoch reclamation, empty completion, query states and abort retry."
   }),
   Object.freeze({
     name: "fsr3-shading-pyramid",

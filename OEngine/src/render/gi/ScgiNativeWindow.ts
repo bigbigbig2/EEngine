@@ -1,3 +1,4 @@
+import { VSM_RECEIVER_DESCRIPTOR_REFERENCES } from "../../gpu/GpuVsmProjectionAbi.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { ScgiFramePublication } from "./ScgiPublication.js";
 import type { FinalPixelLightingFrame } from "../lighting/FinalPixelLightingPublication.js";
@@ -49,7 +50,7 @@ export function encodeScgiNativeWindow(
   const noiseOffset = plan.remapped ? FINAL_PIXEL_SOLAR_BYTES : plan.filterNoiseOffset;
   const lookupOffset = plan.remapped ? align(noiseOffset + plan.filterNoiseBytes) : plan.lookupOffset;
   const descriptorOffset = plan.remapped ? align(lookupOffset + w * h * 8) : plan.descriptorOffset;
-  const fieldOffset = plan.remapped ? align(descriptorOffset + w * h * 7 * 20) : plan.giOffset;
+  const fieldOffset = plan.remapped ? align(descriptorOffset + w * h * VSM_RECEIVER_DESCRIPTOR_REFERENCES * 20) : plan.giOffset;
   const fieldBytes = fieldWidth * fieldHeight * 112;
   const residualOffset = fieldOffset + fieldBytes;
   const residualBytes = input.gather == null ? 0 : fieldWidth * fieldHeight * 32;

@@ -1,3 +1,4 @@
+import { VSM_MAX_CLIP_LEVELS } from "../gpu/GpuVsmProjectionAbi.js";
 import { VSM_PAGE_TABLE_WGSL } from "./vsm_page_table.js";
 
 /** Complete-domain unique requests. Portable 64-lane hierarchical prefix;
@@ -8,7 +9,7 @@ struct Constants {
   control: vec4u,
   dimensions: vec4u,
   identity: vec4u,
-  clips: array<vec4f, 6>,
+  clips: array<vec4f, ${VSM_MAX_CLIP_LEVELS}>,
 };
 struct Request {
   virtual_page: u32,

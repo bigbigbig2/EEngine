@@ -87,9 +87,8 @@ verifies:
     - OEngine/tests/contract/geometry-product-budgeted-lifecycle.test.mjs
     - OEngine/tests/contract/virtual-geometry-product.test.mjs
     - OEngine/tests/contract/material-closure-v2.test.mjs
-    - OEngine/tests/oracle/vsm-receiver-exact-gpu.mjs
+    - OEngine/tests/oracle/vsm-quality-contract-gpu.mjs
     - OEngine/tests/oracle/vsm-caster-cost-gpu.mjs
-    - OEngine/tests/oracle/vsm-v4-r2-gpu.mjs
     - OEngine/tests/oracle/vsm-v4-r3-gpu.mjs
     - OEngine/tests/oracle/native-temporal-identity-gpu.mjs
     - OEngine/tests/oracle/product-attribute-decode-gpu.mjs

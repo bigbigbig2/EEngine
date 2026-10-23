@@ -1,3 +1,9 @@
+import {
+  VSM_DIMENSIONS_WORD,
+  VSM_CONTROL_WORD,
+  VSM_PARAMETERS_WORD,
+  VSM_FOOTPRINT_WORD,
+} from "../../gpu/GpuVsmProjectionAbi.js";
 import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import {
   packVsmProjection,
@@ -35,10 +41,14 @@ export interface VsmReceiverDemandInputs {
   readonly generation: number;
   readonly filterNoiseWordOffset?: number;
   readonly filterPhase?: number;
+  /** Future cross-page filters must declare their finite worst-case radius.
+   * This expands demand only; it does not enable an unimplemented filter. */
+  readonly boundedFilterFootprintRadiusTexels?: number;
 }
 
 export interface VsmDemandFrame {
   readonly demand: ResourceId;
+  readonly priority: ResourceId;
   readonly samplingConstants: ResourceId;
   readonly generation: number;
   readonly capacity: number;
@@ -70,13 +80,21 @@ function packConstants(input: VsmReceiverDemandInputs, resources: VsmResources):
   const uints = new Uint32Array(data);
   uints.set(
     [input.width, input.height, resources.capabilities.pageSize, resources.capabilities.virtualPagesPerAxis],
-    40,
+    VSM_DIMENSIONS_WORD,
   );
   uints.set(
     [resources.capabilities.clipLevels, input.generation >>> 0, resources.capabilities.demandCapacity, 0],
-    44,
+    VSM_CONTROL_WORD,
   );
-  floats.set([1 / input.width, 1 / input.height, 1, 0], 48);
+  floats.set([1 / input.width, 1 / input.height, 1, 0], VSM_PARAMETERS_WORD);
+  const settings = input.frame.settings ?? VSM_DEFAULT_SETTINGS;
+  const mode = effectiveVsmFilterMode(settings);
+  const activeRadius = mode === "point" ? 0 : mode === "gather2x2" ? 1 : settings.filterRadiusTexels + 0.5;
+  const radius = input.boundedFilterFootprintRadiusTexels ?? activeRadius;
+  if (!Number.isFinite(radius) || radius < activeRadius || radius > resources.capabilities.pageSize) {
+    throw new RangeError("VSM footprint must include all active taps and be at most one page in radius");
+  }
+  floats.set([radius, activeRadius, settings.clipTransitionRatio, resources.capabilities.border], VSM_FOOTPRINT_WORD);
   return data;
 }
 
@@ -87,7 +105,7 @@ export function packVsmSamplingConstants(input: VsmReceiverDemandInputs): ArrayB
   const floats = new Float32Array(data);
   const uints = new Uint32Array(data);
   const profile = input.resources.capabilities;
-  uints.set([profile.virtualPagesPerAxis, profile.pageSize, profile.border, profile.atlasPagesPerAxis], 40);
+  uints.set([profile.virtualPagesPerAxis, profile.pageSize, profile.border, profile.atlasPagesPerAxis], VSM_DIMENSIONS_WORD);
   const settings = input.frame.settings ?? VSM_DEFAULT_SETTINGS;
   const filterMode = effectiveVsmFilterMode(settings);
   const phase = input.filterPhase ?? 0;
@@ -103,10 +121,15 @@ export function packVsmSamplingConstants(input: VsmReceiverDemandInputs): ArrayB
   ) {
     throw new RangeError("VSM disk filtering requires a complete noise publication and valid phase");
   }
-  uints.set([profile.clipLevels, input.generation, VSM_FILTER_MODES[filterMode], phase], 44);
+  uints.set([profile.clipLevels, input.generation, VSM_FILTER_MODES[filterMode], phase], VSM_CONTROL_WORD);
   floats.set(
-    [settings.angularBiasTexels, settings.depthBiasTexels, settings.clipTransitionRatio, settings.filterRadiusTexels],
-    48,
+    [
+      settings.angularBiasTexels,
+      settings.depthBiasTexels,
+      settings.clipTransitionRatio,
+      settings.filterRadiusTexels,
+    ],
+    VSM_PARAMETERS_WORD,
   );
   uints[VSM_IDENTITY_BYTE_OFFSET / 4 + 2] = VSM_DEBUG_VIEWS[settings.debugView];
   uints[VSM_IDENTITY_BYTE_OFFSET / 4 + 3] = noiseOffset;
@@ -142,6 +165,7 @@ export class VsmReceiverDemandPass {
         { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
         { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
         ...(DEMAND_DIAGNOSTICS
           ? [{ binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" as const } }]
           : []),
@@ -178,7 +202,8 @@ export class VsmReceiverDemandPass {
       !Number.isInteger(input.height) ||
       input.height < 1 ||
       input.width > Number(this.device.limits.maxTextureDimension2D) ||
-      input.height > Number(this.device.limits.maxTextureDimension2D)
+      input.height > Number(this.device.limits.maxTextureDimension2D) ||
+      input.width * input.height * 3 > 0xffffffff
     ) {
       throw new RangeError("VSM receiver demand extent exceeds device limits");
     }
@@ -219,6 +244,11 @@ export class VsmReceiverDemandPass {
       "VSM/demand",
       { kind: "imported", label: "VSM demand buffer" },
       demandBuffer,
+    );
+    const priority = graph.import_resource(
+      "VSM/receiver screen benefit",
+      { kind: "imported" },
+      input.resources.getBuffer("receiverPriority")!,
     );
     if (!input.resources.pageConstants) {
       throw new Error("VSM sampling constants are unavailable");
@@ -265,6 +295,8 @@ export class VsmReceiverDemandPass {
       const command = context.encoder as ShadeGPUCommandContext;
       const demandBuffer = resources.get(demand) as GPUBuffer;
       command.clearBuffer(demandBuffer);
+      const priorityBuffer = resources.get(priority) as GPUBuffer;
+      command.clearBuffer(priorityBuffer);
       const group = this.bindGroups.create(this.device, {
         layout: this.layout,
         entries: [
@@ -275,6 +307,7 @@ export class VsmReceiverDemandPass {
           { binding: 4, resource: { buffer: demandBuffer } },
           { binding: 5, resource: { buffer: resources.get(input.meshletWork) as GPUBuffer } },
           { binding: 6, resource: { buffer: resources.get(input.instances) as GPUBuffer } },
+          { binding: 8, resource: { buffer: priorityBuffer } },
           ...(diagnostic === undefined
             ? []
             : [{ binding: 7, resource: { buffer: resources.get(diagnostic) as GPUBuffer } }]),
@@ -295,12 +328,14 @@ export class VsmReceiverDemandPass {
     produce.read(input.meshletWork);
     produce.read(input.instances);
     const producedDemand = produce.write(demand);
+    const producedPriority = produce.write(priority);
     if (diagnostic !== undefined) {
       produce.write(diagnostic);
     }
     produce.make_side_effect();
     return {
       demand: producedDemand,
+      priority: producedPriority,
       samplingConstants,
       generation: input.generation,
       capacity: profile.demandCapacity,

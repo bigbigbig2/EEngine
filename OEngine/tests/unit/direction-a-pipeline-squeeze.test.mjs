@@ -63,7 +63,7 @@ test("A1: SurfaceV4 retains exact single-triangle broadcast in uniform control f
 test("A2: exact receiver projection, sparse bit scan and conservative caster culling", () => {
   for (const wgsl of [VSM_RECEIVER_DEMAND_WGSL, vsmReceiverDemandDiagnosticWgsl()]) {
     assert.doesNotMatch(wgsl, /wg_tile_corner_pages|wg_tile_cluster_pages/);
-    assert.match(wgsl, /return project_pixel_depth_to_page\(id\.xy, depth\)/);
+    assert.match(wgsl, /return project_pixel_depth_to_pages\(id\.xy, depth\)/);
   }
 
   assert.ok(VSM_DEMAND_SCAN_WGSL.includes("if (marked == 0u) {\n    return;\n  }"));
