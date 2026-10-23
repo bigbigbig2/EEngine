@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
@@ -12,8 +13,10 @@ const names = {
  * kernel directory and scope; this plugin does not infer redistribution rights. */
 export function imageKernelsPlugin(examplesRoot: string): Plugin {
   const configured = process.env.EENGINE_IMAGE_KERNELS_DIR;
+  const defaultDir = resolve(examplesRoot, "../.local/extreme-web-asset/sources/spark/src/shaders");
+  const fallbackDir = resolve(examplesRoot, "../.local/texture-design-spark/src/shaders");
   const directory = configured ? resolve(configured)
-    : resolve(examplesRoot, "../.local/extreme-web-asset/sources/spark/src/shaders");
+    : (existsSync(defaultDir) ? defaultDir : fallbackDir);
   const scope = configured ? process.env.EENGINE_IMAGE_KERNELS_SCOPE : "local-evaluation";
   async function assets() {
     if (!["local-evaluation", "authorized-production"].includes(scope ?? "")) {
@@ -21,16 +24,23 @@ export function imageKernelsPlugin(examplesRoot: string): Plugin {
     }
     const files: Record<string, Buffer> = {};
     const hashes: Record<string, string> = {};
-    const baseline = JSON.parse(await readFile(resolve(examplesRoot,
-      "../.local/extreme-web-asset/sources.json"), "utf8")).sources.spark;
-    if (baseline.revision !== "b9ea643a08cb9eef3a9ddc64564089bdd6fd0daf") {
+    const sourcesJsonPath = resolve(examplesRoot, "../.local/extreme-web-asset/sources.json");
+    const baselinePath = existsSync(sourcesJsonPath)
+      ? sourcesJsonPath
+      : resolve(examplesRoot, "../OEngine/tools/extreme-web-asset/e0-baseline.json");
+    const parsedBaseline = JSON.parse(await readFile(baselinePath, "utf8"));
+    const baselineRevision = parsedBaseline.sources?.spark?.revision ??
+      parsedBaseline.sourceTrees?.spark?.revision ?? "";
+    const baselineFiles = parsedBaseline.sources?.spark?.files ??
+      parsedBaseline.sparkFiles ?? {};
+    if (baselineRevision !== "b9ea643a08cb9eef3a9ddc64564089bdd6fd0daf") {
       throw new Error("Image kernel baseline revision mismatch");
     }
     for (const [key, name] of Object.entries(names)) {
       const bytes = await readFile(resolve(directory, name));
       files[key + ".wgsl"] = bytes;
       hashes[key] = createHash("sha256").update(bytes).digest("hex");
-      if (hashes[key] !== baseline.files["src/shaders/" + name]) {
+      if (hashes[key] !== baselineFiles["src/shaders/" + name]) {
         throw new Error(`Image kernel differs from pinned upstream: ${name}`);
       }
     }
