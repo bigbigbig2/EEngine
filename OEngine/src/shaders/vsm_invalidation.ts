@@ -17,6 +17,10 @@ struct Constants {
 @group(0) @binding(2) var<storage, read_write> metas: array<VsmMetaEntry>;
 @group(0) @binding(3) var<storage, read_write> content: array<atomic<u32>>;
 
+@group(0) @binding(4) var<storage, read_write> descriptor_mutations: array<atomic<u32>>;
+fn vsm_mark_descriptor(page: u32) {
+  atomicOr(&descriptor_mutations[4u + page / 32u], 1u << (page % 32u));
+}
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   if (id.x >= arrayLength(&pages)) {
@@ -44,6 +48,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     }
     entry.flags = 0u;
     pages[id.x] = entry;
+    vsm_mark_descriptor(id.x);
     atomicStore(&content[1u], 1u);
   }
 }

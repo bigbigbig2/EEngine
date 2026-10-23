@@ -44,7 +44,7 @@ const STAGES: readonly Stage[] = [
   "touch",
   "collect_slots",
   "allocate",
-  "publish_dirty",
+  "publish_dirty"
 ];
 
 /** Shared scan/residency constants ABI: three vec4u followed by sixteen clip vec4f. */
@@ -63,7 +63,7 @@ export function packVsmResidencyConstants(input: VsmAllocatePagesInputs): ArrayB
     input.frame.projectionEpoch,
     input.frame.namespace,
     profile.coarseReservedSlots,
-    input.frame.settings?.dirtyPageBudget ?? 64,
+    input.frame.settings?.dirtyPageBudget ?? 64
   ]);
   const floats = new Float32Array(data);
   for (let level = 0; level < profile.clipLevels; level++) {
@@ -87,19 +87,19 @@ export class VsmAllocatePagesPass {
     this.constants = device.createBuffer({
       label: "VSM/complete residency constants",
       size: VSM_RESIDENCY_CONSTANT_BYTES,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     const scan = device.createShaderModule({
       label: "VSM/unique request prefix",
-      code: VSM_DEMAND_SCAN_WGSL,
+      code: VSM_DEMAND_SCAN_WGSL
     });
     const residency = device.createShaderModule({
       label: "VSM/ordered residency",
-      code: VSM_ALLOCATE_PAGES_WGSL,
+      code: VSM_ALLOCATE_PAGES_WGSL
     });
     const admission = device.createShaderModule({
       label: "VSM/screen-benefit admission",
-      code: VSM_ADMISSION_WGSL,
+      code: VSM_ADMISSION_WGSL
     });
     for (const entryPoint of STAGES) {
       const admissionStage = entryPoint === "histogram" || entryPoint === "cutoff" || entryPoint === "admit";
@@ -114,8 +114,8 @@ export class VsmAllocatePagesPass {
           label: `VSM/${entryPoint}`,
           // Entry-specific layouts retain the portable eight-storage-buffer limit.
           layout: "auto",
-          compute: { module: admissionStage ? admission : scanStage ? scan : residency, entryPoint },
-        }),
+          compute: { module: admissionStage ? admission : scanStage ? scan : residency, entryPoint }
+        })
       );
     }
   }
@@ -170,6 +170,7 @@ export class VsmAllocatePagesPass {
       bind(5, "metaTable");
       bind(8, "overflowCounters");
       bind(9, "contentVersion");
+      bind(11, "descriptorMutations");
     } else if (stage === "collect_slots") {
       bind(1, "admittedPages");
       bind(5, "metaTable");
@@ -181,6 +182,7 @@ export class VsmAllocatePagesPass {
       bind(7, "slotCandidates");
       bind(8, "overflowCounters");
       bind(9, "contentVersion");
+      bind(11, "descriptorMutations");
       bind(10, "demandScan");
     } else {
       bind(1, "admittedPages");
@@ -192,7 +194,7 @@ export class VsmAllocatePagesPass {
     const group = this.device.createBindGroup({
       label: `VSM/${name}`,
       layout: this.pipelines.get(stage)!.requirePrepared().getBindGroupLayout(0),
-      entries,
+      entries
     });
     groups.set(name, group);
     return group;
@@ -218,8 +220,9 @@ export class VsmAllocatePagesPass {
       "slotCandidates",
       "admittedPages",
       "admissionStatistics",
+      "descriptorMutations",
       "allocation",
-      "overflowCounters",
+      "overflowCounters"
     ];
     const handles = new Map<VsmBufferKey, ResourceId>();
     for (const key of keys) {
@@ -235,7 +238,13 @@ export class VsmAllocatePagesPass {
       (data, _resolved, context) => {
         const command = context.encoder as ShadeGPUCommandContext;
         const owner = data.resources;
-        command.writeBuffer(this.constants, 0, packVsmResidencyConstants(data), 0, VSM_RESIDENCY_CONSTANT_BYTES);
+        command.writeBuffer(
+          this.constants,
+          0,
+          packVsmResidencyConstants(data),
+          0,
+          VSM_RESIDENCY_CONSTANT_BYTES
+        );
         command.clearBuffer(owner.missingPages!);
         command.clearBuffer(owner.getBuffer("admissionStatistics")!);
         command.clearBuffer(owner.overflowCounters!, 0, 16);
@@ -248,7 +257,7 @@ export class VsmAllocatePagesPass {
             pass.dispatchWorkgroupsIndirect(owner.demandIndirect!, 0);
           } else {
             pass.dispatchWorkgroups(
-              stage === "count_words" || stage === "scatter" || stage === "histogram" ? wordGroups : 1,
+              stage === "count_words" || stage === "scatter" || stage === "histogram" ? wordGroups : 1
             );
           }
         };
@@ -268,7 +277,7 @@ export class VsmAllocatePagesPass {
         encode("allocate", true, true);
         encode("publish_dirty", false);
         pass.end();
-      },
+      }
     );
     produce.read(input.demand);
     produce.read(input.priority);
@@ -286,7 +295,7 @@ export class VsmAllocatePagesPass {
       metaTable: published.get("metaTable")!,
       contentVersion,
       generation: input.generation,
-      capacity: resources.capabilities.residentSlots,
+      capacity: resources.capabilities.residentSlots
     };
   }
 

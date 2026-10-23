@@ -1,4 +1,4 @@
-import { SHADOW_BOUNDS_WRITE_WGSL } from "../gpu/GpuVsmPairAbi.js";
+import { SHADOW_BOUNDS_WRITE_WGSL } from "../gpu/GpuShadowBoundsAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL, GPU_INSTANCE_FLAGS } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MESHLET_RECORD_WGSL } from "../gpu/GpuGeometryAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
@@ -29,7 +29,7 @@ ${Array.from(
       return oengine_virtual_invalid_meshlet_header_v1();
     }
     return oengine_virtual_meshlet_header_v1(&product_bank_${bank}, location, group, header, work.meshlet_slot & 127u);
-  }`,
+  }`
 ).join("\n")}
   return oengine_virtual_invalid_meshlet_header_v1();
 }`

@@ -14,7 +14,7 @@ verifies:
     - OEngine/src/render/program/FrameProgramLowering.ts
     - OEngine/src/render/pipeline/RendererCore.ts
     - OEngine/src/shaders/native_visibility.ts
-    - OEngine/src/shaders/vsm_caster_records.ts
+    - OEngine/src/shaders/vsm_geometry.ts
     - OEngine/src/shaders/vsm_sampling.ts
     - OEngine/src/shaders/vsm_page_table.ts
     - OEngine/src/gpu/GpuNativeMaterialScene.ts
@@ -25,7 +25,7 @@ verifies:
 
 2026-10-23 按用户最新要求重写。本文是**目标设计，不是当前实现完成声明**。
 替代旧 Q1-Q4 的推进方式；仅保留这一份设计与[三步执行计划](../next-execution/eengine-vsm-quality-execution-2026-10.md)。
-用户随后授权实施步骤1并提交；实际结果只读执行计划，步骤2/3仍等待授权。最终场景调参、效果取舍和硬件调优由用户手动主导；
+用户在步骤1提交后继续授权步骤2；实际结果只读执行计划，步骤3仍等待授权。最终场景调参、效果取舍和硬件调优由用户手动主导；
 实现者负责完整能力、正确执行、受控容量和消除已知浪费，不能把结构问题留给用户调 bias。
 
 ## 1. 决策：一条生产路径，不造两套后端竞赛
@@ -70,7 +70,7 @@ verifies:
 
 ## 3. 固定来源与移植边界
 
-完整映射同步记录在[既有来源账本](../porting/next-renderer.md#2026-10-23-vsm-重构来源选择)；表内是完整模块目标；步骤1的实际 port/adapt 范围与证据单列于账本，不把步骤2/3提前声明 adopted。
+完整映射同步记录在[既有来源账本](../porting/next-renderer.md#2026-10-23-vsm-重构来源选择)；表内是完整模块目标；步骤1/2的实际 port/adapt 范围与证据单列于账本，不把步骤3提前声明 adopted。
 
 | 来源 / 固定 revision / license | 移植范围 | 明确不照搬 |
 |---|---|---|
@@ -166,14 +166,14 @@ raw/admitted、primary/support、footprint 扩张和未 ready 计数必须可见
   → selected dirty hierarchy（含 gutter）
   → Geometry 按 shadow texel 选叶与 streaming 请求
   → source meshlet 唯一顶点/三角形准备（ordinary + Product）
-  → triangle dirty/page 拒绝 → 页面完整成本/容量选择 → 有限 native bins
+  → triangle dirty/page 拒绝 → 无损 CSR 位集/前缀 → 有限 native bins
   → clip-distances 或等价 polygon clipping → clear + depth raster
   → 完整页 commit → descriptor mutation publication → Native sun PCF/PCSS
   → 已有 HDR/Temporal/Presentation
 ```
 
 VSM 拥有 page/dirty/depth/descriptor/更新状态；Geometry 拥有层次选择和 source residency；Material 拥有 compiled alpha；
-Native raster 拥有有限 program/bin 执行；FrameGraph 仅声明宏依赖；Renderer 只组合。无新全局 effect cache、私有 submit 或本帧 GPU→CPU→GPU 控制。
+VsmGeometryRaster 拥有阴影有限 program/bin 执行（不借主 Visibility 的 partition owner）；FrameGraph 仅声明宏依赖；Renderer 只组合。无新全局 effect cache、私有 submit 或本帧 GPU→CPU→GPU 控制。
 
 ### 进入昂贵阶段前避免工作
 
@@ -181,7 +181,7 @@ Native raster 拥有有限 program/bin 执行；FrameGraph 仅声明宏依赖；
 2. hierarchy traversal 在 refine 前拒绝不交 selected dirty 域的节点；不能用主相机 occlusion/SSE 排除 off-camera caster。
    采用 donor shadow-texel LOD 语义并保留用户可设误差目标；不保留 SSE 0 一路细化作为正常路径。
 3. 以 source meshlet/instance 为单位准备实际被选几何；唯一顶点解码和 object→world/light transform 不按 page pair 重复。
-   结果是 transient frame scratch，不建立跨帧 geometry cache/history。world/light position 可共用一个16B位置记录；真实 coverage 属性按编译依赖准备/读取。
+   结果是 transient frame scratch，不建立跨帧 geometry cache/history。opaque 只存16B light position；MASK 需要world position时另存16B，不能混淆两个坐标域；真实 coverage 属性按编译依赖准备/读取。
 4. 移植 donor meshlet/triangle dirty hierarchy/backface 接受拒绝条件，考虑镜像、双面、保守误差、退化和 gutter。
    只输出真正影响目标页面的 triangle/page 工作，不把整块 meshlet 的所有三角形交给 fragment 淘汰。
 5. material class 在 source setup 确定一次，triangle 输出直接分配其 native bin；删除随后再次遍历全部 page pairs 的 class scatter。
@@ -200,13 +200,13 @@ Native raster 拥有有限 program/bin 执行；FrameGraph 仅声明宏依赖；
 ### 容量与完整提交，不让大页永久饥饿
 
 scratch、triangle records、clip 输出、每 bin indirect 参数在设备 epoch 前置协商；明确 attempted/written/failure。
-正常批次先以轻量 triangle/page 成本确定完整页集合，再输出；未选页保持 dirty，不能部分 ready。
+页面先按 admission/dirty budget 选出完整集合；CSR 位集无损表达全部 triangle/page 命中，所有 source chunk 累积后一次提交，不在生成几何后截断页或三角形。未选页保持 dirty，不能部分 ready。
 单页超过常规 stream 容量时，在**同一个普通 frame command**中按有界 source chunks 顺序清页一次、累积绘制，最后 commit。
 每 chunk 共享 source 准备可跨目标页复用；禁止因一个页大就永远拒绝或截断 triangles。固定 chunk 数由已协商 source capacity 推导，
 GPU 写每块 indirect 工作，不逐页 CPU readback。若实际设备容量连最小 chunk 都不能容纳，应在创建资源前拒绝该资源档，不谎称可运行。
-chunk 不是无限循环：最大轮数由 source triangle 上界、选中 page 上界、每轮 clip 最坏5倍输出及 scratch 容量共同推导，
+chunk 不是无限循环：最大轮数由 source triangle 上界、选中 page 上界、每轮 clip 最坏5倍光栅输出及 scratch 容量共同推导，
 计入 CPU 编码/空 indirect 和 GPU pass 税；不能仅给 scratch 一个32MiB数字就宣称总工作已经受控。
-常规一轮足够时不启动 chunk 管理 GPU 工作；超大页的完整绘制本身可能超过常规预算，必须报告该页实际成本，不能承诺页数预算等于毫秒预算。
+实际实现一轮也有 begin/count/prefix/finish 依赖，不能声称无管理税；多轮只增加有界编码与间隔，超大页的完整绘制本身可能超过常规预算，必须报告该页实际成本，不能承诺页数预算等于毫秒预算。
 
 所有已入选 source/triangle/chunk 必须终结并成功，空页完整 clear 同样可 ready。提交持有 namespace/epoch/generation/reverse owner；
 abort、资源替换、geometry streaming、projection/sun 改变不能让旧深度发布为新页。稳定边界只有新 owner，立即删除旧显式/隐式 pair raster。
@@ -253,12 +253,13 @@ descriptor 由实际 mutation（alloc/evict/roll/invalid/commit）维护；任�
 | 共享位置 | ADD 至少16V写与后续读；REMOVE 每 pair 的压缩解码/矩阵变换；MASK 活性属性另算 | 多页/高复用获益；单页小几何可能付额外 scratch 流量；无 dirty 不运行。对削减比例0/50/100%，收益分别为 `-A`、`0.5E-A`、`E-A`，break-even `A/E`；E 为原可消除工作，A 为新增准备/流量，E=0 不宣称获益。 |
 | dirty/triangle 拒绝 | ADD hierarchy 构建和保守 bbox/bit 查询；REMOVE 无关 refine、triangle/page/fragment | 稀疏更新最有利；全 dirty 最少拒绝但仍有检查；全局 barrier/dispatch 计入。 |
 | 页裁剪 | feature 路径 ADD 四 plane varying；显式路径 ADD 最多5×输出与lineage；REMOVE 页外覆盖 | 页外覆盖比例p的净省 `pF-A`，p=0/0.5/1 为 `-A/0.5F-A/F-A`；不把atlas/页面积比当提速倍数。 |
-| triangle/page streams | 基础记录目标16B/P，clip输出按实际属性；REMOVE 16B meshlet pairs 与后续重复 class passes | P可大于旧pair数；不能只报删pass。按batch上界分块复用，不分配场景最坏P常驻缓冲。 |
+| triangle/page streams | CSR 每候选三角形 `4*(1+ceil(D/32))` B、每非空source 16B索引；无16B/P展开或per-incidence append atomics；REMOVE 旧meshlet pair和重复几何class扫描 | 每VS执行source/triangle二分与page rank/select；P可远大于旧pair数。显式裁剪每命中15 VS（最多5三角），feature为3 VS；不保证单页小场景获益。 |
 | 过滤 | stable最多9个四深度重建；soft八blocker+八bilinear比较，含跨页查找/Temporal | 提升核覆盖和软阴影能力，过滤自身通常比disk4贵；不承诺采样优化净提速。 |
 | 固定元数据 | coarse地址环4×4容纳最多3×3 live；target为最多16×(4096+16)=65792项；descriptor最大1052672B，默认10层657920B；旧高档1579008B | 删除无消费者mip/中间发布；本地score+admission税仍在；新足迹可能增加需求，不能把两种配置直接当同质量比较。 |
 
-初始 transient scratch 预算上限为基础档32MiB、高容量档64MiB，含位置、triangle/bin、裁剪记录；实现必须列出分项与峰值，
+初始 transient scratch 预算上限为基础档32MiB、高容量档64MiB，含位置、triangle/page CSR、bin、indirect、coverage及chunk uniforms；显式clip在VS局部求交，不物化80B/P缓冲；实现必须列出分项与峰值，
 不能仅凭单buffer limit隐式扩大总额。分页chunk按此预算分块，不用漏工作换上界。cutover 双代峰值按实际fence寿命计入。
+兼容计划的大scratch在publication/queue重绑之间复用，布局不兼容时旧代按fence退休，双代峰值可达两个scratch预算加小绑定资源；不把峰值算成单代。
 本轮不新增随机depth atomics/全atlas转换/第二深度池；不新增固定全屏阴影 denoise。
 
 ## 8. 三步与验证节奏

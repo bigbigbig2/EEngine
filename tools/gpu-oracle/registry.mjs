@@ -41,7 +41,8 @@ export const oracles = Object.freeze([
     requiredFeatures: ["texture-compression-bc"],
     allowPrefixes: [".local/extreme-web-asset/"],
     timeoutMs: 180000,
-    description: "E2 unique AVIF owners, complete reservation, NPOT/mirror/repeat GPU assembly and stock donor BC.",
+    description:
+      "E2 unique AVIF owners, complete reservation, NPOT/mirror/repeat GPU assembly and stock donor BC.",
     note: "Local evaluation only, no production cutover. Generate page-fixtures.mjs first."
   }),
   Object.freeze({
@@ -63,7 +64,8 @@ export const oracles = Object.freeze([
     requiredFeatures: ["texture-compression-bc"],
     allowPrefixes: [".local/extreme-web-asset/"],
     timeoutMs: 180000,
-    description: "E1 schema4 native AVIF, real shared Worker leases, faithful Spark BC7/BC5/BC4 and mip/abort/fence.",
+    description:
+      "E1 schema4 native AVIF, real shared Worker leases, faithful Spark BC7/BC5/BC4 and mip/abort/fence.",
     note: "Pinned local evaluation shaders only, not production vendor/adoption. Generate E1 fixtures first."
   }),
   Object.freeze({
@@ -74,7 +76,7 @@ export const oracles = Object.freeze([
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     timeoutMs: 300000,
     allowPrefixes: ["OEngine/src/render/assets/", "OEngine/src/assets/web-cook/wasm/vendor/"],
-    description: "SCGI gather on existing max-binding Native/VT/MASK/VSM production matrix.",
+    description: "SCGI gather on existing max-binding Native/VT/MASK/VSM production matrix."
   }),
   Object.freeze({
     name: "scgi-gather",
@@ -84,7 +86,7 @@ export const oracles = Object.freeze([
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     timeoutMs: 300000,
     allowPrefixes: ["OEngine/src/render/assets/", "OEngine/src/assets/web-cook/wasm/vendor/"],
-    description: "SCGI-9 dedicated room, actual Native source, screen probes and signed residual.",
+    description: "SCGI-9 dedicated room, actual Native source, screen probes and signed residual."
   }),
   Object.freeze({
     name: "scgi-production",
@@ -93,7 +95,11 @@ export const oracles = Object.freeze([
     entry: "runScgiProductionGpuOracle",
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     timeoutMs: 180000,
-    allowPrefixes: [".local/extreme-web-asset/", "OEngine/src/render/assets/", "OEngine/src/assets/web-cook/wasm/vendor/"],
+    allowPrefixes: [
+      ".local/extreme-web-asset/",
+      "OEngine/src/render/assets/",
+      "OEngine/src/assets/web-cook/wasm/vendor/"
+    ],
     description: "SCGI-8 public Renderer, Product, transport, field and Native consumption."
   }),
   Object.freeze({
@@ -104,7 +110,7 @@ export const oracles = Object.freeze([
     requiredFeatures: ["timestamp-query"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     timeoutMs: 180000,
-    description: "SCGI-7 actual A0/A1/A2 and field, independent moments, steps and quantization.",
+    description: "SCGI-7 actual A0/A1/A2 and field, independent moments, steps and quantization."
   }),
   Object.freeze({
     name: "scgi-estimator",
@@ -114,7 +120,8 @@ export const oracles = Object.freeze([
     requiredFeatures: ["timestamp-query"],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     timeoutMs: 180000,
-    description: "SCGI-6 actual Product/native/query/light/cache estimator and independent transport expectations."
+    description:
+      "SCGI-6 actual Product/native/query/light/cache estimator and independent transport expectations."
   }),
   Object.freeze({
     name: "scgi-query-vt",
@@ -538,7 +545,11 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",
     entry: "runNativeSurfaceAuthoredIblProductionGpuOracle",
-    allowPrefixes: [".local/extreme-web-asset/", "OEngine/src/render/assets/", "validation/tools/dungeon-gpu-audit.mjs"],
+    allowPrefixes: [
+      ".local/extreme-web-asset/",
+      "OEngine/src/render/assets/",
+      "validation/tools/dungeon-gpu-audit.mjs"
+    ],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     requiredFeatures: ["texture-formats-tier1"],
     description:
@@ -579,12 +590,14 @@ export const oracles = Object.freeze([
   }),
   Object.freeze({
     name: "vsm-quality-contract",
+    requiredFeatures: ["clip-distances"],
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     file: "OEngine/tests/oracle/vsm-quality-contract-gpu.mjs",
     url: "/OEngine/tests/oracle/vsm-quality-contract-gpu.mjs",
     entry: "runVsmQualityContractGpuOracle",
     timeoutMs: 120000,
     description:
-      "Production admission/allocator abort/retry, deterministic over-capacity replacement, fine transitions and emergency fallback."
+      "Production page/selection contract plus shared ordinary/Product geometry, lossless CSR, both clipping profiles, MASK gradients and abort/reset/retry."
   }),
   Object.freeze({
     name: "vsm-receiver-aggregation",
@@ -626,26 +639,6 @@ export const oracles = Object.freeze([
     entry: "runSkyIblDfgGpuOracle",
     description:
       "Production Fc/Total LUT and environment consumer against independent Schlick/Smith BRDF integration."
-  }),
-  Object.freeze({
-    name: "vsm-caster-cost",
-    file: "OEngine/tests/oracle/vsm-caster-cost-gpu.mjs",
-    url: "/OEngine/tests/oracle/vsm-caster-cost-gpu.mjs",
-    entry: "runVsmCasterCostGpuOracle",
-    requiredLimits: { maxStorageBuffersPerShaderStage: 8 },
-    requiredFeatures: ["timestamp-query"],
-    description:
-      "Exact small/full caster batches, overflow/abort semantics and local hierarchy-versus-direct ABBA.",
-    timeoutMs: 180000
-  }),
-  Object.freeze({
-    name: "vsm-v4-r3",
-    file: "OEngine/tests/oracle/vsm-v4-r3-gpu.mjs",
-    url: "/OEngine/tests/oracle/vsm-v4-r3-gpu.mjs",
-    entry: "runVsmR3GpuOracle",
-    requiredLimits: { maxStorageBuffersPerShaderStage: 8 },
-    description:
-      "Tight Geometry bounds, C−1/C/C+1 explicit/implicit modes, native partition failure, empty completion, abort retry and gutter addresses."
   }),
   Object.freeze({
     name: "fsr3-shading-pyramid",
@@ -859,7 +852,8 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",
     entry: "runNativeSurfaceMultiProductProductionGpuOracle",
-    allowPrefixes: [".local/extreme-web-asset/",
+    allowPrefixes: [
+      ".local/extreme-web-asset/",
       "OEngine/src/render/assets/",
       "OEngine/src/assets/web-cook/wasm/vendor/",
       "validation/tools/dungeon-gpu-audit.mjs"
@@ -887,7 +881,8 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",
     entry: "runNativeSurfaceProductProductionGpuOracle",
-    allowPrefixes: [".local/extreme-web-asset/",
+    allowPrefixes: [
+      ".local/extreme-web-asset/",
       "OEngine/src/render/assets/",
       "OEngine/src/assets/web-cook/wasm/vendor/",
       "validation/tools/dungeon-gpu-audit.mjs"
@@ -903,7 +898,11 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",
     entry: "runNativeSurfaceProductionGpuOracle",
-    allowPrefixes: [".local/extreme-web-asset/", "OEngine/src/render/assets/", "validation/tools/dungeon-gpu-audit.mjs"],
+    allowPrefixes: [
+      ".local/extreme-web-asset/",
+      "OEngine/src/render/assets/",
+      "validation/tools/dungeon-gpu-audit.mjs"
+    ],
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     requiredFeatures: ["texture-formats-tier1"],
     description:
@@ -916,7 +915,11 @@ export const oracles = Object.freeze([
     file: "OEngine/tests/oracle/native-surface-production-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-production-gpu.mjs",
     entry: "runFinalPixelFeatureDemandGpuOracle",
-    allowPrefixes: [".local/extreme-web-asset/", "OEngine/src/render/assets/", "validation/tools/dungeon-gpu-audit.mjs"],
+    allowPrefixes: [
+      ".local/extreme-web-asset/",
+      "OEngine/src/render/assets/",
+      "validation/tools/dungeon-gpu-audit.mjs"
+    ],
     description:
       "Actual no-Physical-Sun and capability-projected bounded Renderer demand/domain/retirement closure.",
     timeoutMs: 180000

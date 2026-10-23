@@ -25,7 +25,7 @@ verifies:
     - OEngine/src/shaders/native_material.ts
     - OEngine/src/shaders/native_surface.ts
     - OEngine/src/shaders/virtual_texture.ts
-    - OEngine/src/shaders/vsm_caster_records.ts
+    - OEngine/src/shaders/vsm_geometry.ts
     - OEngine/src/shaders/vsm_allocate_pages.ts
     - OEngine/src/render/vsm
     - OEngine/src/shaders/native_execution_bins.ts

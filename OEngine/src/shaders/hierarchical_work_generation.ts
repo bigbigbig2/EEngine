@@ -1,23 +1,23 @@
 import { SHADOW_TILE_QUERY_WGSL } from "./shadow_tile_domain.js";
 import { HZB_FOOTPRINT_WGSL } from "./hzb_footprint.js";
-import { HIERARCHY_LOD_WGSL } from "./hierarchy_lod.js";
+import { hierarchyShadowLodWgsl, HIERARCHY_LOD_WGSL } from "./hierarchy_lod.js";
 import {
   GPU_CLUSTER_RECORD_WGSL,
   GPU_GEOMETRY_RECORD_WGSL,
-  GPU_MESHLET_RECORD_WGSL,
+  GPU_MESHLET_RECORD_WGSL
 } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import {
   GPU_RASTER_WORK_SCHEMA,
   GPU_TRAVERSAL_WORK_SCHEMA,
   GPU_VISIBLE_CLUSTER_RECORD_SCHEMA,
-  GPU_WORK_GENERATION_WGSL,
+  GPU_WORK_GENERATION_WGSL
 } from "../gpu/GpuWorkGenerationAbi.js";
 import { counterByteOffset } from "../debug/GpuFrameCounters.js";
 import {
   GEOMETRY_PAGE_DEMAND_FLAG_RESIDENT_USAGE,
   GEOMETRY_PAGE_DEMAND_FLAG_SHADOW,
-  GEOMETRY_PAGE_DEMAND_WGSL,
+  GEOMETRY_PAGE_DEMAND_WGSL
 } from "../gpu/GeometryPageDemandAbiV1.js";
 import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "./virtual_geometry_product.js";
 
@@ -32,7 +32,7 @@ export const HIERARCHICAL_VIEW_OFFSETS = Object.freeze({
   scene: 144,
   limits: 160,
   worldToClip: 176,
-  hzb: 240,
+  hzb: 240
 } as const);
 
 const HIERARCHICAL_HZB_DISABLED_WGSL = /* wgsl */ `
@@ -153,7 +153,11 @@ fn hierarchy_leaf_hzb_occluded(
  * subgroup, 64-bit atomics and native command features are intentionally
  * absent from this R3-B shader.
  */
-export function createHierarchicalWorkGenerationWgsl(hzbEnabled: boolean, virtualGeometryEnabled = false, shadowTiles = false): string {
+export function createHierarchicalWorkGenerationWgsl(
+  hzbEnabled: boolean,
+  virtualGeometryEnabled = false,
+  shadowTiles = false
+): string {
   return /* wgsl */ `
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
@@ -162,7 +166,7 @@ ${GPU_MESHLET_RECORD_WGSL}
 ${GPU_WORK_GENERATION_WGSL}
 ${virtualGeometryEnabled ? `${VIRTUAL_GEOMETRY_PRODUCT_WGSL}\n${GEOMETRY_PAGE_DEMAND_WGSL}` : ""}
 
-${HIERARCHY_LOD_WGSL}
+${shadowTiles ? hierarchyShadowLodWgsl() : HIERARCHY_LOD_WGSL}
 
 struct OEngineWorkQueueHeaderRead {
   written: u32,
@@ -350,10 +354,14 @@ fn hierarchy_cluster_cone_backfacing(
   return view_length > 1e-12 && dot(view, axis) >= cutoff * view_length;
 }
 
-${shadowTiles ? SHADOW_TILE_QUERY_WGSL : `
+${
+  shadowTiles
+    ? SHADOW_TILE_QUERY_WGSL
+    : `
 fn hierarchy_shadow_requested(sphere: OEngineWorldSphere) -> bool { return true; }
 fn hierarchy_shadow_selected(sphere: OEngineWorldSphere) -> bool { return true; }
-`}
+`
+}
 ${hzbEnabled ? HIERARCHICAL_HZB_ENABLED_WGSL : HIERARCHICAL_HZB_DISABLED_WGSL}
 ${
   virtualGeometryEnabled
@@ -490,10 +498,14 @@ fn r3_fused_root_cull(
       instance.bounds_sphere,
       oengine_instance_current_object_to_world(instance)
     );
-${virtualGeometryEnabled ? `
+${
+  virtualGeometryEnabled
+    ? `
     hierarchy_lod_anchors[invocation_index] = hierarchy_update_lod_anchor(
       hierarchy_previous_lod_anchors[invocation_index], instance, instance_sphere, &hierarchy_view);
-` : ""}
+`
+    : ""
+}
     if hierarchy_instance_enabled(instance, hierarchy_view.scene.w, hierarchy_view.limits.y) &&
       hierarchy_sphere_in_frustum(instance_sphere, &hierarchy_view) {
       atomicAdd(&hierarchy_wg_visible_instances, 1u);
@@ -591,9 +603,13 @@ ${virtualGeometryEnabled ? "      }" : ""}
   if expand {
     if hierarchy_wg_child_base == OENGINE_WORK_QUEUE_INVALID_OFFSET {
       selected = expand_fallback_selectable;
-${virtualGeometryEnabled ? `      if !expand_fallback_selectable {
+${
+  virtualGeometryEnabled
+    ? `      if !expand_fallback_selectable {
         atomicOr(&hierarchy_selected.header.overflow, 1u);
-      }` : ""}
+      }`
+    : ""
+}
     } else {
       for (var child = 0u; child < child_count; child++) {
 ${
@@ -934,9 +950,13 @@ ${virtualGeometryEnabled ? "    }" : ""}
   if expand {
     if hierarchy_wg_child_base == OENGINE_WORK_QUEUE_INVALID_OFFSET {
       selected = expand_fallback_selectable;
-${virtualGeometryEnabled ? `      if !expand_fallback_selectable {
+${
+  virtualGeometryEnabled
+    ? `      if !expand_fallback_selectable {
         atomicOr(&traversal_selected.header.overflow, 1u);
-      }` : ""}
+      }`
+    : ""
+}
     } else {
       for (var child = 0u; child < child_count; child++) {
 ${

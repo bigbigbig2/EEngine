@@ -79,11 +79,11 @@ export class ShadowGeometryWork {
         product,
         previousHzb: false,
         shadow: true,
-        depth: runtime.hierarchyMaxDepth,
+        depth: runtime.hierarchyMaxDepth
       }),
       product ? this.product.preparePipelines() : this.ordinary.preparePipelines(),
       ShadowMeshletBounds.preparePipelines(this.graphics.device, product),
-      ShadowTileDomain.preparePipelines(this.graphics.device),
+      ShadowTileDomain.preparePipelines(this.graphics.device)
     ]);
   }
 
@@ -101,7 +101,11 @@ export class ShadowGeometryWork {
       "ShadowGeometryWork"
     );
     this.ordinary = new MeshletWorkCandidate(graphics.device, graphics.resource_accounting);
-    this.product = new VirtualGeometryMeshletWorkCandidate(graphics.device, graphics.resource_accounting);
+    this.product = new VirtualGeometryMeshletWorkCandidate(
+      graphics.device,
+      graphics.resource_accounting,
+      true
+    );
   }
 
   prepare(
@@ -141,7 +145,7 @@ export class ShadowGeometryWork {
         virtualGeometry: job.virtualGeometry
       },
       {
-        sseThreshold: 0,
+        sseThreshold: job.shadowFrame.settings?.shadowLodErrorTexels ?? 1,
         countersEnabled: false,
         diagnosticsEnabled: false,
         rasterExpansionEnabled: false,
@@ -216,13 +220,17 @@ export class ShadowGeometryWork {
     job: PackedVisibilityPrepareJob,
     prepared: PreparedShadowGeometry,
     command: ShadeGPUCommandContext,
-    allocation: GPUBuffer,
-    requested: GPUBuffer
+    allocation: GPUBuffer
   ): void {
     if (!job.shadowFrame) {
       throw new Error("Shadow Geometry is missing its light view");
     }
-    prepared.tiles.encode(command, job.shadowFrame, requested, allocation);
+    this.hierarchy.rebind(prepared.hierarchy, {
+      sseThreshold: job.shadowFrame.settings?.shadowLodErrorTexels ?? 1,
+      countersEnabled: false,
+      counterBuffer: job.runtime.counterSink
+    });
+    prepared.tiles.encode(command, job.shadowFrame, allocation);
     const generated = this.hierarchy.encode(
       command.gpu_encoder,
       prepared.hierarchy,
@@ -244,7 +252,7 @@ export class ShadowGeometryWork {
       job.streamingRuntime.encodeShadowDemandReadback(command, generated.pageDemand, job.demandFrameIndex);
     }
     if (prepared.work.productMode) {
-      this.product.encode(command, prepared.work);
+      this.product.encode(command, prepared.work, prepared.tiles.buffer);
       if (job.runtime.hierarchyRasterWorkCapacity > prepared.work.capacity) {
         if (!job.streamingRuntime || job.demandFrameIndex === undefined) {
           throw new Error("Bounded shadow Product work requires its streaming status owner");

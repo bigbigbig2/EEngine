@@ -34,8 +34,8 @@ currentSlice:
     with precise updates, then stable PCF/complete PCSS and final integration.
     No dual-backend competition or repeated intermediate test campaigns.
     Preserve complete-page correctness and bounded work; final parameter tuning
-    is user-led. The user authorized implementation and commit of step 1 only;
-    stop before step 2 until further authorization.
+    is user-led. The user authorized step 2 after the step 1 commit;
+    stop before step 3 until further authorization.
     Detailed states and retained old Q1 results live only in execution.
 
 pausedModules:

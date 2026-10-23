@@ -53,14 +53,12 @@ verifies:
     - OEngine/tests/oracle/native-temporal-observation-boundary-gpu.mjs
     - OEngine/tests/oracle/native-temporal-observation-replay-gpu.mjs
     - OEngine/tests/oracle/native-temporal-observation-cost-gpu.mjs
-    - OEngine/src/shaders/vsm_sampling.ts
     - OEngine/src/gpu/GpuNativeMaterialPublication.ts
     - OEngine/src/gpu/GpuNativeMaterialScene.ts
     - OEngine/src/gpu/GpuInstanceAbi.ts
     - OEngine/src/gpu/FinalPixelAbi.ts
     - OEngine/src/render/environment/FinalPixelSolarPublication.ts
     - OEngine/src/render/temporal/NativeTemporalSeed.ts
-    - OEngine/src/shaders/native_temporal_seed.ts
     - OEngine/src/shaders/atmosphere/runtime.ts
     - OEngine/tests/oracle/final-pixel-phase1-gpu.mjs
     - OEngine/tests/oracle/final-pixel-solar-gpu.mjs
@@ -78,7 +76,7 @@ verifies:
     - OEngine/src/shaders/geometry_source_decode.ts
     - OEngine/src/shaders/surface_geometry_completion.ts
     - OEngine/src/shaders/vsm_receiver_demand.ts
-    - OEngine/src/shaders/vsm_caster_records.ts
+    - OEngine/src/shaders/vsm_geometry.ts
     - OEngine/tests/unit/asset-load-batch.test.mjs
     - OEngine/tests/unit/cooked-cold-start-fastpath.test.mjs
     - OEngine/tests/unit/geometry-page-scheduler.test.mjs
@@ -88,8 +86,7 @@ verifies:
     - OEngine/tests/contract/virtual-geometry-product.test.mjs
     - OEngine/tests/contract/material-closure-v2.test.mjs
     - OEngine/tests/oracle/vsm-quality-contract-gpu.mjs
-    - OEngine/tests/oracle/vsm-caster-cost-gpu.mjs
-    - OEngine/tests/oracle/vsm-v4-r3-gpu.mjs
+    - OEngine/tests/oracle/vsm-geometry-fixture.mjs
     - OEngine/tests/oracle/native-temporal-identity-gpu.mjs
     - OEngine/tests/oracle/product-attribute-decode-gpu.mjs
     - OEngine/tests/oracle/surface-workgroup-cost-gpu.mjs

@@ -21,6 +21,8 @@ export interface VsmSettings {
    * Emergency coarse pages never participate in this transition. */
   readonly clipTransitionRatio: number;
   readonly debugView: VsmDebugView;
+  /** Maximum geometric LOD error in the finest intersected selected page texels. */
+  readonly shadowLodErrorTexels: number;
   /** Bounded complete shadow pages selected for raster work per frame.
    * Prevents unbounded GPU rebuild storms while streaming geometry. */
   readonly dirtyPageBudget: number;
@@ -35,7 +37,8 @@ export const VSM_DEFAULT_SETTINGS: Readonly<VsmSettings> = Object.freeze({
   clipSelectionBias: 1,
   clipTransitionRatio: 0.16,
   debugView: "none",
-  dirtyPageBudget: 64,
+  shadowLodErrorTexels: 1,
+  dirtyPageBudget: 64
 });
 
 /** A zero-radius disk has exactly the point kernel's result. Fold on the CPU
@@ -51,6 +54,13 @@ export function resolveVsmSettings(current: VsmSettings, patch: Partial<VsmSetti
     }
   }
   const next = { ...current, ...patch };
+  if (
+    !Number.isFinite(next.shadowLodErrorTexels) ||
+    next.shadowLodErrorTexels <= 0 ||
+    next.shadowLodErrorTexels > 8
+  ) {
+    throw new RangeError("VSM shadow LOD error must be finite in (0, 8] texels");
+  }
   if (!Number.isFinite(next.clipSelectionBias) || next.clipSelectionBias < 1 || next.clipSelectionBias > 8) {
     throw new RangeError("VSM clip selection bias must be finite in [1, 8]");
   }

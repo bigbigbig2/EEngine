@@ -7,7 +7,7 @@ verifies:
     - docs/next-design/eengine-v4-vsm-2026-10.md
     - OEngine/tools/oengine-asset-core
     - OEngine/src/render/vsm
-    - OEngine/src/gpu/GpuVsmPairAbi.ts
+    - OEngine/src/gpu/GpuShadowBoundsAbi.ts
     - OEngine/src/render/ShadowMeshletBounds.ts
     - OEngine/src/render/ShadowGeometryWork.ts
     - OEngine/src/render/program

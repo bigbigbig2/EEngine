@@ -17,7 +17,7 @@ verifies:
     - OEngine/src/render/SceneRefinement.ts
     - OEngine/src/render/vsm
     - OEngine/src/shaders/virtual_texture.ts
-    - OEngine/src/shaders/vsm_caster_records.ts
+    - OEngine/src/shaders/vsm_geometry.ts
     - OEngine/src/shaders/vsm_allocate_pages.ts
     - OEngine/tools/cook-offline-scene.mjs
     - OEngine/tests

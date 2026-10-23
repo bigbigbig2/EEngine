@@ -1,7 +1,7 @@
 import {
   VSM_DIMENSIONS_WORD,
   VSM_CONTROL_WORD,
-  VSM_PROJECTION_CONSTANT_BYTES as VSM_ABI_BYTES,
+  VSM_PROJECTION_CONSTANT_BYTES as VSM_ABI_BYTES
 } from "../../gpu/GpuVsmProjectionAbi.js";
 import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import type { FrameProfiler } from "../../debug/FrameProfiler.js";
@@ -35,7 +35,7 @@ export class VsmDepthBoundsPass {
     await Promise.all([
       this.boundsPipeline.prepare(),
       this.publishPipeline.prepare(),
-      this.dirtyPipeline.prepare(),
+      this.dirtyPipeline.prepare()
     ]);
   }
 
@@ -48,6 +48,10 @@ export class VsmDepthBoundsPass {
   private sourceWords = new Uint32Array(4);
   private influenceWords = new Uint32Array(VSM_RESIDENCY_INFLUENCE_WORDS);
   private sourceHeaderCount = 0;
+  private submittedSourceWords = new Uint32Array(0);
+  private submittedInfluenceWords = new Uint32Array(0);
+  private sourceUploadRevision = 0;
+  private submittedUploadRevision = -1;
   private submittedInstanceCount = -1;
   private readonly dirtyConstants: GPUBuffer;
   private readonly dirtyLayout: GPUBindGroupLayout;
@@ -114,7 +118,7 @@ export class VsmDepthBoundsPass {
     this.dirtyLayout = device.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-        ...[1, 2, 3, 4].map((binding) => ({
+        ...[1, 2, 3, 4, 5].map((binding) => ({
           binding,
           visibility: GPUShaderStage.COMPUTE,
           buffer: { type: "storage" as GPUBufferBindingType }
@@ -218,6 +222,7 @@ export class VsmDepthBoundsPass {
         const next = this.createStorage("VSM/caster source stamps", words * 4);
         command.destroyAfterGpuDone(this.sources);
         this.sources = next;
+        this.submittedSourceWords = new Uint32Array(0);
         this.sourceWords = new Uint32Array(words);
       }
       const influenceWordCount = words * VSM_RESIDENCY_INFLUENCE_WORDS;
@@ -225,8 +230,10 @@ export class VsmDepthBoundsPass {
         const next = this.createStorage("VSM/residency influences", influenceWordCount * 4);
         command.destroyAfterGpuDone(this.influences);
         this.influences = next;
+        this.submittedInfluenceWords = new Uint32Array(0);
         this.influenceWords = new Uint32Array(influenceWordCount);
       }
+      this.sourceUploadRevision++;
       this.sourceWords.fill(0);
       this.influenceWords.fill(0);
       let offset = headers * 4;
@@ -259,10 +266,10 @@ export class VsmDepthBoundsPass {
           const hasPrior = written.has(index);
           for (let axis = 0; axis < 3; axis++) {
             this.influenceWords[base + axis] = f32Bits(
-              hasPrior ? Math.min(prior[axis]!, change.min[axis]!) : change.min[axis]!,
+              hasPrior ? Math.min(prior[axis]!, change.min[axis]!) : change.min[axis]!
             );
             this.influenceWords[base + 4 + axis] = f32Bits(
-              hasPrior ? Math.max(prior[4 + axis]!, change.max[axis]!) : change.max[axis]!,
+              hasPrior ? Math.max(prior[4 + axis]!, change.max[axis]!) : change.max[axis]!
             );
           }
           this.influenceWords[base + 3] = change.revision;
@@ -272,7 +279,6 @@ export class VsmDepthBoundsPass {
         offset += revisions.length;
       });
       this.sourceHeaderCount = headers;
-      command.writeBuffer(this.influences, 0, this.influenceWords.buffer, 0, this.influenceWords.byteLength);
     }
     command.onFinished.addOne(() => {
       this.submittedInstanceCount = instanceCount;
@@ -305,6 +311,11 @@ export class VsmDepthBoundsPass {
       { kind: "imported" },
       input.resources.metaTable!
     );
+    const mutation = graph.import_resource(
+      "VSM/caster descriptor mutations",
+      { kind: "imported" },
+      input.resources.getBuffer("descriptorMutations")!
+    );
     const produce = graph.add("VSM/caster content invalidation", input, (data, resolved, context) => {
       if (!data.state.rebuildDepth && data.instanceCount === this.submittedInstanceCount) {
         return;
@@ -322,13 +333,55 @@ export class VsmDepthBoundsPass {
         ],
         16
       );
-      const rebuildRange = data.state.rebuildDepthRange ||
-        data.instanceCount !== this.submittedInstanceCount;
+      const rebuildRange = data.state.rebuildDepthRange || data.instanceCount !== this.submittedInstanceCount;
       new Uint32Array(packed).set(
-        [Number(data.state.invalidateMask), this.sourceHeaderCount, Number(rebuildRange), 0], 20,
+        [Number(data.state.invalidateMask), this.sourceHeaderCount, Number(rebuildRange), 0],
+        20
       );
       command.writeBuffer(this.constants, 0, packed, 0, 96);
-      command.writeBuffer(this.sources, 0, this.sourceWords.buffer, 0, this.sourceWords.byteLength);
+      if (this.sourceUploadRevision !== this.submittedUploadRevision) {
+        const revision = this.sourceUploadRevision;
+        const uploadChanges = (buffer: GPUBuffer, current: Uint32Array, submitted: Uint32Array) => {
+          const ranges: number[] = [];
+          for (let word = 0; word < current.length; word++) {
+            if (word < submitted.length && current[word] === submitted[word]) {
+              continue;
+            }
+            const previous = ranges.length - 1;
+            if (previous >= 0 && word - ranges[previous]! <= 16) {
+              ranges[previous] = word + 1;
+            } else {
+              ranges.push(word, word + 1);
+            }
+          }
+          // Many tiny upload/copy commands cost more than one sequential write.
+          // Coalescing changes transfer granularity, never the committed values.
+          if (ranges.length > 64) {
+            command.writeBuffer(buffer, 0, current.buffer as ArrayBuffer, 0, current.byteLength);
+          } else {
+            for (let range = 0; range < ranges.length; range += 2) {
+              const begin = ranges[range]!,
+                end = ranges[range + 1]!;
+              command.writeBuffer(
+                buffer,
+                begin * 4,
+                current.buffer as ArrayBuffer,
+                begin * 4,
+                (end - begin) * 4
+              );
+            }
+          }
+        };
+        uploadChanges(this.sources, this.sourceWords, this.submittedSourceWords);
+        uploadChanges(this.influences, this.influenceWords, this.submittedInfluenceWords);
+        const submittedSources = this.sourceWords.slice();
+        const submittedInfluences = this.influenceWords.slice();
+        command.onFinished.addOne(() => {
+          this.submittedSourceWords = submittedSources;
+          this.submittedInfluenceWords = submittedInfluences;
+          this.submittedUploadRevision = revision;
+        });
+      }
       command.clearBuffer(this.damages, 0, VSM_CASTER_DAMAGE_HEADER_BYTES);
       const group = this.device.createBindGroup({
         layout: this.layout,
@@ -359,11 +412,11 @@ export class VsmDepthBoundsPass {
       const caps = data.resources.capabilities;
       new Uint32Array(projection).set(
         [caps.virtualPagesPerAxis, caps.atlasPagesPerAxis, caps.pageSize, caps.border],
-        VSM_DIMENSIONS_WORD,
+        VSM_DIMENSIONS_WORD
       );
       new Uint32Array(projection).set(
         [data.frame.generation, caps.residentSlots, data.state.frameSerial, 0],
-        VSM_CONTROL_WORD,
+        VSM_CONTROL_WORD
       );
       command.writeBuffer(this.dirtyConstants, 0, projection, 0, projection.byteLength);
       const dirty = command.beginComputePass({ label: "VSM/dirty changed caster slots" });
@@ -377,7 +430,8 @@ export class VsmDepthBoundsPass {
             { binding: 1, resource: { buffer: resolved.get(pages) as GPUBuffer } },
             { binding: 2, resource: { buffer: resolved.get(metas) as GPUBuffer } },
             { binding: 3, resource: { buffer: resolved.get(data.contentVersion) as GPUBuffer } },
-            { binding: 4, resource: { buffer: this.damages } }
+            { binding: 4, resource: { buffer: this.damages } },
+            { binding: 5, resource: { buffer: data.resources.getBuffer("descriptorMutations")! } }
           ]
         })
       );
@@ -388,6 +442,7 @@ export class VsmDepthBoundsPass {
       this.profiler?.copyGpuCounter(command, "vsmDirtyPagesInvalidated", this.damages, 12);
     });
     produce.read(input.instances);
+    produce.write(mutation);
     produce.write(pages);
     produce.write(metas);
     produce.make_side_effect();

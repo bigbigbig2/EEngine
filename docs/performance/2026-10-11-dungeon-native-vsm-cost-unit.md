@@ -11,7 +11,7 @@ verifies:
     - OEngine/src/render/vsm/VsmReceiverDemandPass.ts
     - OEngine/src/render/passes/fsr3/Fsr3UpscalerRuntime.ts
     - OEngine/tests/contract/performance-diagnostic-shaders.test.mjs
-    - OEngine/tests/oracle/vsm-v4-r3-gpu.mjs
+    - OEngine/tests/oracle/vsm-quality-contract-gpu.mjs
     - validation/tools/run-dungeon-performance.mjs
     - validation/tools/dungeon-gpu-audit.mjs
 ---

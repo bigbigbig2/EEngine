@@ -15,10 +15,7 @@ import { GPU_INSTANCE_FLAGS } from "../../.test-dist/gpu/GpuInstanceAbi.js";
 import { decodeFloat16 } from "../../.test-dist/core/Float16.js";
 import { GPU_COUNTER_BYTE_SIZE, counterByteOffset } from "../../.test-dist/debug/GpuFrameCounters.js";
 import { authoredTexture } from "./native-surface-production-gpu.mjs";
-import { VsmCasterRecordPass } from "../../.test-dist/render/vsm/VsmCasterRecordPass.js";
 import { evaluationImageKernels } from "./texture-fixture.mjs";
-
-import { runVsmR3GpuOracle as checkCasterHeaders } from "./vsm-v4-r3-gpu.mjs";
 
 /** Actual Renderer/VSM/Surface chain. Counterfactual control copies main
  * selected cast work into shadow inputs only in the oracle; no production switch. */
@@ -239,7 +236,9 @@ fn main() {
     const hdr = makeRead(pitch * height),
       main = makeRead(actualFrame.geometry.meshletWork.size);
     const shadow = makeRead(actualJob.prepared.shadowGeometry.work.queue.size);
-    const casters = makeRead(renderer._vsm.casterRecords.size);
+    const casters = makeRead(48);
+    const bounds = makeRead(actualJob.prepared.shadowGeometry.bounds.records.size);
+    const allocation = makeRead(renderer._vsm.allocation.size);
     const keyPitch = Math.ceil((width * 4) / 256) * 256,
       winner = makeRead(keyPitch * height);
     const shadowStats = makeRead(GPU_COUNTER_BYTE_SIZE * 2),
@@ -272,11 +271,25 @@ fn main() {
     for (const [source, destination] of [
       [actualFrame.geometry.meshletWork, main],
       [actualJob.prepared.shadowGeometry.work.queue, shadow],
-      [renderer._vsm.casterRecords, casters]
+      [renderer._vsm.rasterStatus, casters],
+      [actualJob.prepared.shadowGeometry.bounds.records, bounds],
+      [renderer._vsm.allocation, allocation]
     ]) {
       encoder.copyBufferToBuffer(source, 0, destination, 0, destination.size);
     }
-    capture = { hdr, main, shadow, casters, pitch, winner, keyPitch, shadowStats, selectedStats };
+    capture = {
+      hdr,
+      main,
+      shadow,
+      casters,
+      pitch,
+      winner,
+      keyPitch,
+      shadowStats,
+      selectedStats,
+      bounds,
+      allocation
+    };
   };
   const tick = async () => {
     const frame = renderer.frame_count;
@@ -297,11 +310,13 @@ fn main() {
       capture.casters,
       capture.winner,
       capture.shadowStats,
-      capture.selectedStats
+      capture.selectedStats,
+      capture.bounds,
+      capture.allocation
     ];
     await Promise.all(reads.map((buffer) => buffer.mapAsync(GPUMapMode.READ)));
-    const [hdr, main, shadow, casters, winner, shadowStats, selectedStats] = reads.map((buffer) =>
-      buffer.getMappedRange().slice(0)
+    const [hdr, main, shadow, casters, winner, shadowStats, selectedStats, bounds, allocation] = reads.map(
+      (buffer) => buffer.getMappedRange().slice(0)
     );
     reads.forEach((buffer) => buffer.unmap());
     const selected = (bytes) => {
@@ -310,16 +325,34 @@ fn main() {
       return [...new Set(Array.from({ length: words[1] }, (_, index) => words[8 + index * 6]))].sort();
     };
     const casterWords = new Uint32Array(casters);
-    assert.equal(casterWords[2], 0, `${name}: pair source cannot fail`);
-    assert.equal(casterWords[4], 0, `${name}: small fixture must fit explicit pairs`);
-    const casterInstances = [
-      ...new Set(
-        Array.from(
-          { length: casterWords[1] },
-          (_, index) => new Uint32Array(shadow)[8 + casterWords[8 + index * 4] * 6]
-        )
-      )
-    ].sort();
+    assert.equal(casterWords[0], 0, `${name}: Geometry raster cannot fail`);
+    assert.equal(casterWords[1], casterWords[2], `${name}: complete source chunks`);
+    const sourceWords = new Uint32Array(shadow),
+      box = new Float32Array(bounds),
+      pages = new Uint32Array(allocation);
+    const eligible = new Set();
+    for (let slot = 0; slot < sourceWords[1]; slot++) {
+      for (let page = 0; page < pages[1]; page++) {
+        const at = 4 + page * 8,
+          level = Math.floor(pages[at] / 4112),
+          mip = pages[at + 5];
+        const cell = actualJob.shadowFrame.clipOriginExtent[level][2] / (64 >> mip),
+          gutter = (cell * 4) / 64;
+        const x = (pages[at + 6] | 0) * cell,
+          y = (pages[at + 7] | 0) * cell,
+          b = 4 + slot * 8;
+        if (
+          box[b + 2] >= x - gutter &&
+          box[b] <= x + cell + gutter &&
+          box[b + 3] >= y - gutter &&
+          box[b + 1] <= y + cell + gutter
+        ) {
+          eligible.add(sourceWords[8 + slot * 6]);
+          break;
+        }
+      }
+    }
+    const eligibleCasterInstances = [...eligible].sort();
     const values = new Uint16Array(hdr);
     let radiance = 0,
       samples = 0;
@@ -349,7 +382,7 @@ fn main() {
       name,
       mainInstances: selected(main),
       shadowInstances: selected(shadow),
-      casterInstances,
+      eligibleCasterInstances,
       winnerCounts,
       workCounts: {
         mainH: counter("geometryNodesTested", true),
@@ -361,7 +394,7 @@ fn main() {
         shadowC: new Uint32Array(selectedStats)[8],
         shadowM: new Uint32Array(shadow)[1]
       },
-      casterRecords: casterWords[1],
+      trianglePageIncidences: casterWords[9] + casterWords[11] * 2 ** 32,
       receiverRadiance: radiance / samples,
       shadowQueueBytes: capture.shadow.size,
       shadowInstancesBytes: actualJob.prepared.shadowGeometry.instances.byteLength
@@ -382,7 +415,7 @@ fn main() {
       [receiverIndex],
       `Caster must really be outside main camera: ${JSON.stringify(old)}`
     );
-    assert.deepEqual(old.casterInstances, [], "Main selected work misses off-camera caster");
+    assert.deepEqual(old.eligibleCasterInstances, [], "Main selected work misses off-camera caster");
     baseline = false;
     // The oracle changes the shadow source outside production publication.
     renderer.shadowVisibilityEnabled = false;
@@ -392,7 +425,7 @@ fn main() {
     const independent = await inspect("independent-shadow-view");
     assert.deepEqual(independent.mainInstances, [receiverIndex]);
     assert.deepEqual(independent.shadowInstances, [casterIndex]);
-    assert.deepEqual(independent.casterInstances, [casterIndex]);
+    assert.deepEqual(independent.eligibleCasterInstances, [casterIndex]);
     assert.ok(
       independent.receiverRadiance < old.receiverRadiance * 0.8,
       `Off-camera caster must darken visible receiver: ${JSON.stringify({ old, independent })}`
@@ -428,7 +461,7 @@ fn main() {
     abort = false;
     await tick();
     const retry = await inspect("abort-retry");
-    assert.deepEqual(retry.casterInstances, [casterIndex]);
+    assert.deepEqual(retry.eligibleCasterInstances, [casterIndex]);
     assert.ok(retry.receiverRadiance < alphaDiscard.receiverRadiance * 0.8);
     caster.transform_local.position.set(2, 5, 3);
     caster.transform_local.updateMatrix();
@@ -465,7 +498,7 @@ fn main() {
     await tick();
     const receiverMoved = await inspect("receiver-moved");
     assert.deepEqual(receiverMoved.mainInstances, [receiverIndex]);
-    assert.deepEqual(receiverMoved.casterInstances, [casterIndex]);
+    assert.deepEqual(receiverMoved.eligibleCasterInstances, [casterIndex]);
     renderer.profiler.setMode("record");
     renderer.profiler.configure({
       enabled: true,
@@ -559,7 +592,7 @@ fn main() {
         `${mode}: the counterfactual must actually change selected work`
       );
       assert.deepEqual(
-        selected.casterInstances,
+        selected.eligibleCasterInstances,
         empty || mode === "clean-clipmap" ? [] : [casterIndex],
         `${mode}: complete dirty-page caster set`
       );
@@ -607,7 +640,7 @@ fn main() {
     renderer.shadowVisibilityEnabled = true;
     await tick();
     const occludedDirty = await inspect("camera-occluded-dirty-caster");
-    assert.deepEqual(occludedDirty.casterInstances, [casterIndex]);
+    assert.deepEqual(occludedDirty.eligibleCasterInstances, [casterIndex]);
     casterMaterial.alpha_cutoff = 0.8;
     await tick();
     const occludedDiscard = await inspect("camera-occluded-alpha-discard");
@@ -633,7 +666,6 @@ fn main() {
     const clipOutside = await inspect("light-clip-outside");
     assert.deepEqual(clipOutside.shadowInstances, []);
     clipOverride = null;
-    const headerCases = await checkCasterHeaders(device);
     assert.deepEqual(errors, []);
     return {
       verdict: "passed",
@@ -649,7 +681,6 @@ fn main() {
       occludedDiscard,
       clipEdge,
       clipOutside,
-      headerCases,
       limitations: "Small ordinary Geometry; Product paging/deep/scale and recovery use separate oracles."
     };
   } finally {

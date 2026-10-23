@@ -16,10 +16,10 @@ verifies:
     - OEngine/src/shaders/vsm_admission.ts
     - OEngine/src/shaders/vsm_receiver_demand.ts
     - OEngine/src/shaders/vsm_sampling.ts
-    - OEngine/src/gpu/GpuVsmPairAbi.ts
+    - OEngine/src/gpu/GpuShadowBoundsAbi.ts
     - OEngine/src/render/ShadowMeshletBounds.ts
     - OEngine/src/shaders/shadow_meshlet_bounds.ts
-    - OEngine/src/shaders/vsm_pair_page.ts
+    - OEngine/src/shaders/vsm_geometry.ts
     - OEngine/src/gpu/GpuNativeMaterialScene.ts
     - OEngine/src/gpu/GeometryProductBytePool.ts
     - OEngine/src/gpu/GeometryQueryCut.ts
@@ -37,7 +37,6 @@ verifies:
     - OEngine/src/gpu/GpuNativeMaterialPublication.ts
     - OEngine/src/gpu/FinalPixelAbi.ts
     - OEngine/src/gpu/GpuVsmFilterAbi.ts
-    - OEngine/src/shaders/vsm_sampling.ts
     - OEngine/src/render/vsm/VsmFilterNoise.ts
     - OEngine/src/shaders/atmosphere/runtime.ts
     - OEngine/src/render/environment/FinalPixelSolarPublication.ts
@@ -87,19 +86,16 @@ verifies:
     - OEngine/src/gpu/GeometryPageScheduler.ts
     - OEngine/src/gpu/GeometryPageStreamingRuntime.ts
     - OEngine/src/gpu/GeometryProductGpuAbiV1.ts
-    - OEngine/src/assets/geometry-product/GeometryProductResidentAttributes.ts
     - OEngine/src/shaders/hierarchical_work_generation.ts
     - OEngine/src/gpu/GeometryProductMultiRuntime.ts
     - OEngine/src/render/HierarchicalWorkGenerator.ts
     - OEngine/src/shaders/environment_ibl.ts
     - OEngine/src/render/environment/PhysicalSkyIblResources.ts
     - OEngine/src/gpu/GpuAuthoredEnvironment.ts
-    - OEngine/src/shaders/vsm_sampling.ts
     - OEngine/src/render/vsm/VsmGeneration.ts
     - OEngine/src/render/vsm/VsmDepthBoundsPass.ts
     - OEngine/src/shaders/vsm_depth_bounds.ts
     - OEngine/src/shaders/vsm_caster_invalidation.ts
-    - OEngine/src/render/passes/fsr3/Fsr3UpscalerRuntime.ts
     - OEngine/src/render/passes/fsr3/Fsr3AccumulateShader.ts
     - docs/next-design/eengine-v4-performance-optimization-2026-10.md
     - OEngine/src/render/ShadowGeometryWork.ts
@@ -107,7 +103,6 @@ verifies:
     - OEngine/src/assets/geometry-product/GeometryProductWorkload.ts
     - OEngine/tests/oracle/geometry-product-scale-gpu.mjs
     - OEngine/tools/oengine-asset-core/src/geometry/GeometryCooker.cpp
-    - OEngine/tools/oengine-asset-core/vendor/meshoptimizer/source.json
     - OEngine/tools/cook-range-gltf-scene.mjs
     - OEngine/tools/oengine-asset-core/src/import/GltfImporter.cpp
     - OEngine/tools/oengine-asset-core/include/oengine_asset/SurfaceMetadata.h
@@ -2020,3 +2015,26 @@ Kooch当前All Rights Reserved不可直接移植；Quasar/NullGraph/Render-Tech-
   本步不提升整个VSM/R07为adopted，不把selector/queue检查扩大为光栅或过滤移植证据。
 - 当前WGSL/独立CPU/生产GPU证据见执行计划的单一出口记录；源码pin与half/full extent已再次直接核读。
   世界texel质量差异如实记录，不以“源移植”字样暗示比旧XY所有距离都细。
+
+
+### 步骤2实际映射与证据边界（2026-10-23）
+
+- **Reference / Adapt，Timberdoodle**（同上Apache-2.0 pin）：
+  `gen_dirty_bit_hiz.hlsl`的dirty层次与shadow-texel LOD思想→`shadow_tile_domain`、`hierarchyShadowLodWgsl`及ordinary/Product shadow traversal/handoff；
+  `cull_and_draw_directional_pages.hlsl::{directional_vsm_task_shader,directional_vsm_mesh_cull_draw}`和
+  `cull_and_draw_pages_shared.hlsl`的bounds/triangle dirty与opaque非双面提前backface拒绝→`vsmSourcePrepareWgsl`/`vsmTriangleStreamWgsl`。
+  这里不是逐行mesh shader移植：packed selected-only fine/coarse树、保守SAT、CSR page位集、native bins/chunks是Local平台适配；
+  深度near/far由硬件primitive clip保留，micro-poly拒绝未启用，巨triangle不丢弃。
+  native MASK单/双面保留本地既有材质合同，不冒称donor alpha强制不cull的完整material profile。
+- **Adapt / Sundial四planes内核**（同上MIT pin）：`src/core/raster.ts::rasterWGSL/casterVertex`→
+  `vsmPreparedRasterShader` feature顶点入口→`VsmGeometryRaster`实际indirect draw→depth atlas。
+  保留四页边界clip planes、vertex pulling及opaque无FS；Local适配gutter、reverse-Z、共享准备、native compiled MASK及完整页commit。
+  无feature使用Local四边polygon clipping、barycentric lineage与原triangle plane恢复coverage CXY，未复制源fragment-discard fallback。
+- **Reference only / Colossus**（同上MIT pin）：`web/vsm.wgsl::vsm_raster`唯一顶点workgroup准备/dirty跳过思想；
+  本地实际解码来自EEngine ordinary/Product production decoder，未复制软件raster、>1023 texel reject或固定太阳/无MASK限制。
+- **Local / Integration**：`GpuVsmGeometryAbi` CSR与容量规划、`VsmGeometryRaster`有限bin及source chunks，
+  `VsmAtlasRasterPass` clear/commit、descriptor mutation/epoch增量维护、source/influence changed-run uploads、精确lowered-alpha view invalidation、fenced共享scratch。
+  不是donor allocator/admission政策，也不是上游整个框架port；不能凭源项目名称宣称性能采用或完整算法资格。
+- **License**：`assets/vsm/NOTICE.txt`补全实际映射，随包带入Timberdoodle Apache-2.0及Sundial MIT完整license。
+- **证据**：当前execution步骤2记录的同一个GPU fixture，真实ordinary/Product source→新raster→depth、独立CPU coverage、两feature和生命周期通过；
+  过滤、VT/full Renderer/Temporal最终集成与同条件性能资格留步骤3。以上仅提升列出的内核适配，不提升整个VSM/R07为adopted或Performance Improved；Bevy仍planned。

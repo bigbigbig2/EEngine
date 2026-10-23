@@ -6,9 +6,8 @@ import {
   VSM_PAGE_ENTRY_WORDS,
   VSM_DEMAND_RECORD_WORDS,
   vsmEntriesPerClipLevel,
-  vsmScanBytes,
+  vsmScanBytes
 } from "./VsmPageState.js";
-import { VSM_PAIR_HEADER_BYTES, VSM_PAIR_STRIDE } from "../../gpu/GpuVsmPairAbi.js";
 import { VSM_MAX_CLIP_LEVELS, VSM_PROJECTION_CONSTANT_BYTES } from "../../gpu/GpuVsmProjectionAbi.js";
 
 export type VsmProfile = "vsm-directional-high" | "vsm-directional-bounded" | "shadow-disabled";
@@ -25,7 +24,6 @@ export interface VsmCapabilities {
   readonly atlasPagesPerAxis: number;
   readonly residentSlots: number;
   readonly demandCapacity: number;
-  readonly casterRecordCapacity: number;
   readonly pageTableBytes: number;
   readonly metaTableBytes: number;
   readonly demandBytes: number;
@@ -35,7 +33,6 @@ export interface VsmCapabilities {
   readonly slotCandidatesBytes: number;
   readonly coarseReservedSlots: number;
   readonly allocationBytes: number;
-  readonly casterRecordBytes: number;
   readonly limits: Readonly<{
     maxTextureDimension2D: number;
     maxStorageBufferBindingSize: number;
@@ -74,7 +71,7 @@ function limitsOf(device: GPUDevice): VsmCapabilities["limits"] {
     maxComputeWorkgroupsPerDimension: Number(device.limits.maxComputeWorkgroupsPerDimension),
     maxComputeWorkgroupSizeX: Number(device.limits.maxComputeWorkgroupSizeX),
     maxComputeInvocationsPerWorkgroup: Number(device.limits.maxComputeInvocationsPerWorkgroup),
-    maxComputeWorkgroupStorageSize: Number(device.limits.maxComputeWorkgroupStorageSize),
+    maxComputeWorkgroupStorageSize: Number(device.limits.maxComputeWorkgroupStorageSize)
   });
 }
 
@@ -83,8 +80,7 @@ function makeCapabilities(
   profile: VsmProfile,
   reason: string,
   clipLevels: number,
-  atlasDimension: number,
-  casterRecordCapacity: number,
+  atlasDimension: number
 ): VsmCapabilities {
   const atlasPagesPerAxis = Math.floor(atlasDimension / (VSM_PAGE_SIZE + VSM_BORDER * 2));
   const residentSlots = atlasPagesPerAxis * atlasPagesPerAxis;
@@ -99,7 +95,6 @@ function makeCapabilities(
   const slotCandidatesBytes = Math.max(256, residentSlots * 8 + 16);
   const coarseReservedSlots = clipLevels * (VSM_VIRTUAL_PAGES_PER_AXIS / 32 + 1) ** 2;
   const allocationBytes = Math.max(256, residentSlots * 32 + 16);
-  const casterRecordBytes = Math.max(256, casterRecordCapacity * VSM_PAIR_STRIDE + VSM_PAIR_HEADER_BYTES);
   return Object.freeze({
     profile,
     reason,
@@ -112,7 +107,6 @@ function makeCapabilities(
     atlasPagesPerAxis,
     residentSlots,
     demandCapacity,
-    casterRecordCapacity,
     pageTableBytes,
     metaTableBytes,
     demandBytes,
@@ -122,8 +116,7 @@ function makeCapabilities(
     slotCandidatesBytes,
     coarseReservedSlots,
     allocationBytes,
-    casterRecordBytes,
-    limits: limitsOf(device),
+    limits: limitsOf(device)
   });
 }
 
@@ -131,23 +124,18 @@ function fitsBuffer(bytes: number, limits: VsmCapabilities["limits"]): boolean {
   return bytes <= limits.maxStorageBufferBindingSize && bytes <= limits.maxBufferSize;
 }
 
-function profileFits(
-  device: GPUDevice,
-  atlasDimension: number,
-  clipLevels: number,
-  casterRecordCapacity: number,
-): boolean {
+function profileFits(device: GPUDevice, atlasDimension: number, clipLevels: number): boolean {
   const limits = limitsOf(device);
   if (
     !Object.values(limits).every((value) => Number.isFinite(value) && value > 0) ||
     limits.maxTextureDimension2D < atlasDimension ||
     limits.maxUniformBufferBindingSize < VSM_PROJECTION_CONSTANT_BYTES ||
-    // E5 needs seven compute storage buffers; both Atlas vertex backends
-    // need eight. The material record is fragment-only in the ordinary path.
-    limits.maxStorageBuffersPerShaderStage < 8 ||
+    // The single production source-preparation closure supports Product's four
+    // banks, shared vertices, native classification, bounds and selected pages.
+    limits.maxStorageBuffersPerShaderStage < 15 ||
     limits.maxComputeWorkgroupsPerDimension < 1 ||
-    limits.maxComputeWorkgroupSizeX < 64 ||
-    limits.maxComputeInvocationsPerWorkgroup < 64 ||
+    limits.maxComputeWorkgroupSizeX < 128 ||
+    limits.maxComputeInvocationsPerWorkgroup < 128 ||
     limits.maxComputeWorkgroupStorageSize < 1024
   )
     return false;
@@ -156,8 +144,7 @@ function profileFits(
     "vsm-directional-bounded",
     "preflight",
     clipLevels,
-    atlasDimension,
-    casterRecordCapacity,
+    atlasDimension
   );
   if (
     candidate.residentSlots <= candidate.coarseReservedSlots ||
@@ -170,11 +157,10 @@ function profileFits(
     candidate.metaTableBytes,
     candidate.demandBytes,
     candidate.allocationBytes,
-    candidate.casterRecordBytes,
     candidate.requestedPagesBytes,
     candidate.receiverPriorityBytes,
     candidate.demandScanBytes,
-    candidate.slotCandidatesBytes,
+    candidate.slotCandidatesBytes
   ].every((bytes) => fitsBuffer(bytes, limits));
 }
 
@@ -188,34 +174,33 @@ export function negotiateVsmCapabilities(device: GPUDevice, budget: VsmResourceB
   if (![16, 64, 256].includes(atlasMiB)) {
     throw new RangeError("Invalid VSM atlas budget");
   }
-  if (atlasMiB === 256 && profileFits(device, LARGE_ATLAS, clipLevels, 262144)) {
+  if (atlasMiB === 256 && profileFits(device, LARGE_ATLAS, clipLevels)) {
     return makeCapabilities(
       device,
       "vsm-directional-high",
       "explicit 256 MiB atlas budget",
       clipLevels,
-      LARGE_ATLAS,
-      262144,
+      LARGE_ATLAS
     );
   }
-  if (atlasMiB >= 64 && profileFits(device, HIGH_ATLAS, clipLevels, 262144)) {
+  if (atlasMiB >= 64 && profileFits(device, HIGH_ATLAS, clipLevels)) {
     return makeCapabilities(
       device,
       "vsm-directional-high",
       "device limits satisfy directional high profile",
       clipLevels,
-      HIGH_ATLAS,
-      262144,
+      HIGH_ATLAS
     );
   }
-  if (profileFits(device, BOUNDED_ATLAS, clipLevels, 16384)) {
+  if (profileFits(device, BOUNDED_ATLAS, clipLevels)) {
     return makeCapabilities(
       device,
       "vsm-directional-bounded",
-      atlasMiB === 16 ? "explicit 16 MiB atlas budget" : "high profile limits unavailable; bounded directional profile selected",
+      atlasMiB === 16
+        ? "explicit 16 MiB atlas budget"
+        : "high profile limits unavailable; bounded directional profile selected",
       clipLevels,
-      BOUNDED_ATLAS,
-      16384,
+      BOUNDED_ATLAS
     );
   }
   return makeCapabilities(
@@ -223,7 +208,6 @@ export function negotiateVsmCapabilities(device: GPUDevice, budget: VsmResourceB
     "shadow-disabled",
     "device cannot satisfy the minimum fixed VSM resource profile",
     0,
-    0,
-    0,
+    0
   );
 }

@@ -162,3 +162,15 @@ fn hierarchy_update_lod_anchor(
 }
 
 `;
+
+/** Directional shadow error is measured against the finest intersected dirty
+ * page's actual texel. Traversal and Product coarse handoff share this kernel. */
+export function hierarchyShadowLodWgsl(): string {
+  return HIERARCHY_LOD_WGSL.replace(
+    "return world_error / (*view).orthographic.x * (*view).sse.y;",
+    "return hierarchy_shadow_error(world_error, sphere);"
+  ).replace(
+    "return object_error * conservative_scale / (*view).orthographic.x * (*view).sse.y;",
+    "return hierarchy_shadow_error(object_error * conservative_scale, sphere);"
+  );
+}

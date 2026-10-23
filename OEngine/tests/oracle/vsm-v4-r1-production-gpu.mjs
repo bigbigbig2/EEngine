@@ -91,11 +91,11 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
     const sourceBuffers = {
       pages: vsm.pageTable,
       depth: vsm.depthRange,
-      caster: vsm.casterRecords,
-      shadowWork: renderer._vsmAtlasRaster.nativePasses.get(vsm.casterRecords).input.vsmAtlas.source,
-      shadowBounds: renderer._vsmAtlasRaster.nativePasses.get(vsm.casterRecords).input.vsmAtlas.bounds,
+      raster: vsm.rasterStatus,
+      shadowWork: renderer._vsmAtlasRaster.nativePass.input.geometry.meshletWork,
+      shadowBounds: renderer._vsmAtlasRaster.nativePass.input.bounds,
       demand: vsm.demand,
-      instances: renderer.graphics.gpu_scene.bindings().instances,
+      instances: renderer.graphics.gpu_scene.bindings().instances
     };
     const encoder = device.createCommandEncoder({ label: "VSM R1 diagnostics only" });
     const readbacks = {};
@@ -103,7 +103,7 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
       const size =
         name === "instances"
           ? runtime.instanceCount * 176
-          : name === "pages" || name === "caster" || name === "shadowWork" || name === "shadowBounds"
+          : name === "pages" || name === "raster" || name === "shadowWork" || name === "shadowBounds"
             ? source.size
             : 16;
       const target = device.createBuffer({ size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
@@ -113,7 +113,7 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
         name === "instances" ? runtime.instanceBegin * 176 : 0,
         target,
         0,
-        size,
+        size
       );
       readbacks[name] = target;
     }
@@ -122,12 +122,12 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
     const pitch = Math.ceil((width * 8) / 256) * 256;
     const hdr = device.createBuffer({
       size: pitch * height,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
     });
     retained.push(hdr);
     encoder.copyTextureToBuffer({ texture: frame.output }, { buffer: hdr, bytesPerRow: pitch }, [
       width,
-      height,
+      height
     ]);
     device.queue.submit([encoder.finish()]);
     const words = {};
@@ -145,32 +145,28 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
     const pages = [];
     for (let i = 0; i < words.pages.length; i += 12) {
       if (
-        (words.pages[i + 3] & 11) === 9 &&
+        (words.pages[i + 3] & 15) === 9 &&
         words.pages[i + 4] === renderer._vsmGeneration.currentGeneration
       ) {
         pages.push({
           index: i / 12,
           key: [words.pages[i + 7], words.pages[i + 8] | 0, words.pages[i + 9] | 0, words.pages[i + 10]],
-          version: words.pages[i + 6],
+          version: words.pages[i + 6]
         });
       }
     }
-    const casterCounts = new Array(runtime.instanceCount).fill(0);
-    const casterPages = new Set();
-    check(words.caster[4] === 0, "This small production fixture must fit explicit mode");
-    for (let index = 0; index < words.caster[1]; index++) {
-      const sourceSlot = words.caster[8 + index * 4];
-      check(sourceSlot < words.shadowWork[1], "Pair references an unpublished shadow source");
-      const instance = words.shadowWork[8 + sourceSlot * 6] - runtime.instanceBegin;
-      check(instance >= 0 && instance < runtime.instanceCount, "Caster record references another Scene");
-      casterCounts[instance]++;
-      casterPages.add(words.caster[8 + index * 4 + 2]);
+    check(words.raster[0] === 0 && words.raster[1] === words.raster[2], "Incomplete Geometry raster");
+    const sourceCounts = new Array(runtime.instanceCount).fill(0);
+    for (let slot = 0; slot < words.shadowWork[1]; slot++) {
+      const instance = words.shadowWork[8 + slot * 6] - runtime.instanceBegin;
+      check(instance >= 0 && instance < runtime.instanceCount, "Shadow source belongs to another Scene");
+      sourceCounts[instance]++;
     }
     let productBoundsChecked = 0;
-    if (words.caster[6] > 0) {
+    if (words.shadowWork[1] > 0) {
       check(
         words.shadowBounds[0] === words.shadowWork[1] && words.shadowBounds[1] === 0,
-        "Real Product bounds failed or missed selected work",
+        "Real Product bounds failed or missed selected work"
       );
       const bounds = new Float32Array(words.shadowBounds.buffer),
         source = new Float32Array(words.instances.buffer);
@@ -196,14 +192,14 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
               source[base + 16 + axis] * point[0] +
               source[base + 20 + axis] * point[1] +
               source[base + 24 + axis] * point[2] +
-              source[base + 19 + axis * 4],
+              source[base + 19 + axis * 4]
           );
           const xy = [0, 1].map(
             (axis) =>
               light[axis] * world[0] +
               light[4 + axis] * world[1] +
               light[8 + axis] * world[2] +
-              light[12 + axis],
+              light[12 + axis]
           );
           expected[0] = Math.min(expected[0], xy[0]);
           expected[1] = Math.min(expected[1], xy[1]);
@@ -216,7 +212,7 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
             union[2] >= expected[2] &&
             union[3] >= expected[3] &&
             union.every((value, axis) => Math.abs(value - expected[axis]) < 1e-3),
-          `Product selected meshlets differ from independent complete box corners: ${JSON.stringify({ union, expected })}`,
+          `Product selected meshlets differ from independent complete box corners: ${JSON.stringify({ union, expected })}`
         );
         productBoundsChecked++;
       }
@@ -226,12 +222,11 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
       depth: [...new Float32Array(words.depth.buffer)],
       flags: Array.from({ length: runtime.instanceCount }, (_, i) => words.instances[i * 44 + 2]),
       pages,
-      emptyReadyPages: pages.filter((page) => !casterPages.has(page.index)).length,
-      caster: [...words.caster.slice(0, 8)],
-      casterCounts,
+      raster: [...words.raster.slice(0, 12)],
+      sourceCounts,
       demand: [...words.demand],
       luminance,
-      productBoundsChecked,
+      productBoundsChecked
     };
   };
   try {
@@ -239,22 +234,22 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
       module: await createDefaultWebGeometryCookerModule(),
       producerId: "vsm-v4-r1-oracle",
       producerVersion: "1",
-      maxDecodedProductBytes: 32 * 1024 * 1024,
+      maxDecodedProductBytes: 32 * 1024 * 1024
     });
     check(
       cooked.canonicalization.instances[0].flags === 6 && cooked.canonicalization.instances[2].flags === 0,
-      "WASM Scene source lost explicit off/default",
+      "WASM Scene source lost explicit off/default"
     );
     await renderer.uploadCookedSceneProduct(scene, cooked);
     await tick(5);
     const initial = await inspect();
     check(
-      initial.pages.length > 0 && initial.caster[2] === 0,
-      `Production VSM must publish ready pages without caster overflow: ${JSON.stringify(initial)}; errors=${errors}`,
+      initial.pages.length > 0 && initial.raster[0] === 0,
+      `Production VSM must publish ready pages without caster overflow: ${JSON.stringify(initial)}; errors=${errors}`
     );
     check(
       (initial.flags[0] & 6) === 6 && (initial.flags[2] & 6) === 0,
-      "Cook/binary/GPU semantic flags disagree",
+      "Cook/binary/GPU semantic flags disagree"
     );
     const initialBoundsPassCount = boundsPasses.length;
     check(initialBoundsPassCount === 2, "Steady epoch repeated caster depth reduction");
@@ -266,7 +261,7 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
     check(
       within.generation === initial.generation &&
         JSON.stringify(within.depth) === JSON.stringify(initial.depth),
-      "Page-interior camera motion changed projection/depth",
+      "Page-interior camera motion changed projection/depth"
     );
     camera.transform.position.set(origin[0] + 0.4, origin[1] + 1, origin[2] + 0.3);
     camera.update();
@@ -275,7 +270,7 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
     check(
       axial.generation === initial.generation &&
         JSON.stringify(axial.depth) === JSON.stringify(initial.depth),
-      "Light-axis camera motion changed stable depth",
+      "Light-axis camera motion changed stable depth"
     );
     camera.transform.position.x += 1;
     camera.update();
@@ -286,7 +281,7 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
     const common = rolled.pages.filter((page) => oldPages.has(JSON.stringify(page.key)));
     check(
       common.length > 0 && common.every((page) => page.version === oldPages.get(JSON.stringify(page.key))),
-      "Rolling re-rasterized intersection pages",
+      "Rolling re-rasterized intersection pages"
     );
     check(boundsPasses.length === initialBoundsPassCount, "Camera movement executed epoch depth reduction");
     scene.physical_environment.setSun(sun, [3, 3, 3]);
@@ -299,11 +294,11 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
     const receiversOff = await inspect();
     check(
       receiversOff.demand[0] === 0 && receiversOff.flags.every((flags) => (flags & 4) === 0),
-      "ReceivesShadow off still generated receiver demand",
+      "ReceivesShadow off still generated receiver demand"
     );
     check(
       receiversOff.luminance > intensity.luminance,
-      "Surface receive-off did not bypass actual shadowed Sun",
+      "Surface receive-off did not bypass actual shadowed Sun"
     );
     ground.receiveShadow = true;
     caster.receiveShadow = true;
@@ -311,7 +306,7 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
     const beforeAbort = renderer._vsmGeneration.currentGeneration;
     scene.physical_environment.setSun(
       [-0.3, 1, 0.4].map((value) => value / Math.hypot(-0.3, 1, 0.4)),
-      [3, 3, 3],
+      [3, 3, 3]
     );
     abort = true;
     let rejected = false;
@@ -323,28 +318,28 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
     }
     check(
       rejected && renderer._vsmGeneration.currentGeneration === beforeAbort,
-      "Aborted frame advanced submitted VSM epoch",
+      "Aborted frame advanced submitted VSM epoch"
     );
     abort = false;
     await tick(3);
     const retry = await inspect();
     check(
       retry.generation > beforeAbort && retry.pages.length > 0,
-      "Sun direction retry did not republish new ready content",
+      "Sun direction retry did not republish new ready content"
     );
     caster.castShadow = false;
     await tick();
     const castsOff = await inspect();
     check(
-      (castsOff.flags[0] & 2) === 0 && castsOff.casterCounts[0] === 0 && castsOff.casterCounts[1] > 0,
-      "Live cast-off did not remove the instance from actual shadow work",
+      (castsOff.flags[0] & 2) === 0 && castsOff.sourceCounts[0] === 0 && castsOff.sourceCounts[1] > 0,
+      "Live cast-off did not remove the instance from actual shadow work"
     );
     caster.castShadow = true;
     await tick();
     const castsOn = await inspect();
     check(
-      (castsOn.flags[0] & 6) === 6 && castsOn.casterCounts[0] > 0,
-      "Live cast-on did not publish actual shadow work",
+      (castsOn.flags[0] & 6) === 6 && castsOn.sourceCounts[0] > 0,
+      "Live cast-on did not publish actual shadow work"
     );
     caster.transform_local.position.y = 5;
     await tick();
@@ -353,11 +348,11 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
       transformed.generation > castsOn.generation &&
         JSON.stringify(transformed.depth) !== JSON.stringify(castsOn.depth) &&
         (transformed.flags[0] & 6) === 6,
-      "Transform patch lost shadow semantics or retained old caster depth",
+      "Transform patch lost shadow semantics or retained old caster depth"
     );
     check(
       transformed.productBoundsChecked === 2,
-      "Independent Product bounds oracle did not inspect the real new epoch",
+      "Independent Product bounds oracle did not inspect the real new epoch"
     );
     ground.receiveShadow = false;
     caster.receiveShadow = false;
@@ -375,13 +370,13 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
     const recovered = await inspect();
     check(
       renderer.deviceEpoch === 2 && renderer._vsm.namespace !== priorNamespace,
-      "Device recovery retained the old page namespace",
+      "Device recovery retained the old page namespace"
     );
     check(
       recovered.flags.every((flags) => (flags & 4) === 0) &&
         recovered.demand[0] === 0 &&
         recovered.depth[3] === 1,
-      "Device recovery lost submitted receive semantics or stable projection",
+      "Device recovery lost submitted receive semantics or stable projection"
     );
     check(errors.length === 0, errors.join("\n"));
     let lifecycle = null;
@@ -390,7 +385,7 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
       ground.receiveShadow = true;
       await tick(3);
       const restored = await inspect();
-      check(restored.emptyReadyPages > 0, "Real cleared pages without caster pairs did not complete");
+      check(restored.pages.length > 0, "Receiver restore failed to publish complete pages");
       renderer.resize(256, 128);
       camera.aspect = 2;
       camera.update();
@@ -398,7 +393,7 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
       const resized = await inspect();
       check(
         resized.generation === restored.generation && resized.pages.length > 0,
-        "Resize lost stable VSM content",
+        "Resize lost stable VSM content"
       );
       renderer.shadowVisibilityEnabled = false;
       check(renderer.shadowVisibilityEnabled === false, "Public VSM toggle did not disable visibility");
@@ -408,7 +403,7 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
       const toggled = await inspect();
       check(
         toggled.pages.length > 0 && toggled.generation > resized.generation,
-        "VSM toggle failed to invalidate and republish usable content",
+        "VSM toggle failed to invalidate and republish usable content"
       );
       caster.castShadow = false;
       ground.castShadow = false;
@@ -416,10 +411,11 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
       const noCasters = await inspect();
       check(
         noCasters.depth[3] === 1 &&
-          noCasters.caster[1] === 0 &&
-          noCasters.pages.length > 0 &&
-          noCasters.emptyReadyPages === noCasters.pages.length,
-        `No-caster Scene retained stale shadow content: ${JSON.stringify({ depth: noCasters.depth, caster: noCasters.caster, pages: noCasters.pages.length, flags: noCasters.flags })}`,
+          noCasters.raster[6] === 0 &&
+          noCasters.raster[9] === 0 &&
+          noCasters.raster[11] === 0 &&
+          noCasters.pages.length > 0,
+        `No-caster Scene retained stale shadow content: ${JSON.stringify({ depth: noCasters.depth, raster: noCasters.raster, pages: noCasters.pages.length, flags: noCasters.flags })}`
       );
       const replacement = new Scene();
       replacement.add(Mesh.from(geometry, material));
@@ -428,7 +424,7 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
         module: await createDefaultWebGeometryCookerModule(),
         producerId: "vsm-r2-replacement",
         producerVersion: "1",
-        maxDecodedProductBytes: 32 * 1024 * 1024,
+        maxDecodedProductBytes: 32 * 1024 * 1024
       });
       await renderer.uploadCookedSceneProduct(replacement, replacementProduct);
       activeScene = replacement;
@@ -438,19 +434,19 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
         replaced.generation > noCasters.generation &&
           replaced.flags.length === 1 &&
           replaced.pages.length > 0,
-        "Scene replacement sampled old residency",
+        "Scene replacement sampled old residency"
       );
       await renderer.releaseScene(scene);
       await tick();
       check((await inspect()).pages.length > 0, "Releasing old Scene invalidated new Scene products");
       await renderer.releaseScene(replacement);
       lifecycle = {
-        emptyReadyPages: restored.emptyReadyPages,
+        restoredReadyPages: restored.pages.length,
         resize: true,
         toggle: true,
         noCasters: { depthValid: noCasters.depth[3], ready: noCasters.pages.length },
         replacementGeneration: replaced.generation,
-        release: true,
+        release: true
       };
       check(errors.length === 0, errors.join("\n"));
     }
@@ -472,7 +468,7 @@ export async function runVsmR1ProductionGpuOracle({ r2Lifecycle = false } = {}) 
       boundsPasses,
       deviceEpoch: renderer.deviceEpoch,
       errors,
-      lifecycle,
+      lifecycle
     };
   } finally {
     await device.queue.onSubmittedWorkDone();

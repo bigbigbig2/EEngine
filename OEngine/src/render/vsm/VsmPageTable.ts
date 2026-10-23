@@ -3,7 +3,7 @@ import {
   VSM_PAGE_ENTRY_WORDS,
   VSM_META_ENTRY_WORDS,
   vsmPageTableEntryByteOffset,
-  vsmMetaEntryByteOffset,
+  vsmMetaEntryByteOffset
 } from "./VsmPageState.js";
 import type { VsmResources } from "./VsmResources.js";
 
@@ -14,7 +14,7 @@ export class VsmPageTable {
 
   constructor(
     readonly resources: VsmResources,
-    readonly capabilities: VsmCapabilities = resources.capabilities,
+    readonly capabilities: VsmCapabilities = resources.capabilities
   ) {
     if (resources.profile === "shadow-disabled") throw new Error("Disabled VSM has no page table");
     this.virtualEntryCount = capabilities.virtualEntryCount;
@@ -50,14 +50,16 @@ export class VsmPageTable {
 
   /** Clears the persistent ABI at device-epoch creation; no page decision is made on CPU. */
   clearForDeviceEpoch(encoder: GPUCommandEncoder): void {
+    this.resources.noteDescriptorReset();
     encoder.clearBuffer(this.pageTableBuffer);
     encoder.clearBuffer(this.metaTableBuffer);
     for (const buffer of [
       this.resources.generation,
       this.resources.overflowCounters,
       this.resources.allocation,
-      this.resources.casterRecords,
-      this.resources.rasterIndirect,
+      this.resources.rasterStatus,
+      this.resources.getBuffer("samplingDescriptors"),
+      this.resources.getBuffer("descriptorMutations"),
       this.resources.requestedPages,
       this.resources.getBuffer("admittedPages"),
       this.resources.getBuffer("receiverPriority"),
@@ -65,7 +67,7 @@ export class VsmPageTable {
       this.resources.missingPages,
       this.resources.demandScan,
       this.resources.demandIndirect,
-      this.resources.slotCandidates,
+      this.resources.slotCandidates
     ]) {
       if (buffer) encoder.clearBuffer(buffer);
     }
@@ -74,10 +76,7 @@ export class VsmPageTable {
 
   /** Invalidates generation-visible state while retaining physical storage capacity. */
   invalidateGeneration(encoder: GPUCommandEncoder): void {
-    for (const buffer of [
-      this.resources.generation,
-      this.resources.overflowCounters,
-    ]) {
+    for (const buffer of [this.resources.generation, this.resources.overflowCounters]) {
       if (buffer) encoder.clearBuffer(buffer);
     }
   }

@@ -1,7 +1,7 @@
 import {
   VSM_DIMENSIONS_WORD,
   VSM_SHADOW_DOMAIN_HEADER_BYTES,
-  VSM_SHADOW_DOMAIN_CONSTANT_BYTES,
+  VSM_SHADOW_DOMAIN_CONSTANT_BYTES
 } from "../gpu/GpuVsmProjectionAbi.js";
 import { PreparedComputePipeline } from "../gpu/PreparedPipeline.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
@@ -22,15 +22,15 @@ function obtainTilePipeline(device: GPUDevice): PreparedComputePipeline {
     layout: "auto",
     compute: {
       module: device.createShaderModule({ label: "Shadow tile domains", code: SHADOW_TILE_BUILD_WGSL }),
-      entryPoint: "main",
-    },
+      entryPoint: "main"
+    }
   });
 
   tilePipelines.set(device, pipeline);
   return pipeline;
 }
 
-/** Frame-local GPU demand/selected domains, rebuilt inside the ordinary frame. */
+/** Frame-local GPU selected dirty hierarchy, rebuilt inside the ordinary frame. */
 export class ShadowTileDomain {
   static async preparePipelines(device: GPUDevice): Promise<void> {
     await obtainTilePipeline(device).prepare();
@@ -43,7 +43,7 @@ export class ShadowTileDomain {
   readonly buffer: GPUBuffer;
   private readonly constants: GPUBuffer;
   private readonly pipeline: PreparedComputePipeline;
-  private readonly groups = new WeakMap<GPUBuffer, WeakMap<GPUBuffer, GPUBindGroup>>();
+  private readonly groups = new WeakMap<GPUBuffer, GPUBindGroup>();
   private readonly header = new ArrayBuffer(VSM_SHADOW_DOMAIN_HEADER_BYTES);
   private readonly handles: ResourceHandle[] = [];
   private destroyed = false;
@@ -63,14 +63,14 @@ export class ShadowTileDomain {
       throw new RangeError("Shadow tile domain exceeds negotiated device limits");
     }
     this.buffer = device.createBuffer({
-      label: "Shadow geometry/requested and selected tile domains",
+      label: "Shadow geometry/selected dirty hierarchy",
       size: SHADOW_TILE_DOMAIN_BYTES,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
     });
     this.constants = device.createBuffer({
       label: "Shadow geometry/tile domain constants",
       size: VSM_SHADOW_DOMAIN_CONSTANT_BYTES,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     this.pipeline = obtainTilePipeline(device);
     for (const buffer of [this.buffer, this.constants]) {
@@ -90,12 +90,7 @@ export class ShadowTileDomain {
     }
   }
 
-  encode(
-    command: ShadeGPUCommandContext,
-    frame: VsmDirectionalFrameConstants,
-    requested: GPUBuffer,
-    allocation: GPUBuffer
-  ): void {
+  encode(command: ShadeGPUCommandContext, frame: VsmDirectionalFrameConstants, allocation: GPUBuffer): void {
     const bytes = this.header;
     new Uint8Array(bytes).fill(0);
     new Float32Array(bytes).set(frame.lightView);
@@ -107,32 +102,28 @@ export class ShadowTileDomain {
     );
     command.writeBuffer(this.constants, 0, bytes, 0, VSM_SHADOW_DOMAIN_CONSTANT_BYTES);
     command.writeBuffer(this.buffer, 0, bytes, 0, VSM_SHADOW_DOMAIN_HEADER_BYTES);
-    command.clearBuffer(this.buffer, VSM_SHADOW_DOMAIN_HEADER_BYTES, SHADOW_TILE_DOMAIN_BYTES - VSM_SHADOW_DOMAIN_HEADER_BYTES);
-    let byAllocation = this.groups.get(requested);
-    if (byAllocation === undefined) {
-      byAllocation = new WeakMap();
-      this.groups.set(requested, byAllocation);
-    }
-    let group = byAllocation.get(allocation);
+    command.clearBuffer(
+      this.buffer,
+      VSM_SHADOW_DOMAIN_HEADER_BYTES,
+      SHADOW_TILE_DOMAIN_BYTES - VSM_SHADOW_DOMAIN_HEADER_BYTES
+    );
+    let group = this.groups.get(allocation);
     if (group === undefined) {
       group = this.device.createBindGroup({
-        label: "Shadow geometry/tile domain sources",
+        label: "Shadow geometry/selected dirty pyramid",
         layout: this.pipeline.requirePrepared().getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: { buffer: this.constants } },
-          { binding: 1, resource: { buffer: requested } },
           { binding: 2, resource: { buffer: allocation } },
           { binding: 3, resource: { buffer: this.buffer, offset: VSM_SHADOW_DOMAIN_HEADER_BYTES } }
         ]
       });
-      byAllocation.set(allocation, group);
+      this.groups.set(allocation, group);
     }
     const pass = command.beginComputePass({ label: "Shadow geometry/build tile domains" });
     pass.setPipeline(this.pipeline.requirePrepared());
     pass.setBindGroup(0, group);
-    pass.dispatchWorkgroups(
-      Math.ceil(Math.max(requested.size / 4, (allocation.size - 16) / (VSM_PAGE_WORK_WORDS * 4)) / 64)
-    );
+    pass.dispatchWorkgroups(Math.ceil((allocation.size - 16) / (VSM_PAGE_WORK_WORDS * 4) / 64));
     pass.end();
   }
 

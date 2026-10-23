@@ -24,6 +24,10 @@ struct Constants {
 fn overlaps(xy: vec4f, low: vec2f, high: vec2f) -> bool {
   return all(xy.zw >= low) && all(xy.xy <= high);
 }
+@group(0) @binding(5) var<storage, read_write> descriptor_mutations: array<atomic<u32>>;
+fn vsm_mark_descriptor(page: u32) {
+  atomicOr(&descriptor_mutations[4u + page / 32u], 1u << (page % 32u));
+}
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   if (id.x >= min(constants.control.y, arrayLength(&metas))) { return; }
@@ -58,6 +62,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     if ((slot_meta.flags & 2u) == 0u) {
       metas[id.x].dirty_since = constants.control.z;
     }
+    vsm_mark_descriptor(slot_meta.virtual_page);
     pages[slot_meta.virtual_page].flags = (entry.flags | 2u) & ~4u;
     metas[id.x].flags = (slot_meta.flags | 2u) & ~4u;
     atomicStore(&content[1], 1u);

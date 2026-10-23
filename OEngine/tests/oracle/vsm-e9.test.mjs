@@ -12,15 +12,15 @@ import {
   vsmWorldPageEntryIndex,
   vsmPageGenerationMatches,
   vsmPageTableEntryByteOffset,
-  vsmPageTableEntryIndex,
+  vsmPageTableEntryIndex
 } from "../../.test-dist/render/vsm/VsmPageState.js";
 import { VsmResources } from "../../.test-dist/render/vsm/VsmResources.js";
 import {
   vsmReceiverDispatch,
   buildVsmDirectionalFrameConstants,
-  packVsmSamplingConstants,
+  packVsmSamplingConstants
 } from "../../.test-dist/render/vsm/VsmReceiverDemandPass.js";
-import { vsmCasterDispatch } from "../../.test-dist/render/vsm/VsmCasterRecordPass.js";
+import { planVsmGeometryChunks } from "../../.test-dist/gpu/GpuVsmGeometryAbi.js";
 import { VSM_PAGE_TABLE_WGSL } from "../../.test-dist/shaders/vsm_page_table.js";
 import { VSM_RECEIVER_DEMAND_WGSL } from "../../.test-dist/shaders/vsm_receiver_demand.js";
 import { VSM_SAMPLING_WGSL } from "../../.test-dist/shaders/vsm_sampling.js";
@@ -38,12 +38,12 @@ function device(overrides = {}) {
     maxStorageBufferBindingSize: 32 * 1024 * 1024,
     maxBufferSize: 128 * 1024 * 1024,
     maxUniformBufferBindingSize: 65536,
-    maxStorageBuffersPerShaderStage: 8,
+    maxStorageBuffersPerShaderStage: 16,
     maxComputeWorkgroupsPerDimension: 65535,
     maxComputeWorkgroupSizeX: 256,
     maxComputeInvocationsPerWorkgroup: 256,
     maxComputeWorkgroupStorageSize: 16384,
-    ...overrides,
+    ...overrides
   };
   return {
     limits,
@@ -56,7 +56,7 @@ function device(overrides = {}) {
     },
     createTexture({ size }) {
       return { width: size.width, height: size.height, createView: () => ({}), destroy() {} };
-    },
+    }
   };
 }
 
@@ -94,13 +94,13 @@ test("VSM profile preflight covers complete demand, coarse reserve and device li
   assert.equal(table.virtualEntryCount, high.virtualEntryCount);
   assert.equal(resources.pageTable.size, high.pageTableBytes);
   assert.equal(high.virtualEntryCount, 41120);
-  const maximum = negotiateVsmCapabilities(highDevice,{clipLevels:16});
-  assert.equal(maximum.virtualEntryCount,65792);
-  assert.equal(maximum.coarseReservedSlots,144);
-  const largeDevice = device({maxTextureDimension2D:8192});
-  assert.equal(negotiateVsmCapabilities(largeDevice).atlasDimension,4096);
-  assert.equal(negotiateVsmCapabilities(largeDevice,{atlasMiB:256}).atlasDimension,8192);
-  assert.equal(negotiateVsmCapabilities(highDevice,{atlasMiB:16}).atlasDimension,2048);
+  const maximum = negotiateVsmCapabilities(highDevice, { clipLevels: 16 });
+  assert.equal(maximum.virtualEntryCount, 65792);
+  assert.equal(maximum.coarseReservedSlots, 144);
+  const largeDevice = device({ maxTextureDimension2D: 8192 });
+  assert.equal(negotiateVsmCapabilities(largeDevice).atlasDimension, 4096);
+  assert.equal(negotiateVsmCapabilities(largeDevice, { atlasMiB: 256 }).atlasDimension, 8192);
+  assert.equal(negotiateVsmCapabilities(highDevice, { atlasMiB: 16 }).atlasDimension, 2048);
   assert.equal(high.demandCapacity, high.virtualEntryCount);
   assert.equal(resources.demand.size, 41120 * 16 + 16);
   assert.equal(resources.requestedPages.size, 5140);
@@ -119,7 +119,7 @@ test("VSM profile preflight covers complete demand, coarse reserve and device li
     { maxComputeWorkgroupSizeX: 32 },
     { maxComputeInvocationsPerWorkgroup: 32 },
     { maxComputeWorkgroupStorageSize: 512 },
-    { maxComputeWorkgroupsPerDimension: 600 },
+    { maxComputeWorkgroupsPerDimension: 600 }
   ]) {
     assert.equal(negotiateVsmCapabilities(device(overrides)).profile, "shadow-disabled");
   }
@@ -127,26 +127,26 @@ test("VSM profile preflight covers complete demand, coarse reserve and device li
     negotiateVsmCapabilities(
       device({
         maxTextureDimension2D: 2048,
-        maxStorageBufferBindingSize: bounded.pageTableBytes - 1,
-      }),
+        maxStorageBufferBindingSize: bounded.pageTableBytes - 1
+      })
     ).profile,
-    "shadow-disabled",
+    "shadow-disabled"
   );
   assert.equal(
     negotiateVsmCapabilities(
       device({
-        maxStorageBuffersPerShaderStage: 6,
-      }),
+        maxStorageBuffersPerShaderStage: 6
+      })
     ).profile,
-    "shadow-disabled",
+    "shadow-disabled"
   );
   assert.equal(
     negotiateVsmCapabilities(
       device({
-        maxStorageBuffersPerShaderStage: 7,
-      }),
+        maxStorageBuffersPerShaderStage: 7
+      })
     ).profile,
-    "shadow-disabled",
+    "shadow-disabled"
   );
 });
 
@@ -156,7 +156,7 @@ test("receiver dispatch covers odd extents and sampling fails open for invalid p
   assert.throws(() => vsmReceiverDispatch(0, 9), /extent/);
   assert.match(
     VSM_RECEIVER_DEMAND_WGSL,
-    /id\.x >= constants\.dimensions\.x \|\| id\.y >= constants\.dimensions\.y/u,
+    /id\.x >= constants\.dimensions\.x \|\| id\.y >= constants\.dimensions\.y/u
   );
   const current = { flags: VSM_PAGE_FLAGS.allocated | VSM_PAGE_FLAGS.generationValid, generation: 7 };
   assert.equal(vsmPageGenerationMatches(current, 7), true);
@@ -174,7 +174,7 @@ test("directional clipmap keeps a world-fixed basis and camera-centered window",
   try {
     for (const center of [
       [0, 0, 8],
-      [1234.25, -567.5, 810.75],
+      [1234.25, -567.5, 810.75]
     ]) {
       const frame = buildVsmDirectionalFrameConstants([0, 2, 3], center, 2048, resources, 71);
       const matrix = frame.lightView;
@@ -183,7 +183,7 @@ test("directional clipmap keeps a world-fixed basis and camera-centered window",
           matrix[axis] * center[0] +
           matrix[4 + axis] * center[1] +
           matrix[8 + axis] * center[2] +
-          matrix[12 + axis],
+          matrix[12 + axis]
       );
       assert.deepEqual(matrix.slice(12), [0, 0, 0, 1]);
       for (const [x, y, extent] of frame.clipOriginExtent) {
@@ -194,7 +194,7 @@ test("directional clipmap keeps a world-fixed basis and camera-centered window",
       const view = shadowGeometryView(frame);
       // Camera center must lie inside every light prism plane even far from origin.
       assert.ok(
-        view.frustumPlanes.every(([x, y, z, w]) => x * center[0] + y * center[1] + z * center[2] + w >= 0),
+        view.frustumPlanes.every(([x, y, z, w]) => x * center[0] + y * center[1] + z * center[2] + w >= 0)
       );
       const packed = packVsmSamplingConstants({
         resources,
@@ -202,29 +202,35 @@ test("directional clipmap keeps a world-fixed basis and camera-centered window",
         width: 1920,
         height: 1080,
         ...frame,
-        filterNoiseWordOffset: 2048,
+        filterNoiseWordOffset: 2048
       });
       const uints = new Uint32Array(packed),
         floats = new Float32Array(packed);
       assert.equal(uints[VSM_CONTROL_WORD + 1], 71, "sampling uses the current publication generation");
-      assert.deepEqual([...floats.slice(VSM_PARAMETERS_WORD, VSM_PARAMETERS_WORD + 3)], [1, 1, Math.fround(0.16)]);
+      assert.deepEqual(
+        [...floats.slice(VSM_PARAMETERS_WORD, VSM_PARAMETERS_WORD + 3)],
+        [1, 1, Math.fround(0.16)]
+      );
     }
     assert.throws(() => shadowGeometryView({ lightView: [NaN], clipOriginExtent: [[0, 0, 1, 1]] }), /finite/);
     assert.throws(
       () => shadowGeometryView({ lightView: Array(16).fill(0), clipOriginExtent: [[0, 0, 0, 1]] }),
-      /invalid/,
+      /invalid/
     );
   } finally {
     resources.destroy();
   }
 });
 
-test("caster capacity dispatch covers the second row without dropping work", () => {
-  assert.deepEqual(vsmCasterDispatch(64 * 65535, 65535), [65535, 1]);
-  assert.deepEqual(vsmCasterDispatch(64 * 65535 + 1, 65535), [65535, 2]);
-  assert.deepEqual(vsmCasterDispatch(129, 2), [2, 2]);
-  assert.throws(() => vsmCasterDispatch(257, 2), /dispatch/);
-  assert.throws(() => vsmCasterDispatch(0, 65535), /dispatch/);
+test("VSM CSR chunk planning bounds all hits and complete source chunks", () => {
+  for (const vectors of [1, 2, 7]) {
+    const plan = planVsmGeometryChunks(131072, 64, 32 * 1024 * 1024, vectors);
+    assert.ok(plan.sourceBytes + plan.streamBytes + plan.indexBytes <= 32 * 1024 * 1024);
+    assert.ok(plan.chunkSize * plan.chunkCount >= 131072);
+    assert.equal(plan.streamBytes, plan.chunkSize * 128 * (2 + 1) * 4);
+  }
+  assert.throws(() => planVsmGeometryChunks(1, 2048, 32), /scratch/);
+  assert.throws(() => planVsmGeometryChunks(0, 64, 10000), /capacities/);
 });
 
 test("rolling fine domain has independent unique addresses for every coarse guard cell", () => {
@@ -261,7 +267,7 @@ test("VSM device epoch and invalidation facts stay monotonic and bounded", () =>
     cameraCut: false,
     clipOriginExtent: [[0, 0, 32, 1]],
     width: 17,
-    height: 9,
+    height: 9
   };
   const first = submit(input);
   assert.equal(first.reason, "initial");

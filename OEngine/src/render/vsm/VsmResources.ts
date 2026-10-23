@@ -1,6 +1,6 @@
 import { VSM_PROJECTION_CONSTANT_BYTES } from "../../gpu/GpuVsmProjectionAbi.js";
 import type { VsmCapabilities } from "./VsmCapabilities.js";
-import { VSM_PAIR_HEADER_BYTES, VSM_PAIR_STRIDE } from "../../gpu/GpuVsmPairAbi.js";
+import { VSM_RASTER_STATUS_BYTES, VSM_RASTER_STATUS_LIVE_BYTES } from "../../gpu/GpuVsmGeometryAbi.js";
 import { VSM_ADMISSION_ABI } from "../../gpu/GpuVsmAdmissionAbi.js";
 
 export type VsmBufferKey =
@@ -8,10 +8,9 @@ export type VsmBufferKey =
   | "metaTable"
   | "demand"
   | "allocation"
-  | "casterRecords"
+  | "rasterStatus"
   | "generation"
   | "overflowCounters"
-  | "rasterIndirect"
   | "pageConstants"
   | "requestedPages"
   | "receiverPriority"
@@ -22,7 +21,9 @@ export type VsmBufferKey =
   | "demandIndirect"
   | "slotCandidates"
   | "contentVersion"
-  | "depthRange";
+  | "depthRange"
+  | "samplingDescriptors"
+  | "descriptorMutations";
 let nextContentNamespace = 1;
 
 /** GPU-resident diagnostic locations. Consumers must not map them to steer work. */
@@ -37,12 +38,16 @@ export interface VsmDiagnostics {
     countByteOffset: number;
     stride: number;
   }>;
-  readonly casterRecords: Readonly<{
+  readonly rasterWork: Readonly<{
     buffer: GPUBuffer;
     byteOffset: number;
     headerBytes: number;
     stride: number;
-    modeByteOffset: number;
+    verticesByteOffset: number;
+    trianglesByteOffset: number;
+    incidencesByteOffset: number;
+    incidenceHighByteOffset: number;
+    completedChunksByteOffset: number;
   }>;
   readonly atlasPixels: number;
   readonly samplingFallback: null;
@@ -66,7 +71,7 @@ export class VsmResources {
 
   private constructor(
     private readonly device: GPUDevice,
-    readonly capabilities: VsmCapabilities,
+    readonly capabilities: VsmCapabilities
   ) {
     if (nextContentNamespace >= 0xfffffffe) {
       throw new RangeError("VSM content namespace exhausted");
@@ -84,96 +89,101 @@ export class VsmResources {
       size: {
         width: capabilities.atlasDimension,
         height: capabilities.atlasDimension,
-        depthOrArrayLayers: 1,
+        depthOrArrayLayers: 1
       },
       dimension: "2d",
       format: "depth32float",
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
     });
     this.atlasDepthView = this.atlasDepth.createView({ dimension: "2d", aspect: "all" });
     this.createBuffer(
       "pageTable",
       capabilities.pageTableBytes,
-      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
+    );
+    this.createBuffer(
+      "samplingDescriptors",
+      capabilities.virtualEntryCount * 16,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
+    );
+    this.createBuffer(
+      "descriptorMutations",
+      16 + capabilities.requestedPagesBytes,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
     );
     this.createBuffer(
       "metaTable",
       capabilities.metaTableBytes,
-      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
     );
     this.createBuffer(
       "demand",
       capabilities.demandBytes,
-      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
     );
     this.createBuffer(
       "allocation",
       capabilities.allocationBytes,
-      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
     );
     this.createBuffer(
-      "casterRecords",
-      capabilities.casterRecordBytes,
-      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+      "rasterStatus",
+      VSM_RASTER_STATUS_BYTES,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
     );
     this.createBuffer("generation", 256, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
     this.createBuffer(
       "overflowCounters",
       256,
-      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-    );
-    this.createBuffer(
-      "rasterIndirect",
-      5 * 4 * 64,
-      GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
     );
     this.createBuffer(
       "depthRange",
       16,
-      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
     );
     this.createBuffer(
       "pageConstants",
       VSM_PROJECTION_CONSTANT_BYTES,
-      GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+      GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
     );
     for (const key of ["requestedPages", "admittedPages", "missingPages"] as const) {
       this.createBuffer(
         key,
         capabilities.requestedPagesBytes,
-        GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+        GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
       );
     }
     this.createBuffer(
       "receiverPriority",
       capabilities.receiverPriorityBytes,
-      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
     );
     this.createBuffer(
       "admissionStatistics",
       VSM_ADMISSION_ABI.byteLength,
-      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
     );
     this.createBuffer(
       "demandScan",
       capabilities.demandScanBytes,
-      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     );
     this.createBuffer(
       "demandIndirect",
       16,
-      GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST
     );
     this.createBuffer(
       "slotCandidates",
       capabilities.slotCandidatesBytes,
-      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     );
     this.createBuffer("contentVersion", 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, [
       0,
       0,
       0,
-      contentNamespace,
+      contentNamespace
     ]);
   }
 
@@ -197,8 +207,8 @@ export class VsmResources {
   get allocation(): GPUBuffer | null {
     return this.getBuffer("allocation");
   }
-  get casterRecords(): GPUBuffer | null {
-    return this.getBuffer("casterRecords");
+  get rasterStatus(): GPUBuffer | null {
+    return this.getBuffer("rasterStatus");
   }
   get generation(): GPUBuffer | null {
     return this.getBuffer("generation");
@@ -206,9 +216,7 @@ export class VsmResources {
   get overflowCounters(): GPUBuffer | null {
     return this.getBuffer("overflowCounters");
   }
-  get rasterIndirect(): GPUBuffer | null {
-    return this.getBuffer("rasterIndirect");
-  }
+
   get pageConstants(): GPUBuffer | null {
     return this.getBuffer("pageConstants");
   }
@@ -232,14 +240,24 @@ export class VsmResources {
     return this.getBuffer("contentVersion");
   }
 
+  private descriptorEpoch = 0;
+
+  get samplingDescriptorEpoch(): number {
+    return this.descriptorEpoch;
+  }
+
+  noteDescriptorReset(): void {
+    this.descriptorEpoch++;
+  }
+
   diagnostics(): VsmDiagnostics | null {
     if (this.profile === "shadow-disabled") return null;
     const generation = this.generation;
     const pageDemand = this.demand;
     const allocationFailure = this.overflowCounters;
     const dirtyPages = this.allocation;
-    const casterRecords = this.casterRecords;
-    if (!generation || !pageDemand || !allocationFailure || !dirtyPages || !casterRecords || !this.atlasDepth)
+    const rasterWork = this.rasterStatus;
+    if (!generation || !pageDemand || !allocationFailure || !dirtyPages || !rasterWork || !this.atlasDepth)
       return null;
     return Object.freeze({
       generation,
@@ -252,14 +270,18 @@ export class VsmResources {
         byteOffset: 16,
         byteLength: dirtyPages.size - 16,
         countByteOffset: 4,
-        stride: 32,
+        stride: 32
       }),
-      casterRecords: Object.freeze({
-        buffer: casterRecords,
+      rasterWork: Object.freeze({
+        buffer: rasterWork,
         byteOffset: 0,
-        headerBytes: VSM_PAIR_HEADER_BYTES,
-        stride: VSM_PAIR_STRIDE,
-        modeByteOffset: 16,
+        headerBytes: VSM_RASTER_STATUS_LIVE_BYTES,
+        stride: 4,
+        verticesByteOffset: 28,
+        trianglesByteOffset: 32,
+        incidencesByteOffset: 36,
+        incidenceHighByteOffset: 44,
+        completedChunksByteOffset: 8
       }),
       atlasPixels: this.atlasDepth.width * this.atlasDepth.height,
       samplingFallback: null,
@@ -268,8 +290,8 @@ export class VsmResources {
         buffer: this.getBuffer("admissionStatistics")!,
         rawFineCountByteOffset: VSM_ADMISSION_ABI.rawFineCountWord * 4,
         admittedFineCountByteOffset: VSM_ADMISSION_ABI.admittedFineCountWord * 4,
-        fineCapacity: this.capabilities.residentSlots - this.capabilities.coarseReservedSlots,
-      }),
+        fineCapacity: this.capabilities.residentSlots - this.capabilities.coarseReservedSlots
+      })
     });
   }
 
@@ -281,7 +303,7 @@ export class VsmResources {
     key: VsmBufferKey,
     requestedSize: number,
     usage: GPUBufferUsageFlags,
-    initial?: readonly number[],
+    initial?: readonly number[]
   ): void {
     const size = Math.max(4, Math.ceil(requestedSize / 4) * 4);
     if (
@@ -297,8 +319,8 @@ export class VsmResources {
         label: `VSM/${this.capabilities.profile}/${key}`,
         size,
         usage,
-        mappedAtCreation: true,
-      }),
+        mappedAtCreation: true
+      })
     );
     const buffer = this.buffers.get(key)!;
     const mapped = buffer.getMappedRange();

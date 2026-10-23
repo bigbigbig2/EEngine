@@ -14,7 +14,7 @@ verifies:
     - OEngine/src/render/program/FrameProgramLowering.ts
     - OEngine/src/render/pipeline/RendererCore.ts
     - OEngine/src/shaders/native_visibility.ts
-    - OEngine/src/shaders/vsm_caster_records.ts
+    - OEngine/src/shaders/vsm_geometry.ts
     - OEngine/src/shaders/vsm_sampling.ts
     - OEngine/src/gpu/GpuNativeMaterialScene.ts
     - OEngine/src/render/temporal/NativeTemporalV2.ts
@@ -24,7 +24,7 @@ verifies:
 # Directional VSM：三步重构执行
 
 唯一目标依据：[当前设计](../next-design/eengine-vsm-quality-2026-10.md)。
-2026-10-23 用户先要求重写设计/执行，随后明确授权**实施步骤1并提交代码**；不自动实施步骤2/3。
+2026-10-23 用户先要求重写设计/执行，随后授权**实施步骤1并提交代码**，其提交后继续授权步骤2；不自动实施步骤3。
 旧 Q1-Q4 顺序被下列三步取代；旧代码保留到新闭包原子切换，不回滚、不恢复旧生产桥。
 不使用子 agent；GPU 检查串行；不自动跨入其他 renderer 模块。
 
@@ -33,7 +33,7 @@ verifies:
 | 步骤 | 当前状态 | 一个完整交付边界 |
 |---|---|---|
 | 1. 页面与质量合同重构 | completed；本步出口通过 | source distance 选级、4096虚拟clip/资源profile、完整需求与本地容量分配、相邻fallback/过渡、紧凑页面ABI及全部consumer |
-| 2. 几何、光栅与更新原子切换 | planned；无新 raster 实施 | selected dirty→LOD/refinement→共享source准备→triangle拒绝/紧致bin→真页裁剪→完整commit；精确失效/增量发布/旧owner删除 |
+| 2. 几何、光栅与更新原子切换 | completed；本步集中出口通过 | selected dirty→LOD/refinement→共享source准备→triangle拒绝/紧致bin→真页裁剪→完整commit；精确失效/增量发布/旧owner删除 |
 | 3. 两档过滤、集成与调优交接 | planned；disk4仍为当前默认 | stable PCF、完整PCSS及Temporal消费；集中正确性/接线/容量/粗成本检查；用户手动调参入口与诊断 |
 
 设计不替代实现结果；source adopted、实际性能提升、整Renderer画质均不因设计被勾选。
@@ -197,6 +197,101 @@ source vertices、triangles、P/C输出、raw/selected/committed页面与延期�
   hash micro-fixture保留；当前filter数值fixture只迁移projection offset，不重跑未改动核。
 - 完整Renderer接线/画面、长时/跨设备、太阳/MASK/streaming组合与粗GPU成本归因归步骤3，未执行不写通过。
   无新source geometry/triangle clipping/新PCF/PCSS实现；后两步保持planned。
+
+## 步骤2实施记录（2026-10-23）
+
+### 单一生产闭包
+
+- `ShadowTileDomain`只由allocation的selected dirty构建fine/coarse金字塔，16层共11776B；
+  query按真实gutter和f32余量扩caster，不再点亮整个相邻页。超大sphere查root，避免大坐标循环爆炸。
+  ordinary hierarchy、Product traversal和Product coarse handoff共用`hierarchyShadowLodWgsl`，
+  `shadowLodErrorTexels`默认1、合法(0,8]，更改撤销VSM内容代；不再常规SSE0或coarse requested驱动深遍历。
+  independent Shadow work仍不使用主相机HZB/cone，缺页沿既有SHADOW延迟ring请求。
+- `VsmGeometryRaster`借真实Shadow work/bounds，source阶段在解码前拒绝页外bounds；
+  ordinary/Product共享原decoder，一个source meshlet唯一顶点只解码/变换一次，跨页复用。
+  opaque只写light vec4；MASK按实际lowered alpha输入准备world/normal/tangent/UV01/UV2/color，
+  storage stride使用本次publication所有coverage依赖的并集，单个route只读写其活性字段。
+- `vsm_geometry`执行保守triangle/page SAT和opaque非双面backface拒绝，零面积无光栅；
+  深度范围交给硬件primitive clipping，不启用micro-poly或大三角丢弃。
+  原生MASK单双面规则保持旧材质合同，不把它冒称donor强制alpha双面行为。
+- **无损CSR而非最坏P展开缓冲**：每triangle保存命中页面位集和inclusive end，
+  每非空source/bin一条16B range。count/prefix/scatter仅处理source总量，不重新解码几何/分类所有page pairs。
+  raster按source range二分→triangle prefix二分→page rank/select恢复实际命中，draw instance恰为P。
+  在容量32/64MiB下，拒绝了最初16/80B×最坏triangle/page incidence展开的中间草案：它会放大固定chunk/pass数，未作为生产owner交付。
+- Sundial四clip distances适配gutter后物理slot，opaque无FS；Renderer自建device按adapter可选申请，外部未启用device走完整四边Sutherland-Hodgman。
+  baseline在VS保留最多7个lineage顶点/5fan triangles，不写展开clip buffer、不clamp原顶点、不页外fragment discard。
+  MASK在FS从**原三角atlas平面**重建center及梯度后调用同一native coverage/cutoff；fan边不重算非线性材质插值。
+- 清页一次→全部capacity-derived source chunks→完成status→唯一页commit；fail/源非法/未终结chunk绝不ready。
+  空几何仍可clear后commit；不因单页超过普通stream容量永久拒绝或漏triangle。
+  只有本帧普通encoder，没有额外submit/readback控制。主Visibility移除shadow/VSM专属分支，保留自己的真实prepared/source恢复。
+- 删除`VsmCasterRecordPass`、caster/pair shader及其显式/隐式pair产品；`GpuShadowBoundsAbi`只保留Geometry bounds，
+  `GpuVsmGeometryAbi`拥有source/CSR/chunk/status。`FrameProgramLowering`及Renderer、resources、commit、streaming消费者原子切换。
+  streaming延迟诊断改报真实vertices/triangles/64位trianglePageIncidences及完成chunk，不用旧meshlet pair阈值误读128倍计数。
+
+### 精确更新与生命周期
+
+- `viewDependentCoverage`只查实际lowered alpha program的view输入；未改动的`nativeCoverageChanged`继续比较真实alpha代码、参数、输入、cutoff及纹理资源。
+  普通光照graph的view依赖不再让静态阴影重画。old/new损伤、移除、source residency influence与projection/sun深度代仍由既有提交事务持有。
+- source/influence upload使用成功提交word baseline，仅变化时写changed runs；间隔≤16words合并、超过32runs用一次完整sequential write。
+  baseline只在onFinished推进，abort不推进；buffer替换清对应baseline，retry必须完整初始化。
+- alloc/evict/roll/caster invalidation/commit写descriptor mutation bits。persistent descriptor首次/同buffer reset完整写，
+  后续只扫描bitset并exchange实际变化；CPU initialization epoch只在成功submit推进，不用GPU读回。
+  每个新final-lighting scratch区间仍完整copy，不能将delta写入未初始化轮转段。
+- atlas owner只保留一个live native pass，不再按历史queue无限积累scratch。queue/publication/bounds/源offset/四bank身份变化重绑；
+  兼容plan共享五个大scratch buffer，引用计数+末读GPU fence退休。constructor失败释放部分资源；abort退休同样等待已提交工作。
+  不兼容布局按replacement分配，旧代受FrameCoordinator的2/3 frames-in-flight和queue fence约束，未退休代计入真实峰值。
+
+### 本步Cost Card（可推导成本，不是FPS资格）
+
+令W为支持source work容量，N为每chunk source数，D为selected-page容量，A为scene-union vec4数量(1..7)，B为2×rasterClass数。
+
+| 产品/执行 | 实际上界/访问 |
+|---|---|
+| prepared source | `N * 4 * (8 + 256*A*4 + 128)` B；一个meshlet128 lanes，最多256独立顶点；route仅写活性属性 |
+| triangle/page CSR | `N * 128 * 4 * (1 + ceil(D/32))` B；连续write，raster随机read；不与P同比分配；无per-P append atomics |
+| source ranges / bin states / indirect | `16N` / `16B+16` / `16(B+4)` B；bin count/scatter64 lanes，triangle128-lane inclusive scan；每bin前缀1 lane |
+| local uniforms/flags/coverage | `alignment*ceil(W/N)` + route/frame-input uniforms + 80B camera + route attribute flags；创建前计入budget |
+| 总scratch | base≤32MiB、8192atlas档≤64MiB；四项合计而非单buffer预算。15 storage /128-lane前置能力检查，普通source实用10 storage；Renderer既有16限制不变 |
+| Geometry bounds / dirty tree | bounds另由Geometry持有`16+32W` B，tree11776B+336B常量；不是藏在32MiB外的P展开记录 |
+| triangle scheduling | 最坏T×D SAT测试，D是selected而非全requested；tight source bounds先拒绝。不是donor mesh shader的常数成本位址写入，不声称任意D都快 |
+| 统计/同步 | source vertices/triangles各1 global atomic/source，incidences 1/source+低位溢出carry，rejected 1/拒绝triangle；dirty tree每fine/coarse页7/3 atomic；triangle/bin scan有workgroup barriers，不能宣称零atomic/barrier |
+| raster | P真实instance；feature3 VS/P，无特性15 VS/P且VS内重复裁剪，最多5tri/P。每VS有source/triangle二分+page bit rank；MASK原plane重建/梯度代价保留 |
+| command/dispatch | K=ceil(W/N)；K+1个depth render pass（首个clear），K+2个compute pass；`1+7K`compute dispatch、`1+BK`drawIndirect。source/emit/bin重阶段实际计数indirect=0时不执行，begin/prefix/finish及空draw编码税仍在 |
+| metadata publication | init/reset一次16B×entryCount；steady scan`ceil(entries/32)` mutation words，只写mutated16B descriptor；仍完整copy默认657920B/最大1052672B到lighting scratch |
+| replacement峰值 | 同plan只有一个共享大scratch集+新旧小绑定；一次不兼容替换最多两代scratch，连续未退休代按实际in-flight/fence累计，不声称设备总内存只有一个预算 |
+
+示例W=131072、D=64，source+CSR+index每N：opaque6192B，全属性30768B；
+32MiB内含小资源/对齐后约25与121个capacity chunks，不是131072×128×64的巨大incidence预留。
+这是**最坏支持容量的固定编码税**，真实source少时后续重工作为0；不能把约25个pass说成一个draw，最终步骤3应归因该项与旧pair路径的差异。
+一个chunk也有管理依赖，不交付设计草案中“普通一轮零管理税”的不实承诺。
+P最多`128*W*D`；chunk内draw为u32并预检上界，累计diagnostic低位carry到高位，不绕回伪装成本。
+
+收益可确定在工作种类上：删除按page重复decode/transform和页外fragment覆盖，refine仅为实际dirty需求，未变化stamp不重传，全域descriptor不重算。
+新增代价为prepared写读、CSR/SAT/scan/二分、固定K编码及baseline裁剪；0/50/100%可消除旧工作时净值仍为`-A / .5E-A / E-A`，break-even=`A/E`。
+没有同条件GPU时间之前不报FPS百分比，不能用降低ready质量、缩短覆盖、关MASK或丢页换“提速”。
+
+### 集中出口与保留边界
+
+- 架构复核覆盖producer→prepared/CSR/bin→depth→status→commit→descriptor→Native消费，含资源身份重绑、完整写域、容量和abort/fence。
+- 同一个`vsm-quality-contract`合并fixture，不开历史测试campaign；真实Turing/Chrome155设备分别启用/不启用clip-distances。
+  real普通/Product ABI6 page→bounds→source解码→CSR→depth通过；CPU barycentrics独立预测opaque/MASK/mirror/gutter/大triangle全部atlas像素。
+  3强制chunks、非平凡multi-source/multi-triangle CSR、原plane texture mip梯度、offpage predecode拒绝、backface、invalid Geometry、abort/retry、shared-scratch退休通过。
+  同一fixture检查fine/coarse selected-tree真实texel/error、gutter/无dirty/巨sphere，以及ordinary/Product traversal与expansion shader；
+  persistent init/delta/reset/abort和fresh lighting区间完整copy通过。保留步骤1页面、需求、压力、roll、commit和相邻fallback输入，不重跑未改filter核。
+- 最终报告`.local/validation/vsm-step2-contract-exit.json`为`passed`，无device loss、scoped GPU error或pageErrors；两种裁剪profile均通过。
+  最终`typecheck`、新鲜`build:test`通过；直接CPU文件`vsm-e9`、`vsm-settings`、`vsm-v4-r1`为17/17，
+  只执行`direction-a-pipeline-squeeze`受改动A2用例为1/1，未执行该文件其余未受影响用例。
+  `docs-verify`为0 findings/86 historical warnings/211 documents，`git diff --check`通过。
+  GPU报告只覆盖小型真实生产owner输入输出，不冒称完整Renderer/HDR/VT页面驻留组合已验收。
+- 原失败不抹除：initial为WGSL reserved `active`，compile1为workgroup uniformity，compile2为fixture非法submit label；
+  raster1为INDIRECT同dispatch绑定STORAGE_RW的WebGPU usage冲突（用空group1修复）；raster2为新fixture把clipped深度误设严格bit相等，
+  依据4次f32交点+插值显式8ULP forward bound修正**覆盖深度**，coverage/empty/clean仍exact；raster3为stale build拒绝。
+  另一次收口build检测到格式/ABI收尾同时改源码而拒绝过期产物，随后冻结源码重建通过，未绕过identity检查。
+  首个exit报告中的预期abort Promise未消费已在fixture明确捕获，原报告另存`vsm-step2-contract-exit-before-abort-handler.json`，不吞生产异常。没有放宽既有数值失败或恢复旧owner。
+- 旧pair-only`vsm-v4-r3`与`vsm-caster-cost`注册/fixture退休；`native-vsm-coverage`旧ABI helper由新geometry fixture取代。
+  完整Renderer诊断读者迁移status/source/bounds，eligible caster候选不冒充实际发射triangles。旧full-host fixture本身的宿主/早期ABI迁移不在本轮扩大修复，步骤3新鲜整链接线时集中处理。
+- **留给步骤3**：stable PCF/完整PCSS（disk4当前未改），全Renderer静止/移动/太阳/MASK/streaming、VT真实coverage residency、HDR/Temporal响应、device/resize组合与粗GPU分项成本。
+  不因本步小fixture通过就宣称这些通过；发现的当前owner错误不以“后续手调”延期。
 
 ## 保留的旧 Q1 记录（历史事实，不是新步骤 1 已完成）
 

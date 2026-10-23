@@ -1,34 +1,35 @@
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
+import { VSM_RASTER_STATUS_LIVE_BYTES } from "./GpuVsmGeometryAbi.js";
 import type { GeometryQueryCut } from "./GeometryQueryCut.js";
 import type { GeometryProductRevisionSourceV1 } from "../assets/geometry-product/GeometryProductV1.js";
 import {
   GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
   GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS,
   unpackGpuMeshletWorkQueueHeader,
-  type GpuMeshletWorkQueueHeaderCpu,
+  type GpuMeshletWorkQueueHeaderCpu
 } from "./GpuMeshletRasterWorkAbi.js";
 import {
   GpuGeometryDemandReadbackRingV1,
-  type GpuGeometryDemandReadbackRingOptionsV1,
+  type GpuGeometryDemandReadbackRingOptionsV1
 } from "./GeometryDemandReadbackRing.js";
 import {
   GeometryPageSchedulerV1,
   type GeometryPageSchedulerEvidenceV1,
   type GeometryPageSchedulerOptionsV1,
   type GeometryPageSchedulerPressureV1,
-  type GeometryPageSchedulerBudgetV1,
+  type GeometryPageSchedulerBudgetV1
 } from "./GeometryPageScheduler.js";
 import {
   GEOMETRY_PAGE_LOCATION_PINNED,
   VirtualGeometryResidency,
-  type VirtualGeometryResidencyEvidenceV1,
+  type VirtualGeometryResidencyEvidenceV1
 } from "./VirtualGeometryResidency.js";
 import {
   GEOMETRY_PAGE_DEMAND_FLAG_CURRENT_VIEW_MISSING,
   GEOMETRY_PAGE_DEMAND_FLAG_SHADOW,
   GEOMETRY_PAGE_DEMAND_FLAG_PREDICTIVE,
   GEOMETRY_PAGE_DEMAND_FLAG_RESIDENT_USAGE,
-  type GeometryPageDemandBatchV1,
+  type GeometryPageDemandBatchV1
 } from "./GeometryPageDemandAbiV1.js";
 
 export interface GeometryPageStreamingRuntimeOptionsV1 {
@@ -75,17 +76,20 @@ export interface GeometryPageStreamingRuntimeEvidenceV1 {
     costFrame: number;
     dirtyPages: number;
     selectedPages: number;
-    casterPairs: number;
+    trianglePageIncidences: number;
     shadowValid: boolean;
     shadowLimited: boolean;
-    /** Delayed counters from the existing 72-byte publication receipt. */
+    /** Delayed counters from the existing 88-byte publication receipt. */
     shadowStatus: Readonly<{
       allocationMisses: number;
       evictions: number;
       coarseMisses: number;
-      pairExcess: number;
       rasterFailure: number;
-      pairMode: number;
+      sourceVertices: number;
+      sourceTriangles: number;
+      expectedChunks: number;
+      completedChunks: number;
+      rejectedTriangles: number;
       pendingPages: number;
     }> | null;
   }>;
@@ -134,7 +138,7 @@ export class GeometryPageStreamingRuntimeV1 {
   #costFrame = -1;
   #dirtyPages = 0;
   #selectedPages = 0;
-  #casterPairs = 0;
+  #trianglePageIncidences = 0;
   #shadowValid = false;
   #shadowLimited = false;
   #shadowStatus: GeometryPageStreamingRuntimeEvidenceV1["publication"]["shadowStatus"] = null;
@@ -154,7 +158,7 @@ export class GeometryPageStreamingRuntimeV1 {
       shadowComplete: this.#shadowFeedbackComplete,
       vsmFrame: this.#costFrame,
       vsmValid: this.#shadowValid,
-      vsmLimited: this.#shadowLimited,
+      vsmLimited: this.#shadowLimited
     };
   }
   #contentRevision = 0;
@@ -203,7 +207,7 @@ export class GeometryPageStreamingRuntimeV1 {
   constructor(
     device: GPUDevice,
     residency: VirtualGeometryResidency,
-    options: GeometryPageStreamingRuntimeOptionsV1 = {},
+    options: GeometryPageStreamingRuntimeOptionsV1 = {}
   ) {
     this.#device = device;
     this.#residency = residency;
@@ -227,12 +231,12 @@ export class GeometryPageStreamingRuntimeV1 {
       new GeometryPageSchedulerV1(
         options.schedulerOptions ?? {
           maxConcurrentReads: 4,
-          maxInFlightBytes: 64 * 1024 * 1024,
-        },
+          maxInFlightBytes: 64 * 1024 * 1024
+        }
       );
     this.#readback = new GpuGeometryDemandReadbackRingV1({
       device,
-      ...(options.readback ?? {}),
+      ...(options.readback ?? {})
     });
     // Cancel IO and mapping ownership at loss, not later during replay. Source
     // ownership remains with Product residency/checkpoint for recovery retries.
@@ -278,7 +282,7 @@ export class GeometryPageStreamingRuntimeV1 {
     }
     const registerSource = () => {
       this.#scheduler.registerProduct(residency.productTableSlot, generation, source, {
-        sourceOwnership: "external",
+        sourceOwnership: "external"
       });
     };
     // Validate IO budgets before publication, including dormant/candidate sources.
@@ -302,7 +306,7 @@ export class GeometryPageStreamingRuntimeV1 {
           this.#publicationSubscriptions.get(generation)?.();
           this.#publicationSubscriptions.delete(generation);
         }
-      }),
+      })
     );
   }
 
@@ -317,16 +321,22 @@ export class GeometryPageStreamingRuntimeV1 {
 
   /** Delayed GPU world demand feeds the existing scheduler. It does not
    * participate in raster/shadow feedback completeness or eviction aging. */
-  requestQueryCut(residency: VirtualGeometryResidency, cut: GeometryQueryCut,
-    nowMs = performance.now()): number {
+  requestQueryCut(
+    residency: VirtualGeometryResidency,
+    cut: GeometryQueryCut,
+    nowMs = performance.now()
+  ): number {
     if (cut.descriptor !== residency.descriptor) {
       throw new Error("Query streaming cut belongs to a different Product");
     }
     return this.requestQueryPages(residency, cut.pages, nowMs);
   }
 
-  private requestQueryPages(residency: VirtualGeometryResidency, pages: readonly number[],
-    nowMs: number): number {
+  private requestQueryPages(
+    residency: VirtualGeometryResidency,
+    pages: readonly number[],
+    nowMs: number
+  ): number {
     this.assertAlive();
     if (this.#residencies.get(residency.productGeneration) !== residency || !residency.publicationActive) {
       throw new Error("Query prefetch requires a registered active Product generation");
@@ -346,7 +356,7 @@ export class GeometryPageStreamingRuntimeV1 {
         priority: 0xffff,
         currentViewMissing: false,
         shadow: false,
-        predictive: true,
+        predictive: true
       });
     }
     this.#scheduler.ingestDemands(demands, nowMs);
@@ -385,7 +395,7 @@ export class GeometryPageStreamingRuntimeV1 {
   encodeDemandReadback(
     command: ShadeGPUCommandContext,
     demandBuffer: GPUBuffer,
-    frameIndex: number,
+    frameIndex: number
   ): number | undefined {
     this.assertAlive();
     const slot = this.#readback.encode(command.gpu_encoder, demandBuffer, frameIndex);
@@ -402,18 +412,18 @@ export class GeometryPageStreamingRuntimeV1 {
     command: ShadeGPUCommandContext,
     work: GPUBuffer,
     frameIndex: number,
-    shadow = false,
+    shadow = false
   ): void {
     this.assertAlive();
     if (shadow) {
       this.#shadowWorkReadback ??= new GpuGeometryDemandReadbackRingV1({
         device: this.#device,
-        bytesPerSlot: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
+        bytesPerSlot: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE
       });
     } else {
       this.#workReadback ??= new GpuGeometryDemandReadbackRingV1({
         device: this.#device,
-        bytesPerSlot: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
+        bytesPerSlot: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE
       });
     }
     const ring = (shadow ? this.#shadowWorkReadback : this.#workReadback)!;
@@ -428,14 +438,14 @@ export class GeometryPageStreamingRuntimeV1 {
   encodeShadowDemandReadback(
     command: ShadeGPUCommandContext,
     demandBuffer: GPUBuffer,
-    frameIndex: number,
+    frameIndex: number
   ): number | undefined {
     this.assertAlive();
     // A full ring drops a snapshot, not the fact that shadows still consume
     // resident pages. Keep incomplete shadow feedback protective under pressure.
     this.#lastShadowAttemptedFrame = Math.max(this.#lastShadowAttemptedFrame, frameIndex);
     this.#shadowReadback ??= new GpuGeometryDemandReadbackRingV1({
-      device: this.#device,
+      device: this.#device
     });
     const ring = this.#shadowReadback;
     const slot = ring.encode(command.gpu_encoder, demandBuffer, frameIndex);
@@ -477,7 +487,7 @@ export class GeometryPageStreamingRuntimeV1 {
             const residency = this.#residencies.get(generation);
             if (!residency) throw new Error("Geometry publication source disappeared");
             return residency.publicationHint(pageId);
-          },
+          }
         })
       : [];
     const selected = new Map(batches.map((batch) => [batch.productGeneration, batch.pageIds]));
@@ -506,7 +516,7 @@ export class GeometryPageStreamingRuntimeV1 {
       publishedPages += encoded.length;
       const retiring = residency.candidateRetiringPageIds;
       const scheduled = pages.filter(
-        (page) => encoded.includes(page) || residency.pageLocation(page) !== undefined,
+        (page) => encoded.includes(page) || residency.pageLocation(page) !== undefined
       );
       if (scheduled.length === 0 && retiring.length === 0) {
         return;
@@ -528,7 +538,7 @@ export class GeometryPageStreamingRuntimeV1 {
             },
             (error: unknown) => {
               this.#lastError = String(error);
-            },
+            }
           );
         }
       });
@@ -545,20 +555,20 @@ export class GeometryPageStreamingRuntimeV1 {
   encodePublicationCostReadback(
     command: ShadeGPUCommandContext,
     allocation: GPUBuffer,
-    casterPairs: GPUBuffer,
+    rasterStatus: GPUBuffer,
     frameIndex: number,
-    failures?: GPUBuffer,
+    failures?: GPUBuffer
   ): void {
     if (frameIndex % 8 !== 0 || (!this.#scheduler.preparingPages && !this.#observeConvergence)) return;
     this.#costReadback ??= new GpuGeometryDemandReadbackRingV1({
       device: this.#device,
-      bytesPerSlot: 72,
+      bytesPerSlot: 8 + VSM_RASTER_STATUS_LIVE_BYTES + 32
     });
     const ring = this.#costReadback;
     const slot = ring.encodeRegions(command.gpu_encoder, frameIndex, [
       { source: allocation, sourceOffset: 0, byteLength: 8 },
-      { source: casterPairs, sourceOffset: 0, byteLength: 32 },
-      ...(failures ? [{ source: failures, sourceOffset: 0, byteLength: 32 }] : []),
+      { source: rasterStatus, sourceOffset: 0, byteLength: VSM_RASTER_STATUS_LIVE_BYTES },
+      ...(failures ? [{ source: failures, sourceOffset: 0, byteLength: 32 }] : [])
     ]);
     if (slot !== undefined) {
       command.onFinished.addOne(() => ring.commit(slot));
@@ -580,22 +590,32 @@ export class GeometryPageStreamingRuntimeV1 {
           this.#costFrame = result.frameIndex;
           this.#dirtyPages = words[0]!;
           this.#selectedPages = words[1]!;
-          this.#casterPairs = words[2]!;
+          this.#trianglePageIncidences = words[11]! + words[13]! * 0x100000000;
           this.#shadowStatus = Object.freeze({
-            allocationMisses: words[10]!,
-            evictions: words[11]!,
-            coarseMisses: words[13]!,
-            pairExcess: words[14]!,
-            rasterFailure: words[15]!,
-            pairMode: words[16]!,
-            pendingPages: words[17]!,
+            allocationMisses: words[14]!,
+            evictions: words[15]!,
+            coarseMisses: words[17]!,
+            rasterFailure: words[2]!,
+            pendingPages: words[21]!,
+            sourceVertices: words[9]!,
+            sourceTriangles: words[10]!,
+            expectedChunks: words[3]!,
+            completedChunks: words[4]!,
+            rejectedTriangles: words[12]!
           });
-          // Fine/coarse allocation failures, eviction churn, or raster failure
-          // cannot be called fully valid. Explicit pair mode is not a failure.
-          this.#shadowLimited = words[10] !== 0 || words[11] !== 0 || words[13] !== 0;
-          this.#shadowValid = words[0] === 0 && words[1] === 0 && !this.#shadowLimited && words[15] === 0;
+          this.#shadowLimited = words[14] !== 0 || words[15] !== 0 || words[17] !== 0;
+          this.#shadowValid = words[0] === 0 && words[1] === 0 && !this.#shadowLimited && words[2] === 0;
           const selected = Math.max(1, this.#selectedPages);
-          const load = Math.max(1, this.#dirtyPages / selected, this.#casterPairs / (selected * 4096));
+          // Preserve the previous 4096 meshlet/page envelope while changing
+          // units to real unique vertices, triangles and triangle/page hits.
+          // These are conservative 256V/128T ABI ceilings, not GPU milliseconds.
+          const load = Math.max(
+            1,
+            this.#dirtyPages / selected,
+            words[9]! / (selected * 4096 * 256),
+            words[10]! / (selected * 4096 * 128),
+            this.#trianglePageIncidences / (selected * 4096 * 128)
+          );
           const target = Math.max(0.125, 1 / Math.sqrt(load));
           // Fast decrease, slow recovery. Missing samples retain the CPU model.
           this.#costScale += (target - this.#costScale) * (target < this.#costScale ? 0.5 : 0.1);
@@ -670,11 +690,11 @@ export class GeometryPageStreamingRuntimeV1 {
     const sink = {
       uploadCost: (
         page: import("../assets/geometry-product/GeometryProductV1.js").GeometryPageProductV1,
-        identity: import("./GeometryPageDemandAbiV1.js").GeometryPageDemandV1,
+        identity: import("./GeometryPageDemandAbiV1.js").GeometryPageDemandV1
       ) => pageResidency(identity).uploadCost(page),
       stagePage: (
         page: import("../assets/geometry-product/GeometryProductV1.js").GeometryPageProductV1,
-        identity: import("./GeometryPageDemandAbiV1.js").GeometryPageDemandV1,
+        identity: import("./GeometryPageDemandAbiV1.js").GeometryPageDemandV1
       ) => {
         const residency = pageResidency(identity);
         const staged = residency.tryStagePage(page) !== false;
@@ -685,7 +705,7 @@ export class GeometryPageStreamingRuntimeV1 {
           blockedAllocationPages++;
         }
         return staged;
-      },
+      }
     };
     let uploadedBytes = this.#scheduler.drainStageBudget(sink);
     const feedbackFrame = this.evictionFeedbackFrame();
@@ -704,7 +724,7 @@ export class GeometryPageStreamingRuntimeV1 {
           feedbackFrame,
           evictionBytesRemaining,
           2,
-          evictionPagesRemaining,
+          evictionPagesRemaining
         );
         if (pages.length > 0) {
           candidates.push({ residency, pages });
@@ -737,7 +757,7 @@ export class GeometryPageStreamingRuntimeV1 {
       consumedReadbacks,
       malformedReadbacks,
       uploadedBytes,
-      stagedPages,
+      stagedPages
     });
     return this.#lastPoll;
   }
@@ -758,7 +778,7 @@ export class GeometryPageStreamingRuntimeV1 {
   private async consumeWorkStatus(
     ring: GpuGeometryDemandReadbackRingV1,
     completedFrame: number,
-    shadow: boolean,
+    shadow: boolean
   ): Promise<void> {
     const statuses = await ring.poll(completedFrame);
     if (this.#destroyed) {
@@ -778,15 +798,15 @@ export class GeometryPageStreamingRuntimeV1 {
               Object.fromEntries(
                 Object.entries(GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS).map(([name, offset]) => [
                   name,
-                  view.getUint32(offset, true),
-                ]),
-              ),
+                  view.getUint32(offset, true)
+                ])
+              )
             ) as Readonly<GpuMeshletWorkQueueHeaderCpu>)
           : unpackGpuMeshletWorkQueueHeader(new Uint8Array(status.bytes));
         this.#workStatus = Object.freeze({ frameIndex: status.frameIndex, shadow, header });
         if (failed) {
           failure ??= new Error(
-            `${shadow ? "Shadow" : "Main"} MeshletWork frame ${status.frameIndex} rejected: attempted=${header.attemptedCount}, capacity=${header.capacity}, overflow=${header.overflowCount}, invalid=${header.invalidCount}`,
+            `${shadow ? "Shadow" : "Main"} MeshletWork frame ${status.frameIndex} rejected: attempted=${header.attemptedCount}, capacity=${header.capacity}, overflow=${header.overflowCount}, invalid=${header.invalidCount}`
           );
         }
       } catch (error) {
@@ -824,7 +844,7 @@ export class GeometryPageStreamingRuntimeV1 {
         pageId,
         frameIndex,
         (flags & (GEOMETRY_PAGE_DEMAND_FLAG_CURRENT_VIEW_MISSING | GEOMETRY_PAGE_DEMAND_FLAG_SHADOW)) !== 0,
-        (flags & GEOMETRY_PAGE_DEMAND_FLAG_PREDICTIVE) !== 0,
+        (flags & GEOMETRY_PAGE_DEMAND_FLAG_PREDICTIVE) !== 0
       );
     }
     return header.overflow === 0 && header.attempted <= header.capacity;
@@ -834,7 +854,7 @@ export class GeometryPageStreamingRuntimeV1 {
   async consumeAfterCompletion(
     frameIndex: number,
     completion: PromiseLike<void>,
-    nowMs = 0,
+    nowMs = 0
   ): Promise<GeometryPageStreamingPollEvidenceV1> {
     if (!Number.isSafeInteger(frameIndex) || frameIndex < 0) {
       throw new RangeError("Geometry page streaming frame index must be non-negative");
@@ -850,7 +870,7 @@ export class GeometryPageStreamingRuntimeV1 {
     if (this.#destroyed) return this.cancelledPoll(frameIndex + 1);
     const poll = this.#pollTail
       .then(() =>
-        this.#destroyed ? this.cancelledPoll(frameIndex + 1) : this.consumeCompleted(frameIndex + 1, nowMs),
+        this.#destroyed ? this.cancelledPoll(frameIndex + 1) : this.consumeCompleted(frameIndex + 1, nowMs)
       )
       .catch((error) => {
         if (this.#destroyed) {
@@ -872,7 +892,7 @@ export class GeometryPageStreamingRuntimeV1 {
       consumedReadbacks: 0,
       malformedReadbacks: 0,
       uploadedBytes: 0,
-      stagedPages: 0,
+      stagedPages: 0
     });
   }
 
@@ -898,10 +918,10 @@ export class GeometryPageStreamingRuntimeV1 {
         costFrame: this.#costFrame,
         dirtyPages: this.#dirtyPages,
         selectedPages: this.#selectedPages,
-        casterPairs: this.#casterPairs,
+        trianglePageIncidences: this.#trianglePageIncidences,
         shadowValid: this.#shadowValid,
         shadowLimited: this.#shadowLimited,
-        shadowStatus: this.#shadowStatus,
+        shadowStatus: this.#shadowStatus
       }),
       feedback: Object.freeze({
         mainFrame: this.#mainFeedbackFrame,
@@ -909,8 +929,8 @@ export class GeometryPageStreamingRuntimeV1 {
         shadowFrame: this.#shadowFeedbackFrame,
         shadowComplete: this.#shadowFeedbackComplete,
         lastShadowAttemptedFrame: this.#lastShadowAttemptedFrame,
-        evictionSafeFrame: this.evictionFeedbackFrame(),
-      }),
+        evictionSafeFrame: this.evictionFeedbackFrame()
+      })
     });
   }
 

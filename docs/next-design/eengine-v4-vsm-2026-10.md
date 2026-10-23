@@ -10,11 +10,11 @@ verifies:
     - OEngine/src/gpu/GpuInstanceAbi.ts
     - OEngine/src/gpu/GpuScene.ts
     - OEngine/src/gpu/GpuRenderWorld.ts
-    - OEngine/src/gpu/GpuVsmPairAbi.ts
+    - OEngine/src/gpu/GpuShadowBoundsAbi.ts
     - OEngine/src/render/ShadowMeshletBounds.ts
     - OEngine/src/shaders/shadow_meshlet_bounds.ts
-    - OEngine/src/shaders/vsm_pair_page.ts
-    - OEngine/tests/oracle/vsm-v4-r3-gpu.mjs
+    - OEngine/src/shaders/vsm_geometry.ts
+    - OEngine/tests/oracle/vsm-quality-contract-gpu.mjs
     - OEngine/src/render/ShadowGeometryWork.ts
     - OEngine/src/render/vsm
     - OEngine/src/render/surface/NativeVisibilityPass.ts
@@ -28,11 +28,9 @@ verifies:
     - OEngine/src/shaders/vsm_allocate_pages.ts
     - OEngine/src/shaders/vsm_demand_scan.ts
     - OEngine/src/shaders/vsm_page_commit.ts
-    - OEngine/src/shaders/vsm_caster_records.ts
     - OEngine/src/shaders/vsm_sampling.ts
     - OEngine/tests/oracle/geometry-shadow-view-gpu.mjs
-    - OEngine/tests/oracle/native-vsm-coverage-gpu.mjs
-    - OEngine/tests/oracle/vsm-quality-contract-gpu.mjs
+    - OEngine/tests/oracle/vsm-geometry-fixture.mjs
     - OEngine/src/render/surface/SurfaceV4.ts
 ---
 

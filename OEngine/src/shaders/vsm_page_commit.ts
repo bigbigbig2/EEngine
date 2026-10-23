@@ -1,11 +1,11 @@
 import { VSM_PAGE_TABLE_WGSL } from "./vsm_page_table.js";
-import { VSM_PAIR_WGSL } from "../gpu/GpuVsmPairAbi.js";
+import { VSM_RASTER_COMPLETION_WGSL } from "../gpu/GpuVsmGeometryAbi.js";
 
 /** One dirty page writer after real raster completion. Empty pages publish the
  * clear result; incomplete Geometry/caster/native partitions never publish. */
 export const VSM_PAGE_COMMIT_WGSL = /* wgsl */ `
 ${VSM_PAGE_TABLE_WGSL}
-${VSM_PAIR_WGSL}
+${VSM_RASTER_COMPLETION_WGSL}
 struct Constants {
   generation: u32,
   projection_epoch: u32,
@@ -29,28 +29,23 @@ struct Allocation {
   records: array<PageWork>,
 };
 @group(0) @binding(0) var<uniform> constants: Constants;
-@group(0) @binding(1) var<storage, read> pairs: VsmPairHeader;
+@group(0) @binding(1) var<storage, read> raster: VsmRasterStatus;
 @group(0) @binding(2) var<storage, read_write> pages: array<VsmPageEntry>;
 @group(0) @binding(3) var<storage, read_write> metas: array<VsmMetaEntry>;
-@group(0) @binding(4) var<storage, read> completion: array<u32>;
 @group(0) @binding(5) var<storage, read_write> content: array<atomic<u32>>;
 @group(0) @binding(6) var<storage, read> allocation: Allocation;
 
+@group(0) @binding(7) var<storage, read_write> descriptor_mutations: array<atomic<u32>>;
+fn vsm_mark_descriptor(page: u32) {
+  atomicOr(&descriptor_mutations[4u + page / 32u], 1u << (page % 32u));
+}
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
-  let length = arrayLength(&completion);
-  if (length < 4u || pairs.failure != 0u || pairs.mode > 1u || pairs.generation != constants.generation ||
-      (pairs.mode == 0u && pairs.written_count != pairs.attempted) ||
-      (pairs.mode == 1u && pairs.written_count != 0u) || pairs.dirty_count != allocation.written ||
-      allocation.overflow != 0u || allocation.generation != constants.generation ||
-      allocation.written > arrayLength(&allocation.records)) {
-    return;
-  }
-  let base = length - 4u;
-  if ((completion[base] | completion[base + 1u] | completion[base + 2u] | completion[base + 3u]) != 0u ||
-      id.x >= allocation.written) {
-    return;
-  }
+  if raster.failure != 0u || raster.generation != constants.generation ||
+      raster.completed_chunks != raster.expected_chunks || raster.dirty_count != allocation.written ||
+      raster.source_generation == 0u || allocation.overflow != 0u ||
+      allocation.generation != constants.generation || allocation.written > arrayLength(&allocation.records) ||
+      id.x >= allocation.written { return; }
   let work = allocation.records[id.x];
   if (work.virtual_page >= arrayLength(&pages) || work.slot >= arrayLength(&metas)) {
     return;
@@ -71,6 +66,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   slot_meta.reserved_0 = entry.reserved_0;
   slot_meta.dirty_since = 0u;
   pages[work.virtual_page] = entry;
+  vsm_mark_descriptor(work.virtual_page);
   metas[work.slot] = slot_meta;
   atomicStore(&content[1], 1u);
 }

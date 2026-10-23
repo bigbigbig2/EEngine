@@ -78,6 +78,10 @@ fn scan_lanes(lane: u32, value: vec4u) -> vec4u {
 fn is_requested(page: u32) -> bool {
   return page < constants.dimensions.z && (requested[page / 32u] & (1u << (page % 32u))) != 0u;
 }
+@group(0) @binding(11) var<storage, read_write> descriptor_mutations: array<atomic<u32>>;
+fn vsm_mark_descriptor(page: u32) {
+  atomicOr(&descriptor_mutations[4u + page / 32u], 1u << (page % 32u));
+}
 @compute @workgroup_size(64)
 fn touch(@builtin(global_invocation_id) id: vec3u) {
   if (id.x >= requests.written) {
@@ -100,6 +104,7 @@ fn touch(@builtin(global_invocation_id) id: vec3u) {
     atomicStore(&content[1], 1u);
   }
   pages[request.virtual_page].flags = 0u;
+  vsm_mark_descriptor(request.virtual_page);
   atomicOr(&missing[request.virtual_page / 32u], 1u << (request.virtual_page % 32u));
 }
 fn slot_class(slot: u32) -> u32 {
@@ -194,11 +199,13 @@ fn allocate(@builtin(global_invocation_id) id: vec3u) {
     let old_entry = pages[old_meta.virtual_page];
     if (old_entry.slot_y * constants.dimensions.y + old_entry.slot_x == slot) {
       pages[old_meta.virtual_page].flags = 0u;
+      vsm_mark_descriptor(old_meta.virtual_page);
       atomicAdd(&telemetry[1], 1u);
     }
   }
   let coordinate = vsm_page_entry_coordinates(request.virtual_page, constants.dimensions.x);
   let flags = 11u | select(0u, 16u, coarse);
+  vsm_mark_descriptor(request.virtual_page);
   pages[request.virtual_page] = VsmPageEntry(slot % constants.dimensions.y,
     slot / constants.dimensions.y, coordinate.y, flags, constants.control.x,
     5u, 0u, constants.identity.x, request.world.x, request.world.y, constants.identity.y, 0u);

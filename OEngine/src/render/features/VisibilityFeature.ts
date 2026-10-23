@@ -15,7 +15,7 @@ import {
   type PackedVisibilityOutputs,
   type PackedVisibilityPreparationEvidence,
   type PackedVisibilityPrepareJob,
-  type PreparedPackedVisibility,
+  type PreparedPackedVisibility
 } from "../passes/PackedVisibilityPass.js";
 
 /**
@@ -27,11 +27,11 @@ export class VisibilityFeature {
     runtime: Readonly<{ product: boolean; hierarchyMaxDepth: number }>,
     previousHzb: boolean,
     lateRecheck: boolean,
-    shadow: boolean,
+    shadow: boolean
   ): Promise<void> {
     await Promise.all([
       this.implementation.preparePipelines(runtime, previousHzb, lateRecheck),
-      ...(shadow ? [this.shadow.preparePipelines(runtime)] : []),
+      ...(shadow ? [this.shadow.preparePipelines(runtime)] : [])
     ]);
   }
 
@@ -65,7 +65,7 @@ export class VisibilityFeature {
   addToGraph(
     graph: FrameGraph,
     job: PackedVisibilityJob,
-    inputs: PackedVisibilityInputs,
+    inputs: PackedVisibilityInputs
   ): PackedVisibilityOutputs {
     return this.implementation.addToGraph(graph, job, inputs);
   }
@@ -73,7 +73,7 @@ export class VisibilityFeature {
   addCurrentHzbLateRecheckToGraph(
     graph: FrameGraph,
     job: PackedVisibilityJob,
-    inputs: PackedVisibilityLateRecheckInputs,
+    inputs: PackedVisibilityLateRecheckInputs
   ): PackedVisibilityOutputs {
     return this.implementation.addCurrentHzbLateRecheckToGraph(graph, job, inputs);
   }
@@ -82,12 +82,12 @@ export class VisibilityFeature {
     job: PackedVisibilityPrepareJob,
     counters: GPUBuffer,
     camera: GPUBuffer,
-    command: ShadeGPUCommandContext,
+    command: ShadeGPUCommandContext
   ): PreparedPackedVisibility {
     const prepared = this.implementation.prepareHierarchy(job, counters, camera, command);
     return Object.freeze({
       ...prepared,
-      shadowGeometry: this.shadow.prepare(job, prepared.workSet, camera, command),
+      shadowGeometry: this.shadow.prepare(job, prepared.workSet, camera, command)
     });
   }
 
@@ -101,11 +101,10 @@ export class VisibilityFeature {
       frameInstances: ResourceId;
       meshletBounds: ResourceId;
       allocation: ResourceId;
-      requested: ResourceId;
       productHeap?: ResourceId;
       productBanks?: readonly ResourceId[];
       geometrySources: readonly ResourceId[];
-    },
+    }
   ): { meshletWork: ResourceId; frameInstances: ResourceId; meshletBounds: ResourceId } {
     const prepared = job.prepared.shadowGeometry;
     if (!prepared) {
@@ -119,14 +118,12 @@ export class VisibilityFeature {
         data,
         data.prepared.shadowGeometry,
         context.encoder as ShadeGPUCommandContext,
-        resources.get(inputs.allocation) as GPUBuffer,
-        resources.get(inputs.requested) as GPUBuffer,
+        resources.get(inputs.allocation) as GPUBuffer
       );
     });
     pass.read(inputs.camera);
     pass.read(inputs.instances);
     pass.read(inputs.allocation);
-    pass.read(inputs.requested);
     for (const source of inputs.geometrySources) {
       pass.read(source);
     }
@@ -139,7 +136,7 @@ export class VisibilityFeature {
     return {
       meshletWork: pass.write(inputs.meshletWork),
       frameInstances: pass.write(inputs.frameInstances),
-      meshletBounds: pass.write(inputs.meshletBounds),
+      meshletBounds: pass.write(inputs.meshletBounds)
     };
   }
 
@@ -165,5 +162,5 @@ export type {
   GeometryHierarchyView,
   GpuAssetBindings,
   GpuSceneBindings,
-  GpuRenderWorldRuntime,
+  GpuRenderWorldRuntime
 };

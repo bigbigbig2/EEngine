@@ -1,7 +1,13 @@
+import { SHADOW_TILE_QUERY_WGSL } from "./shadow_tile_domain.js";
+import { hierarchyShadowLodWgsl } from "./hierarchy_lod.js";
 import { counterByteOffset } from "../debug/GpuFrameCounters.js";
 import { HIERARCHY_LOD_WGSL } from "./hierarchy_lod.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
-import { GPU_MESHLET_RASTER_WORK_WGSL, GPU_MESHLET_DECODE_PROFILE, GPU_PRODUCT_MESHLET_WORK_SETTINGS_FLAGS } from "../gpu/GpuMeshletRasterWorkAbi.js";
+import {
+  GPU_MESHLET_RASTER_WORK_WGSL,
+  GPU_MESHLET_DECODE_PROFILE,
+  GPU_PRODUCT_MESHLET_WORK_SETTINGS_FLAGS
+} from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_VISIBLE_CLUSTER_RECORD_SCHEMA, GPU_WORK_GENERATION_WGSL } from "../gpu/GpuWorkGenerationAbi.js";
 import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "./virtual_geometry_product.js";
 import { GEOMETRY_LAYOUT_V4 as L } from "../assets/GeometryLayoutV4.generated.js";
@@ -273,3 +279,10 @@ fn finalize_virtual_geometry_work() {
 `;
 
 export const VIRTUAL_GEOMETRY_MESHLET_WORK_VISIBLE_RECORD_STRIDE = GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.stride;
+
+export function virtualGeometryShadowWorkWgsl(): string {
+  return VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL.replace(
+    HIERARCHY_LOD_WGSL,
+    hierarchyShadowLodWgsl() + SHADOW_TILE_QUERY_WGSL
+  );
+}

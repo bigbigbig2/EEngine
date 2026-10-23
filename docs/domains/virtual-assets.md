@@ -12,8 +12,8 @@ verifies:
     - OEngine/src/gpu/GeometryPageStreamingRuntime.ts
     - OEngine/src/gpu/GraphicsContext.ts
     - OEngine/src/render/SceneRefinement.ts
-    - OEngine/src/render/vsm/VsmCasterRecordPass.ts
-    - OEngine/src/shaders/vsm_caster_records.ts
+    - OEngine/src/render/vsm/VsmGeometryRaster.ts
+    - OEngine/src/shaders/vsm_geometry.ts
     - OEngine/src/shaders/vsm_allocate_pages.ts
     - OEngine/src/gpu/GeometryPageScheduler.ts
     - OEngine/src/gpu/GeometryDemandReadbackRing.ts
@@ -33,7 +33,6 @@ verifies:
     - OEngine/src/assets/geometry-product/GeometryProductV1.ts
     - OEngine/src/assets/geometry-product/OegPackProductProvider.ts
     - OEngine/src/assets/geometry-product/GeometryProductQuerySection.ts
-    - OEngine/src/gpu/GeometryQueryDirectory.ts
     - OEngine/src/gpu/GeometryQueryDomain.ts
 ---
 # Virtual Assets

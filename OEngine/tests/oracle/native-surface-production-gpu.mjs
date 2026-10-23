@@ -7,7 +7,7 @@ import { GeometryPageStreamingRuntimeV1 } from "../../.test-dist/gpu/GeometryPag
 import { geometryProductGpuBudgetEvidence } from "../../.test-dist/gpu/GeometryProductGpuBudget.js";
 import {
   buildVirtualGeometrySceneSourceV1,
-  mergeVirtualGeometryProductSceneSourcesV1,
+  mergeVirtualGeometryProductSceneSourcesV1
 } from "../../.test-dist/assets/geometry-product/VirtualGeometrySceneSourceV1.js";
 import { Renderer } from "../../.test-dist/render/pipeline/RendererCore.js";
 import { VSM_FILTER_DATA_BYTES, VSM_FILTER_MODES } from "../../.test-dist/gpu/GpuVsmFilterAbi.js";
@@ -48,7 +48,7 @@ const check = (condition, message) => {
 const convert = ([r, g, b]) => [
   0.627404 * r + 0.329282 * g + 0.0433136 * b,
   0.069097 * r + 0.91954 * g + 0.0113612 * b,
-  0.0163916 * r + 0.0880132 * g + 0.895595 * b,
+  0.0163916 * r + 0.0880132 * g + 0.895595 * b
 ];
 
 /** Real Renderer demand closure. The bounded case projects a 2048 capability
@@ -61,32 +61,32 @@ export async function runFinalPixelFeatureDemandGpuOracle() {
   for (const { physicalSun, authoredIbl } of [
     { physicalSun: false, authoredIbl: false },
     { physicalSun: false, authoredIbl: true },
-    { physicalSun: true, authoredIbl: false },
+    { physicalSun: true, authoredIbl: false }
   ]) {
     const adapter = await navigator.gpu.requestAdapter({
       powerPreference: "high-performance",
-      featureLevel: "core",
+      featureLevel: "core"
     });
     check(adapter, "Feature demand oracle requires a hardware adapter");
     const features = [
       "core-features-and-limits",
       "indirect-first-instance",
       "texture-formats-tier1",
-      "texture-compression-bc",
+      "texture-compression-bc"
     ];
     for (const optional of ["primitive-index", "subgroups", "timestamp-query"]) {
       if (adapter.features.has(optional)) features.push(optional);
     }
     const actualDevice = await adapter.requestDevice({
       requiredFeatures: features,
-      requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
+      requiredLimits: { maxStorageBuffersPerShaderStage: 16 }
     });
     const errors = [];
     actualDevice.addEventListener("uncapturederror", (event) => errors.push(event.error.message));
     const boundedLimits = new Proxy(actualDevice.limits, {
       get(target, key) {
         return key === "maxTextureDimension2D" ? 2048 : Reflect.get(target, key, target);
-      },
+      }
     });
     const device = physicalSun
       ? new Proxy(actualDevice, {
@@ -94,11 +94,14 @@ export async function runFinalPixelFeatureDemandGpuOracle() {
             if (key === "limits") return boundedLimits;
             const value = Reflect.get(target, key, target);
             return typeof value === "function" ? value.bind(target) : value;
-          },
+          }
         })
       : actualDevice;
-    const renderer = new Renderer({ autoExposure: false, fixedExposure: 1,
-      imageTextureKernels: await evaluationImageKernels() });
+    const renderer = new Renderer({
+      autoExposure: false,
+      fixedExposure: 1,
+      imageTextureKernels: await evaluationImageKernels()
+    });
     const actualContext = new OffscreenCanvas(192, 128).getContext("webgpu");
     // WebIDL requires the real device at the canvas boundary. All allocation
     // and encoding methods above likewise bind directly to the real device.
@@ -109,7 +112,7 @@ export async function runFinalPixelFeatureDemandGpuOracle() {
               return (options) => target.configure({ ...options, device: actualDevice });
             const value = Reflect.get(target, key, target);
             return typeof value === "function" ? value.bind(target) : value;
-          },
+          }
         })
       : actualContext;
     let readback = null;
@@ -119,12 +122,12 @@ export async function runFinalPixelFeatureDemandGpuOracle() {
         device,
         adapter,
         context,
-        config: { enablePhysicalEnvironment: physicalSun },
+        config: { enablePhysicalEnvironment: physicalSun }
       });
       renderer.resize(192, 128);
       check(
         physicalSun ? renderer._vsm?.profile === "vsm-directional-bounded" : renderer._vsm === null,
-        "VSM allocation did not follow Physical Sun/profile demand",
+        "VSM allocation did not follow Physical Sun/profile demand"
       );
       const scene = new Scene();
       if (authoredIbl) {
@@ -169,7 +172,7 @@ export async function runFinalPixelFeatureDemandGpuOracle() {
           encoder.copyTextureToBuffer(
             { texture: frame.output },
             { buffer: readback, bytesPerRow: 1536 },
-            [192, 128],
+            [192, 128]
           );
         }
       };
@@ -183,7 +186,7 @@ export async function runFinalPixelFeatureDemandGpuOracle() {
         }
         check(
           renderer.frame_count !== start,
-          `Feature demand frame deferred: ${renderer._lastFrameDeferral}`,
+          `Feature demand frame deferred: ${renderer._lastFrameDeferral}`
         );
       };
       const domains = [];
@@ -207,18 +210,18 @@ export async function runFinalPixelFeatureDemandGpuOracle() {
         renderer.frame_count === pausedCount &&
           renderer._temporalSeed.readIndex === pausedSeed &&
           renderer._nativeTemporal.readIndex === pausedColor,
-        "Paused caller advanced Temporal ownership",
+        "Paused caller advanced Temporal ownership"
       );
       await tick();
       check(
         renderer.frame_count === pausedCount + 1 &&
           renderer._temporalSeed.readIndex !== pausedSeed &&
           renderer._nativeTemporal.readIndex !== pausedColor,
-        "Single-step did not publish exactly one Temporal frame",
+        "Single-step did not publish exactly one Temporal frame"
       );
       readback = actualDevice.createBuffer({
         size: 1536 * 128,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
       });
       await tick();
       await readback.mapAsync(GPUMapMode.READ);
@@ -233,7 +236,7 @@ export async function runFinalPixelFeatureDemandGpuOracle() {
       }
       check(
         positive > 0,
-        `Lights produced no radiance: physicalSun=${physicalSun}, authoredIbl=${authoredIbl}`,
+        `Lights produced no radiance: physicalSun=${physicalSun}, authoredIbl=${authoredIbl}`
       );
       readback.unmap();
       readback.destroy();
@@ -245,7 +248,7 @@ export async function runFinalPixelFeatureDemandGpuOracle() {
       await tick();
       check(
         renderer._lastFrameGraph.program.stages.includes("vsm") === physicalSun,
-        "Lit return lost VSM demand",
+        "Lit return lost VSM demand"
       );
       check(errors.length === 0, `Feature demand validation errors: ${errors}`);
       cases.push({
@@ -255,7 +258,7 @@ export async function runFinalPixelFeatureDemandGpuOracle() {
         domains,
         positive,
         callerPauseStep: true,
-        errors,
+        errors
       });
     } finally {
       readback?.destroy();
@@ -267,12 +270,12 @@ export async function runFinalPixelFeatureDemandGpuOracle() {
   const audit = window.dungeonGpuAudit.snapshot();
   check(
     audit.bytes === 0 && audit.unknownFormats.length === 0,
-    `Feature demand leaked ${audit.bytes} API bytes`,
+    `Feature demand leaked ${audit.bytes} API bytes`
   );
   return {
     cases,
     releaseBytes: audit.bytes,
-    scope: "Real no-Sun Renderer and capability-projected bounded Renderer; no adapter negotiation claim",
+    scope: "Real no-Sun Renderer and capability-projected bounded Renderer; no adapter negotiation claim"
   };
 }
 
@@ -291,7 +294,7 @@ export async function authoredTexture(semantic, texel, extent = 16) {
       logicalHeight: size,
       physicalWidth: size,
       physicalHeight: size,
-      payload,
+      payload
     };
   });
   return fixtureTexture(semantic, mips, semantic === "base-color-srgb");
@@ -305,12 +308,15 @@ export async function authoredTexture(semantic, texel, extent = 16) {
 export async function runNativeSurfaceProductionGpuOracle(
   _device,
   productGeometry = false,
-  authoredEnvironment = false,
+  authoredEnvironment = false
 ) {
   const { installDungeonGpuAudit } = await import("../../../validation/tools/dungeon-gpu-audit.mjs");
   installDungeonGpuAudit();
-  let renderer = new Renderer({ autoExposure: false, fixedExposure: 1,
-    imageTextureKernels: await evaluationImageKernels() });
+  let renderer = new Renderer({
+    autoExposure: false,
+    fixedExposure: 1,
+    imageTextureKernels: await evaluationImageKernels()
+  });
   const canvas = new OffscreenCanvas(384, 224);
   const context = canvas.getContext("webgpu");
   check(context !== null, "Production oracle needs a WebGPU canvas");
@@ -332,7 +338,7 @@ export async function runNativeSurfaceProductionGpuOracle(
   const geometry = new BoxGeometry(1.4, 1.4, 1.4);
   const cooked = await cookGeometryAssetPackage(
     buildBoxSourceGeometry(1.4, 1.4, 1.4),
-    createGeometryCookRecipe(),
+    createGeometryCookRecipe()
   );
   const graph = new AppearanceGraphBuilder();
   graph.output("baseColor", graph.input("tint", 3, "dynamic", { low: 0, high: 1 }));
@@ -360,13 +366,13 @@ export async function runNativeSurfaceProductionGpuOracle(
     x < size / 2 ? 144 : 112,
     128,
     253,
-    255,
+    255
   ]);
   materials[4].texture_orm = await authoredTexture("orm-linear", (x, _y, size) => [
     255,
     x < size / 2 ? 153 : 204,
     51,
-    255,
+    255
   ]);
   materials[4].metallic_factor = 0.6;
   materials[3].draw_side = ShadeDrawSide.Double;
@@ -432,7 +438,7 @@ export async function runNativeSurfaceProductionGpuOracle(
       arenaOwnerPeakBytes = Math.max(arenaOwnerPeakBytes, arenaOwner.allocatedBytes);
       check(
         arenaOwner.allocatedBytes <= 256 * 1024 * 1024,
-        "Arena replacement exceeded cumulative owner budget",
+        "Arena replacement exceeded cumulative owner budget"
       );
       return prepared;
     };
@@ -443,10 +449,10 @@ export async function runNativeSurfaceProductionGpuOracle(
         forcePreparationMiss
           ? {
               ...job,
-              frameGeometryBudget: { vertexCapacity: 1, triangleCapacity: 1, maxBytes: 16 * 1024 * 1024 },
+              frameGeometryBudget: { vertexCapacity: 1, triangleCapacity: 1, maxBytes: 16 * 1024 * 1024 }
             }
           : job,
-        ...rest,
+        ...rest
       );
     const surface = renderer._surface;
     const prepare = surface.prepareFrameNow.bind(surface);
@@ -463,7 +469,7 @@ export async function runNativeSurfaceProductionGpuOracle(
       const make = (size) => {
         const buffer = device.createBuffer({
           size,
-          usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+          usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
         });
         buffers.push(buffer);
         return buffer;
@@ -473,11 +479,11 @@ export async function runNativeSurfaceProductionGpuOracle(
         work = make(frame.geometry.meshletWork.size);
       encoder.copyTextureToBuffer({ texture: frame.output }, { buffer: hdr, bytesPerRow: pitch }, [
         frame.width,
-        frame.height,
+        frame.height
       ]);
       encoder.copyTextureToBuffer({ texture: frame.visibility }, { buffer: winner, bytesPerRow: keyPitch }, [
         frame.width,
-        frame.height,
+        frame.height
       ]);
       encoder.copyBufferToBuffer(frame.geometry.meshletWork, 0, work, 0, work.size);
       const instances = make(frame.geometry.instances.size);
@@ -493,7 +499,7 @@ export async function runNativeSurfaceProductionGpuOracle(
         pitch,
         keyPitch,
         width: frame.width,
-        height: frame.height,
+        height: frame.height
       };
       if (fail) {
         throw new Error("injected native production abort");
@@ -537,24 +543,24 @@ export async function runNativeSurfaceProductionGpuOracle(
     const native = renderer.graphics.render_world.runtime(renderScene).nativeMaterials;
     throw new Error(
       `Native production readiness never completed: ${renderer._lastFrameDeferral}; ` +
-        `candidateReady=${native.candidate?.ready}, surfaceReady=${renderer._surface.canPrepareFrame()}`,
+        `candidateReady=${native.candidate?.ready}, surfaceReady=${renderer._surface.canPrepareFrame()}`
     );
   };
   const inspectVsm = async () => {
     const resources = renderer._vsm;
-    check(resources?.pageTable && resources?.casterRecords, "Production VSM is disabled");
+    check(resources?.pageTable && resources?.rasterStatus, "Production VSM is disabled");
     const pages = device.createBuffer({
       size: resources.pageTable.size,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
     });
     const casters = device.createBuffer({
-      size: 16,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      size: 48,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
     });
     buffers.push(pages, casters);
     const encoder = device.createCommandEncoder({ label: "oracle/production VSM readback" });
     encoder.copyBufferToBuffer(resources.pageTable, 0, pages, 0, pages.size);
-    encoder.copyBufferToBuffer(resources.casterRecords, 0, casters, 0, 16);
+    encoder.copyBufferToBuffer(resources.rasterStatus, 0, casters, 0, 48);
     device.queue.submit([encoder.finish()]);
     await Promise.all([pages, casters].map((buffer) => buffer.mapAsync(GPUMapMode.READ)));
     const words = new Uint32Array(pages.getMappedRange());
@@ -564,7 +570,7 @@ export async function runNativeSurfaceProductionGpuOracle(
       if ((words[word + 3] & 1) !== 0) {
         allocated++;
       }
-      if ((words[word + 3] & 8) !== 0) {
+      if ((words[word + 3] & 15) === 9) {
         contentValid++;
       }
     }
@@ -572,14 +578,15 @@ export async function runNativeSurfaceProductionGpuOracle(
     pages.unmap();
     casters.unmap();
     check(
-      allocated > 0 && contentValid > 0 && count[1] > 0,
-      `Production VSM must publish real pages/casters: ${allocated}/${contentValid}/${count}`,
+      allocated > 0 && contentValid > 0 && count[0] === 0 && count[1] === count[2] && count[4] !== 0,
+      `Production VSM must publish real pages/casters: ${allocated}/${contentValid}/${count}`
     );
     return {
       allocatedPages: allocated,
       contentValidPages: contentValid,
-      writtenCasters: count[1],
-      overflow: count[2],
+      sourceVertices: count[7],
+      trianglePageIncidences: count[9] + count[11] * 2 ** 32,
+      failure: count[0]
     };
   };
   const inspect = async (alphaVisible = true, requiredMaterials = [0, 1, 2, 3, 4]) => {
@@ -587,8 +594,8 @@ export async function runNativeSurfaceProductionGpuOracle(
     const current = capture;
     await Promise.all(
       [current.hdr, current.winner, current.work, current.instances, current.arena].map((buffer) =>
-        buffer.mapAsync(GPUMapMode.READ),
-      ),
+        buffer.mapAsync(GPUMapMode.READ)
+      )
     );
     const hdr = new Uint16Array(current.hdr.getMappedRange());
     const winner = new Uint32Array(current.winner.getMappedRange());
@@ -596,7 +603,7 @@ export async function runNativeSurfaceProductionGpuOracle(
     const arenaWords = new Uint32Array(current.arena.getMappedRange());
     const runtime = renderer.graphics.render_world.runtime(scene);
     const sourceBySlot = new Map(
-      runtime.nativeMaterials.materialSources.map((source) => [source.materialSlot, source.material]),
+      runtime.nativeMaterials.materialSources.map((source) => [source.materialSlot, source.material])
     );
     const counts = new Map();
     let maximumError = 0;
@@ -612,13 +619,13 @@ export async function runNativeSurfaceProductionGpuOracle(
         check(material !== undefined, "Winner refers to unpublished native material");
         counts.set(material, (counts.get(material) ?? 0) + 1);
         const actual = [0, 1, 2].map((channel) =>
-          decodeFloat16(hdr[(y * current.pitch) / 2 + x * 4 + channel]),
+          decodeFloat16(hdr[(y * current.pitch) / 2 + x * 4 + channel])
         );
         check(actual.every(Number.isFinite), "Native production HDR is not finite");
         if (!material.is_unlit) {
           check(
             actual.some((value) => value > 0),
-            "Real lit winner has no radiance",
+            "Real lit winner has no radiance"
           );
           continue;
         }
@@ -637,15 +644,15 @@ export async function runNativeSurfaceProductionGpuOracle(
       requiredMaterials.every((index) =>
         index === 1 && !alphaVisible
           ? (counts.get(materials[index]) ?? 0) === 0
-          : (counts.get(materials[index]) ?? 0) > 20,
+          : (counts.get(materials[index]) ?? 0) > 20
       ),
-      `Every native program/material must have actual winners: ${materials.map((material) => counts.get(material) ?? 0)}; queue=${work.slice(0, 38)}; instance=${new Uint32Array(current.instances.getMappedRange()).slice(0, 80)}; arena=${arenaWords.slice(actualFrame.geometry.sourcePayload[3], actualFrame.geometry.sourcePayload[3] + 32)}`,
+      `Every native program/material must have actual winners: ${materials.map((material) => counts.get(material) ?? 0)}; queue=${work.slice(0, 38)}; instance=${new Uint32Array(current.instances.getMappedRange()).slice(0, 80)}; arena=${arenaWords.slice(actualFrame.geometry.sourcePayload[3], actualFrame.geometry.sourcePayload[3] + 32)}`
     );
     hdrSnapshot = hdr.slice();
     const header = actualFrame.geometry.sourcePayload[3] & 0x7fffffff;
     check(
       arenaWords[header] === FRAME_GEOMETRY_ARENA_VERSION,
-      "Production consumed an obsolete frame geometry layout",
+      "Production consumed an obsolete frame geometry layout"
     );
     const directory = arenaWords[header + (actualFrame.geometry.sourcePayload[3] >>> 31 ? 5 : 4)];
     let cachedMeshlets = 0;
@@ -656,7 +663,7 @@ export async function runNativeSurfaceProductionGpuOracle(
     const preparedVertices = arenaWords[directory + 2];
     const preparedTriangles = arenaWords[directory + 3];
     [current.hdr, current.winner, current.work, current.instances, current.arena].forEach((buffer) =>
-      buffer.unmap(),
+      buffer.unmap()
     );
     return {
       visiblePixels: [...counts.values()].reduce((a, b) => a + b, 0),
@@ -668,7 +675,7 @@ export async function runNativeSurfaceProductionGpuOracle(
       arenaOwnerBytes: renderer.graphics.frame_geometry_arena.allocatedBytes,
       programs: new Set(runtime.nativeMaterials.publication.entries.map((entry) => entry.programIndex)).size,
       bins: runtime.nativeMaterials.publication.bins.length,
-      bindingSets: new Set(runtime.nativeMaterials.publication.bins.map((bin) => bin.bindingSet)).size,
+      bindingSets: new Set(runtime.nativeMaterials.publication.bins.map((bin) => bin.bindingSet)).size
     };
   };
   try {
@@ -677,7 +684,7 @@ export async function runNativeSurfaceProductionGpuOracle(
         module: await createDefaultWebGeometryCookerModule(),
         producerId: "native-production-oracle",
         producerVersion: "S2",
-        maxDecodedProductBytes: 32 * 1024 * 1024,
+        maxDecodedProductBytes: 32 * 1024 * 1024
       });
       for (const instance of product.canonicalization.instances) {
         instance.flags = GPU_INSTANCE_FLAGS.CastsShadow | GPU_INSTANCE_FLAGS.ReceivesShadow;
@@ -694,7 +701,7 @@ export async function runNativeSurfaceProductionGpuOracle(
             readPage: (pageId, signal) => original.readPage(pageId, signal),
             release() {
               if (--leases === 0) original.release();
-            },
+            }
           };
         };
         const parts = [];
@@ -706,25 +713,25 @@ export async function runNativeSurfaceProductionGpuOracle(
             readPage: (pageId, signal) => original.readPage(pageId, signal),
             release() {
               if (--leases === 0) original.release();
-            },
+            }
           };
           const shard = await runtime.load(source);
           shards.push(shard);
           queryProducts.push(shard.residency);
           const instances = product.canonicalization.instances.filter(
-            (_instance, index) => index % 2 === shardIndex,
+            (_instance, index) => index % 2 === shardIndex
           );
           const mapped = buildVirtualGeometrySceneSourceV1(
             source.descriptor,
             product.canonicalization.profiles,
             instances,
-            product.canonicalization.materials,
+            product.canonicalization.materials
           );
           parts.push({
             source: { ...mapped.source, meshes: meshes.filter((_mesh, index) => index % 2 === shardIndex) },
             productTableSlot: shard.productTableSlot,
             productGeneration: shard.productGeneration,
-            assetReferenceBegin: shard.assetReferenceBegin,
+            assetReferenceBegin: shard.assetReferenceBegin
           });
         }
         const combined = mergeVirtualGeometryProductSceneSourcesV1(parts);
@@ -742,41 +749,60 @@ export async function runNativeSurfaceProductionGpuOracle(
             bindings: runtime.bindings(),
             assetCount: combined.assetCount,
             registerStreaming: false,
-            multiRuntime: runtime,
-          },
+            multiRuntime: runtime
+          }
         );
       } else {
-        const prepare = () => renderer.prepareVirtualGeometryMaterials(
-          product.canonicalization.materials,
-          product.canonicalization.profiles,
-        );
+        const prepare = () =>
+          renderer.prepareVirtualGeometryMaterials(
+            product.canonicalization.materials,
+            product.canonicalization.profiles
+          );
         const rejectedMaterials = await prepare();
         let rejectedInitialProvider = false;
         try {
-          await renderer.uploadProductScene(scene, {
-            async *revisions() { throw new Error("injected initial provider failure"); },
-          }, () => { throw new Error("Failed provider must not map a scene"); }, {
-            materials: rejectedMaterials,
-          });
+          await renderer.uploadProductScene(
+            scene,
+            {
+              async *revisions() {
+                throw new Error("injected initial provider failure");
+              }
+            },
+            () => {
+              throw new Error("Failed provider must not map a scene");
+            },
+            {
+              materials: rejectedMaterials
+            }
+          );
         } catch (error) {
           check(error.message.includes("injected initial provider failure"), error.message);
           rejectedInitialProvider = true;
         }
         check(rejectedInitialProvider, "Failed initial provider unexpectedly published a scene");
-        check(!renderer._preparedMaterials.has(rejectedMaterials),
-          "Failed Product admission retained its one-shot material transaction");
+        check(
+          !renderer._preparedMaterials.has(rejectedMaterials),
+          "Failed Product admission retained its one-shot material transaction"
+        );
         const preparedMaterials = await prepare();
-        await renderer.uploadProductScene(scene, product.provider, ({ descriptor }) => {
-          const mapped = buildVirtualGeometrySceneSourceV1(
-            descriptor,
-            product.canonicalization.profiles,
-            product.canonicalization.instances,
-            product.canonicalization.materials,
-          );
-          return { materials: mapped.materials, source: { ...mapped.source, meshes } };
-        }, { materials: preparedMaterials });
-        check(!renderer._preparedMaterials.has(preparedMaterials),
-          "Published Product did not consume its one-shot material transaction");
+        await renderer.uploadProductScene(
+          scene,
+          product.provider,
+          ({ descriptor }) => {
+            const mapped = buildVirtualGeometrySceneSourceV1(
+              descriptor,
+              product.canonicalization.profiles,
+              product.canonicalization.instances,
+              product.canonicalization.materials
+            );
+            return { materials: mapped.materials, source: { ...mapped.source, meshes } };
+          },
+          { materials: preparedMaterials }
+        );
+        check(
+          !renderer._preparedMaterials.has(preparedMaterials),
+          "Published Product did not consume its one-shot material transaction"
+        );
       }
     } else {
       const adapted = createPackedSceneSourceFromScene(scene, [{ geometry, asset: cooked.asset }]);
@@ -798,7 +824,7 @@ export async function runNativeSurfaceProductionGpuOracle(
       for (const product of queryProducts) {
         check(
           product.queryCoveragePages().every((page) => product.pageLocation(page) !== undefined),
-          "Scheduled query coverage did not reach the ordinary frame publication",
+          "Scheduled query coverage did not reach the ordinary frame publication"
         );
       }
       // Standalone query consumers publish their demand after Renderer frames;
@@ -830,7 +856,7 @@ export async function runNativeSurfaceProductionGpuOracle(
         maximumBytes: 64 * 1024 * 1024,
         subgroup: false,
         directorySegmentBytes,
-        domain: { min: [-20, -20, -101], max: [20, 20, 5] },
+        domain: { min: [-20, -20, -101], max: [20, 20, 5] }
       };
       const makeScene = () =>
         ScgiQueryScene.create(
@@ -841,7 +867,7 @@ export async function runNativeSurfaceProductionGpuOracle(
           queryProducts,
           renderer.graphics.resource_accounting,
           undefined,
-          queryStreaming,
+          queryStreaming
         );
       const aborted = await makeScene();
       const cancel = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
@@ -851,15 +877,15 @@ export async function runNativeSurfaceProductionGpuOracle(
       const queryScene = await makeScene();
       const batch = device.createBuffer({
         size: 80,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
       });
       const output = device.createBuffer({
         size: 64,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
       });
       const read = device.createBuffer({
         size: 96,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
       });
       const queries = [];
       let consumed = false;
@@ -886,9 +912,9 @@ export async function runNativeSurfaceProductionGpuOracle(
                   view: camera.view_matrix.elements ?? camera.view_matrix,
                   camera: [-2.4, 0, 4],
                   coneWidth: 0.001,
-                  coneSpread: 0.001,
-                },
-              }),
+                  coneSpread: 0.001
+                }
+              })
             );
           }
         }
@@ -900,7 +926,7 @@ export async function runNativeSurfaceProductionGpuOracle(
           batch,
           1,
           48,
-          queryScene.materials.bins.length,
+          queryScene.materials.bins.length
         );
         for (const arena of queryScene.arenas) {
           const segments = [...new Set(arena.geometries.map((item) => item.segment))];
@@ -910,7 +936,7 @@ export async function runNativeSurfaceProductionGpuOracle(
               ...arena.routes[0],
               sourceGroup,
               segment,
-              lease: arena.geometries.find((item) => item.segment === segment).lease,
+              lease: arena.geometries.find((item) => item.segment === segment).lease
             };
             for (const bin of queryScene.materials.bins) {
               queries.push(
@@ -933,9 +959,9 @@ export async function runNativeSurfaceProductionGpuOracle(
                     view: camera.view_matrix.elements ?? camera.view_matrix,
                     camera: [-2.4, 0, 4],
                     coneWidth: 0.001,
-                    coneSpread: 0.001,
-                  },
-                }),
+                    coneSpread: 0.001
+                  }
+                })
               );
             }
           }
@@ -963,12 +989,12 @@ export async function runNativeSurfaceProductionGpuOracle(
         const values = new Float32Array(bytes);
         check(
           words[3] === 0 && Math.abs(values[0] - 3.3) < 1e-5,
-          `Real multi-Product query failed: ${[...words.subarray(0, 8)]}`,
+          `Real multi-Product query failed: ${[...words.subarray(0, 8)]}`
         );
         for (let channel = 0; channel < 3; channel++) {
           check(
             Math.abs(values[12 + channel] - [0.2, 0.3, 0.1][channel]) < 1e-5,
-            "Accepted hit did not consume the existing native unlit material projection",
+            "Accepted hit did not consume the existing native unlit material projection"
           );
         }
         queryPublication = {
@@ -981,10 +1007,10 @@ export async function runNativeSurfaceProductionGpuOracle(
           actualRenderWorld: true,
           scheduledQueryCoverage: true,
           finiteDirectorySegments: queryScene.geometries.every(
-            (shard) => shard.segment.metadata.size <= directorySegmentBytes,
+            (shard) => shard.segment.metadata.size <= directorySegmentBytes
           ),
           directorySegmentBytes,
-          batchCost: null,
+          batchCost: null
         };
         completeBatch = await ScgiQueryBatch.create(device, queryScene, {
           batch,
@@ -994,7 +1020,7 @@ export async function runNativeSurfaceProductionGpuOracle(
           view: camera.view_matrix,
           camera: [-2.4, 0, 4],
           coneWidth: 0.001,
-          coneSpread: 0.001,
+          coneSpread: 0.001
         });
         queryPublication.batchCost = completeBatch.cost;
         const full = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
@@ -1008,12 +1034,12 @@ export async function runNativeSurfaceProductionGpuOracle(
         read.unmap();
         check(
           new Uint32Array(fullBytes)[3] === 0 && Math.abs(new Float32Array(fullBytes)[0] - 3.3) < 1e-5,
-          "Complete multi-Product complete batch did not preserve accepted hit",
+          "Complete multi-Product complete batch did not preserve accepted hit"
         );
         for (let channel = 0; channel < 3; channel++) {
           check(
             Math.abs(new Float32Array(fullBytes)[12 + channel] - [0.2, 0.3, 0.1][channel]) < 1e-5,
-            "Complete query batch did not shade its accepted native material",
+            "Complete query batch did not shade its accepted native material"
           );
         }
         queryPublication.completeBatch = true;
@@ -1023,7 +1049,7 @@ export async function runNativeSurfaceProductionGpuOracle(
         const escapedRay = ray.slice(0);
         new Float32Array(escapedRay)[7] = 200;
         escaped.uploadRegions([
-          { destination: batch, destinationOffset: 0, bytes: new Uint8Array(escapedRay) },
+          { destination: batch, destinationOffset: 0, bytes: new Uint8Array(escapedRay) }
         ]);
         completeBatch.encode(escaped);
         escaped.copyBufferToBuffer(batch, 48, read, 0, 32);
@@ -1034,7 +1060,7 @@ export async function runNativeSurfaceProductionGpuOracle(
         read.unmap();
         check(
           escapedResult[3] === 2,
-          "Query outside cascade+guard domain was classified as hit or physical miss",
+          "Query outside cascade+guard domain was classified as hit or physical miss"
         );
         const restored = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
         restored.uploadRegions([{ destination: batch, destinationOffset: 0, bytes: new Uint8Array(ray) }]);
@@ -1051,7 +1077,7 @@ export async function runNativeSurfaceProductionGpuOracle(
           device,
           queryScene.sourceInstances,
           [queryScene.geometries[0].lease],
-          queryScene.materials.directory,
+          queryScene.materials.directory
         );
         const incomplete = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
         incompleteCoverage.encode(incomplete);
@@ -1065,7 +1091,7 @@ export async function runNativeSurfaceProductionGpuOracle(
           batch,
           rayCount: 1,
           resultByteOffset: 48,
-          coverageStatus: incompleteCoverage.status,
+          coverageStatus: incompleteCoverage.status
         });
         queries.push(unknown);
         unknown.encode(incomplete);
@@ -1078,7 +1104,7 @@ export async function runNativeSurfaceProductionGpuOracle(
         read.unmap();
         check(
           missing[3] === 2 && (missing[8] & 1) !== 0 && missing[9] > 0,
-          "Missing Product coverage was misclassified as hit or physical miss",
+          "Missing Product coverage was misclassified as hit or physical miss"
         );
         queryPublication.missingProductUnknown = true;
         const cancelled = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
@@ -1095,9 +1121,9 @@ export async function runNativeSurfaceProductionGpuOracle(
           world.instanceHandle,
           {
             frameId: renderer.frame_count,
-            transforms: { indices: new Uint32Array([0]), transforms: moved },
+            transforms: { indices: new Uint32Array([0]), transforms: moved }
           },
-          stale,
+          stale
         );
         let rejectedStale = false;
         try {
@@ -1107,7 +1133,7 @@ export async function runNativeSurfaceProductionGpuOracle(
         }
         check(
           rejectedStale && !stale.wasSubmitted,
-          "A post-copy instance mutation submitted stale query truth",
+          "A post-copy instance mutation submitted stale query truth"
         );
         check(queryScene.valid, "Aborted source edit destroyed retained historical query resources");
         const obsolete = ShadeGPUCommandContext.create(renderer.graphics, "Renderer/visibility-frame");
@@ -1135,7 +1161,7 @@ export async function runNativeSurfaceProductionGpuOracle(
           view: camera.view_matrix,
           camera: [-2.4, 0, 4],
           coneWidth: 0.001,
-          coneSpread: 0.001,
+          coneSpread: 0.001
         });
         await queryScene.releaseAfter(command.gpuDone);
         completeBatch.destroy();
@@ -1179,20 +1205,20 @@ export async function runNativeSurfaceProductionGpuOracle(
     check(
       initialization.firstSubmittedAtMs !== null &&
         initialization.firstCompletedAtMs >= initialization.firstSubmittedAtMs,
-      "Initialization must observe the real first completed frame",
+      "Initialization must observe the real first completed frame"
     );
     check(
       initialization.firstGraphLowerMs >= 0 &&
         initialization.firstEncodeMs >= 0 &&
         initialization.firstFinishMs >= 0 &&
         initialization.firstSubmitMs >= 0,
-      "Initialization CPU stages are missing",
+      "Initialization CPU stages are missing"
     );
     check(
       initialization.pipelines.concurrency === 16 &&
         initialization.pipelines.active === 0 &&
         initialization.pipelines.queued === 0,
-      "First-frame pipeline preparation is incomplete",
+      "First-frame pipeline preparation is incomplete"
     );
     // Query coverage admission advances ordinary frames. In a steady frame VSM
     // correctly keeps its valid pages and emits no caster work. Request a real
@@ -1205,7 +1231,7 @@ export async function runNativeSurfaceProductionGpuOracle(
       publication: renderer.graphics.render_world.runtime(scene).nativeMaterials.active,
       temporal: renderer._nativeTemporal.readIndex,
       seed: renderer._temporalSeed.readIndex,
-      ao: renderer._committedAmbientOcclusionKey,
+      ao: renderer._committedAmbientOcclusionKey
     };
     const createComputeAsync = device.createComputePipelineAsync.bind(device);
     let rejectedPreparationJobs = 0;
@@ -1226,7 +1252,7 @@ export async function runNativeSurfaceProductionGpuOracle(
         } catch (error) {
           check(
             error.message === "injected candidate pipeline failure",
-            `Unexpected preparation failure: ${error.message}`,
+            `Unexpected preparation failure: ${error.message}`
           );
           preparationFailed = true;
         }
@@ -1237,13 +1263,13 @@ export async function runNativeSurfaceProductionGpuOracle(
             renderer._committedAmbientOcclusionKey === beforePreparationFailure.ao &&
             renderer.graphics.render_world.runtime(scene).nativeMaterials.active ===
               beforePreparationFailure.publication,
-          "Pending/failed pipeline preparation advanced committed frame state",
+          "Pending/failed pipeline preparation advanced committed frame state"
         );
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
       check(
         preparationFailed && rejectedPreparationJobs === 1,
-        "Candidate failure was hidden or implicitly retried",
+        "Candidate failure was hidden or implicitly retried"
       );
       try {
         renderer.render(camera, scene);
@@ -1258,7 +1284,7 @@ export async function runNativeSurfaceProductionGpuOracle(
     await tick();
     check(
       renderer.frame_count === beforePreparationFailure.frame + 1,
-      "Explicit pipeline retry did not submit exactly one frame",
+      "Explicit pipeline retry did not submit exactly one frame"
     );
     renderer.setAmbientOcclusionSettings({ quality: "high" });
     await tick();
@@ -1268,11 +1294,11 @@ export async function runNativeSurfaceProductionGpuOracle(
     check(!unlitPublication.hasLit, "Native all-unlit publication retained lighting demand");
     check(
       !renderer._lastFrameGraph.program.products.includes("local-light-work"),
-      "All-unlit frame generated local-light work from stale Scene classification",
+      "All-unlit frame generated local-light work from stale Scene classification"
     );
     check(
       renderer._localLightWork.allocatedBytes === 0 && renderer._finalPixelLighting.allocatedBytes === 0,
-      "All-unlit replacement retained unused lighting frame pools",
+      "All-unlit replacement retained unused lighting frame pools"
     );
     await inspect();
     materials[4].is_unlit = false;
@@ -1288,7 +1314,7 @@ export async function runNativeSurfaceProductionGpuOracle(
         check(
           error.message ===
             "RenderPass 'SurfaceV4/native opaque' failed to execute: Error: injected native production abort",
-          `Unexpected abort: ${error.message}`,
+          `Unexpected abort: ${error.message}`
         );
         aborted = true;
       }
@@ -1298,7 +1324,7 @@ export async function runNativeSurfaceProductionGpuOracle(
     check(aborted, "Required production abort was not exercised");
     check(
       renderer.graphics.render_world.runtime(scene).nativeMaterials.active === publication,
-      "Aborted frame published native candidate",
+      "Aborted frame published native candidate"
     );
     fail = false;
     await tick();
@@ -1306,7 +1332,7 @@ export async function runNativeSurfaceProductionGpuOracle(
     check(
       renderer.graphics.render_world.runtime(scene).nativeMaterials.hasLit &&
         renderer._lastFrameGraph.program.products.includes("local-light-work"),
-      "Lit retry failed to restore native lighting work",
+      "Lit retry failed to restore native lighting work"
     );
     await tick();
     const stable = await inspect();
@@ -1323,7 +1349,7 @@ export async function runNativeSurfaceProductionGpuOracle(
     check(residentMiss.cachedMeshlets === 0, "Capacity miss failed to exercise resident reconstruction");
     check(
       residentMiss.visiblePixels === preparedFixed.visiblePixels,
-      `Prepared miss changed winner coverage: ${preparedFixed.visiblePixels} -> ${residentMiss.visiblePixels}`,
+      `Prepared miss changed winner coverage: ${preparedFixed.visiblePixels} -> ${residentMiss.visiblePixels}`
     );
     let preparedMissMaximumError = 0;
     for (let i = 0; i < preparedHdr.length; i++) {
@@ -1342,7 +1368,7 @@ export async function runNativeSurfaceProductionGpuOracle(
       const binding = growthRuntime.bindings();
       const pool = GeometryProductBytePool.retain(
         device,
-        selectGeometryProductResidencyProfileV1(device.limits),
+        selectGeometryProductResidencyProfileV1(device.limits)
       );
       const originalBanks = binding.banks;
       const originalMetadata = binding.metadata;
@@ -1351,13 +1377,13 @@ export async function runNativeSurfaceProductionGpuOracle(
       const compare = (observed, label) => {
         check(
           observed.visiblePixels === preparedRestored.visiblePixels,
-          `${label} changed MASK/opaque coverage`,
+          `${label} changed MASK/opaque coverage`
         );
         let maximumError = 0;
         for (let i = 0; i < expected.length; i++) {
           maximumError = Math.max(
             maximumError,
-            Math.abs(decodeFloat16(expected[i]) - decodeFloat16(hdrSnapshot[i])),
+            Math.abs(decodeFloat16(expected[i]) - decodeFloat16(hdrSnapshot[i]))
           );
         }
         check(maximumError <= 0.002, `${label} changed native HDR: ${maximumError}`);
@@ -1372,7 +1398,7 @@ export async function runNativeSurfaceProductionGpuOracle(
         } catch (error) {
           check(
             error.message.includes("injected native production abort"),
-            `Unexpected growth failure: ${error}`,
+            `Unexpected growth failure: ${error}`
           );
           aborted = true;
         } finally {
@@ -1381,14 +1407,14 @@ export async function runNativeSurfaceProductionGpuOracle(
         check(aborted, "Bank growth abort was not exercised");
         check(
           binding.banks === originalBanks && binding.bindingEpoch === originalEpoch,
-          "Aborted bank growth published its candidate",
+          "Aborted bank growth published its candidate"
         );
         renderer._vsmGeneration.invalidate();
         await tick();
         const bank = await inspect();
         check(
           binding.banks !== originalBanks && binding.bindingEpoch !== originalEpoch,
-          "Bank growth failed to replace production bindings",
+          "Bank growth failed to replace production bindings"
         );
         const bankMaximumError = compare(bank, "Bank growth");
         const bankVsm = await inspectVsm();
@@ -1413,7 +1439,7 @@ export async function runNativeSurfaceProductionGpuOracle(
           metadataMaximumError,
           bankVsm,
           metadataVsm,
-          peak: geometryProductGpuBudgetEvidence(device),
+          peak: geometryProductGpuBudgetEvidence(device)
         };
         await growthRuntime.release(extra.productTableSlot, extra.productGeneration);
       } finally {
@@ -1427,7 +1453,7 @@ export async function runNativeSurfaceProductionGpuOracle(
       const prediction = device.createTexture({
         size: [1, 1],
         format: "r32float",
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
       });
       device.queue.writeTexture({ texture: prediction }, new Float32Array([1]), {}, [1, 1]);
       const owner = renderer.graphics.current_hzb_recheck;
@@ -1451,7 +1477,7 @@ export async function runNativeSurfaceProductionGpuOracle(
               movedTransform[14] += 0.15;
               renderer.queuePackedScenePatch(scene, {
                 frameId: renderer.frame_count,
-                transforms: { indices: new Uint32Array([0]), transforms: movedTransform },
+                transforms: { indices: new Uint32Array([0]), transforms: movedTransform }
               });
             }
             camera.transform.position.set(offset, 0.5, 7);
@@ -1468,18 +1494,18 @@ export async function runNativeSurfaceProductionGpuOracle(
           for (let i = 0; i < reference.length; i++)
             maximumError = Math.max(
               maximumError,
-              Math.abs(decodeFloat16(reference[i]) - decodeFloat16(hdrSnapshot[i])),
+              Math.abs(decodeFloat16(reference[i]) - decodeFloat16(hdrSnapshot[i]))
             );
           check(maximumError <= 0.002, `Recovered winner HDR diverged: ${maximumError}`);
           const runtime = renderer.graphics.render_world.runtime(scene);
           const prepared = renderer._visibilityFeature.implementation.currentHzbPrepared.get(runtime);
           check(
             prepared?.queue === actualFrame.geometry.meshletWork,
-            "Recovery replaced the source namespace",
+            "Recovery replaced the source namespace"
           );
           const readback = device.createBuffer({
             size: 32,
-            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
           });
           buffers.push(readback);
           const encoder = device.createCommandEncoder();
@@ -1490,14 +1516,14 @@ export async function runNativeSurfaceProductionGpuOracle(
           readback.unmap();
           check(
             counts[0] > 0 && counts[1] === 0 && counts[2] === counts[0] && counts[3] === 0,
-            `Forced disocclusion did not recover all slots: ${counts}`,
+            `Forced disocclusion did not recover all slots: ${counts}`
           );
           occlusionCases.push({
             cameraOffset: offset,
             dynamicInstance: offset === -0.35,
             counts,
             maximumError,
-            visiblePixels: recoveredFrame.visiblePixels,
+            visiblePixels: recoveredFrame.visiblePixels
           });
         }
       } finally {
@@ -1507,7 +1533,7 @@ export async function runNativeSurfaceProductionGpuOracle(
         camera.transform.lookAt({ x: 0, y: 0.5, z: 0 });
         renderer.queuePackedScenePatch(scene, {
           frameId: renderer.frame_count,
-          transforms: { indices: new Uint32Array([0]), transforms: originalTransform },
+          transforms: { indices: new Uint32Array([0]), transforms: originalTransform }
         });
       }
       await tick();
@@ -1525,9 +1551,9 @@ export async function runNativeSurfaceProductionGpuOracle(
         runtime.instanceHandle,
         {
           frameId: renderer.frame_count,
-          transforms: { indices: new Uint32Array([0]), transforms: moved },
+          transforms: { indices: new Uint32Array([0]), transforms: moved }
         },
-        patch,
+        patch
       );
       patch.finish();
       await patch.gpuDone;
@@ -1535,11 +1561,11 @@ export async function runNativeSurfaceProductionGpuOracle(
       await inspect();
       check(
         renderer._vsmGeneration.currentGeneration === generation,
-        "direct patch must retain projection epoch",
+        "direct patch must retain projection epoch"
       );
       const copy = device.createBuffer({
         size: snapshot.size,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
       });
       buffers.push(copy);
       const read = device.createCommandEncoder();
@@ -1549,20 +1575,20 @@ export async function runNativeSurfaceProductionGpuOracle(
       const translationWord = (GPU_INSTANCE_RECORD_OFFSETS.current_affine + 12) / 4;
       check(
         new Float32Array(copy.getMappedRange())[translationWord] === moved[12],
-        "direct patch did not update VSM caster snapshot",
+        "direct patch did not update VSM caster snapshot"
       );
       copy.unmap();
       const restore = ShadeGPUCommandContext.create(
         renderer.graphics,
-        "GraphicsContext/one-shot-maintenance",
+        "GraphicsContext/one-shot-maintenance"
       );
       renderer.patchInstances(
         runtime.instanceHandle,
         {
           frameId: renderer.frame_count,
-          transforms: { indices: new Uint32Array([0]), transforms: directOriginal },
+          transforms: { indices: new Uint32Array([0]), transforms: directOriginal }
         },
-        restore,
+        restore
       );
       restore.finish();
       await restore.gpuDone;
@@ -1580,7 +1606,7 @@ export async function runNativeSurfaceProductionGpuOracle(
     const nearClipHdr = hdrSnapshot;
     check(
       nearClipPrepared.visiblePixels > 100 && nearClipPrepared.visiblePixels < preparedFixed.visiblePixels,
-      "Near-plane fixture did not clip real source triangles",
+      "Near-plane fixture did not clip real source triangles"
     );
     forcePreparationMiss = true;
     await tick();
@@ -1588,13 +1614,13 @@ export async function runNativeSurfaceProductionGpuOracle(
     check(
       nearClipResident.cachedMeshlets === 0 &&
         nearClipResident.visiblePixels === nearClipPrepared.visiblePixels,
-      "Near-plane prepared/resident coverage diverged",
+      "Near-plane prepared/resident coverage diverged"
     );
     let nearClipMaximumError = 0;
     for (let i = 0; i < nearClipHdr.length; i++) {
       nearClipMaximumError = Math.max(
         nearClipMaximumError,
-        Math.abs(decodeFloat16(nearClipHdr[i]) - decodeFloat16(hdrSnapshot[i])),
+        Math.abs(decodeFloat16(nearClipHdr[i]) - decodeFloat16(hdrSnapshot[i]))
       );
     }
     check(nearClipMaximumError <= 0.002, `Near-plane HDR/LOD diverged: ${nearClipMaximumError}`);
@@ -1620,7 +1646,7 @@ export async function runNativeSurfaceProductionGpuOracle(
     renderer.invalidateTemporalHistory();
     check(
       !renderer._temporal.histories.state("identity").readValid,
-      "Explicit camera cut kept identity history valid",
+      "Explicit camera cut kept identity history valid"
     );
     await tick();
     check(!renderer._temporalSeed.inputHistoryValid, "Camera-cut frame consumed stale native identity");
@@ -1640,48 +1666,48 @@ export async function runNativeSurfaceProductionGpuOracle(
     check(renderer._temporalPolicy === "native", "Native policy was not restored after upscale");
     check(
       renderer._nativeTemporal.generation > nativePolicyGeneration && renderer._fsr3.policy === null,
-      "Native return reused inactive upscale histories",
+      "Native return reused inactive upscale histories"
     );
     const nativeGraph = renderer._lastFrameGraph.compiled.dump();
     check(
       nativeGraph.passes.some((p) => p.name === "Native Temporal V2/Analyze"),
-      "Native graph lacks Analyze",
+      "Native graph lacks Analyze"
     );
     check(
       nativeGraph.passes.some((p) => p.name === "Native Temporal V2/Shading Pyramid"),
-      "Native graph lacks its shading producer",
+      "Native graph lacks its shading producer"
     );
     check(
       nativeGraph.passes.some((p) => p.name === "Native Temporal V2/Shading Change" && !p.culled),
-      "Native graph lacks its half-domain shading-change producer",
+      "Native graph lacks its half-domain shading-change producer"
     );
     check(
       !nativeGraph.passes.some((p) =>
         /FSR3\/(Prepare Inputs|Clear reconstructed|Luma Pyramid|Shading Change)|Temporal\/Seed classification|Native Temporal\/(Resolve|Depth Classification)/.test(
-          p.name,
-        ),
+          p.name
+        )
       ),
-      "Retired native work remains in production",
+      "Retired native work remains in production"
     );
     renderer.fsr3_enabled = false;
     await tick();
     check(
       renderer._temporalPolicy === "bypass" && !renderer._temporal.histories.state("color").valid,
-      "Bypass published phantom color history",
+      "Bypass published phantom color history"
     );
     check(
       renderer._nativeTemporal.active === null && renderer._fsr3.policy === null,
-      "Bypass retained active color domains",
+      "Bypass retained active color domains"
     );
     check(
       !renderer._lastFrameGraph.compiled.dump().passes.some((p) => p.name === "Temporal/Seed classification"),
-      "Bypass generated an unused classifier",
+      "Bypass generated an unused classifier"
     );
     renderer.render_debug_view = RenderDebugView.Reactive;
     await tick();
     check(
       renderer._lastFrameGraph.compiled.dump().passes.some((p) => p.name === "Temporal/Seed classification"),
-      "Bypass debug lost its demanded classification",
+      "Bypass debug lost its demanded classification"
     );
     renderer.render_debug_view = RenderDebugView.None;
     renderer.fsr3_enabled = true;
@@ -1689,14 +1715,14 @@ export async function runNativeSurfaceProductionGpuOracle(
     check(
       renderer._temporalPolicy === "native" &&
         renderer._nativeTemporal.readIndex === renderer._temporalSeed.readIndex,
-      "AA return misaligned Seed/color roles",
+      "AA return misaligned Seed/color roles"
     );
     const nativeRestored = await inspect();
     renderer.render_debug_view = RenderDebugView.Velocity;
     await tick();
     check(
       renderer._lastFrameGraph.compiled.dump().passes.some((p) => p.name === "Temporal/Seed classification"),
-      "Native debug lost its demanded classification",
+      "Native debug lost its demanded classification"
     );
     renderer.render_debug_view = RenderDebugView.None;
     const sceneRuntimeBeforeEmpty = renderer._historyRuntime;
@@ -1713,7 +1739,7 @@ export async function runNativeSurfaceProductionGpuOracle(
       } catch (error) {
         check(
           error.message.includes("injected empty replacement abort"),
-          `Unexpected empty abort: ${error.message}`,
+          `Unexpected empty abort: ${error.message}`
         );
         rejected = true;
       }
@@ -1725,21 +1751,21 @@ export async function runNativeSurfaceProductionGpuOracle(
       renderer._historyRuntime === sceneRuntimeBeforeEmpty &&
         renderer._nativeTemporal.active === nativeBeforeEmpty &&
         renderer._nativeTemporal.readIndex === roleBeforeEmpty,
-      "Failed empty replacement retired the committed scene",
+      "Failed empty replacement retired the committed scene"
     );
     await tick(new Scene());
     check(
       renderer._temporalPolicy === null &&
         renderer._nativeTemporal.active === null &&
         renderer._fsr3.policy === null,
-      "Empty scene retained active Temporal color domains",
+      "Empty scene retained active Temporal color domains"
     );
     check(
       renderer._temporalSeed.allocatedBytes === 0 &&
         renderer._surface.state === null &&
         renderer._localLightWork.allocatedBytes === 0 &&
         renderer._finalPixelLighting.allocatedBytes === 0,
-      "Empty replacement retained scene-dependent Final Pixel products",
+      "Empty replacement retained scene-dependent Final Pixel products"
     );
     await tick();
     check(!renderer._temporalSeed.inputHistoryValid, "Scene return reused pre-empty identity history");
@@ -1755,7 +1781,7 @@ export async function runNativeSurfaceProductionGpuOracle(
     } catch (error) {
       check(
         error.message.includes("injected native production abort"),
-        `Unexpected native abort: ${error.message}`,
+        `Unexpected native abort: ${error.message}`
       );
       temporalAborted = true;
     }
@@ -1764,12 +1790,12 @@ export async function runNativeSurfaceProductionGpuOracle(
     check(
       renderer._nativeTemporal.readIndex === restoredReadIndex &&
         renderer._nativeTemporal.generation === restoredGeneration,
-      "Aborted native frame advanced physical history",
+      "Aborted native frame advanced physical history"
     );
     check(
       renderer._temporalSeed.readIndex === restoredSeedIndex &&
         renderer._temporalSeed.allocatedBytes === restoredSeedBytes,
-      "Aborted Native Seed advanced identity or changed its physical allocation",
+      "Aborted Native Seed advanced identity or changed its physical allocation"
     );
     await tick();
     await Promise.resolve();
@@ -1789,7 +1815,7 @@ export async function runNativeSurfaceProductionGpuOracle(
     check(
       renderer._nativeTemporal.readIndex === deferredTemporalIndex &&
         JSON.stringify(renderer._nativeTemporal.jitterEvidence()) === JSON.stringify(deferredTemporalJitter),
-      "Admission-deferred frame advanced native history/jitter",
+      "Admission-deferred frame advanced native history/jitter"
     );
     check(renderer._temporalSeed.readIndex === deferredSeedIndex, "Admission defer advanced Seed roles");
     await device.queue.onSubmittedWorkDone();
@@ -1797,7 +1823,7 @@ export async function runNativeSurfaceProductionGpuOracle(
     await Promise.resolve();
     check(
       renderer.frameSubmissionEvidence().inFlight === 0,
-      "Production frame fences did not release admission",
+      "Production frame fences did not release admission"
     );
     const burst = await inspect();
     renderer.frameAdmissionProfile = "latency";
@@ -1806,7 +1832,7 @@ export async function runNativeSurfaceProductionGpuOracle(
       [false, false, false, 1],
       [true, true, true, 1],
       [false, true, false, 0.73],
-      [true, false, true, 0.73],
+      [true, false, true, 0.73]
     ]) {
       renderer.shadowVisibilityEnabled = shadow;
       renderer.setAmbientOcclusionSettings({ enabled: ao });
@@ -1820,12 +1846,12 @@ export async function runNativeSurfaceProductionGpuOracle(
       check(dump.passes.some((p) => /Bloom\//.test(p.name)) === bloom, "Feature graph ignored Bloom demand");
       check(
         renderer._temporalPolicy === (scale === 1 ? "native" : "upscale"),
-        "Noninteger domain used wrong Temporal owner",
+        "Noninteger domain used wrong Temporal owner"
       );
       check(
         renderer._temporalSeed.readIndex ===
           (scale === 1 ? renderer._nativeTemporal.readIndex : renderer._fsr3.readIndex),
-        "Feature combination published divergent Temporal roles",
+        "Feature combination published divergent Temporal roles"
       );
       featureCombinations.push({ shadow, ao, bloom, scale, passes: dump.passes.map((p) => p.name) });
     }
@@ -1839,7 +1865,7 @@ export async function runNativeSurfaceProductionGpuOracle(
       check(
         renderer._lastFrameGraph.program.stages.includes("temporal-classification") ===
           (debugView === RenderDebugView.HistoryValidity),
-        "Identity debug added an unused classifier or lost validity",
+        "Identity debug added an unused classifier or lost validity"
       );
     }
     renderer.render_debug_view = RenderDebugView.None;
@@ -1848,13 +1874,13 @@ export async function runNativeSurfaceProductionGpuOracle(
       await tick();
       check(
         !renderer._lastFrameGraph.compiled.dump().passes.some((p) => /Shadow Resolve/.test(p.name)),
-        "Shadow debug restored standalone receiver reconstruction",
+        "Shadow debug restored standalone receiver reconstruction"
       );
     }
     const filterTransitions = [];
     const filterReadback = device.createBuffer({
       size: 256,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
     });
     buffers.push(filterReadback);
     for (const [filterMode, temporal, radius] of [
@@ -1863,7 +1889,7 @@ export async function runNativeSurfaceProductionGpuOracle(
       ["point", true, 1.5],
       ["disk4", true, 0],
       ["disk4", false, 1.5],
-      ["disk4", true, 1.5],
+      ["disk4", true, 1.5]
     ]) {
       renderer.setVsmSettings({ ...VSM_DEFAULT_SETTINGS, filterMode, filterRadiusTexels: radius });
       renderer.fsr3_enabled = temporal;
@@ -1878,23 +1904,23 @@ export async function runNativeSurfaceProductionGpuOracle(
       check(words[46] === VSM_FILTER_MODES[effectiveMode], "Cached graph retained the old VSM filter mode");
       check(
         floats[48] === 1 && floats[49] === 1 && floats[51] === radius,
-        "Actual filter publication lost default bias/radius",
+        "Actual filter publication lost default bias/radius"
       );
       check(
         words[47] === (temporal ? (renderer.frame_count - 1) % 64 : 0),
-        "VSM noise phase did not follow submitted frame/AA-off policy",
+        "VSM noise phase did not follow submitted frame/AA-off policy"
       );
       const directory = actualFrame.lightingEntries.find((entry) => entry.binding === 2).resource.buffer;
       const allocation = renderer._finalPixelLighting.allocations.find((value) => value.buffer === directory);
       check(allocation, "Actual Native did not consume the current lighting container");
       check(
         allocation.plan.filterNoiseBytes === (effectiveMode === "disk4" ? VSM_FILTER_DATA_BYTES : 0),
-        "Noiseless kernel allocated an unused STBN segment",
+        "Noiseless kernel allocated an unused STBN segment"
       );
       if (effectiveMode === "disk4") {
         check(
           words[59] * 4 === allocation.plan.filterNoiseOffset,
-          "Noise base disagrees with actual Native binding",
+          "Noise base disagrees with actual Native binding"
         );
       }
       filterTransitions.push({
@@ -1903,7 +1929,7 @@ export async function runNativeSurfaceProductionGpuOracle(
         radius,
         temporal,
         phase: words[47],
-        noiseBytes: allocation.plan.filterNoiseBytes,
+        noiseBytes: allocation.plan.filterNoiseBytes
       });
       filterReadback.unmap();
     }
@@ -1913,41 +1939,40 @@ export async function runNativeSurfaceProductionGpuOracle(
       enabled: true,
       gpuSampleInterval: 1,
       gpuTimingMode: "full",
-      historyCapacity: 128,
+      historyCapacity: 128
     });
     const timingBegin = renderer.frame_count;
     for (let i = 0; i < 16; i++) await tick();
     for (let wait = 0; wait < 100; wait++) {
       const ready = renderer.profiler.history.filter(
         (p) =>
-          p.frameIndex >= timingBegin && p.frameIndex < timingBegin + 16 && p.gpu.sampled && !p.gpu.pending,
+          p.frameIndex >= timingBegin && p.frameIndex < timingBegin + 16 && p.gpu.sampled && !p.gpu.pending
       );
       if (ready.length === 16) break;
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
     const timingProfiles = renderer.profiler.history.filter(
-      (p) =>
-        p.frameIndex >= timingBegin && p.frameIndex < timingBegin + 16 && p.gpu.sampled && !p.gpu.pending,
+      (p) => p.frameIndex >= timingBegin && p.frameIndex < timingBegin + 16 && p.gpu.sampled && !p.gpu.pending
     );
     check(
       timingProfiles.length === 16 &&
         timingProfiles.every((p) => !p.counters["gpu.timing.truncated"] && p.submits.count === 1),
-      "Missing complete single-submit diagnostic timestamps",
+      "Missing complete single-submit diagnostic timestamps"
     );
     check(
       timingProfiles.every((profile) => profile.gpu.cost.surfaceEvaluationMs !== null),
-      "Current production winner shading was not attributed to Surface evaluation",
+      "Current production winner shading was not attributed to Surface evaluation"
     );
     check(
       timingProfiles.every((profile) => profile.graph.cacheHits === 1 && profile.graph.cacheMisses === 0),
-      "Stable production FrameGraph was rebuilt after Lighting cutover",
+      "Stable production FrameGraph was rebuilt after Lighting cutover"
     );
     const localEpochOwner = renderer._localLightWork;
     check(localEpochOwner.allocatedBytes > 0, "Production Lighting owner has no frame products");
     const passLabels = [
       ...new Set(
-        timingProfiles.flatMap((p) => p.gpu.segments.filter((s) => s.scope === "pass").map((s) => s.label)),
-      ),
+        timingProfiles.flatMap((p) => p.gpu.segments.filter((s) => s.scope === "pass").map((s) => s.label))
+      )
     ];
     const diagnosticPassMs = Object.fromEntries(
       passLabels.map((label) => {
@@ -1955,52 +1980,52 @@ export async function runNativeSurfaceProductionGpuOracle(
           .map((p) =>
             p.gpu.segments
               .filter((s) => s.scope === "pass" && s.label === label)
-              .reduce((sum, s) => sum + s.durationMs, 0),
+              .reduce((sum, s) => sum + s.durationMs, 0)
           )
           .sort((a, b) => a - b);
         return [
           label,
-          { samples: values.length, median: values[8], minimum: values[0], maximum: values[15] },
+          { samples: values.length, median: values[8], minimum: values[0], maximum: values[15] }
         ];
-      }),
+      })
     );
     const dump = renderer.mainFrameGraphEvidence();
     check(
       JSON.stringify(dump).includes("SurfaceV4/native opaque"),
-      "Production FrameProgram did not use SurfaceV4",
+      "Production FrameProgram did not use SurfaceV4"
     );
     check(
       !JSON.stringify(dump).match(
-        /SurfaceWork|closure cache|six.signal|reconstruct bank|LightCluster|light-cluster/i,
+        /SurfaceWork|closure cache|six.signal|reconstruct bank|LightCluster|light-cluster/i
       ),
-      "Retired Surface is in the production graph",
+      "Retired Surface is in the production graph"
     );
     await device.queue.onSubmittedWorkDone();
     check(errors.length === 0, `Production WebGPU errors: ${errors.join(" | ")}`);
     const alternateScene = new Scene();
     alternateScene.add(
       meshes.map((mesh, index) =>
-        Mesh.from(geometry, materials[index], Float32Array.from(mesh.transform_global.matrix)),
-      ),
+        Mesh.from(geometry, materials[index], Float32Array.from(mesh.transform_global.matrix))
+      )
     );
     const alternateLight = new PointLight();
     alternateLight.position.set(0, 2, 4);
     alternateLight.distance = 15;
     alternateScene.add(alternateLight);
     const alternateSource = createPackedSceneSourceFromScene(alternateScene, [
-      { geometry, asset: cooked.asset },
+      { geometry, asset: cooked.asset }
     ]);
     await renderer.uploadPackedScene(alternateScene, alternateSource.source);
     await tick(alternateScene);
     check(
       actualFrame.lightingEntries[0].resource.buffer ===
         renderer._environments.get(alternateScene).lights.buffer_data,
-      "Scene switch retained the previous LightDatabase",
+      "Scene switch retained the previous LightDatabase"
     );
     await tick();
     check(
       actualFrame.lightingEntries[0].resource.buffer === renderer._environments.get(scene).lights.buffer_data,
-      "Scene switch back retained alternate Lighting",
+      "Scene switch back retained alternate Lighting"
     );
     await renderer.releaseScene(alternateScene);
     device.destroy();
@@ -2019,11 +2044,11 @@ export async function runNativeSurfaceProductionGpuOracle(
         [5, owner.views.diffuse],
         [6, owner.views.specular],
         [7, owner.views.dfg],
-        [15, owner.sampler],
+        [15, owner.sampler]
       ]) {
         check(
           entries.find((entry) => entry.binding === binding)?.resource === resource,
-          `Actual Native binding ${binding} did not consume the recovered authored IBL publication`,
+          `Actual Native binding ${binding} did not consume the recovered authored IBL publication`
         );
       }
     }
@@ -2032,7 +2057,7 @@ export async function runNativeSurfaceProductionGpuOracle(
       check(streaming.products.length === 2, "Recovery dropped an active Product");
       check(
         new Set(streaming.products.map((product) => product.productGeneration)).size === 2,
-        "Recovery aliased Product generations",
+        "Recovery aliased Product generations"
       );
     }
     check(renderer.geometryStreamingError() === null, "Production streaming error is observable");
@@ -2045,24 +2070,24 @@ export async function runNativeSurfaceProductionGpuOracle(
       "NativeRasterWorkPartitions",
       "GpuNativeMaterialPublication",
       "LocalLightWork",
-      "FinalPixelLighting",
+      "FinalPixelLighting"
     ];
     const temporalOwners = ["NativeTemporalSeed", "NativeTemporalV2", "Fsr3UpscalerRuntime"];
     const beforeDestroy = ledger.snapshot();
     check(
       nativeOwners.every((owner) => (beforeDestroy.owners[owner]?.buffer ?? 0) > 0),
-      "Native resources are missing from physical accounting",
+      "Native resources are missing from physical accounting"
     );
     const memory = renderer.graphics.memoryEvidence();
     for (const [name, owner] of [
       ["NativeTemporalSeed", renderer._temporalSeed],
       ["NativeTemporalV2", renderer._nativeTemporal],
-      ["Fsr3UpscalerRuntime", renderer._fsr3],
+      ["Fsr3UpscalerRuntime", renderer._fsr3]
     ]) {
       const bytes = beforeDestroy.owners[name];
       check(
         (bytes?.texture ?? 0) + (bytes?.buffer ?? 0) === owner.allocatedBytes,
-        `${name} omitted physical active/candidate/retiring allocations`,
+        `${name} omitted physical active/candidate/retiring allocations`
       );
     }
     check(!renderer._vsmShadowResolve, "Retired standalone Shadow owner survived production cutover");
@@ -2070,22 +2095,22 @@ export async function runNativeSurfaceProductionGpuOracle(
     const finalLightingBytes = renderer._finalPixelLighting.allocatedBytes;
     check(
       finalLightingBytes > 0 && memory.owners.finalPixelLighting.allocatedBytes === finalLightingBytes,
-      "Final lighting container missing from physical memory evidence",
+      "Final lighting container missing from physical memory evidence"
     );
     check(
       actualFrame.lightingEntries.some((entry) => entry.binding === 9),
-      "Production Native omitted final lighting range contract",
+      "Production Native omitted final lighting range contract"
     );
     const scratchBytes = nativeOwners
       .slice(0, 4)
       .reduce(
         (total, owner) =>
           total + (beforeDestroy.owners[owner]?.buffer ?? 0) + (beforeDestroy.owners[owner]?.texture ?? 0),
-        0,
+        0
       );
     check(
       memory.owners.nativeSurfaceScratch.allocatedBytes === scratchBytes,
-      "Memory evidence omitted or double-counted native scratch",
+      "Memory evidence omitted or double-counted native scratch"
     );
     if (productGeometry) {
       const productBytes = geometryProductGpuBudgetEvidence(device).totalBytes;
@@ -2093,13 +2118,13 @@ export async function runNativeSurfaceProductionGpuOracle(
         productBytes > 0 &&
           memory.owners.geometryProducts.allocatedBytes === productBytes &&
           memory.allocatedBytes >= productBytes + scratchBytes,
-        "Recovered Product allocations were omitted from Graphics memory",
+        "Recovered Product allocations were omitted from Graphics memory"
       );
       await renderer.releaseScene(scene);
       const released = geometryProductGpuBudgetEvidence(device);
       check(
         released.totalBytes === 0 && released.allocations === 0 && released.metadataAllocations === 0,
-        "Recovered Scene unload retained Product ownership before Renderer destruction",
+        "Recovered Scene unload retained Product ownership before Renderer destruction"
       );
       await renderer.releaseScene(scene);
       const textures = renderer.graphics.texture_residency.evidence();
@@ -2107,7 +2132,7 @@ export async function runNativeSurfaceProductionGpuOracle(
         textures.allocatedBytes === 0 &&
           textures.residentTextureCount === 0 &&
           textures.retiringTextureCount === 0,
-        "Recovered Scene unload retained texture residency",
+        "Recovered Scene unload retained texture residency"
       );
     }
     check(coldImageImportCount === 0, "Cooked Renderer unexpectedly dispatched a cold image import");
@@ -2119,7 +2144,7 @@ export async function runNativeSurfaceProductionGpuOracle(
         (!textureEvidence.imageEncoding || textureEvidence.imageEncoding.busySlots === 0) &&
         textureEvidence.copyBytes === textureEvidence.uploadBytes &&
         textureEvidence.physicalCopyBytes >= textureEvidence.committedUploadBytes,
-      "Image publication retained incomplete/quarantined work or lost copy accounting",
+      "Image publication retained incomplete/quarantined work or lost copy accounting"
     );
     renderer.destroy();
     await device.queue.onSubmittedWorkDone();
@@ -2128,13 +2153,13 @@ export async function runNativeSurfaceProductionGpuOracle(
     const afterDestroy = ledger.snapshot();
     check(
       [...nativeOwners, ...temporalOwners].every((owner) => afterDestroy.owners[owner] === undefined),
-      "Native resource ledger leaked after fenced teardown",
+      "Native resource ledger leaked after fenced teardown"
     );
     for (const buffer of buffers) buffer.destroy();
     const audit = window.dungeonGpuAudit.snapshot();
     check(
       audit.unknownFormats.length === 0 && audit.bytes === 0,
-      `Explicit GPU API allocations leaked after release: ${audit.bytes}; ${JSON.stringify(audit.resources.filter((r) => !r.destroyed && r.bytes > 0))}`,
+      `Explicit GPU API allocations leaked after release: ${audit.bytes}; ${JSON.stringify(audit.resources.filter((r) => !r.destroyed && r.bytes > 0))}`
     );
     return {
       verdict: "passed",
@@ -2164,12 +2189,12 @@ export async function runNativeSurfaceProductionGpuOracle(
         peakBytes: audit.peakBytes,
         ownersAtPeak: audit.ownersAtPeak,
         releaseBytes: audit.bytes,
-        scope: audit.scope,
+        scope: audit.scope
       },
       burstAdmission: {
         capacity: burstAdmission.frameContextCapacity,
         inFlight: burstAdmission.inFlight,
-        burst,
+        burst
       },
       recovered,
       vsm,
@@ -2194,8 +2219,8 @@ export async function runNativeSurfaceProductionGpuOracle(
       queryPublication,
       limitations: [
         "Correctness closure only; no S3 P50/P95 or image acceptance",
-        "Resident cooked geometry, no streamed VG acceptance",
-      ],
+        "Resident cooked geometry, no streamed VG acceptance"
+      ]
     };
   } finally {
     globalThis.Worker = WorkerClass;

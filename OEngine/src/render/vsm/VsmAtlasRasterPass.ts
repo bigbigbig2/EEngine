@@ -1,14 +1,14 @@
+import { VSM_DEFAULT_SETTINGS } from "./VsmSettings.js";
 import {
   VSM_DIMENSIONS_WORD,
   VSM_CONTROL_WORD,
-  VSM_PROJECTION_CONSTANT_BYTES as VSM_ABI_BYTES,
+  VSM_PROJECTION_CONSTANT_BYTES as VSM_ABI_BYTES
 } from "../../gpu/GpuVsmProjectionAbi.js";
 import { PreparedComputePipeline, PreparedRenderPipeline } from "../../gpu/PreparedPipeline.js";
 import { VSM_PAGE_COMMIT_WGSL } from "../../shaders/vsm_page_commit.js";
 import { packVsmProjection, VSM_DEPTH_RANGE_BYTE_OFFSET, VSM_DEPTH_RANGE_BYTES } from "./VsmProjection.js";
-import { NativeVisibilityPass } from "../surface/NativeVisibilityPass.js";
+import { VsmGeometryRaster } from "./VsmGeometryRaster.js";
 import { nativeWinnerGeometry } from "../MeshletBucketRaster.js";
-import { nativeVisibilityView } from "../../shaders/native_visibility.js";
 import type { PreparedFrameVertices } from "../FrameGeometryVertices.js";
 import type { GpuAssetBindings } from "../../gpu/GpuAssetStore.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
@@ -16,17 +16,17 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
-import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import { VSM_ATLAS_PAGE_CLEAR_WGSL } from "../../shaders/vsm_atlas_raster.js";
 import type { VsmDirectionalFrameConstants } from "./VsmReceiverDemandPass.js";
 import type { VsmResources } from "./VsmResources.js";
-import type { VsmCasterRecordFrame } from "./VsmCasterRecordPass.js";
 import { VSM_CONTENT_VERSION_WGSL } from "../../shaders/vsm_content_version.js";
 import { VsmSamplingPublicationPass } from "./VsmSamplingPublicationPass.js";
 
 export interface VsmAtlasRasterInputs {
-  readonly caster: VsmCasterRecordFrame;
+  readonly meshletWork: ResourceId;
+  readonly meshletBounds: ResourceId;
+  readonly workCapacity: number;
   readonly resources: VsmResources;
   readonly frame: VsmDirectionalFrameConstants;
   readonly depthRange: ResourceId;
@@ -67,23 +67,23 @@ function packConstants(input: VsmAtlasRasterInputs): ArrayBuffer {
   const uints = new Uint32Array(data);
   const c = input.resources.capabilities;
   uints.set([c.virtualPagesPerAxis, c.pageSize, c.border, c.atlasDimension], VSM_DIMENSIONS_WORD);
-  uints.set([input.generation >>> 0, 0, c.casterRecordCapacity >>> 0, c.residentSlots >>> 0], VSM_CONTROL_WORD);
+  uints.set([input.generation >>> 0, 0, 0, c.residentSlots >>> 0], VSM_CONTROL_WORD);
   return data;
 }
 
-/** Dirty-slot clear -> finite compiled caster partitions -> content publication. */
+/** Dirty-slot clear -> shared Geometry/triangle-page raster -> complete publication. */
 export class VsmAtlasRasterPass {
   async preparePipelines(): Promise<void> {
     await Promise.all([
       this.clearPipeline.prepare(),
       this.commitPipeline.prepare(),
       this.contentPipeline.prepare(),
-      this.samplingPublication.preparePipelines(),
+      this.samplingPublication.preparePipelines()
     ]);
   }
 
   private readonly samplingPublication: VsmSamplingPublicationPass;
-  private readonly nativePasses = new Map<GPUBuffer, NativeVisibilityPass>();
+  private nativePass: VsmGeometryRaster | null = null;
   private readonly constants: GPUBuffer;
   private readonly commitConstants: GPUBuffer;
   private readonly clearLayout: GPUBindGroupLayoutDescriptor;
@@ -98,73 +98,72 @@ export class VsmAtlasRasterPass {
     this.constants = device.createBuffer({
       label: "VSM/atlas constants",
       size: CONSTANT_BYTES,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     this.commitConstants = device.createBuffer({
       label: "VSM/content commit constants",
       size: 16,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     this.clearLayout = {
       entries: [
         { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
-        { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
-      ],
+        { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } }
+      ]
     };
     const module = device.createShaderModule({
       label: "VSM/dirty-slot clear",
-      code: VSM_ATLAS_PAGE_CLEAR_WGSL,
+      code: VSM_ATLAS_PAGE_CLEAR_WGSL
     });
     this.clearPipeline = new PreparedRenderPipeline(device, {
       label: "VSM/dirty-slot clear",
       layout: device.createPipelineLayout({
-        bindGroupLayouts: [device.createBindGroupLayout(this.clearLayout)],
+        bindGroupLayouts: [device.createBindGroupLayout(this.clearLayout)]
       }),
       vertex: { module, entryPoint: "clear_page" },
       fragment: { module, entryPoint: "clear_depth", targets: [] },
       primitive: { topology: "triangle-list", cullMode: "none" },
-      depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "always" },
+      depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "always" }
     });
     this.commitLayout = {
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
         { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-        ...[2, 3, 5].map((binding) => ({
+        ...[2, 3, 5, 7].map((binding) => ({
           binding,
           visibility: GPUShaderStage.COMPUTE,
-          buffer: { type: "storage" as GPUBufferBindingType },
-        })),
-      ],
+          buffer: { type: "storage" as GPUBufferBindingType }
+        }))
+      ]
     };
     this.commitPipeline = new PreparedComputePipeline(device, {
       label: "VSM/dirty content commit",
       layout: device.createPipelineLayout({
-        bindGroupLayouts: [device.createBindGroupLayout(this.commitLayout)],
+        bindGroupLayouts: [device.createBindGroupLayout(this.commitLayout)]
       }),
-      compute: { module: device.createShaderModule({ code: VSM_PAGE_COMMIT_WGSL }), entryPoint: "main" },
+      compute: { module: device.createShaderModule({ code: VSM_PAGE_COMMIT_WGSL }), entryPoint: "main" }
     });
     this.contentLayout = {
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      ],
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
+      ]
     };
     this.contentPipeline = new PreparedComputePipeline(device, {
       label: "VSM/content version publication",
       layout: device.createPipelineLayout({
-        bindGroupLayouts: [device.createBindGroupLayout(this.contentLayout)],
+        bindGroupLayouts: [device.createBindGroupLayout(this.contentLayout)]
       }),
       compute: {
         module: device.createShaderModule({ code: VSM_CONTENT_VERSION_WGSL }),
-        entryPoint: "publish_vsm_content_version",
-      },
+        entryPoint: "publish_vsm_content_version"
+      }
     });
   }
   addToGraph(
     graph: FrameGraph,
-    input: VsmAtlasRasterInputs,
+    input: VsmAtlasRasterInputs
   ): {
     readonly atlasDepth: ResourceId;
     readonly pageTable: ResourceId;
@@ -172,35 +171,43 @@ export class VsmAtlasRasterPass {
     readonly contentVersion: ResourceId;
     readonly samplingDescriptors: ResourceId;
   } {
-    if (!input.resources.atlasDepth || !input.resources.casterRecords)
+    if (!input.resources.atlasDepth || !input.resources.rasterStatus)
       throw new Error("VSM raster resources are absent");
     const constants = graph.import_resource(
       "VSM/atlas constants",
       { kind: "imported", label: "VSM atlas constants" },
-      this.constants,
+      this.constants
     );
     const atlas = graph.import_resource(
       "VSM/depth atlas",
       { kind: "imported", label: "VSM depth atlas" },
-      input.resources.atlasDepth,
+      input.resources.atlasDepth
     );
-    const caster = input.caster.casterRecords,
-      indirect = input.caster.rasterIndirect,
-      pageTable = input.pageTable;
+    const pageTable = input.pageTable;
+    const mutation = graph.import_resource(
+      "VSM/commit descriptor mutations",
+      { kind: "imported" },
+      input.resources.getBuffer("descriptorMutations")!
+    );
+    const status = graph.import_resource(
+      "VSM/raster completion and work",
+      { kind: "imported" },
+      input.resources.rasterStatus!
+    );
     const update = graph.add("VSM/update atlas constants", input, (data, _resolved, context) => {
       (context.encoder as ShadeGPUCommandContext).writeBuffer(
         this.constants,
         0,
         packConstants(data),
         0,
-        CONSTANT_BYTES,
+        CONSTANT_BYTES
       );
       (context.encoder as ShadeGPUCommandContext).copyBufferToBuffer(
         _resolved.get(data.depthRange) as GPUBuffer,
         0,
         this.constants,
         VSM_DEPTH_RANGE_BYTE_OFFSET,
-        VSM_DEPTH_RANGE_BYTES,
+        VSM_DEPTH_RANGE_BYTES
       );
     });
     update.read(input.depthRange);
@@ -209,90 +216,92 @@ export class VsmAtlasRasterPass {
       const command = context.encoder as ShadeGPUCommandContext,
         runtime = data.publication.runtime,
         scene = runtime.nativeMaterials!;
-      const queue = resolved.get(caster) as GPUBuffer;
+      const queue = resolved.get(data.meshletWork) as GPUBuffer;
       const geometry = nativeWinnerGeometry(
         data.publication.assets,
         data.publication.vertices,
         queue,
         resolved.get(data.frameInstances) as GPUBuffer,
-        runtime,
+        runtime
       );
-      const view = nativeVisibilityView(data.publication.vertices.arena, data.generation, {
-        clipFromWorld: data.clipFromWorld,
-        viewMatrix: data.viewMatrix,
-        cameraPosition: data.cameraPosition,
-        source: geometry.source,
-        sourcePayload: geometry.sourcePayload,
-      });
-      new Uint32Array(view.buffer)[39] = data.generation;
-      let native = this.nativePasses.get(queue);
+      const pageCapacity = Math.min(
+        data.resources.capabilities.residentSlots,
+        (data.frame.settings ?? VSM_DEFAULT_SETTINGS).dirtyPageBudget
+      );
+      let native = this.nativePass;
+      const previous = native;
       if (
-        native !== undefined &&
-        (native.input.publication !== scene.publication ||
+        native &&
+        (native.input.geometry.meshletWork !== queue ||
+          native.input.workCapacity !== data.workCapacity ||
+          native.input.bounds !== resolved.get(data.meshletBounds) ||
+          native.input.publication !== scene.publication ||
           native.input.geometry.arena !== geometry.arena ||
           native.input.geometry.instances !== geometry.instances ||
-          native.input.geometry.productHeap !== geometry.productHeap ||
           native.input.geometry.vertexPayload !== geometry.vertexPayload ||
-          native.input.vsmAtlas?.source !== resolved.get(data.caster.meshletWork) ||
-          native.input.vsmAtlas?.bounds !== resolved.get(data.caster.meshletBounds) ||
-          native.input.vsmAtlas?.pageTable !== resolved.get(pageTable))
+          native.input.geometry.productHeap !== geometry.productHeap ||
+          native.input.geometry.productBanks?.some(
+            (bank, index) => bank !== geometry.productBanks?.[index]
+          ) ||
+          native.input.geometry.source.some((offset, index) => offset !== geometry.source[index]) ||
+          native.input.geometry.sourcePayload.some(
+            (offset, index) => offset !== geometry.sourcePayload[index]
+          ) ||
+          native.input.allocation !== resolved.get(data.allocation) ||
+          native.input.pageCapacity !== pageCapacity)
       ) {
-        void native.retire(this.graphics.device.queue.onSubmittedWorkDone());
-        this.nativePasses.delete(queue);
-        native = undefined;
+        native = null;
       }
-      if (native === undefined) {
-        native = new NativeVisibilityPass(this.graphics.device, {
-          graphics: this.graphics,
-          geometry,
-          publication: scene.publication,
-          capacity: Math.max(data.caster.capacity, data.caster.workCapacity),
-          generation: data.generation,
-          generationSource: data.publication.meshletWork,
-          camera: resolved.get(data.camera) as GPUBuffer,
-          view,
-          vsmAtlas: {
+      if (!native) {
+        native = new VsmGeometryRaster(
+          this.graphics,
+          {
+            geometry,
+            publication: scene.publication,
             constants: this.constants,
-            pageTable: resolved.get(pageTable) as GPUBuffer,
-            source: resolved.get(data.caster.meshletWork) as GPUBuffer,
-            bounds: resolved.get(data.caster.meshletBounds) as GPUBuffer,
             allocation: resolved.get(data.allocation) as GPUBuffer,
-            sourceCapacity: data.caster.workCapacity,
-            pairCapacity: data.caster.capacity,
-            dirtyCapacity: data.resources.capabilities.residentSlots,
+            bounds: resolved.get(data.meshletBounds) as GPUBuffer,
+            status: resolved.get(status) as GPUBuffer,
+            workCapacity: data.workCapacity,
+            pageCapacity,
+            maxBytes: (data.resources.capabilities.atlasDimension === 8192 ? 64 : 32) * 1024 * 1024
           },
-        });
-        this.nativePasses.set(queue, native);
-      } else {
-        native.update(view, data.generation);
+          previous ?? undefined
+        );
+        this.nativePass = native;
+        if (previous) {
+          command.destroyAfterGpuDone(previous);
+        }
       }
-      native.prepareEncoding(command.gpu_encoder);
       const clearGroup = this.graphics.bind_groups.obtain({
         layout: this.clearLayout,
-        entries: [{ buffer: this.constants }, { buffer: resolved.get(data.allocation) as GPUBuffer }],
+        entries: [{ buffer: this.constants }, { buffer: resolved.get(data.allocation) as GPUBuffer }]
       });
-      const pass = command.beginRenderPass({
-        label: "VSM/partitioned compiled caster raster",
-        colorAttachments: [],
-        depthStencilAttachment: {
-          view: resolveTextureView(resolved.get(atlas)),
-          depthLoadOp: "load",
-          depthStoreOp: "store",
-        },
-      });
-      pass.setPipeline(this.clearPipeline.requirePrepared());
-      pass.setBindGroup(0, clearGroup);
-      pass.drawIndirect(resolved.get(indirect) as GPUBuffer, 32);
-      native.draw(pass);
-      pass.end();
+      native.encode(
+        command,
+        resolved.get(data.camera) as GPUBuffer,
+        () =>
+          command.beginRenderPass({
+            label: "VSM/page-confined triangle raster",
+            colorAttachments: [],
+            depthStencilAttachment: {
+              view: resolveTextureView(resolved.get(atlas)),
+              depthLoadOp: "load",
+              depthStoreOp: "store"
+            }
+          }),
+        (pass, indirect) => {
+          pass.setPipeline(this.clearPipeline.requirePrepared());
+          pass.setBindGroup(0, clearGroup);
+          pass.drawIndirect(indirect, 48);
+        }
+      );
     });
     for (const id of [
       currentConstants,
       input.allocation,
-      caster,
-      input.caster.meshletWork,
-      input.caster.meshletBounds,
-      indirect,
+      input.meshletWork,
+      input.meshletBounds,
       pageTable,
       input.instances,
       input.meshlets,
@@ -305,15 +314,16 @@ export class VsmAtlasRasterPass {
       ...(input.frameGeometry === undefined ? [] : [input.frameGeometry]),
       input.camera,
       ...(input.productHeap === undefined ? [] : [input.productHeap]),
-      ...(input.productBanks ?? []),
+      ...(input.productBanks ?? [])
     ])
       raster.read(id);
     const rasteredAtlas = raster.write(atlas);
+    const rasterStatus = raster.write(status);
     raster.make_side_effect();
     const commitConstants = graph.import_resource(
       "VSM/content commit constants",
       { kind: "imported", label: "VSM content commit constants" },
-      this.commitConstants,
+      this.commitConstants
     );
     const commit = graph.add("VSM/commit complete dirty pages", input, (data, resolved, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
@@ -324,22 +334,22 @@ export class VsmAtlasRasterPass {
           data.generation,
           data.frame.projectionEpoch,
           data.frame.namespace,
-          data.resources.capabilities.atlasPagesPerAxis,
+          data.resources.capabilities.atlasPagesPerAxis
         ]).buffer,
         0,
-        16,
+        16
       );
       const group = this.graphics.bind_groups.obtain({
         layout: this.commitLayout,
         entries: [
           { buffer: this.commitConstants },
-          { buffer: resolved.get(caster) as GPUBuffer },
+          { buffer: resolved.get(rasterStatus) as GPUBuffer },
           { buffer: resolved.get(pageTable) as GPUBuffer },
           { buffer: resolved.get(data.metaTable) as GPUBuffer },
-          { buffer: this.nativePasses.get(resolved.get(caster) as GPUBuffer)!.completionStatusBuffer },
           { buffer: resolved.get(data.contentVersion) as GPUBuffer },
           { buffer: resolved.get(data.allocation) as GPUBuffer },
-        ],
+          { buffer: data.resources.getBuffer("descriptorMutations")! }
+        ]
       });
       const pass = command.beginComputePass({ label: "VSM/content commit" });
       pass.setPipeline(this.commitPipeline.requirePrepared());
@@ -353,10 +363,16 @@ export class VsmAtlasRasterPass {
       this.graphics.profiler.copyGpuCounter(command, "vsmDirtyPagesDirty", allocationBuffer, 0);
       this.graphics.profiler.copyGpuCounter(command, "vsmDirtyPagesSelected", allocationBuffer, 4);
       if (data.resources.overflowCounters) {
-        this.graphics.profiler.copyGpuCounter(command, "vsmDirtyPagesPending", data.resources.overflowCounters, 28);
+        this.graphics.profiler.copyGpuCounter(
+          command,
+          "vsmDirtyPagesPending",
+          data.resources.overflowCounters,
+          28
+        );
       }
     });
-    commit.read(caster);
+    commit.write(mutation);
+    commit.read(rasterStatus);
     commit.read(rasteredAtlas);
     commit.read(commitConstants);
     const publishedPageTable = commit.write(pageTable),
@@ -374,15 +390,15 @@ export class VsmAtlasRasterPass {
           layout: this.contentLayout,
           entries: [
             { buffer: this.commitConstants },
-            { buffer: resolved.get(data.contentVersion) as GPUBuffer },
-          ],
+            { buffer: resolved.get(data.contentVersion) as GPUBuffer }
+          ]
         });
         const pass = command.beginComputePass({ label: "VSM/publish sampled content version" });
         pass.setPipeline(this.contentPipeline.requirePrepared());
         pass.setBindGroup(0, group);
         pass.dispatchWorkgroups(1);
         pass.end();
-      },
+      }
     );
     publishContent.read(dirtyContent);
     publishContent.read(publishedPageTable);
@@ -391,25 +407,27 @@ export class VsmAtlasRasterPass {
     publishContent.dependsOn(commit);
     const contentVersion = publishContent.write(dirtyContent);
     const samplingDescriptors = this.samplingPublication.addToGraph(graph, {
+      resources: input.resources,
+      mutations: mutation,
       pages: input.resources.capabilities.virtualPagesPerAxis,
       levels: input.resources.capabilities.clipLevels,
       constants: input.samplingConstants,
       pageTable: publishedPageTable,
       contentVersion,
-      target: input.samplingTarget,
+      target: input.samplingTarget
     });
     return {
       samplingDescriptors,
       atlasDepth: rasteredAtlas,
       pageTable: publishedPageTable,
       metaTable: publishedMetaTable,
-      contentVersion,
+      contentVersion
     };
   }
   destroy(): void {
     this.samplingPublication.destroy();
-    this.nativePasses.forEach((pass) => pass.destroy());
-    this.nativePasses.clear();
+    this.nativePass?.destroy();
+    this.nativePass = null;
     this.constants.destroy();
     this.commitConstants.destroy();
   }
@@ -417,11 +435,10 @@ export class VsmAtlasRasterPass {
   /** Borrowed Scene source/publication is retained only through its last GPU fence. */
   release(runtime: GpuRenderWorldRuntime, command: ShadeGPUCommandContext): void {
     const publication = runtime.nativeMaterials?.publication;
-    for (const [queue, pass] of this.nativePasses) {
-      if (pass.input.publication === publication) {
-        this.nativePasses.delete(queue);
-        void pass.retire(command.gpuDone);
-      }
+    if (this.nativePass && this.nativePass.input.publication === publication) {
+      const previous = this.nativePass;
+      this.nativePass = null;
+      command.destroyAfterGpuDone(previous);
     }
   }
 }

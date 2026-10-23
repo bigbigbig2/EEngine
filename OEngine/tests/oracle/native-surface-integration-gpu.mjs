@@ -2,7 +2,7 @@ import { FinalPixelSeedReference } from "./final-pixel-seed-reference.mjs";
 import { GPUCameraState } from "../../.test-dist/render/GPUCameraState.js";
 import { GPUViewContext } from "../../.test-dist/render/ViewContext.js";
 import { PerspectiveCamera } from "../../.test-dist/camera/PerspectiveCamera.js";
-import { runNativeVsmCoverageGpuOracle } from "./native-vsm-coverage-gpu.mjs";
+import { runVsmGeometryFixture } from "./vsm-geometry-fixture.mjs";
 import { nativeFixtureExpectedPixel } from "./native-surface-reference.mjs";
 import { createNativeSurfaceFixture, identity } from "./native-surface-fixture.mjs";
 import { createNativeMaterialBindingFixture } from "./native-material-bindings-gpu.mjs";
@@ -270,10 +270,17 @@ export async function runNativeSurfaceIntegrationGpuOracle(
     seedReference = phase3Matrix ? new FinalPixelSeedReference(device, width, height) : null;
     if (phase3Matrix) {
       await fsr.lumaPyramid.preparePipelines(width, height);
-      await Promise.all([
-        fsr.prepareInputs, fsr.shadingPyramid, fsr.shadingChange,
-        fsr.prepareReactivity, fsr.lumaInstability, fsr.accumulate, fsr.rcas,
-      ].map(owner => owner.preparePipelines()));
+      await Promise.all(
+        [
+          fsr.prepareInputs,
+          fsr.shadingPyramid,
+          fsr.shadingChange,
+          fsr.prepareReactivity,
+          fsr.lumaInstability,
+          fsr.accumulate,
+          fsr.rcas
+        ].map((owner) => owner.preparePipelines())
+      );
       await seedReference.preparePipelines();
     }
     const visibilityView = new ArrayBuffer(192);
@@ -1012,18 +1019,7 @@ export async function runNativeSurfaceIntegrationGpuOracle(
         rows
       };
     }
-    const vsmCoverage =
-      perspective === 0
-        ? await runNativeVsmCoverageGpuOracle(
-            device,
-            graphics,
-            fixture,
-            publication,
-            routeResources(publication),
-            stable,
-            new Uint8Array(visibilityView)
-          )
-        : null;
+    const vsmCoverage = perspective === 0 ? await runVsmGeometryFixture(device) : null;
     check(rows[1].valid > rows[1].visible * 0.9, "Stable frame lost native identity/motion");
     const fallback = await frame(2, { fallback: true });
     let maxFallbackDifference = 0;

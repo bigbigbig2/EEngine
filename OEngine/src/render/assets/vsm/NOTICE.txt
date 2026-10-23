@@ -14,3 +14,28 @@ dirty-page budget policies are local, not Timberdoodle algorithms.
 
 This notice does not claim a port of the upstream mesh shader raster pipeline.
 See docs/porting/next-renderer.md for the source-to-owner map and boundaries.
+
+Step 2 adapts gen_dirty_bit_hiz.hlsl and the directional meshlet/triangle
+rejection stages in cull_and_draw_directional_pages.hlsl and
+cull_and_draw_pages_shared.hlsl to shadow_tile_domain.ts and vsm_geometry.ts.
+Selected dirty fine/coarse texel scales, conservative bounds, opaque non-double
+backface rejection and complete-page publication are retained. Near/depth
+clipping uses WebGPU hardware primitive clipping. No micro-polygon or large
+triangle rejection is enabled. Native MASK sidedness is the existing EEngine
+material contract, not a claim of identical upstream material behavior.
+The packed selected-page pyramid, SAT page test, lossless CSR stream, source
+chunk scheduling and baseline polygon clipping are local execution adaptations,
+not copies of the Vulkan task/mesh framework or performance results.
+
+Sundial hardware page clipping adaptation
+Source: https://github.com/increasinglyHuman/poqpoq-sundial
+Revision: c262b6f16bc1cf9ee41ac9c796d29fa5053e0d3d
+License: MIT, reproduced in Sundial-LICENSE.txt.
+Copyright (c) 2026 Allen Partridge (p0qp0q)
+
+src/core/raster.ts::rasterWGSL four clip distances, vertex-pulled atlas placement
+and opaque depth-only raster inform vsm_prepared_raster.ts/VsmGeometryRaster.ts.
+Local changes add full gutter, native compiled MASK, shared source transforms,
+CSR indirect instances, reverse-Z and equivalent four-plane polygon clipping
+on devices without clip-distances. The upstream fragment-discard backend,
+cluster/page duplicate transforms and material/allocator policies are not used.

@@ -20,13 +20,13 @@ verifies:
     - OEngine/src/assets/geometry-product/GeometryProductWorkload.ts
     - OEngine/src/render/HierarchicalWorkGenerator.ts
     - OEngine/src/render/MeshletWorkCandidate.ts
-    - OEngine/src/gpu/GpuVsmPairAbi.ts
+    - OEngine/src/gpu/GpuShadowBoundsAbi.ts
     - OEngine/src/render/ShadowMeshletBounds.ts
     - OEngine/src/shaders/shadow_meshlet_bounds.ts
-    - OEngine/src/shaders/vsm_pair_page.ts
+    - OEngine/src/shaders/vsm_geometry.ts
     - OEngine/src/render/ShadowGeometryWork.ts
     - OEngine/src/render/features/VisibilityFeature.ts
-    - OEngine/src/render/vsm/VsmCasterRecordPass.ts
+    - OEngine/src/render/vsm/VsmGeometryRaster.ts
     - OEngine/src/render/vsm/VsmReceiverDemandPass.ts
     - OEngine/src/shaders/virtual_geometry_work.ts
     - OEngine/src/gpu/GpuFrameGeometryArenaAbi.ts
@@ -38,7 +38,6 @@ verifies:
     - OEngine/src/assets/geometry-product/GeometryProductResidentAttributes.ts
     - OEngine/src/shaders/geometry_source_decode.ts
     - OEngine/src/shaders/vsm_receiver_demand.ts
-    - OEngine/src/shaders/vsm_caster_records.ts
     - OEngine/src/render/vsm/VsmSettings.ts
 ---
 # Visibility
@@ -47,7 +46,7 @@ verifies:
 
 VSM内容变化与projection身份分开。`VsmGeneration`观察caster/source、GPU Scene提交与scene shading revisions；变更帧`VsmDepthBoundsPass`比较完整提交快照和asset source stamps，生成old/new affine AABB损伤，全部clip/mip/coarse按原pairing gutter交测试撤销局部ready，保留allocation及完整身份。Geometry upload/retire更新全部相关asset stamp，不依赖主视图可见性；MASK未知coverage保守损伤全部MASK。稳定帧不新增delta dispatch。完整caster depth域只扩不缩，扩大先撤销全部内容ready，不能复用旧reverse-depth编码。Sun/scene/device/extent/reset仍全失效；数量变化重建快照/all-dirty，abort不提交快照，旧buffer成功提交后fenced退休。局部正确性/成本出口见性能执行§6.2，不等于完整VSM R4验收。
 
-核对日期：2026-10-14，源码基线`2caf5fe2`。PackedVisibility保留GPU hierarchy/work generation、instance/vertex preparation、FrameGeometryArena与HZB产品；MeshletBucketRaster使用NativeVisibilityPass消费完整native material publication，执行真实alpha并写唯一winner。
+核对日期：2026-10-23；主Visibility基础沿用`2caf5fe2`，VSM已按下文新owner切换。PackedVisibility保留GPU hierarchy/work generation、instance/vertex preparation、FrameGeometryArena与HZB产品；MeshletBucketRaster使用NativeVisibilityPass消费完整native material publication，执行真实alpha并写唯一winner。
 
 VisibilityKey 仍为 r32uint：低 24 位 meshletWorkSlot，高 8 位 localPrimitive；generation/partition 属于外部 queue 生命周期 context。没有为 V4 扩宽或截断 identity，也不再分配旧 ShadingBinId MRT。CPU 不读取 visible/work 以控制本帧 GPU。
 
@@ -59,15 +58,25 @@ FrameGeometryArena当前数值ABI7，frame产品为metadata、source/必要filte
 
 Product scene 容量由 descriptor 实际 forest depth、每 asset 最大层宽、全部 group/meshlet 上界按实例数求和；Product root dispatch 仅 seed，随后执行 depth+1 次 traversal，depth 0 也消费终端 root。绑定/dispatch 上限在 Scene 资源分配前检查；Product expansion 复用 prepare 写实际 VisibleCluster count 的 indirect args，每 cluster 一个 workgroup，以二维 grid 展平，空队列零组；不增加 dispatch。Hierarchy 无完整 coarse parent 的 overflow/非法引用传播到 MeshletWork invalid；finalize 同时清空 written count 与 indirect draw count，不把部分 cut 交给 Geometry preparation/Visibility。r32 winner 合同不变。
 
-`VisibilityFeature` 拥有独立 `ShadowGeometryWork`：共享 Scene、ordinary geometry sources 和 VG metadata/banks，以 directional clipmaps 的完整coarse guard cell XY union（含gutter余量）沿 light Z 挤出的保守视图生成 caster work 与独立 frame-instance transforms。当前 SSE=0 选择 finest resident cut，缺页保合法 coarse；只选 CastsShadow、排除 Transparent，不使用主相机 cone/HZB、selected queue 或 prepared clips。FrameGraph 声明 foundation readers 与 shadow products writer，再交 VSM caster/atlas；atlas仅借 Arena header/source metadata，光空间恢复直接读 resident source。未启用阴影时不分配该 per-scene work。
+`VisibilityFeature`拥有独立`ShadowGeometryWork`：仍共享Scene/ordinary/Product residency与独立frame-instance transforms，不使用主相机HZB/cone。
+现在从本帧selected dirty fine/coarse金字塔拒绝无关refine，ordinary/Product coarse handoff按相交页实际world texel及`shadowLodErrorTexels`共同选级；不再常规SSE0或coarse requested全域驱动。
+SHADOW missing-page demand沿已有延迟ring进入scheduler，不新增本帧CPU反馈控制或persistent geometry cache。
 
-阴影 missing-page demand 带 SHADOW 标记，经已有独立延迟 ring 进入多 Product scheduler；没有本帧反馈控制或 persistent work cache。VSM receiver update 同时发布当前 light/clip/generation 的 sampling constants，Surface 读取其写后版本；复用图通过每帧 binding 更新参数。Geometry/pair/native partition非法或超支持域时indirect draw count为零，页面不能ready；合法pair容量压力改用完整隐式工作，不消费partial显式记录。Shadow 的 Page allocator、atlas、PCF 和 history 仍属 VSM。
+`VsmGeometryRaster`独立消费Shadow source/bounds，页外source在decode前拒绝，唯一顶点/活性alpha属性跨页复用；triangle/page SAT→无损CSR位集/前缀→有限native bins→实际命中indirect raster。
+feature使用四gutter clip distances；baseline显式polygon clip并保留barycentric lineage，MASK从原triangle plane恢复CXY/梯度；opaque无FS，不页外discard或丢弃巨triangle。
+source容量按32/64MiB分chunk同frame清一次/全量累积，完成status合法才commit，空几何可clear发布；旧显式/隐式pair及主Visibility的VSM专属分支已删除。
+`GpuShadowBoundsAbi`属于Geometry，`GpuVsmGeometryAbi`属于VSM；页表/atlas/depth/descriptor生命周期仍由VSM持有。
 
-VSM需求已由完整虚拟页bitset生成，receiver与sampler共享first-containing-clip/mip0定义。全部touch后才回收无本帧需求slot，high/bounded分别预留最多150/100粗页；只在唯一dirty页clear/raster及实际caster/native partition成功后发布ready，空页也可完成。查询明确区分fine/coarse/missing/stale/dirty/outside。页表、atlas、frame serial/content epoch与失效由VSM持有，旧append/页锁/dirty bitset已删除。Geometry ShadowMeshletBounds持有真实ordinary/Product affine XY bounds；GpuVsmPairAbi定义32B header/16B pair，VSM借用独立shadow source。E超显式容量时written=0并GPU选择完整W_partition×D implicit native draw；malformed source/partition不能ready。gutter PCF允许跨interior边缘、保护物理slot；reverse-Z clear0保持空页可见，包括receiver在caster far之外的negative reference。Scene替换/释放的borrowed native pass与bounds按command完成退休。
+receiver与sampling共享distance selector与fine两端，64texel×64page、最多16clip，仅mip0/5管理；所有有效正reverse-depth需求完整发布。
+raw/admitted分开，优先相邻fine后coarse兜底，不混coarse过渡。资源档显式16/64/256MiB，不以设备上限自动开启最高档。
+alloc/evict/roll/damage/commit mutation维护persistent sampling descriptor，首次/reset完整初始化，final lighting scratch始终完整copy。
+alpha view依赖来自实际lowered coverage；source/influence仅写变化runs，提交baseline不在abort推进。兼容publication/queue重绑复用大scratch，旧绑定按末读fence退休。
 
 ## 验证与目标
 
-VSM atlas/page完成后发布fine/coarse采样descriptor，完整world/mip/generation/epoch/namespace与flags由producer校验。当前descriptor写入FinalPixelLighting的实际资源区间，Native同一次几何恢复内执行Sun查询/滤波；独立Sun continuation已退休。默认disk4/1.5 texel，point/gather显式可选，bias按几何平面与实际texel修正。receiver逐有效像素精确投影后聚合请求；不使用角点同页/双簇猜测。caster小于64脏页直接相交，大列表保留层次归约和uniform计数，不消费partial溢出记录。实际验证边界见[V5追加单元](../next-execution/eengine-v5-final-pixel-performance-execution-2026-10.md#84-用户追加的近期提交优化闭包2026-10-14)，不代替VSM全模块R4资格。
+VSM atlas/page完成后发布fine/coarse采样descriptor，完整world/mip/generation/epoch/namespace与flags由producer校验，Native同次几何恢复执行Sun查询/滤波。
+当前仍是disk4/1.5texel、point/gather诊断；本步不改filter。选级、geometry/raster/status、descriptor与生命周期的小型GPU出口及未运行的完整Renderer/VT/HDR/streaming组合，
+只读[当前执行记录](../next-execution/eengine-vsm-quality-execution-2026-10.md)。旧性能结果不自动证明新CSR/裁剪路径净收益。
 
 VSM、Geometry/Surface 的日期化实施和原验证范围分别见 [VSM历史执行记录](../next-execution/eengine-v4-vsm-execution-2026-10.md)、[Geometry/Surface历史执行记录](../next-execution/eengine-v4-native-shading-execution-2026-10.md)。当前模块和延期责任由 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml) 导航；这些旧记录不继续原施工顺序，也不自动证明最新源码所有 corner cases、画质或性能。
 

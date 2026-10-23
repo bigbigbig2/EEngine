@@ -1,6 +1,6 @@
+import { prepareVsmGeometryProfile } from "../render/vsm/VsmGeometryRaster.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { CompiledAppearanceGraph } from "../material/AppearanceGraphCompiler.js";
-import { APPEARANCE_DEPENDENCY } from "../material/AppearanceGraphCompiler.js";
 import { standardAppearanceParameters } from "../material/AppearanceRuntimeInputs.js";
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import { observeNativeMaterial } from "../material/NativeMaterialMutation.js";
@@ -279,8 +279,12 @@ export class GpuNativeMaterialScene {
         return !released && !poisoned && !owner.destroyed && publication.valid && textures.valid;
       },
       isCurrent: (frameCommand: ShadeGPUCommandContext): boolean =>
-        !released && !poisoned && !owner.destroyed && !owner.stopped &&
-        !frameCommand.closed && frameCommand.device === this.graphics.device &&
+        !released &&
+        !poisoned &&
+        !owner.destroyed &&
+        !owner.stopped &&
+        !frameCommand.closed &&
+        frameCommand.device === this.graphics.device &&
         (this.prepared === null
           ? this.active === snapshot
           : this.preparedCommand === frameCommand && this.prepared === snapshot),
@@ -546,11 +550,22 @@ export class GpuNativeMaterialScene {
       if (bound.diffuse !== undefined) {
         diffuseData.set(diffuseParameters);
         diffuseData.set(diffuseInputs, diffuseParameters.length + 2);
-        queryMaterials.push(Object.freeze({ materialSlot: source.materialSlot,
-          binding: bound.diffuse, constants: diffuseData, unlit: source.material.is_unlit,
-          viewDependent: bound.diffuse.program.inputs.some((input) => input.domain === "view" ||
-            input.name === "cameraPosition" || input.name === "viewDirection" ||
-            input.name === "viewPosition" || input.name === "viewNormal") }));
+        queryMaterials.push(
+          Object.freeze({
+            materialSlot: source.materialSlot,
+            binding: bound.diffuse,
+            constants: diffuseData,
+            unlit: source.material.is_unlit,
+            viewDependent: bound.diffuse.program.inputs.some(
+              (input) =>
+                input.domain === "view" ||
+                input.name === "cameraPosition" ||
+                input.name === "viewDirection" ||
+                input.name === "viewPosition" ||
+                input.name === "viewNormal"
+            )
+          })
+        );
       }
       const queryOffset = mainLength + coverageConstants.length + (coverageInputs?.length ?? 0);
       const data = new Float32Array(queryOffset + diffuseData.length);
@@ -700,14 +715,13 @@ export class GpuNativeMaterialScene {
       hasMask: this.materialSources.some(
         (source) => source.material.transparency_mode === ShadeTransparencyMode.AlphaTested
       ),
-      viewDependentCoverage: this.materialSources.some(
+      viewDependentCoverage: complete.some(
         (source) =>
-          source.material.transparency_mode === ShadeTransparencyMode.AlphaTested &&
-          source.graph.instructions.some(
-            (instruction) => (instruction.dependency & APPEARANCE_DEPENDENCY.View) !== 0 ||
-              (instruction.kind === "input" && (instruction.input === "cameraPosition" ||
-                instruction.input === "viewDirection" || instruction.input === "viewPosition" ||
-                instruction.input === "viewNormal"))
+          source.raster?.alphaMask &&
+          source.coverage?.program.inputs.some(
+            (input) =>
+              input.domain === "view" ||
+              ["cameraPosition", "viewDirection", "viewPosition", "viewNormal"].includes(input.name)
           )
       ),
       ready: false
@@ -787,9 +801,18 @@ export class GpuNativeMaterialScene {
     const diffuse = this.queryProjection ? createNativeDiffuseBindings(bindingSource) : undefined;
     const bindings = Object.freeze({
       ...bound,
-      ...(diffuse ? { diffuse: Object.freeze({ ...diffuse, program: Object.freeze({
-        ...diffuse.program, instanceInputs: true, key: `${diffuse.program.key}/instance-inputs`,
-      }) }) } : {}),
+      ...(diffuse
+        ? {
+            diffuse: Object.freeze({
+              ...diffuse,
+              program: Object.freeze({
+                ...diffuse.program,
+                instanceInputs: true,
+                key: `${diffuse.program.key}/instance-inputs`
+              })
+            })
+          }
+        : {}),
       ...(coverage
         ? {
             coverage: Object.freeze({
@@ -813,15 +836,15 @@ export class GpuNativeMaterialScene {
   }
 
   private async prepareRasterPrograms(snapshot: Snapshot): Promise<void> {
-    await this.prepareRasterProfile(snapshot, false);
+    await this.prepareRasterProfile(snapshot);
   }
 
-  async prepareShadowPipelines(): Promise<void> {
+  async prepareShadowPipelines(pageCapacity = 64): Promise<void> {
     const snapshot = this.candidate ?? this.active;
     if (!snapshot || this.stopped) {
       throw new Error("Native shadow preparation requires a live scene");
     }
-    await this.prepareRasterProfile(snapshot, true);
+    await prepareVsmGeometryProfile(this.graphics, snapshot.publication, this.productGeometry, pageCapacity);
   }
 
   /** Explicit retry after reporting a candidate error; the committed publication
@@ -839,20 +862,16 @@ export class GpuNativeMaterialScene {
     this.dirty = true;
   }
 
-  private async prepareRasterProfile(snapshot: Snapshot, vsmAtlas: boolean): Promise<void> {
+  private async prepareRasterProfile(snapshot: Snapshot): Promise<void> {
     const jobs: Promise<GPURenderPipeline>[] = [];
     for (const rasterClass of snapshot.publication.rasterClasses) {
       const shader = nativeVisibilityShader(rasterClass.program, rasterClass.layoutEntries, {
         partitioned: true,
-        productGeometry: this.productGeometry,
-        shadow: vsmAtlas,
-        vsmAtlas,
+        productGeometry: this.productGeometry
       });
       for (const cullMode of ["back", "none"] as const) {
         jobs.push(
-          this.graphics.render_pipelines.prepare(
-            nativeVisibilityPipelineDescriptor(shader, vsmAtlas, cullMode),
-          ),
+          this.graphics.render_pipelines.prepare(nativeVisibilityPipelineDescriptor(shader, cullMode))
         );
       }
     }

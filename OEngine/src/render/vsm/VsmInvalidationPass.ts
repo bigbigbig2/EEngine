@@ -1,7 +1,7 @@
 import {
   VSM_DIMENSIONS_WORD,
   VSM_CONTROL_WORD,
-  VSM_PROJECTION_CONSTANT_BYTES as VSM_ABI_BYTES,
+  VSM_PROJECTION_CONSTANT_BYTES as VSM_ABI_BYTES
 } from "../../gpu/GpuVsmProjectionAbi.js";
 import { PreparedComputePipeline } from "../../gpu/PreparedPipeline.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
@@ -28,21 +28,21 @@ export class VsmInvalidationPass {
     this.constants = device.createBuffer({
       label: "VSM/window invalidation constants",
       size: VSM_ABI_BYTES,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     this.layout = device.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-        ...[1, 2, 3].map((binding) => ({
+        ...[1, 2, 3, 4].map((binding) => ({
           binding,
           visibility: GPUShaderStage.COMPUTE,
-          buffer: { type: "storage" as GPUBufferBindingType },
-        })),
-      ],
+          buffer: { type: "storage" as GPUBufferBindingType }
+        }))
+      ]
     });
     this.pipeline = new PreparedComputePipeline(device, {
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
-      compute: { module: device.createShaderModule({ code: VSM_INVALIDATION_WGSL }), entryPoint: "main" },
+      compute: { module: device.createShaderModule({ code: VSM_INVALIDATION_WGSL }), entryPoint: "main" }
     });
   }
   addToGraph(
@@ -51,7 +51,7 @@ export class VsmInvalidationPass {
       readonly resources: VsmResources;
       readonly state: VsmGenerationState;
       readonly frame: VsmDirectionalFrameConstants;
-    },
+    }
   ): ResourceId | null {
     if (input.resources.profile === "shadow-disabled") return null;
     const generation = input.resources.generation;
@@ -63,27 +63,32 @@ export class VsmInvalidationPass {
     const generationResource = graph.import_resource(
       "VSM/generation facts",
       { kind: "imported", label: "VSM generation facts" },
-      generation,
+      generation
     );
     const overflowResource = graph.import_resource(
       "VSM/invalidation telemetry",
       { kind: "imported", label: "VSM overflow telemetry" },
-      overflowCounters,
+      overflowCounters
     );
     const contentResource = graph.import_resource(
       "VSM/content publication",
       { kind: "imported", label: "VSM content version" },
-      contentVersion,
+      contentVersion
     );
     const pageResource = graph.import_resource(
       "VSM/window pages",
       { kind: "imported" },
-      input.resources.pageTable!,
+      input.resources.pageTable!
     );
     const metaResource = graph.import_resource(
       "VSM/window slots",
       { kind: "imported" },
-      input.resources.metaTable!,
+      input.resources.metaTable!
+    );
+    const mutations = graph.import_resource(
+      "VSM/window descriptor mutations",
+      { kind: "imported" },
+      input.resources.getBuffer("descriptorMutations")!
     );
     const node = graph.add("VSM/publish invalidation facts", input, (data, resources, context) => {
       const state = data.state;
@@ -103,7 +108,7 @@ export class VsmInvalidationPass {
         state.sceneRevision >>> 0,
         state.casterRevision >>> 0,
         state.projectionEpoch,
-        state.frameSerial,
+        state.frameSerial
       ]);
       command.writeBuffer(generationBuffer, 0, header.buffer, 0, header.byteLength);
       // Keep diagnostics frame-local while preserving the GPU-only control
@@ -114,7 +119,10 @@ export class VsmInvalidationPass {
         const packed = packVsmProjection(data.frame);
         const words = new Uint32Array(packed);
         const capabilities = data.resources.capabilities;
-        words.set([capabilities.virtualPagesPerAxis, capabilities.atlasPagesPerAxis, 0, 0], VSM_DIMENSIONS_WORD);
+        words.set(
+          [capabilities.virtualPagesPerAxis, capabilities.atlasPagesPerAxis, 0, 0],
+          VSM_DIMENSIONS_WORD
+        );
         words.set([state.generation, state.fullInvalidate ? 1 : 0, 0, 0], VSM_CONTROL_WORD);
         command.writeBuffer(this.constants, 0, packed, 0, packed.byteLength);
         const group = this.device.createBindGroup({
@@ -124,7 +132,8 @@ export class VsmInvalidationPass {
             { binding: 1, resource: { buffer: resources.get(pageResource) as GPUBuffer } },
             { binding: 2, resource: { buffer: resources.get(metaResource) as GPUBuffer } },
             { binding: 3, resource: { buffer: resources.get(contentResource) as GPUBuffer } },
-          ],
+            { binding: 4, resource: { buffer: data.resources.getBuffer("descriptorMutations")! } }
+          ]
         });
         const pass = command.beginComputePass({ label: "VSM/revoke departed world pages" });
         pass.setPipeline(this.pipeline.requirePrepared());
@@ -133,6 +142,7 @@ export class VsmInvalidationPass {
         pass.end();
       }
     });
+    node.write(mutations);
     node.write(generationResource);
     node.write(overflowResource);
     node.write(pageResource);
