@@ -168,7 +168,6 @@ function compileSceneGraph(
   let vsmFrameBinding: NonNullable<SceneFrameBindings["vsmFrame"]> | null = null;
   let vsmAllocation: VsmAllocationFrame | null = null;
   let vsmRequested: ResourceId | null = null;
-  let vsmSamplingDescriptors: ResourceId | null = null;
   let vsmAtlasDepth: ResourceId | null = null;
   let vsmSamplingConstants: ResourceId | null = null;
   let vsmDepthRange: ResourceId | null = null;
@@ -413,8 +412,13 @@ function compileSceneGraph(
     );
     vsmAtlasDepth = atlas.atlasDepth;
     vsmContentVersion = atlas.contentVersion;
-    vsmSamplingDescriptors = atlas.samplingDescriptors;
-    finalLighting = atlas.samplingDescriptors;
+    if (finalLighting !== undefined) {
+      // With a target, the publication pass returns the new version of the
+      // Final Pixel directory after copying the VSM descriptor segment. Keep
+      // that version for the solar and local-light consumers; without a
+      // target, the returned resource is the persistent VSM descriptor store.
+      finalLighting = atlas.samplingDescriptors;
+    }
     if (vsmOwnerBinding.pageConstants === null) {
       throw new Error("Frame Program VSM sampling constants are unavailable");
     }

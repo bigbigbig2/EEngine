@@ -348,7 +348,7 @@ export class VsmAtlasRasterPass {
           { buffer: resolved.get(data.metaTable) as GPUBuffer },
           { buffer: resolved.get(data.contentVersion) as GPUBuffer },
           { buffer: resolved.get(data.allocation) as GPUBuffer },
-          { buffer: data.resources.getBuffer("descriptorMutations")! }
+          { buffer: resolved.get(committedMutations) as GPUBuffer }
         ]
       });
       const pass = command.beginComputePass({ label: "VSM/content commit" });
@@ -371,7 +371,7 @@ export class VsmAtlasRasterPass {
         );
       }
     });
-    commit.write(mutation);
+    const committedMutations = commit.write(mutation);
     commit.read(rasterStatus);
     commit.read(rasteredAtlas);
     commit.read(commitConstants);
@@ -408,7 +408,7 @@ export class VsmAtlasRasterPass {
     const contentVersion = publishContent.write(dirtyContent);
     const samplingDescriptors = this.samplingPublication.addToGraph(graph, {
       resources: input.resources,
-      mutations: mutation,
+      mutations: committedMutations,
       pages: input.resources.capabilities.virtualPagesPerAxis,
       levels: input.resources.capabilities.clipLevels,
       constants: input.samplingConstants,

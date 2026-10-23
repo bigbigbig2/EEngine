@@ -895,8 +895,16 @@ export class VirtualGeometryMeshletWorkCandidate {
       });
       const dispatch = make({
         label: "Geometry/Product actual expansion dispatch",
-        size: 16,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_SRC
+        size: GPU_DISPATCH_INDIRECT_ARGS_SIZE,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+      });
+      // WebGPU forbids a writable storage buffer and an indirect read of the
+      // same buffer in one synchronization scope. Publish the GPU-produced
+      // dispatch arguments through a separate indirect-only buffer.
+      const indirect = make({
+        label: "Geometry/Product actual expansion indirect",
+        size: GPU_DISPATCH_INDIRECT_ARGS_SIZE,
+        usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST
       });
       const dispatchGroup = this.device.createBindGroup({
         layout: this.dispatchLayout,
@@ -972,6 +980,7 @@ export class VirtualGeometryMeshletWorkCandidate {
         drawIndirect,
         settings,
         dispatch,
+        indirect,
         dispatchGroup,
         bindGroup,
         entries,
@@ -1027,16 +1036,27 @@ export class VirtualGeometryMeshletWorkCandidate {
     shadowTiles?: GPUBuffer
   ): void {
     const state = this.requireState(prepared);
-    const pass = command.gpu_encoder.beginComputePass({ label: "S1 Product MeshletWork" });
-    pass.setPipeline(this.preparePipeline.requirePrepared());
-    pass.setBindGroup(0, state.bindGroup);
-    pass.setBindGroup(1, state.dispatchGroup);
-    pass.dispatchWorkgroups(1, 1, 1);
+    const prepare = command.gpu_encoder.beginComputePass({ label: "S1 Product MeshletWork prepare" });
+    prepare.setPipeline(this.preparePipeline.requirePrepared());
+    prepare.setBindGroup(0, state.bindGroup);
+    prepare.setBindGroup(1, state.dispatchGroup);
+    prepare.dispatchWorkgroups(1, 1, 1);
+    prepare.end();
+    command.gpu_encoder.copyBufferToBuffer(
+      state.dispatch,
+      0,
+      state.indirect,
+      0,
+      GPU_DISPATCH_INDIRECT_ARGS_SIZE
+    );
+    const pass = command.gpu_encoder.beginComputePass({ label: "S1 Product MeshletWork expansion" });
     pass.setPipeline(this.pipeline.requirePrepared());
+    pass.setBindGroup(0, state.bindGroup);
     if (this.shadow) {
       if (!shadowTiles) {
         throw new Error("Shadow Product LOD requires the selected dirty pyramid");
       }
+      pass.setBindGroup(1, state.dispatchGroup);
       let group = this.shadowGroups.get(shadowTiles);
       if (!group) {
         group = this.device.createBindGroup({
@@ -1047,7 +1067,7 @@ export class VirtualGeometryMeshletWorkCandidate {
       }
       pass.setBindGroup(2, group);
     }
-    pass.dispatchWorkgroupsIndirect(state.dispatch, 0);
+    pass.dispatchWorkgroupsIndirect(state.indirect, 0);
     pass.setPipeline(this.finalizePipeline.requirePrepared());
     pass.dispatchWorkgroups(1, 1, 1);
     pass.end();
@@ -1061,6 +1081,7 @@ export class VirtualGeometryMeshletWorkCandidate {
     this.destroyBuffer(state.drawIndirect);
     this.destroyBuffer(state.settings);
     this.destroyBuffer(state.dispatch);
+    this.destroyBuffer(state.indirect);
     for (const bank of state.banks.slice(state.ownedBankBegin)) this.destroyBuffer(bank);
     PRODUCT_CANDIDATE_STATE.delete(prepared);
     this.prepared.delete(prepared);
@@ -1097,6 +1118,7 @@ interface ProductCandidateState {
   readonly drawIndirect: GPUBuffer;
   readonly settings: GPUBuffer;
   readonly dispatch: GPUBuffer;
+  readonly indirect: GPUBuffer;
   readonly dispatchGroup: GPUBindGroup;
   bindGroup: GPUBindGroup;
   readonly entries: GPUBindGroupEntry[];

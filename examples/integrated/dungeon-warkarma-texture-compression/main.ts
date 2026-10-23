@@ -597,7 +597,12 @@ function refresh(): void {
   vsmCells.get("misses")!.textContent = String(shadowStatus?.allocationMisses ?? 0);
   vsmCells.get("evictions")!.textContent = String(shadowStatus?.evictions ?? 0);
   vsmCells.get("coarseMisses")!.textContent = String(shadowStatus?.coarseMisses ?? 0);
-  vsmCells.get("pairExcess")!.textContent = String(shadowStatus?.pairExcess ?? 0);
+  vsmCells.get("sourceVertices")!.textContent = String(shadowStatus?.sourceVertices ?? 0);
+  vsmCells.get("sourceTriangles")!.textContent = String(shadowStatus?.sourceTriangles ?? 0);
+  vsmCells.get("chunkCompletion")!.textContent = shadowStatus
+    ? `${shadowStatus.completedChunks} / ${shadowStatus.expectedChunks}`
+    : "0 / 0";
+  vsmCells.get("rejectedTriangles")!.textContent = String(shadowStatus?.rejectedTriangles ?? 0);
   vsmCells.get("rasterFailures")!.textContent = String(shadowStatus?.rasterFailure ?? 0);
   vsmCells.get("pendingPages")!.textContent = String(shadowStatus?.pendingPages ?? 0);
   const ao = renderer.ambientOcclusionSettings;
@@ -1114,7 +1119,10 @@ for (const [key, label] of [
   ["misses", "Allocation misses"],
   ["evictions", "Evictions"],
   ["coarseMisses", "Coarse misses"],
-  ["pairExcess", "Pair excess"],
+  ["sourceVertices", "Source vertices"],
+  ["sourceTriangles", "Source triangles"],
+  ["chunkCompletion", "Chunk completion"],
+  ["rejectedTriangles", "Rejected triangles"],
   ["rasterFailures", "Raster failures"],
   ["pendingPages", "Pending pages"]
 ]) {
