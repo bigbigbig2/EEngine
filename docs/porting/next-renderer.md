@@ -1,4 +1,4 @@
----
+﻿---
 id: porting/next-renderer
 state: current
 verifies:
@@ -1975,7 +1975,7 @@ implied. Q1 is necessary bounded correctness/quality work, not a net-speed claim
 | Timberdoodle Apache-2.0 `1987cf3b8ddda42585d2470bb5806efbc96c6cae`；`src/shader_lib/vsm_util.glsl::clip_info_from_uvs`、`src/shader_shared/vsm_shared.inl`；`src/rendering/virtual_shadow_maps/{mark_required_pages.hlsl,find_free_pages.glsl,allocate_pages.hlsl,free_wrapped_pages.hlsl,invalidate_pages.hlsl,gen_dirty_bit_hiz.hlsl,cull_and_draw_directional_pages.hlsl,cull_and_draw_pages_shared.hlsl}` | VSM projection/receiver/residency/dirty → Geometry selected-domain/setup → native atlas → commit/Native sun | Planned port active distance分支、64texel/64page virtual clip、roll、free/unvisited、meshlet/triangle dirty/backface语义。API适配compute/indirect与32位分阶段写者，不复制wave32/DispatchMesh/地址/64位原子。donor point/spot常驻与四rawtap不纳入本轮profile。实际最低distance level1必须保留并正确换算有效精度。 |
 | Sundial MIT `c262b6f16bc1cf9ee41ac9c796d29fa5053e0d3d`；`src/core/raster.ts::rasterWGSL/casterVertex`、`kernels.ts::cullClusters/finalizeDraws`、`PagedShadowCore.ts`实际beginRenderPass/drawIndirect编码段 | VSM triangle/page bins → clip-distance vertex stage → depth atlas | Planned adapt四clip planes、批量indirect atlas绘制及selected rect拒绝；本地gutter扩展、native coverage和无feature polygon clip。不是复制整套Sundial：不纳入稀疏需求、fragment discard fallback、cluster/page重复transform、邻页clamp、固定alpha、双池/预算政策。 |
 | Colossus MIT `7e8855f3bd0d2e1c45b7f8012c8719876f422b40`；`web/vsm.wgsl::vsm_raster/setup/walk/rendering`、`vsm_common.wgsl::vsm_sortable/vsm_atlas_index`、`web/renderer.js`调用链 | Reference共享唯一顶点/dirty page span → 本地shared source setup | Reference only，不移植软件depth raster/原子atlas。>1023跨度triangle拒绝、队列min截断、固定太阳、无任意MASK使其不能完整替代本轮后端；不取它的PCSS为过滤donor。 |
-| Bevy MIT OR Apache-2.0 `fd98063564218bd210308675602a3e9643014c31`；`crates/bevy_pbr/src/render/shadow_sampling.wesl::{sample_shadow_map_castano_thirteen,search_for_blockers_in_shadow_map,search_for_blockers_in_shadow_map_hardware,sample_shadow_map_pcss,sample_shadow_map_jimenez_fourteen,calculate_uv_offset_scale_jimenez_fourteen,random_rotation_matrix}`，配套`utils.wesl` spiral常量与`shadows.wesl::{world_to_directional_light_local,sample_directional_cascade}`调用链 | VSM stable/soft sampler → Native sun → 现有HDR Temporal | Planned adapt全部核/权重/八blocker/无blocker/blur公式/八spiral/空间-时变旋转；深度域显式映射，实际texel plane和零空深度为本地能力保留。raw四比较重建HW tap，非逐位相同单reference sampler；page footprint、跨页和最终Temporal为本地集成。cubemap/point/spot不在本轮范围。 |
+| Bevy MIT OR Apache-2.0 `fd98063564218bd210308675602a3e9643014c31`；`crates/bevy_pbr/src/render/shadow_sampling.wesl::{sample_shadow_map_castano_thirteen,search_for_blockers_in_shadow_map,search_for_blockers_in_shadow_map_hardware,sample_shadow_map_pcss,sample_shadow_map_jimenez_fourteen,calculate_uv_offset_scale_jimenez_fourteen,random_rotation_matrix}`，配套`utils.wesl` spiral常量与`shadows.wesl::{world_to_directional_light_local,sample_directional_cascade}`调用链 | VSM stable/soft sampler → Native sun → 现有HDR Temporal | Adopted / Adapted (2026-10-23 步骤3) 全部核/权重/八blocker/无blocker/blur公式/八spiral/空间-时变旋转；深度域显式映射，实际texel plane和零空深度为本地能力保留。raw四比较重建HW tap；page footprint、跨页和最终Temporal为本地集成。退休disk4/gather2x2与STBN噪声段。cubemap/point/spot不在本轮范围。 |
 
 可点击固定source：[Timberdoodle](https://github.com/Ipotrick/Timberdoodle/tree/1987cf3b8ddda42585d2470bb5806efbc96c6cae)、
 [Sundial](https://github.com/increasinglyHuman/poqpoq-sundial/tree/c262b6f16bc1cf9ee41ac9c796d29fa5053e0d3d)、
@@ -2037,4 +2037,20 @@ Kooch当前All Rights Reserved不可直接移植；Quasar/NullGraph/Render-Tech-
   不是donor allocator/admission政策，也不是上游整个框架port；不能凭源项目名称宣称性能采用或完整算法资格。
 - **License**：`assets/vsm/NOTICE.txt`补全实际映射，随包带入Timberdoodle Apache-2.0及Sundial MIT完整license。
 - **证据**：当前execution步骤2记录的同一个GPU fixture，真实ordinary/Product source→新raster→depth、独立CPU coverage、两feature和生命周期通过；
-  过滤、VT/full Renderer/Temporal最终集成与同条件性能资格留步骤3。以上仅提升列出的内核适配，不提升整个VSM/R07为adopted或Performance Improved；Bevy仍planned。
+  过滤、VT/full Renderer/Temporal最终集成与同条件性能资格留步骤3。以上仅提升列出的内核适配，不提升整个VSM/R07为adopted或Performance Improved。
+
+### 步骤3实际映射与证据边界（2026-10-23）
+
+- **Adopt / Bevy 过滤与软阴影链**（同上MIT/Apache-2.0 pin）：
+  `sample_shadow_map_castano_thirteen` 完整 9-tap 5x5 separable Gaussian 权重与相位归一化→`vsm_sample_castano_thirteen`；
+  每个 bilinear tap 通过 `vsm_bilinear_tap` 用 raw 四深度独立比较与 receiver-plane 梯度校正重建，保留 reverse-Z 零空语义。
+  `search_for_blockers_in_shadow_map` 8 D3D MSAA 采样点分布与 blocker 检索→`vsm_search_for_blockers`，保留无 blocker 分支直接完全透光。
+  `sample_shadow_map_pcss` 与 `sample_shadow_map_jimenez_fourteen` 8 点 Jimenez 螺旋分布、`interleaved_gradient_noise` 与 `random_rotation_matrix` 解析旋转→`vsm_sample_jimenez_fourteen` 与 `vsm_sample_pcss`。
+  Temporal 开启时传入真实 frameIndex 驱动每帧时变旋转并由已有 HDR Temporal 重建；关闭时固定传入 1u 保持静态空间低差异序列。
+- **Local / Integration**：
+  退休旧 `disk4`、`gather2x2` 及 1MB STBN 纹理资产，彻底消除噪声段内存占用与运行时纹理采样；
+  跨虚拟页越界采样通过 `vsm_sample_depth_offset` 回退解析，超出受控 footprint 上限时平滑降级至 stable-pcf；
+  `RendererCore.vsmTimingDiagnostics()` 接入硬件 `timestamp-query` 分项计时（Geometry/Setup/Raster/Filter），无 feature 时返回 null，拒绝 CPU wall time 冒充。
+- **证据**：
+  `vsm-quality-contract` 真实 GPU fixture 在 Turing/Chrome155 顺利通过（包含 directConsumerShaderCompile、生产 FrameGraph、全描述符发布、管线编译）；
+  `vsm-settings.test.mjs`、`vsm-e9.test.mjs`、`vsm-v4-r1.test.mjs` 等 20 项 CPU 测试通过。

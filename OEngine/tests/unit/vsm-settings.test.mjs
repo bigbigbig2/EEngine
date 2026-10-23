@@ -34,13 +34,13 @@ function packed(settings, profile = resources) {
   });
 }
 
-test("default disk4 has four total samples, a bounded level transition and merged angular depth bias", () => {
+test("default stable-pcf has 9-tap Castano kernel, a bounded level transition and merged angular depth bias", () => {
   const bytes = packed(VSM_DEFAULT_SETTINGS);
   const floats = new Float32Array(bytes),
     words = new Uint32Array(bytes);
-  assert.deepEqual(Array.from(floats.subarray(VSM_PARAMETERS_WORD, VSM_PARAMETERS_WORD + 4)), [1, 1, Math.fround(0.16), 1.5]);
-  assert.equal(words[VSM_CONTROL_WORD + 2], 2);
-  assert.equal(words[VSM_CONTROL_WORD + 3], 63);
+  assert.deepEqual(Array.from(floats.subarray(VSM_PARAMETERS_WORD, VSM_PARAMETERS_WORD + 4)), [1, 1, Math.fround(0.16), 1]);
+  assert.equal(words[VSM_CONTROL_WORD + 2], 1);
+  assert.equal(words[VSM_CONTROL_WORD + 3], 1);
   assert.deepEqual(Array.from(words.subarray(VSM_IDENTITY_BYTE_OFFSET / 4, VSM_IDENTITY_BYTE_OFFSET / 4 + 4)), [43, 19, 0, 2048]);
   assert.equal(bytes.byteLength, VSM_PROJECTION_CONSTANT_BYTES);
   assert.equal(frame().clipOriginExtent[0][2], 4);
@@ -57,18 +57,18 @@ test("distance profile is camera-centered and preserves effective finest texel",
 test("all kernels retain projection/depth identity and disk offsets stay within rasterized gutter", () => {
   for (const [filterMode, code] of [
     ["point", 0],
-    ["gather2x2", 1],
-    ["disk4", 2],
+    ["stable-pcf", 1],
+    ["soft-pcss", 2],
   ]) {
     const settings = resolveVsmSettings(VSM_DEFAULT_SETTINGS, {
       angularBiasTexels: 0.75,
       depthBiasTexels: 4,
-      filterRadiusTexels: 3,
+      lightSize: 2,
       filterMode,
       debugView: "page-state",
     });
     const bytes = packed(settings);
-    assert.deepEqual(Array.from(new Float32Array(bytes).subarray(VSM_PARAMETERS_WORD, VSM_PARAMETERS_WORD + 4)), [0.75, 4, Math.fround(0.16), 3]);
+    assert.deepEqual(Array.from(new Float32Array(bytes).subarray(VSM_PARAMETERS_WORD, VSM_PARAMETERS_WORD + 4)), [0.75, 4, Math.fround(0.16), 2]);
     assert.equal(new Uint32Array(bytes)[VSM_CONTROL_WORD + 2], code);
     assert.deepEqual(Array.from(new Uint32Array(bytes).subarray(VSM_IDENTITY_BYTE_OFFSET / 4, VSM_IDENTITY_BYTE_OFFSET / 4 + 4)), [43, 19, 3, 2048]);
     assert.deepEqual(Array.from(new Float32Array(bytes).subarray(VSM_DEPTH_RANGE_BYTE_OFFSET / 4, VSM_DEPTH_RANGE_BYTE_OFFSET / 4 + 4)), [0, 0, 0, 0]);
@@ -79,22 +79,17 @@ test("all kernels retain projection/depth identity and disk offsets stay within 
         const texel = Math.floor(uv * 64 + Math.cos((angle * Math.PI) / 180) * radius + 0.5);
         assert.ok(texel >= -4 && texel < 68);
       }
-  assert.throws(
-    () => packVsmSamplingConstants({ resources, frame: frame(), width: 16, height: 16, generation: 7 }),
-    /noise publication/,
-  );
 });
 
-test("zero-radius disk folds to one point without requiring a noise publication", () => {
-  const settings = resolveVsmSettings(VSM_DEFAULT_SETTINGS, { filterRadiusTexels: 0 });
+test("stable-pcf and soft-pcss operate without requiring an external noise publication", () => {
   const bytes = packVsmSamplingConstants({
     resources,
-    frame: frame(settings),
+    frame: frame(),
     width: 16,
     height: 16,
     generation: 7,
   });
-  assert.equal(new Uint32Array(bytes)[VSM_CONTROL_WORD + 2], 0);
+  assert.equal(new Uint32Array(bytes)[VSM_CONTROL_WORD + 2], 1);
   assert.equal(new Uint32Array(bytes)[VSM_IDENTITY_BYTE_OFFSET / 4 + 3], 0);
 });
 
@@ -143,6 +138,10 @@ test("invalid or nonfinite tuning cannot mutate the frozen live settings", () =>
     { angularBiasTexels: NaN },
     { angularBiasTexels: 17 },
     { filterMode: "grid16" },
+    { filterMode: "disk4" },
+    { filterMode: "gather2x2" },
+    { lightSize: -1 },
+    { lightSize: 17 },
     { normalBiasTexels: 0.5 },
     { filterRadiusTexels: 3.01 },
     { clipSelectionBias: 0.5 },

@@ -56,7 +56,7 @@
             <div id="vsm-parameters" class="effect-parameters" hidden>
               <label class="control">Debug view<select id="vsm-debug-view"><option value="none">Final shaded</option><option value="visibility">Shadow visibility</option><option value="clip-level">Clip levels</option><option value="page-state">Page state</option></select></label>
               <p class="note">Shadow visibility: white is lit, black is occluded, purple is missing page.</p>
-              <label class="control">Shadow filter<select id="vsm-filter"><option value="disk4">Vogel disk: 4 samples</option><option value="gather2x2">Stable 2x2: 1 gather</option><option value="point">Hard shadow: 1 sample</option></select></label>
+              <label class="control">Shadow filter<select id="vsm-filter"><option value="stable-pcf">Stable PCF (Castano 13)</option><option value="soft-pcss">Soft PCSS (Jimenez 14)</option><option value="point">Hard shadow: 1 sample</option></select></label>
               <label class="control">Filter radius (texels)<output id="vsm-radius-value">1.50</output><input id="vsm-radius" type="range" min="0" max="3" step="0.05" value="1.5" /></label>
               <label class="control">Depth bias (texels)<output id="vsm-depth-bias-value">1.00</output><input id="vsm-depth-bias" type="range" min="0" max="8" step="0.05" value="1" /></label>
               <label class="control">Angular bias (texels)<output id="vsm-angular-bias-value">1.00</output><input id="vsm-angular-bias" type="range" min="0" max="8" step="0.05" value="1" /></label>

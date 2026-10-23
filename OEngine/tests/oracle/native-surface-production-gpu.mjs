@@ -1884,12 +1884,11 @@ export async function runNativeSurfaceProductionGpuOracle(
     });
     buffers.push(filterReadback);
     for (const [filterMode, temporal, radius] of [
-      ["disk4", true, 1.5],
-      ["gather2x2", true, 1.5],
+      ["stable-pcf", true, 1.5],
+      ["soft-pcss", true, 1.5],
       ["point", true, 1.5],
-      ["disk4", true, 0],
-      ["disk4", false, 1.5],
-      ["disk4", true, 1.5]
+      ["stable-pcf", false, 1.5],
+      ["soft-pcss", false, 1.5]
     ]) {
       renderer.setVsmSettings({ ...VSM_DEFAULT_SETTINGS, filterMode, filterRadiusTexels: radius });
       renderer.fsr3_enabled = temporal;
@@ -1900,29 +1899,18 @@ export async function runNativeSurfaceProductionGpuOracle(
       await filterReadback.mapAsync(GPUMapMode.READ);
       const words = new Uint32Array(filterReadback.getMappedRange()),
         floats = new Float32Array(words.buffer);
-      const effectiveMode = filterMode === "disk4" && radius === 0 ? "point" : filterMode;
-      check(words[46] === VSM_FILTER_MODES[effectiveMode], "Cached graph retained the old VSM filter mode");
+      check(words[46] === VSM_FILTER_MODES[filterMode], "Cached graph retained the old VSM filter mode");
       check(
-        floats[48] === 1 && floats[49] === 1 && floats[51] === radius,
-        "Actual filter publication lost default bias/radius"
-      );
-      check(
-        words[47] === (temporal ? (renderer.frame_count - 1) % 64 : 0),
-        "VSM noise phase did not follow submitted frame/AA-off policy"
+        floats[48] === 1 && floats[49] === 1,
+        "Actual filter publication lost default bias"
       );
       const directory = actualFrame.lightingEntries.find((entry) => entry.binding === 2).resource.buffer;
       const allocation = renderer._finalPixelLighting.allocations.find((value) => value.buffer === directory);
       check(allocation, "Actual Native did not consume the current lighting container");
       check(
-        allocation.plan.filterNoiseBytes === (effectiveMode === "disk4" ? VSM_FILTER_DATA_BYTES : 0),
-        "Noiseless kernel allocated an unused STBN segment"
+        allocation.plan.filterNoiseBytes === 0,
+        "Retired noise segment unexpectedly allocated bytes"
       );
-      if (effectiveMode === "disk4") {
-        check(
-          words[59] * 4 === allocation.plan.filterNoiseOffset,
-          "Noise base disagrees with actual Native binding"
-        );
-      }
       filterTransitions.push({
         filterMode,
         effectiveMode,

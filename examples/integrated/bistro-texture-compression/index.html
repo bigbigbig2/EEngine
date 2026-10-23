@@ -113,7 +113,7 @@
                 <option value="page-state">Page state</option>
               </select></label>
               <p class="note" id="vsm-debug-note">Shadow visibility：白=受光，黑=遮挡，紫=无有效页。调试视图不用于画质或性能测量。</p>
-              <label class="control">Shadow filter<select id="vsm-filter"><option value="disk4">Vogel disk: 4 samples</option><option value="gather2x2">Stable 2x2: 1 gather</option><option value="point">Hard shadow: 1 sample</option></select></label>
+              <label class="control">Shadow filter<select id="vsm-filter"><option value="stable-pcf">Stable PCF (Castano 13)</option><option value="soft-pcss">Soft PCSS (Jimenez 14)</option><option value="point">Hard shadow: 1 sample</option></select></label>
               <label class="control">Filter radius (texels)<output id="vsm-radius-value">1.50</output><input id="vsm-radius" type="range" min="0" max="3" step="0.05" value="1.5" /></label>
               <p class="note">圆盘模式使用 4 点滤波，半径控制柔化范围。稳定 2×2 适合减少噪点，单点模式保留硬阴影。</p>
               <label class="control">Depth bias (texels)<output id="vsm-depth-bias-value">1.00</output><input id="vsm-depth-bias" type="range" min="0" max="8" step="0.05" value="1" /></label>

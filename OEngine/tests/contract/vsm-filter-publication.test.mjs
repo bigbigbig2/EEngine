@@ -84,14 +84,16 @@ test("noise initializes once per allocation, survives abort and retires only aft
   };
   const command = () => {
     const finished = [],
-      aborted = [];
+      aborted = [],
+      observers = [];
     let done;
+    const gpuDone = new Promise((resolve) => {
+      done = resolve;
+    });
     return {
       device,
       closed: false,
-      gpuDone: new Promise((resolve) => {
-        done = resolve;
-      }),
+      gpuDone,
       onFinished: {
         addOne(fn) {
           finished.push(fn);
@@ -102,13 +104,18 @@ test("noise initializes once per allocation, survives abort and retires only aft
           aborted.push(fn);
         },
       },
+      observeSubmission(observer) {
+        observers.push(observer);
+      },
       finish() {
         this.closed = true;
         finished.forEach((fn) => fn());
+        observers.forEach((o) => o.submitted?.(gpuDone));
       },
       abort() {
         this.closed = true;
         aborted.forEach((fn) => fn());
+        observers.forEach((o) => o.aborted?.());
       },
       done() {
         done();

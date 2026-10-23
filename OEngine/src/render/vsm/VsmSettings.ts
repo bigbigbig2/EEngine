@@ -13,7 +13,10 @@ export interface VsmSettings {
   readonly angularBiasTexels: number;
   readonly depthBiasTexels: number;
   readonly filterMode: VsmFilterMode;
+  /** Diagnostic/legacy radius in shadow texels. */
   readonly filterRadiusTexels: number;
+  /** Directional light source size for soft-pcss penumbra scaling. */
+  readonly lightSize: number;
   readonly clipExtentScale: number;
   /** Donor distance multiplier. >=1 retains the window containment guarantee. */
   readonly clipSelectionBias: number;
@@ -31,8 +34,9 @@ export interface VsmSettings {
 export const VSM_DEFAULT_SETTINGS: Readonly<VsmSettings> = Object.freeze({
   angularBiasTexels: 1,
   depthBiasTexels: 1,
-  filterMode: "disk4",
+  filterMode: "stable-pcf",
   filterRadiusTexels: 1.5,
+  lightSize: 1,
   clipExtentScale: 1,
   clipSelectionBias: 1,
   clipTransitionRatio: 0.16,
@@ -41,10 +45,9 @@ export const VSM_DEFAULT_SETTINGS: Readonly<VsmSettings> = Object.freeze({
   dirtyPageBudget: 64
 });
 
-/** A zero-radius disk has exactly the point kernel's result. Fold on the CPU
- * so the shader pays neither duplicate loads nor a per-receiver branch. */
+/** Return the active filter profile. */
 export function effectiveVsmFilterMode(settings: VsmSettings): VsmFilterMode {
-  return settings.filterMode === "disk4" && settings.filterRadiusTexels === 0 ? "point" : settings.filterMode;
+  return settings.filterMode;
 }
 
 export function resolveVsmSettings(current: VsmSettings, patch: Partial<VsmSettings>): Readonly<VsmSettings> {
@@ -70,15 +73,21 @@ export function resolveVsmSettings(current: VsmSettings, patch: Partial<VsmSetti
     }
   }
   if (!Object.prototype.hasOwnProperty.call(VSM_FILTER_MODES, next.filterMode)) {
-    throw new RangeError("VSM filter mode must be point, gather2x2 or disk4");
+    throw new RangeError("VSM filter mode must be point, stable-pcf or soft-pcss");
   }
-  // Radius 3 keeps every rounded tap inside the existing four-texel gutter.
   if (
     !Number.isFinite(next.filterRadiusTexels) ||
     next.filterRadiusTexels < 0 ||
     next.filterRadiusTexels > 3
   ) {
     throw new RangeError("VSM filter radius must be finite in [0, 3] shadow texels");
+  }
+  if (
+    !Number.isFinite(next.lightSize) ||
+    next.lightSize < 0 ||
+    next.lightSize > 16
+  ) {
+    throw new RangeError("VSM light size must be finite in [0, 16]");
   }
   if (!Number.isFinite(next.clipExtentScale) || next.clipExtentScale < 0.25 || next.clipExtentScale > 4) {
     throw new RangeError("VSM clip extent scale must be finite in [0.25, 4]");

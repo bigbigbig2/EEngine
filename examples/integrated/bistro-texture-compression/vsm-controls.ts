@@ -38,10 +38,10 @@ export function setupVsmControls(getRenderer: () => Renderer | undefined, onChan
       label(id);
     }
     filter.value = settings.filterMode;
-    input("vsm-radius").disabled = settings.filterMode !== "disk4";
-    if (settings.filterMode !== "disk4") {
+    input("vsm-radius").disabled = settings.filterMode !== "soft-pcss";
+    if (settings.filterMode !== "soft-pcss") {
       document.getElementById("vsm-radius-value")!.textContent =
-        settings.filterMode === "gather2x2" ? "Fixed 2×2" : "Single texel";
+        settings.filterMode === "stable-pcf" ? "Castano 9-tap" : "Single texel";
     }
     view.value = settings.debugView;
     note.textContent = notes[settings.debugView];

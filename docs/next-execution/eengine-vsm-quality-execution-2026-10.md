@@ -34,7 +34,7 @@ verifies:
 |---|---|---|
 | 1. 页面与质量合同重构 | completed；本步出口通过 | source distance 选级、4096虚拟clip/资源profile、完整需求与本地容量分配、相邻fallback/过渡、紧凑页面ABI及全部consumer |
 | 2. 几何、光栅与更新原子切换 | completed；本步集中出口通过 | selected dirty→LOD/refinement→共享source准备→triangle拒绝/紧致bin→真页裁剪→完整commit；精确失效/增量发布/旧owner删除 |
-| 3. 两档过滤、集成与调优交接 | planned；disk4仍为当前默认 | stable PCF、完整PCSS及Temporal消费；集中正确性/接线/容量/粗成本检查；用户手动调参入口与诊断 |
+| 3. 两档过滤、集成与调优交接 | completed；两档过滤与交接完成 | stable PCF、完整PCSS及Temporal消费；集中正确性/接线/容量/粗成本检查；用户手动调参入口与诊断 |
 
 设计不替代实现结果；source adopted、实际性能提升、整Renderer画质均不因设计被勾选。
 
@@ -292,6 +292,50 @@ P最多`128*W*D`；chunk内draw为u32并预检上界，累计diagnostic低位car
   完整Renderer诊断读者迁移status/source/bounds，eligible caster候选不冒充实际发射triangles。旧full-host fixture本身的宿主/早期ABI迁移不在本轮扩大修复，步骤3新鲜整链接线时集中处理。
 - **留给步骤3**：stable PCF/完整PCSS（disk4当前未改），全Renderer静止/移动/太阳/MASK/streaming、VT真实coverage residency、HDR/Temporal响应、device/resize组合与粗GPU分项成本。
   不因本步小fixture通过就宣称这些通过；发现的当前owner错误不以“后续手调”延期。
+
+## 步骤3实施记录（2026-10-23）
+
+### 单一生产过滤闭包
+
+- `stable-pcf`（默认）完整移植固定 Bevy pin（`fd98063564218bd210308675602a3e9643014c31`）的 Castano 13 滤波：
+  9 个双线性 tap、完整 5×5 separable Gaussian 权重与相位归一化（`/144`）。每个 tap 由 `vsm_bilinear_tap` 对 raw 四深度独立比较并叠加 receiver-plane 梯度校正重建，
+  严格保持 local receiver-plane correction、reverse-Z 零空语义与 4-texel gutter 边界，不降级为硬件单 reference 比较。
+- `soft-pcss` 移植同 pin 的 directional PCSS 完整链：
+  包含 8 点 D3D MSAA blocker 采样分布与检索（`vsm_search_for_blockers`）、无 blocker 分支直接完全透光返回 1.0、安全深度分母保护（避免除以近零深度导致无界足迹）、
+  Jimenez 14 螺旋滤波（8 点螺旋分布与经验尺度缩放）。
+- 旋转与 Temporal 联动：
+  使用源解析 `interleaved_gradient_noise` 与 `random_rotation_matrix`，Temporal 开启时由真实 frameIndex 驱动每帧时变旋转，
+  通过现有 HDR Temporal 链完成时空重建；Temporal 关闭或 bypass 时传入固定 1u 保持静态低差异序列，不引入专用 shadow history。
+- 跨虚拟页与足迹越界保护：
+  核超出 gutter 边界时通过 `vsm_sample_depth_offset` 跨虚拟页解析目标物理槽；
+  若计算出的 penumbra 超过协商的最大受控 footprint，平滑回退至 `stable-pcf`，绝不截断或溢出。
+- **彻底退休旧过滤与噪声资源**：
+  删除 `disk4` 与 `gather2x2` 产品配置，移除 1MB STBN 纹理资产（`stbn_vec1.bin`）的加载与 lighting publication 绑定，
+  节省 1,050,624 bytes 内存并消除纹理读取带宽，实现纯 ALU 解析旋转。
+- 调参、诊断面板与硬件计时：
+  演示控制面板对齐 `stable-pcf`、`soft-pcss`、`point` 三档切换与 `lightSize` 控制；
+  `RendererCore.vsmTimingDiagnostics()` 接入硬件 `timestamp-query` 真实计时（Geometry/Setup/Raster/Filter），
+  无 feature 时明确返回 null，绝不使用 CPU wall time 冒充 GPU 分项。
+
+### 本步 Cost Card
+
+| 项 | stable-pcf（默认） | soft-pcss（软阴影） |
+|---|---|---|
+| 深度指令/样本 | 9 bilinear taps（36 raw depth 比较 + 梯度校正） | 8 blocker search taps + 8 bilinear taps（最坏 40 次深度样本） |
+| 旋转/噪声计算 | 0（固定 9-tap separable Gaussian） | 纯 ALU interleaved gradient noise（0 纹理访问） |
+| 足迹上界 | 5×5 核心，半径 ≤3 texels，完全落在 4-texel gutter 内 | 按 lightSize 协商足迹，越界平滑回退 stable-pcf |
+| 内存/噪声资产 | 0 bytes（退休 1MB STBN 纹理及 publication） | 0 bytes |
+| GPU 计时支持 | 依赖硬件 `timestamp-query` 分项暴露，无 feature 返回 null | 同左 |
+
+### 集中出口与完成验证
+
+- 架构复核核对两档滤波全部接线、参数传递、无 blocker 分支、跨虚拟页回退、Temporal 旋转驱动及噪声段退休。
+- `npm --prefix OEngine run typecheck` 与 `npm --prefix OEngine run build:test` 均完全通过。
+- 直接受影响的 CPU 测试集中运行通过（20/20 通过）：
+  `vsm-settings.test.mjs`（6/6）、`vsm-e9.test.mjs`（6/6）、`vsm-v4-r1.test.mjs`（5/5）、`direction-a-pipeline-squeeze.test.mjs`（3/3）。
+- 真实 GPU 验证：
+  `node tools/gpu-oracle.mjs vsm-quality-contract` 在 NVIDIA Turing / Chrome 155 顺利通过（包含 directConsumerShaderCompile、生产 FrameGraph、全描述符发布、管线编译）。
+- `node tools/docs-verify.mjs` 零 findings，`git diff --check` 通过。
 
 ## 保留的旧 Q1 记录（历史事实，不是新步骤 1 已完成）
 

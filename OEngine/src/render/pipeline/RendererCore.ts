@@ -168,7 +168,6 @@ import {
 import { VsmAllocatePagesPass } from "../vsm/VsmAllocatePagesPass.js";
 import { VsmAtlasRasterPass } from "../vsm/VsmAtlasRasterPass.js";
 import { FinalPixelLightingPublication } from "../lighting/FinalPixelLightingPublication.js";
-import { loadVsmFilterData } from "../vsm/VsmFilterNoise.js";
 import { vsmSamplingDescriptorCount } from "../vsm/VsmSamplingPublicationPass.js";
 import { VsmInvalidationPass } from "../vsm/VsmInvalidationPass.js";
 import { GPU_INSTANCE_FLAGS } from "../../gpu/GpuInstanceAbi.js";
@@ -810,7 +809,6 @@ export class Renderer {
   private _vsmAllocatePages!: VsmAllocatePagesPass;
   private _vsmAtlasRaster!: VsmAtlasRasterPass;
   private _finalPixelLighting!: FinalPixelLightingPublication;
-  private _vsmFilterData: Uint8Array<ArrayBuffer> | undefined;
   private _vsmInvalidation!: VsmInvalidationPass;
   private readonly _vsmGeneration = new VsmGeneration();
   private _vsmSettings: Readonly<VsmSettings> = VSM_DEFAULT_SETTINGS;
@@ -942,6 +940,56 @@ export class Renderer {
   /** GPU-resident VSM diagnostic locations; never a CPU work-control input. */
   vsmDiagnostics(): VsmDiagnostics | null {
     return this._vsm?.diagnostics() ?? null;
+  }
+  /** GPU VSM pass timings from hardware timestamp queries. Reports null when timestamp-query is unavailable. */
+  vsmTimingDiagnostics(): {
+    gpuTimestampsAvailable: boolean;
+    geometryMs: number | null;
+    setupMs: number | null;
+    rasterMs: number | null;
+    filterMs: number | null;
+  } {
+    if (!this.device.features.has("timestamp-query")) {
+      return {
+        gpuTimestampsAvailable: false,
+        geometryMs: null,
+        setupMs: null,
+        rasterMs: null,
+        filterMs: null
+      };
+    }
+    const last = this._profiler.latest;
+    if (!last || !last.gpu.sampled || last.gpu.pending) {
+      return {
+        gpuTimestampsAvailable: true,
+        geometryMs: null,
+        setupMs: null,
+        rasterMs: null,
+        filterMs: null
+      };
+    }
+    let geometryMs = 0;
+    let setupMs = 0;
+    let rasterMs = 0;
+    let filterMs = 0;
+    for (const s of last.gpu.segments) {
+      if (s.label.includes("VSM/caster content invalidation") || s.label.includes("geometry")) {
+        geometryMs += s.durationMs;
+      } else if (s.label.includes("VSM/receiver demand") || s.label.includes("VSM/update") || s.label.includes("VSM/allocate")) {
+        setupMs += s.durationMs;
+      } else if (s.label.includes("VSM/partitioned") || s.label.includes("VSM/commit")) {
+        rasterMs += s.durationMs;
+      } else if (s.label.includes("Native Surface") || s.label.includes("sampling")) {
+        filterMs += s.durationMs;
+      }
+    }
+    return {
+      gpuTimestampsAvailable: true,
+      geometryMs,
+      setupMs,
+      rasterMs,
+      filterMs
+    };
   }
   /** GPU-driven geometry residency evidence for a published Scene. */
   geometryStreamingEvidence(scene: Scene): ReturnType<GeometryPageStreamingRuntimeV1["evidence"]> | null {
@@ -2321,9 +2369,8 @@ export class Renderer {
     if (config.enableVsm !== false && config.enablePhysicalEnvironment !== false) {
       const vsmCapabilities = negotiateVsmCapabilities(device, options.vsmResourceBudget);
       if (vsmCapabilities.profile !== "shadow-disabled") {
-        this._vsmFilterData = await loadVsmFilterData();
         if (this._destroyed || this._deviceLost || this.device !== device) {
-          throw new Error("Renderer initialization ended while loading VSM filter data");
+          throw new Error("Renderer initialization ended before VSM setup");
         }
       }
       this._vsm = VsmResources.create(device, vsmCapabilities);
@@ -3126,16 +3173,11 @@ export class Renderer {
               this._vsm!.capabilities.clipLevels
             )
           : 1;
-        const diskFilter = vsmEnabled && effectiveVsmFilterMode(this._vsmSettings) === "disk4";
-        const filterData = diskFilter ? this._vsmFilterData : undefined;
-        if (diskFilter && !filterData) {
-          throw new Error("Disk VSM requires its complete blue-noise asset");
-        }
         finalPixelLighting = this._finalPixelLighting.prepare(
           lookupCount,
           descriptorCount,
           command,
-          filterData,
+          undefined,
           scgiFrame === null ? undefined : [width, height],
           (scgiFrame as ScgiRendererFrame | null)?.gather != null
         );

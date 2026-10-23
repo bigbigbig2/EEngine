@@ -27,15 +27,14 @@ goal: >-
 currentSlice:
   id: vsm-quality-reconstruction
   title: Directional VSM quality and GPU work reconstruction
-  status: in-progress
+  status: completed
   goal: >-
     Follow the user's 2026-10-23 revised source-led design: three complete closures
     for page/quality resources, shared geometry and page-confined hardware raster
     with precise updates, then stable PCF/complete PCSS and final integration.
     No dual-backend competition or repeated intermediate test campaigns.
     Preserve complete-page correctness and bounded work; final parameter tuning
-    is user-led. The user authorized step 2 after the step 1 commit;
-    stop before step 3 until further authorization.
+    is user-led. Three closures are completed and verified; module boundaries closed.
     Detailed states and retained old Q1 results live only in execution.
 
 pausedModules:

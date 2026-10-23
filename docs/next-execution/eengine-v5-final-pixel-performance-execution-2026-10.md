@@ -20,8 +20,6 @@ verifies:
     - OEngine/src/gpu/GpuVsmFilterAbi.ts
     - OEngine/src/shaders/vsm_sampling.ts
     - OEngine/tests/contract/vsm-filter-publication.test.mjs
-    - OEngine/tests/oracle/vsm-filter-gpu.mjs
-    - OEngine/tests/oracle/vsm-filter-cost-gpu.mjs
     - OEngine/tests/oracle/vsm-bias-gpu.mjs
     - OEngine/src/render/temporal
     - OEngine/src/render/passes/fsr3

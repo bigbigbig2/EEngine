@@ -259,27 +259,6 @@ export const oracles = Object.freeze([
     timeoutMs: 180000
   }),
   Object.freeze({
-    name: "vsm-filter-cost",
-    file: "OEngine/tests/oracle/vsm-filter-cost-gpu.mjs",
-    url: "/OEngine/tests/oracle/vsm-filter-cost-gpu.mjs",
-    entry: "runVsmFilterCostGpuOracle",
-    requiredFeatures: ["timestamp-query"],
-    allowPrefixes: ["OEngine/src/render/assets/textures/"],
-    description:
-      "1080p old16 vs disk4/gather/point isolated GPU sampling cost including real blue-noise loads.",
-    timeoutMs: 180000
-  }),
-  Object.freeze({
-    name: "vsm-filter",
-    file: "OEngine/tests/oracle/vsm-filter-gpu.mjs",
-    url: "/OEngine/tests/oracle/vsm-filter-gpu.mjs",
-    entry: "runVsmFilterGpuOracle",
-    allowPrefixes: ["OEngine/src/render/assets/textures/", "OEngine/.test-dist/render/assets/textures/"],
-    description:
-      "Independent CPU/GPU point/gather/disk filtering, complete STBN sequence, reverse-Z and slot gutters.",
-    timeoutMs: 180000
-  }),
-  Object.freeze({
     name: "final-pixel-seed-quality",
     file: "OEngine/tests/oracle/native-surface-integration-gpu.mjs",
     url: "/OEngine/tests/oracle/native-surface-integration-gpu.mjs",

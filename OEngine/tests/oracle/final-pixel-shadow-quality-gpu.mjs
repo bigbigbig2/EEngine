@@ -34,7 +34,7 @@ export async function runFinalPixelShadowQualityGpuOracle(device) {
       planeSlopes: spec.slopes,
       perspective: spec.perspective,
       scale: spec.scale,
-      filterMode: "disk4",
+      filterMode: "stable-pcf",
     });
     const retained = [];
     try {

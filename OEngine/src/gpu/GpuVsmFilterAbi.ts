@@ -6,7 +6,7 @@
  * Receiver-plane correction adds one normal transform/divide per valid
  * receiver and four small dot products; shares slot/receiver address setup.
  * Removing 12 depth instructions is not a claim about DRAM traffic or FPS. */
-export const VSM_FILTER_MODES = { point: 0, gather2x2: 1, disk4: 2 } as const;
+export const VSM_FILTER_MODES = { point: 0, "stable-pcf": 1, "soft-pcss": 2 } as const;
 export type VsmFilterMode = keyof typeof VSM_FILTER_MODES;
 export const VSM_FILTER_NOISE_WIDTH = 128;
 export const VSM_FILTER_NOISE_HEIGHT = 128;

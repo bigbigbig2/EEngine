@@ -538,8 +538,8 @@ function buildControls(): void {
     ["page-state", "Page state"]
   ]);
   select(shadow, vsm, "filterMode", "Shadow filter", [
-    ["disk4", "Vogel disk: 4 samples"],
-    ["gather2x2", "Stable 2×2"],
+    ["stable-pcf", "Stable PCF (Castano 13)"],
+    ["soft-pcss", "Soft PCSS (Jimenez 14)"],
     ["point", "Hard shadow"]
   ]);
   number(shadow, vsm, "filterRadiusTexels", "Filter radius (texels)", 0, 3, 0.05);

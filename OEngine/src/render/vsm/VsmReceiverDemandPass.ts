@@ -41,6 +41,7 @@ export interface VsmReceiverDemandInputs {
   readonly generation: number;
   readonly filterNoiseWordOffset?: number;
   readonly filterPhase?: number;
+  readonly temporal?: boolean;
   /** Future cross-page filters must declare their finite worst-case radius.
    * This expands demand only; it does not enable an unimplemented filter. */
   readonly boundedFilterFootprintRadiusTexels?: number;
@@ -89,7 +90,7 @@ function packConstants(input: VsmReceiverDemandInputs, resources: VsmResources):
   floats.set([1 / input.width, 1 / input.height, 1, 0], VSM_PARAMETERS_WORD);
   const settings = input.frame.settings ?? VSM_DEFAULT_SETTINGS;
   const mode = effectiveVsmFilterMode(settings);
-  const activeRadius = mode === "point" ? 0 : mode === "gather2x2" ? 1 : settings.filterRadiusTexels + 0.5;
+  const activeRadius = mode === "point" ? 0 : mode === "stable-pcf" ? 3 : Math.min(Math.ceil((settings.lightSize ?? 1) * 2.5 + 4), resources.capabilities.pageSize);
   const radius = input.boundedFilterFootprintRadiusTexels ?? activeRadius;
   if (!Number.isFinite(radius) || radius < activeRadius || radius > resources.capabilities.pageSize) {
     throw new RangeError("VSM footprint must include all active taps and be at most one page in radius");
@@ -110,24 +111,14 @@ export function packVsmSamplingConstants(input: VsmReceiverDemandInputs): ArrayB
   const filterMode = effectiveVsmFilterMode(settings);
   const phase = input.filterPhase ?? 0;
   const noiseOffset = input.filterNoiseWordOffset ?? 0;
-  if (
-    !Number.isSafeInteger(phase) ||
-    phase < 0 ||
-    phase >= VSM_FILTER_NOISE_PHASES ||
-    !Number.isSafeInteger(noiseOffset) ||
-    noiseOffset < 0 ||
-    noiseOffset > 0xffffffff ||
-    (filterMode === "disk4" && input.filterNoiseWordOffset === undefined)
-  ) {
-    throw new RangeError("VSM disk filtering requires a complete noise publication and valid phase");
-  }
-  uints.set([profile.clipLevels, input.generation, VSM_FILTER_MODES[filterMode], phase], VSM_CONTROL_WORD);
+  const temporal = input.temporal ?? (input.filterPhase !== undefined ? input.filterPhase !== 0 : true);
+  uints.set([profile.clipLevels, input.generation, VSM_FILTER_MODES[filterMode], temporal ? 1 : 0], VSM_CONTROL_WORD);
   floats.set(
     [
       settings.angularBiasTexels,
       settings.depthBiasTexels,
       settings.clipTransitionRatio,
-      settings.filterRadiusTexels,
+      settings.lightSize ?? settings.filterRadiusTexels,
     ],
     VSM_PARAMETERS_WORD,
   );

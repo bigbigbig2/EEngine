@@ -2,7 +2,6 @@ import { FrameGeometryArena } from "../../.test-dist/render/FrameGeometryArena.j
 import { VSM_SAMPLING_PUBLICATION_WGSL } from "../../.test-dist/shaders/vsm_sampling_publication.js";
 import { planFinalPixelLightingDirectory } from "../../.test-dist/gpu/FinalPixelAbi.js";
 import { VSM_FILTER_MODES } from "../../.test-dist/gpu/GpuVsmFilterAbi.js";
-import { loadVsmFilterData } from "../../.test-dist/render/vsm/VsmFilterNoise.js";
 import { VsmShadowResolvePass } from "./reference/s3/VsmShadowResolvePass.mjs";
 import { FrameGeometryVertices } from "../../.test-dist/render/FrameGeometryVertices.js";
 import {
@@ -346,7 +345,7 @@ export async function createNativeSurfaceFixture(
     new Uint32Array(vsmValues.buffer).set([16, 128, 2, 16, 1, GENERATION, 0, 0], 40);
     vsmValues.set([-8, 8, 1 / 16, 1], 52);
     new Uint32Array(vsmValues.buffer).set([GENERATION, 1, 0, 0], 56);
-    const filterData = filterMode === "disk4" ? await loadVsmFilterData() : undefined;
+    const filterData = undefined;
     const samplingDescriptors = storage(new Uint32Array((16 * 16 + 4) * 4), "S1/VSM sampling descriptors");
     const lightingPlan = planFinalPixelLightingDirectory(
       device.limits,
